@@ -81,9 +81,6 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(output, 0755); err != nil {
-		return nil, err
-	}
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
 		gates: map[string]time.Time{}, intervals: map[string]int{}, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, started: time.Now()}
 	a.cache.restore(dataDir, store.snapshot().Settings)

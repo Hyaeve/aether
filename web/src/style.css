@@ -129,6 +129,7 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .storage-card-name > span { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
 .provider-icon { --provider: #3a4980; display: inline-flex; justify-content: center; align-items: center; width: 47px; height: 47px; flex-shrink: 0; border-radius: 10px; color: var(--provider); background: color-mix(in srgb,var(--provider) 8%,var(--surface)); font-size: 25px; font-weight: 650; font-style: normal; line-height: 1; }
 .provider-icon > span { font-size: inherit; }
+.provider-logo { width: 70%; height: 70%; object-fit: contain; }
 .provider-icon.small { width: 32px; height: 32px; font-size: 17px; border-radius: 6px; }
 .provider-icon:has(span):first-child { font-variant-numeric: tabular-nums; }
 .storage-card-status { display: flex; justify-content: space-between; gap: 8px; margin-top: 22px; font-size: 10px; color: var(--muted); }

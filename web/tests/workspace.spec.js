@@ -112,3 +112,57 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.screenshot({ path: testInfo.outputPath('login-mobile.png'), fullPage: true })
   expect(errors).toEqual([])
 })
+
+test('login starfield, orbit motion and provider assets', async ({ page }, testInfo) => {
+  const errors = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto('/')
+  await expect(page.locator('.login-page')).toBeVisible()
+  const logos = page.locator('.satellite .provider-logo')
+  await expect(logos).toHaveCount(5)
+  await expect.poll(() => logos.evaluateAll(images => images.every(img => img.complete && img.naturalWidth > 0))).toBe(true)
+  const starPixels = () => page.locator('.starfield').evaluate(canvas => {
+    const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
+    let lit = 0
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) lit++
+    return lit
+  })
+  expect(await starPixels()).toBeGreaterThan(500)
+  const first = page.locator('.satellite').first()
+  const position = await first.evaluate(el => el.style.transform)
+  await expect.poll(() => first.evaluate(el => el.style.transform)).not.toBe(position)
+  await page.getByRole('button', { name: '暂停星轨动画', exact: true }).click()
+  const pausedPosition = await first.evaluate(el => el.style.transform)
+  await page.waitForTimeout(250)
+  expect(await first.evaluate(el => el.style.transform)).toBe(pausedPosition)
+  await page.screenshot({ path: testInfo.outputPath('login-stars-desktop.png'), fullPage: true })
+  await page.getByRole('button', { name: '播放星轨动画', exact: true }).click()
+  await expect.poll(() => first.evaluate(el => el.style.transform)).not.toBe(pausedPosition)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.login-universe')).toHaveClass(/motion-paused/)
+  const reducedPosition = await first.evaluate(el => el.style.transform)
+  await page.waitForTimeout(250)
+  expect(await first.evaluate(el => el.style.transform)).toBe(reducedPosition)
+
+  for (const width of [1920, 1024, 768, 390, 375]) {
+    await page.setViewportSize({ width, height: width > 760 ? 900 : 844 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    if (width > 760) {
+      await expect(page.locator('.login-universe')).toBeVisible()
+      // Wait for ResizeObserver to lay out the complete orbital scene.
+      await expect.poll(() => page.locator('.satellite-body').evaluateAll(nodes => {
+        const panel = document.querySelector('.login-universe').getBoundingClientRect()
+        return nodes.every(el => {
+          const r = el.getBoundingClientRect()
+          return r.left >= panel.left && r.right <= panel.right && r.top >= panel.top && r.bottom <= panel.bottom
+        })
+      })).toBe(true)
+      expect(await starPixels()).toBeGreaterThan(500)
+    } else {
+      await expect(page.locator('.login-universe')).not.toBeVisible()
+      await expect(page.getByRole('button', { name: '登录工作空间', exact: true })).toBeVisible()
+    }
+    await page.screenshot({ path: testInfo.outputPath(`login-stars-${width}.png`), fullPage: true })
+  }
+  expect(errors).toEqual([])
+})

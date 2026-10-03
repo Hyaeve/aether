@@ -26,10 +26,43 @@ func prepareDirectories(configDir, dataDir string) error {
 			return err
 		}
 	}
-	// These directories reserve ownership for future configuration modules.
-	for _, name := range []string{"organize-rules", "categories", "upgrade-policies", "ai", "recognition-rules"} {
-		if err := os.MkdirAll(filepath.Join(configDir, name), 0700); err != nil {
+	if err := ensureFlatConfigFiles(configDir); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureFlatConfigFiles(configDir string) error {
+	files := map[string][]byte{
+		"organize-rules.json":    []byte("{}\n"),
+		"categories.json":        []byte("{}\n"),
+		"upgrade-policies.json":  []byte("{}\n"),
+		"ai.json":                []byte("{}\n"),
+		"recognition-rules.json": []byte("{}\n"),
+	}
+	for name, contents := range files {
+		filename := filepath.Join(configDir, name)
+		f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if os.IsExist(err) {
+			info, statErr := os.Stat(filename)
+			if statErr != nil {
+				return statErr
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("配置路径不是普通文件: %s", filename)
+			}
+			continue
+		}
+		if err != nil {
 			return err
+		}
+		_, writeErr := f.Write(contents)
+		closeErr := f.Close()
+		if writeErr != nil {
+			return writeErr
+		}
+		if closeErr != nil {
+			return closeErr
 		}
 	}
 	return nil

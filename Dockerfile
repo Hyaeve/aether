@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o
 
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tzdata fuse3 \
-    && mkdir -p /config /data/strm /mnt /app/web
+    && mkdir -p /config /data /mnt /app/web
 WORKDIR /app
 COPY --from=backend /aether /app/aether
 COPY --from=web /src/web/dist /app/web

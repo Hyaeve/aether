@@ -187,12 +187,12 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		root, err = os.OpenRoot(a.outputDir)
-		if err != nil {
-			return 0, err
-		}
-		defer root.Close()
 	}
+	defer func() {
+		if root != nil {
+			_ = root.Close()
+		}
+	}()
 	count := 0
 	visited := map[string]bool{}
 	var walk func(string, string, int) error
@@ -239,6 +239,16 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			if t.Kind != "strm" || !isVideo(f.Name) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
 				continue
+			}
+			// Create the output root only when a matching file actually needs writing.
+			if root == nil {
+				if err := os.MkdirAll(a.outputDir, 0755); err != nil {
+					return err
+				}
+				root, err = os.OpenRoot(a.outputDir)
+				if err != nil {
+					return err
+				}
 			}
 			// Retain the source extension so movie.mp4 and movie.mkv never collide.
 			filename := path.Join(target, child+".strm")

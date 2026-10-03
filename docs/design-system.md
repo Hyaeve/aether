@@ -13,4 +13,4 @@ The supplied Aura and LitePan screenshots are the layout reference. User-selecte
 - Theme: light, dark, system; persists locally and reacts to OS theme changes.
 - Accessibility: labeled icon controls, visible focus, modal focus containment and restoration, Escape close, live notifications, reduced motion.
 - States: genuine empty state, pending connection, disabled, error, active task, interrupted task. No fabricated storage or task metrics.
-- Login: 3:2 desktop split, native vector brand asset, provider identifiers on quiet orbital outlines. Mobile hides decorative side.
+- Login: 3:2 desktop split, deterministic canvas starfield and faint constellations, three floating elliptical orbits. Provider logos remain upright and complete a revolution in 180 seconds; motion pauses on request, in hidden tabs, and with reduced-motion preferences. Mobile hides the decorative side. Brand assets are bundled locally; sources are recorded in `web/public/providers/SOURCES.md`.

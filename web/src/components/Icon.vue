@@ -5,7 +5,7 @@ import {
   CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
-  Moon, Network, Pencil, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,
+  Moon, Network, Pause, Pencil, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,
   Server, Settings2, ShieldCheck, Square, Sun, Trash2, UserRound, Waypoints, Wrench, X
 } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -15,7 +15,7 @@ const icons = {
   CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
-  Moon, Network, Pencil, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,
+  Moon, Network, Pause, Pencil, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,
   Server, Settings2, ShieldCheck, Square, Sun, Trash2, UserRound, Waypoints, Wrench, X
 }
 const props = defineProps({ name: String, size: { type: Number, default: 18 } })

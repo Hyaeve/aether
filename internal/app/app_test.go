@@ -480,11 +480,18 @@ func TestConfigMigrationAndDataSeparation(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "cache.json")); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"organize-rules", "categories", "upgrade-policies", "ai", "recognition-rules"} {
-		if info, err := os.Stat(filepath.Join(configDir, name)); err != nil || !info.IsDir() {
-			t.Fatalf("missing config directory %s", name)
+	for _, name := range []string{"organize-rules.json", "categories.json", "upgrade-policies.json", "ai.json", "recognition-rules.json"} {
+		if info, err := os.Stat(filepath.Join(configDir, name)); err != nil || info.IsDir() {
+			t.Fatalf("missing flat config file %s", name)
 		}
 	}
+	for _, name := range []string{"organize-rules", "categories", "upgrade-policies", "ai", "recognition-rules"} {
+		if _, err := os.Stat(filepath.Join(configDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("unexpected rule directory %s", name)
+		}
+	}
+	rulePath := filepath.Join(configDir, "organize-rules.json")
+	writeTest(t, rulePath, `{"custom":true}`)
 	if err := a.store.update(func(st *State) error { st.Username = "new-owner"; return nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -494,6 +501,40 @@ func TestConfigMigrationAndDataSeparation(t *testing.T) {
 	}
 	if reopened.store.snapshot().Username != "new-owner" {
 		t.Fatal("legacy configuration overwrote new configuration")
+	}
+	if contents, err := os.ReadFile(rulePath); err != nil || string(contents) != `{"custom":true}` {
+		t.Fatal("existing flat configuration was overwritten")
+	}
+}
+
+func TestSTRMDirectoryCreatedOnlyOnWrite(t *testing.T) {
+	a := testApp(t)
+	s := addLocal(t, a)
+	assertAbsent := func() {
+		t.Helper()
+		if _, err := os.Stat(a.outputDir); !os.IsNotExist(err) {
+			t.Fatalf("output directory created prematurely: %v", err)
+		}
+	}
+	assertAbsent()
+	task := Task{Name: "Lazy output", Kind: "strm", StorageID: s.ID, Source: "/", Mode: "full", APIInterval: 200}
+	if err := a.validateTask(&task); err != nil {
+		t.Fatal(err)
+	}
+	assertAbsent()
+	writeTest(t, filepath.Join(s.Config["root"], "notes.txt"), "text")
+	writeTest(t, filepath.Join(s.Config["root"], "sample.mp4"), "video")
+	task.ExcludeFiles = "sample"
+	if count, err := a.executeTask(context.Background(), task, s); err != nil || count != 0 {
+		t.Fatalf("excluded scan: %d %v", count, err)
+	}
+	assertAbsent()
+	task.ExcludeFiles = ""
+	if count, err := a.executeTask(context.Background(), task, s); err != nil || count != 1 {
+		t.Fatalf("write scan: %d %v", count, err)
+	}
+	if _, err := os.Stat(filepath.Join(a.outputDir, "sample.mp4.strm")); err != nil {
+		t.Fatal(err)
 	}
 }
 

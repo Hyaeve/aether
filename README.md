@@ -61,9 +61,35 @@ go run ./cmd/aether
 
 在支持 `/dev/fuse` 的 Linux Docker 主机：
 
+`compose.yaml`：
+
+```yaml
+services:
+  aetherlink:
+    image: ghcr.io/hyaeve/aether:latest
+    container_name: Aether
+    network_mode: host
+    volumes:
+      - ./config:/config
+      - ./data:/data
+      # 可选：将 FUSE 读缓存单独映射，建议放到更快的磁盘
+      # - ./fuse_read_cache:/data/fuse_read_cache
+    environment:
+      - TZ=Asia/Shanghai
+      - AETHER_PORT=15151
+    devices:
+      - /dev/fuse:/dev/fuse
+    pid: "host"
+    privileged: true
+    restart: unless-stopped
+```
+
+启动服务：
+
 ```sh
-mkdir -p config data storage
-docker compose up -d --build
+mkdir -p config data
+docker compose pull
+docker compose up -d
 ```
 
 默认 `host` 网络，不使用 `ports` 映射；特权与 FUSE 设备按需求启用。Docker Desktop 或非 Linux 环境不适用此默认 FUSE 配置。没有挂载需求时，建议移除 `privileged`、`devices` 并将本机目录绑定设为只读。
@@ -72,24 +98,28 @@ docker compose up -d --build
 
 端口变更不会覆盖已保存的外部访问地址。请在「系统设置 → 常规设置」更新媒体服务器可访问的地址（例如 `http://192.168.1.10:15200`），并重新全量生成已有 STRM。反向代理使用独立公网端口时，外部访问地址应保留其实际地址。
 
-`./storage:/mnt` 是可选的本机存储挂载：将宿主机 `./storage` 映射为容器内 `/mnt`，无本机存储需求时可删除这一行。它不是 STRM 输出目录。原来的 `${AETHER_LOCAL_ROOT:-./storage}:/mnt:rshared` 使用环境变量选择宿主机路径，并启用双向挂载传播；普通文件浏览不需要这一传播选项，因此改为直接绑定。
+如需本机存储，可自行在 `volumes` 下添加 `- ./storage:/mnt`，将宿主机 `./storage` 映射为容器内 `/mnt`。默认配置不包含这一挂载；它不是 STRM 输出目录。
+
+FUSE 读缓存预留路径为 `/data/fuse_read_cache`，默认随 `/data` 映射。需要单独放置到其他磁盘时，可取消对应挂载行的注释并修改左侧宿主机路径。当前 FUSE 读缓存功能尚未实现。
 
 容器持久化目录：
 
 | 容器目录 | 宿主机默认目录 | 内容 |
 | --- | --- | --- |
 | `/config` | `./config` | `state.enc` 保存管理员、存储池、任务和系统设置；`master.key` 保存加密密钥 |
-| `/config/organize-rules` | `./config/organize-rules` | 整理规则预留目录 |
-| `/config/categories` | `./config/categories` | 二级分类预留目录 |
-| `/config/upgrade-policies` | `./config/upgrade-policies` | 洗版策略预留目录 |
-| `/config/ai` | `./config/ai` | AI 辅助识别预留目录 |
-| `/config/recognition-rules` | `./config/recognition-rules` | 识别规则预留目录 |
+| `/config/organize-rules.json` | `./config/organize-rules.json` | 整理规则预留配置 |
+| `/config/categories.json` | `./config/categories.json` | 二级分类预留配置 |
+| `/config/upgrade-policies.json` | `./config/upgrade-policies.json` | 洗版策略预留配置 |
+| `/config/ai.json` | `./config/ai.json` | AI 辅助识别预留配置 |
+| `/config/recognition-rules.json` | `./config/recognition-rules.json` | 识别规则预留配置 |
 | `/data` | `./data` | 目录缓存快照等运行数据 |
-| `/data/strm` | `./data/strm` | 未填写输出目录时的 STRM 生成位置 |
+| `/data/strm` | `./data/strm` | 默认 STRM 输出位置，仅首次实际写入时创建 |
 
-规则模块尚未实现，当前只创建其配置目录，不生成虚假的规则文件。`config/master.key` 与 `config/state.enc` 必须一起备份；丢失密钥不可恢复配置。升级时，如果 `/config` 尚无配置，自动复制旧 `/data/master.key` 与 `/data/state.enc` 至 `/config`，保留旧文件；已有 `/config` 配置不会被覆盖。迁移后以 `/config` 为准，旧文件只作备份，不会继续同步。
+规则配置采用各自文件平铺在 `/config` 下的布局，不再创建分类子目录。缺失文件在启动时初始化为 `{}`，已有文件不会覆盖；规则模块尚未实现，这些文件暂不参与规则执行。启动、创建任务或没有匹配视频的扫描都不会创建 `/data/strm`。旧版本已创建的目录不会自动删除或迁移其内容，以免误删已有数据。
 
-GitHub 构建默认发布 `ghcr.io/<owner>/<repo>:latest`、版本标签和 SHA 标签。设置 `AETHER_IMAGE` 使用已发布镜像；首次发布可能需在 GHCR 中配置包可见性。PR 只构建不推送。
+`config/master.key` 与 `config/state.enc` 必须一起备份；丢失密钥不可恢复配置。升级时，如果 `/config` 尚无配置，自动复制旧 `/data/master.key` 与 `/data/state.enc` 至 `/config`，保留旧文件；已有 `/config` 配置不会被覆盖。迁移后以 `/config` 为准，旧文件只作备份，不会继续同步。
+
+GitHub 构建默认发布 `ghcr.io/<owner>/<repo>:latest`、版本标签和 SHA 标签。修改 Compose 的 `image` 可指定已发布镜像版本；首次发布可能需在 GHCR 中配置包可见性。PR 只构建不推送。
 
 ## 安全与运维
 
@@ -117,4 +147,4 @@ npm run test:e2e
 
 ## 参考说明
 
-参考本机 LitePan 的存储添加流程、配置字段、目录缓存与 STRM 的交互约定；未引用 AetherLink。LitePan 本机版本的许可证为 PolyForm Noncommercial 1.0.0，本项目未直接复制其源文件或品牌图片。当前品牌与提供商标记为独立绘制的文字/图标标识，不代表官方授权。Vue、Lucide、Go 扩展库、robfig/cron 等依赖遵循各自许可证。
+参考本机 LitePan 的存储添加流程、配置字段、目录缓存与 STRM 的交互约定；未引用 AetherLink。LitePan 本机版本的许可证为 PolyForm Noncommercial 1.0.0，本项目未直接复制其源文件或品牌图片。网盘标识来自各服务官网，OpenList 标识来自其官方 Logo 仓库，来源记录见 `web/public/providers/SOURCES.md`；标识仅用于辨识服务，不代表官方授权或合作。Vue、Lucide、Go 扩展库、robfig/cron 等依赖遵循各自许可证。
