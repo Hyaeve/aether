@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
+import { createMeteorBatch } from '../meteor'
 
 const universe = ref(), canvas = ref(), scene = ref()
 const reducedMotion = ref(false)
@@ -12,6 +13,7 @@ let observer, motionPreference, frame = 0, elapsed = 0, previous = 0, lastPaint 
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
 let galaxy
+let meteorCycle = -1, meteors = []
 const tilt = -18 * Math.PI / 180
 
 function randomGenerator() {
@@ -66,21 +68,54 @@ function buildGalaxy(random, scale) {
 }
 
 function paintMeteor(time) {
-  // A brief, infrequent streak in the upper sky leaves the form and logos untouched.
-  const phase = (time + 5) % 19
-  if (phase > 1.8) return
-  const progress = phase / 1.8
-  const x = width * (.28 + progress * .32)
-  const y = height * (.09 + progress * .14)
-  const tail = width * .12
+  const cycle = Math.floor(time / 12)
+  if (cycle !== meteorCycle) {
+    meteorCycle = cycle
+    meteors = createMeteorBatch()
+  }
+  for (const meteor of meteors) {
+    const progress = (time % 12 - meteor.delay) / meteor.duration
+    if (progress <= 0 || progress >= 1) continue
+    const x = width * (meteor.x + progress * meteor.dx)
+    const y = height * (meteor.y + progress * meteor.dy)
+    const tailX = x - width * meteor.dx * meteor.tail
+    const tailY = y - height * meteor.dy * meteor.tail
+    ctx.save()
+    ctx.globalAlpha = Math.sin(progress * Math.PI) * .75
+    const trail = ctx.createLinearGradient(tailX, tailY, x, y)
+    trail.addColorStop(0, 'rgba(173,200,234,0)')
+    trail.addColorStop(1, 'rgba(218,230,249,.95)')
+    ctx.strokeStyle = trail
+    ctx.lineWidth = 1.2
+    ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(x, y); ctx.stroke()
+    ctx.fillStyle = '#e4edff'
+    ctx.beginPath(); ctx.arc(x, y, 1.3, 0, Math.PI * 2); ctx.fill()
+    ctx.restore()
+  }
+}
+
+function paintRibbons(time) {
   ctx.save()
-  ctx.globalAlpha = Math.sin(progress * Math.PI) * .6
-  const trail = ctx.createLinearGradient(x - tail, y - tail * .5, x, y)
-  trail.addColorStop(0, 'rgba(173,200,234,0)')
-  trail.addColorStop(1, 'rgba(218,230,249,.85)')
-  ctx.strokeStyle = trail
-  ctx.lineWidth = 1
-  ctx.beginPath(); ctx.moveTo(x - tail, y - tail * .5); ctx.lineTo(x, y); ctx.stroke()
+  ctx.globalCompositeOperation = 'screen'
+  // Fine strands form flowing ribbons while leaving the stars visible between them.
+  for (let band = 0; band < 3; band++) {
+    for (let strand = 0; strand < 24; strand++) {
+      ctx.beginPath()
+      for (let step = 0; step <= 80; step++) {
+        const t = step / 80
+        const x = width * t
+        const envelope = Math.sin(t * Math.PI)
+        const y = height * (.2 + band * .23 + t * .18
+          + Math.sin(t * 7 + band * 1.7 + time * .08) * .08 * envelope
+          + (strand - 12) * .0025 * envelope)
+        if (step === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.strokeStyle = band === 1 ? 'rgba(154,204,213,.022)' : 'rgba(180,188,232,.025)'
+      ctx.lineWidth = .8
+      ctx.stroke()
+    }
+  }
   ctx.restore()
 }
 
@@ -103,6 +138,7 @@ function paint(time) {
   positionSatellites(time)
   if (!ctx || !width || !height) return
   ctx.clearRect(0, 0, width, height)
+  paintRibbons(time)
   if (galaxy) {
     ctx.save()
     ctx.globalAlpha = .8 + Math.sin(time * .16) * .15
@@ -193,8 +229,8 @@ onUnmounted(() => {
       <div class="orbital-float">
         <div v-for="(radius, i) in rings" :key="i" class="orbit" :style="{ width: `${radius * 200}%`, height: `${radius * 200 * .7 * 1.15}%` }" aria-hidden="true" />
         <div class="orbital-center"><img src="/aether.svg" alt="Aether" /></div>
-        <div v-for="(d, i) in drivers" :key="d.id" :ref="el => satellites[i] = el" class="satellite" :data-provider="d.id">
-          <div class="satellite-body"><ProviderIcon :type="d.id" /><span class="satellite-name">{{ d.name }}</span></div>
+        <div v-for="(d, i) in drivers" :key="d.id" :ref="el => satellites[i] = el" class="satellite" :class="{ 'satellite-framed': ['openlist', 'webdav', 'local'].includes(d.id) }" :data-provider="d.id" role="img" :aria-label="d.name">
+          <div class="satellite-body"><ProviderIcon :type="d.id" /></div>
         </div>
       </div>
     </div>
@@ -218,7 +254,8 @@ onUnmounted(() => {
 .satellite .provider-icon { width: 48px; height: 48px; padding: 0; background: transparent; border: 0; box-shadow: none; border-radius: 0; }
 .satellite :deep(.provider-logo) { width: 100%; height: 100%; }
 .satellite :deep(svg) { width: 36px; height: 36px; }
-.satellite-name { position: absolute; top: calc(100% + 8px); white-space: nowrap; font-size: 11px; color: #bbc6de; text-shadow: 0 1px 8px #121827; }
+.satellite-framed .provider-icon { background: #fff; border-radius: 8px; padding: 7px; box-sizing: border-box; }
+.satellite-framed :deep(svg) { width: 100%; height: 100%; }
 .motion-paused .orbital-float { animation-play-state: paused; }
 @keyframes orbital-float { 0%, 100% { transform: translateY(-5px); } 50% { transform: translateY(6px); } }
 @media (max-width: 960px) {
@@ -226,7 +263,7 @@ onUnmounted(() => {
   .orbital-center img { width: 40px; height: 40px; }
   .satellite .provider-icon { width: 35px; height: 35px; }
   .satellite :deep(svg) { width: 29px; height: 29px; }
-  .satellite-name { font-size: 9px; }
+  .satellite-framed .provider-icon { padding: 5px; }
 }
 @media (prefers-reduced-motion: reduce) { .orbital-float { animation: none; } }
 </style>

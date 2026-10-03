@@ -107,15 +107,15 @@ FUSE 读缓存预留路径为 `/data/fuse_read_cache`，默认随 `/data` 映射
 | 容器目录 | 宿主机默认目录 | 内容 |
 | --- | --- | --- |
 | `/config` | `./config` | `state.enc` 保存管理员、存储池、任务和系统设置；`master.key` 保存加密密钥 |
-| `/config/organize-rules.json` | `./config/organize-rules.json` | 整理规则预留配置 |
-| `/config/categories.json` | `./config/categories.json` | 二级分类预留配置 |
-| `/config/upgrade-policies.json` | `./config/upgrade-policies.json` | 洗版策略预留配置 |
-| `/config/ai.json` | `./config/ai.json` | AI 辅助识别预留配置 |
-| `/config/recognition-rules.json` | `./config/recognition-rules.json` | 识别规则预留配置 |
+| `/config/organize/organize-rules.json` | `./config/organize/organize-rules.json` | 整理规则预留配置 |
+| `/config/organize/categories.json` | `./config/organize/categories.json` | 二级分类预留配置 |
+| `/config/organize/upgrade-policies.json` | `./config/organize/upgrade-policies.json` | 洗版策略预留配置 |
+| `/config/organize/ai.json` | `./config/organize/ai.json` | AI 辅助识别预留配置 |
+| `/config/organize/recognition-rules.json` | `./config/organize/recognition-rules.json` | 识别规则预留配置 |
 | `/data` | `./data` | 目录缓存快照等运行数据 |
 | `/data/strm` | `./data/strm` | 默认 STRM 输出位置，仅首次实际写入时创建 |
 
-规则配置采用各自文件平铺在 `/config` 下的布局，不再创建分类子目录。缺失文件在启动时初始化为 `{}`，已有文件不会覆盖；规则模块尚未实现，这些文件暂不参与规则执行。启动、创建任务或没有匹配视频的扫描都不会创建 `/data/strm`。旧版本已创建的目录不会自动删除或迁移其内容，以免误删已有数据。
+整理识别配置统一归入 `/config/organize/`，五个 JSON 文件在该目录中平铺，不为每项规则再建子目录。账户、密钥和系统设置仍保存在 `/config` 根目录。启动时，新位置缺失的文件优先从旧 `/config` 根目录复制，旧文件保留作为备份；新位置已有文件不会被覆盖，无旧文件时初始化为 `{}`。规则模块尚未实现，这些文件暂不参与规则执行。启动、创建任务或没有匹配视频的扫描都不会创建 `/data/strm`。更早版本的独立规则目录不自动删除或迁移其内容，以免误删已有数据。
 
 `config/master.key` 与 `config/state.enc` 必须一起备份；丢失密钥不可恢复配置。升级时，如果 `/config` 尚无配置，自动复制旧 `/data/master.key` 与 `/data/state.enc` 至 `/config`，保留旧文件；已有 `/config` 配置不会被覆盖。迁移后以 `/config` 为准，旧文件只作备份，不会继续同步。
 

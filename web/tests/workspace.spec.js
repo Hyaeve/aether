@@ -1,6 +1,22 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
+import { createMeteorBatch } from '../src/meteor.js'
+
+test('meteor batches contain two to five upper-right to lower-left trails', () => {
+  for (const value of [0, .25, .5, .999999]) {
+    const batch = createMeteorBatch(() => value)
+    expect(batch).toHaveLength(2 + Math.floor(value * 4))
+    for (const meteor of batch) {
+      expect(meteor.x).toBeGreaterThanOrEqual(.72)
+      expect(meteor.y).toBeLessThan(.24)
+      expect(meteor.dx).toBeLessThan(0)
+      expect(meteor.dy).toBeGreaterThan(0)
+      expect(meteor.x + meteor.dx).toBeLessThan(.5)
+      expect(meteor.y + meteor.dy).toBeGreaterThan(.5)
+    }
+  }
+})
 
 test('storage, STRM, cache, themes and responsive workspace', async ({ page }, testInfo) => {
   const errors = []
@@ -140,6 +156,11 @@ test('login starfield, orbit motion and provider assets', async ({ page }, testI
     return { background: css.backgroundColor, border: css.borderWidth, shadow: css.boxShadow }
   })
   expect(logoStyles).toEqual({ background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none' })
+  await expect(page.locator('.satellite-name')).toHaveCount(0)
+  await expect(page.locator('.satellite-framed')).toHaveCount(3)
+  for (const provider of ['openlist', 'webdav', 'local']) {
+    expect(await page.locator(`[data-provider="${provider}"] .provider-icon`).evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)')
+  }
   await expect(page.locator('[data-provider="tianyi"] img')).toHaveAttribute('src', '/providers/tianyi.png')
   expect(await page.locator('[data-provider="tianyi"] img').evaluate(img => img.naturalWidth)).toBeGreaterThan(100)
   const username = page.getByLabel('账户名', { exact: true })

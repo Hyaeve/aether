@@ -26,13 +26,17 @@ func prepareDirectories(configDir, dataDir string) error {
 			return err
 		}
 	}
-	if err := ensureFlatConfigFiles(configDir); err != nil {
+	if err := ensureOrganizeConfigFiles(configDir); err != nil {
 		return err
 	}
 	return nil
 }
 
-func ensureFlatConfigFiles(configDir string) error {
+func ensureOrganizeConfigFiles(configDir string) error {
+	rulesDir := filepath.Join(configDir, "organize")
+	if err := os.MkdirAll(rulesDir, 0700); err != nil {
+		return err
+	}
 	files := map[string][]byte{
 		"organize-rules.json":    []byte("{}\n"),
 		"categories.json":        []byte("{}\n"),
@@ -41,18 +45,29 @@ func ensureFlatConfigFiles(configDir string) error {
 		"recognition-rules.json": []byte("{}\n"),
 	}
 	for name, contents := range files {
-		filename := filepath.Join(configDir, name)
-		f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-		if os.IsExist(err) {
-			info, statErr := os.Stat(filename)
-			if statErr != nil {
-				return statErr
-			}
+		filename := filepath.Join(rulesDir, name)
+		if info, err := os.Lstat(filename); err == nil {
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("配置路径不是普通文件: %s", filename)
 			}
 			continue
+		} else if !os.IsNotExist(err) {
+			return err
 		}
+		// Preserve legacy originals and never overwrite an existing grouped configuration.
+		legacy := filepath.Join(configDir, name)
+		if info, err := os.Lstat(legacy); err == nil {
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("旧配置路径不是普通文件: %s", legacy)
+			}
+			contents, err = os.ReadFile(legacy)
+			if err != nil {
+				return err
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
 			return err
 		}

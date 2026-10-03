@@ -522,8 +522,11 @@ func TestConfigMigrationAndDataSeparation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"organize-rules.json", "categories.json", "upgrade-policies.json", "ai.json", "recognition-rules.json"} {
-		if info, err := os.Stat(filepath.Join(configDir, name)); err != nil || info.IsDir() {
+		if info, err := os.Stat(filepath.Join(configDir, "organize", name)); err != nil || info.IsDir() {
 			t.Fatalf("missing flat config file %s", name)
+		}
+		if _, err := os.Stat(filepath.Join(configDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("unexpected root rule file %s", name)
 		}
 	}
 	for _, name := range []string{"organize-rules", "categories", "upgrade-policies", "ai", "recognition-rules"} {
@@ -531,7 +534,7 @@ func TestConfigMigrationAndDataSeparation(t *testing.T) {
 			t.Fatalf("unexpected rule directory %s", name)
 		}
 	}
-	rulePath := filepath.Join(configDir, "organize-rules.json")
+	rulePath := filepath.Join(configDir, "organize", "organize-rules.json")
 	writeTest(t, rulePath, `{"custom":true}`)
 	if err := a.store.update(func(st *State) error { st.Username = "new-owner"; return nil }); err != nil {
 		t.Fatal(err)
@@ -546,6 +549,46 @@ func TestConfigMigrationAndDataSeparation(t *testing.T) {
 	if contents, err := os.ReadFile(rulePath); err != nil || string(contents) != `{"custom":true}` {
 		t.Fatal("existing flat configuration was overwritten")
 	}
+}
+
+func TestOrganizeConfigMigration(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "organize-rules.json")
+	target := filepath.Join(dir, "organize", "organize-rules.json")
+	writeTest(t, legacy, `{"custom":"legacy"}`)
+	if err := ensureOrganizeConfigFiles(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{legacy, target} {
+		if contents, err := os.ReadFile(filename); err != nil || string(contents) != `{"custom":"legacy"}` {
+			t.Fatalf("migration lost configuration at %s: %v", filename, err)
+		}
+	}
+	writeTest(t, target, `{"custom":"new"}`)
+	if err := ensureOrganizeConfigFiles(dir); err != nil {
+		t.Fatal(err)
+	}
+	if contents, err := os.ReadFile(target); err != nil || string(contents) != `{"custom":"new"}` {
+		t.Fatal("legacy file overwrote grouped configuration")
+	}
+	t.Run("reject directory at target", func(t *testing.T) {
+		base := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(base, "organize", "ai.json"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureOrganizeConfigFiles(base); err == nil {
+			t.Fatal("accepted directory as configuration file")
+		}
+	})
+	t.Run("reject directory at legacy path", func(t *testing.T) {
+		base := t.TempDir()
+		if err := os.Mkdir(filepath.Join(base, "ai.json"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureOrganizeConfigFiles(base); err == nil {
+			t.Fatal("accepted legacy directory as configuration file")
+		}
+	})
 }
 
 func TestSTRMDirectoryCreatedOnlyOnWrite(t *testing.T) {
