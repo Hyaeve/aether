@@ -290,7 +290,11 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			if err != nil {
 				return err
 			}
-			link := a.signedStreamURL(streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode, CAS: info})
+			claim := streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode, CAS: info}
+			if info != nil {
+				claim.TaskID, claim.RetentionHours = t.ID, casRetentionHours(t.RetentionHours)
+			}
+			link := a.signedStreamURL(claim)
 			_, err = fh.WriteString(link + "\n")
 			closeErr := fh.Close()
 			if err != nil {
@@ -308,10 +312,12 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 }
 
 type streamClaim struct {
-	Storage string   `json:"s"`
-	File    string   `json:"f"`
-	Pick    string   `json:"p"`
-	CAS     *CASInfo `json:"cas,omitempty"`
+	Storage        string   `json:"s"`
+	File           string   `json:"f"`
+	Pick           string   `json:"p"`
+	CAS            *CASInfo `json:"cas,omitempty"`
+	TaskID         string   `json:"task,omitempty"`
+	RetentionHours int      `json:"retentionHours,omitempty"`
 }
 
 func (a *App) streamURL(sid, fid, pick string) string {

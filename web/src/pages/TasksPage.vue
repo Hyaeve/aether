@@ -29,6 +29,7 @@ function open(t) {
   editing.value = t?.id || ''; error.value = ''; more.value = false
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, t ? JSON.parse(JSON.stringify(t)) : { name: '', kind: props.kind, storageId: availableStorages.value[0]?.id || '', source: '/', target: '', mode: 'incremental', apiInterval: 200, cron: '', depth: 0, interval: 60, cacheTTL: 0, excludeDirs: '', excludeFiles: '', excludeTypes: '', enabled: true })
+  if (props.kind === 'cas') form.retentionHours ||= 12
   modal.value = true
 }
 async function save() {
@@ -62,6 +63,7 @@ async function toggle(t) {
         <label class="full">源目录 <span class="required">*</span><div class="input-action"><input v-model="form.source" required /><button type="button" class="icon-btn" :disabled="!form.storageId" title="选择目录" aria-label="选择目录" @click="picker = true"><Icon name="FolderOpen" /></button></div></label>
         <label v-if="kind !== 'cache'" class="full">本地生成目录<input v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /><small>留空使用 {{ state.strmRoot }}；相对目录位于此目录下。</small></label>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
+        <div v-if="kind === 'cas'" class="field"><label for="cas-retention">还原文件保留时间</label><NumberInput id="cas-retention" v-model="form.retentionHours" aria-label="还原文件保留时间" unit="h" min="1" max="8760" required /></div>
         <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" placeholder="0 2 * * *" /><small>五字段；留空仅手动执行</small></label>
         <template v-else><div class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div><div class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /><small>0 为全部；1 为当前目录</small></div><div class="field"><label for="task-cache">缓存有效期</label><NumberInput id="task-cache" v-model="form.cacheTTL" aria-label="缓存有效期" unit="分钟" min="0" /><small>0 跟随存储池或全局设置</small></div></template>
         <label class="toggle-line full"><span>启用定时调度</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
@@ -70,6 +72,6 @@ async function toggle(t) {
       <p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">取消</button><button class="btn primary" :disabled="busy || !form.storageId"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>
   </Modal>
   <DirectoryPicker v-if="picker" :storage="form.storageId" :initial="form.source" @select="form.source = $event; picker = false" @close="picker = false" />
-  <Modal v-if="casPanel" title="CAS 临时文件" wide @close="casPanel = false"><div class="modal-body"><p>无活跃播放且闲置满 {{ casStatus.idleMinutes }} 分钟后清理。仅处理以太记录的临时文件，遵循存储池删除模式。</p><p v-if="!casStatus.items.length" class="small-empty">暂无临时文件</p><div v-for="item in casStatus.items" :key="item.storageId + item.name" class="settings-row"><span>{{ item.name }}<small>{{ date(item.lastUsed) }}</small></span><span>{{ item.active ? '播放中' : '等待过期' }}</span></div></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="showCAS"><Icon name="RefreshCw" />刷新</button><button class="btn primary" :disabled="busy" @click="cleanupCAS"><Icon name="Trash2" />清理过期项</button></footer></Modal>
+  <Modal v-if="casPanel" title="CAS 临时文件" wide @close="casPanel = false"><div class="modal-body"><p>按任务保留时间清理，默认 {{ casStatus.defaultRetentionHours }} 小时；播放中的文件不清理。仅处理以太记录的临时文件，遵循存储池删除模式。</p><p v-if="!casStatus.items.length" class="small-empty">暂无临时文件</p><div v-for="item in casStatus.items" :key="item.storageId + item.name" class="settings-row"><span>{{ item.name }}<small>保留 {{ item.retentionHours }} 小时 · 到期 {{ date(item.expiresAt) }}</small></span><span>{{ item.active ? '播放中' : '等待过期' }}</span></div></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="showCAS"><Icon name="RefreshCw" />刷新</button><button class="btn primary" :disabled="busy" @click="cleanupCAS"><Icon name="Trash2" />清理过期项</button></footer></Modal>
   <Modal v-if="confirmDelete" title="删除任务" @close="confirmDelete = null"><div class="modal-body">确认删除「{{ confirmDelete.name }}」？已生成的文件不会删除。</div><footer class="modal-footer"><button class="btn" @click="confirmDelete = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除任务</button></footer></Modal>
 </template>

@@ -128,7 +128,7 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 		case "/feature":
 			raw = cas
 		case "/createFolder.action":
-			if r.URL.Query().Get("parentFolderId") != "-11" {
+			if r.URL.Query().Get("parentFolderId") != "-11" || r.URL.Query().Get("folderName") != "Aether" {
 				t.Error("bad temp parent")
 			}
 			raw = `{"id":"20"}`
@@ -207,7 +207,7 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 	if commits != 1 {
 		t.Fatal("restart duplicated restore")
 	}
-	_ = a.store.update(func(st *State) error { st.CASTemporary[0].LastUsed = time.Now().Add(-3 * time.Hour); return nil })
+	_ = a.store.update(func(st *State) error { st.CASTemporary[0].LastUsed = time.Now().Add(-13 * time.Hour); return nil })
 	failedDelete = true
 	if _, err := a.cleanupCAS(context.Background()); err == nil || len(a.store.snapshot().CASTemporary) != 1 {
 		t.Fatal("failed delete lost record")
@@ -256,7 +256,7 @@ func TestTianyiPermanentCleanupResume(t *testing.T) {
 	s := Storage{ID: "189", Type: "tianyi", Enabled: true, Config: map[string]string{"username": "account", "password": "password", "deleteMode": "permanent"}}
 	_ = a.store.update(func(st *State) error {
 		st.Storages = append(st.Storages, s)
-		st.CASTemporary = []CASTemporary{{Key: "temp", StorageID: s.ID, FileID: "40", Name: "movie.mkv", LastUsed: time.Now().Add(-3 * time.Hour), Trashed: true}}
+		st.CASTemporary = []CASTemporary{{Key: "temp", StorageID: s.ID, FileID: "40", Name: "movie.mkv", LastUsed: time.Now().Add(-13 * time.Hour), Trashed: true}}
 		return nil
 	})
 	a.tianyiSessions[s.ID] = tianyiSession{Key: "session", Secret: "secret", Credentials: sha256.Sum256([]byte("account\x00password")), Expires: time.Now().Add(time.Hour)}

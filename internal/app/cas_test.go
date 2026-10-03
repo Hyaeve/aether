@@ -88,6 +88,9 @@ func TestCASLifecycle(t *testing.T) {
 			}}
 		case "/file/create":
 			if payload["type"] == "folder" {
+				if payload["name"] != "Aether" || payload["parentFileId"] != "/" {
+					t.Error("restore folder must be /Aether")
+				}
 				result = map[string]any{"fileId": "temp-folder"}
 			} else {
 				restores++
@@ -128,6 +131,10 @@ func TestCASLifecycle(t *testing.T) {
 	if err := a.validateTask(&task); err != nil {
 		t.Fatal(err)
 	}
+	if task.RetentionHours != 12 {
+		t.Fatal("CAS default retention must be 12h")
+	}
+	task.RetentionHours = 24
 	if nextRun(task, time.Now()).IsZero() {
 		t.Fatal("CAS cron did not schedule")
 	}
@@ -143,7 +150,7 @@ func TestCASLifecycle(t *testing.T) {
 	token := strings.TrimPrefix(u.Path, "/stream/")
 	raw, _ := base64.RawURLEncoding.DecodeString(token)
 	var claim streamClaim
-	if json.Unmarshal(raw, &claim) != nil || claim.CAS == nil || claim.CAS.SHA256 != hash {
+	if json.Unmarshal(raw, &claim) != nil || claim.CAS == nil || claim.CAS.SHA256 != hash || claim.RetentionHours != 24 {
 		t.Fatal("CAS claim missing")
 	}
 	if count, err := a.executeTask(context.Background(), task, s); err != nil || count != 0 {
@@ -158,6 +165,9 @@ func TestCASLifecycle(t *testing.T) {
 	if err != nil || d.URL != media.URL {
 		t.Fatalf("restore: %#v %v", d, err)
 	}
+	if a.store.snapshot().CASTemporary[0].RetentionHours != 24 {
+		t.Fatal("retention not persisted")
+	}
 	_, release2, err := a.casDownload(context.Background(), s, claim)
 	if err != nil || restores != 1 {
 		t.Fatalf("duplicate restore: %d %v", restores, err)
@@ -166,7 +176,7 @@ func TestCASLifecycle(t *testing.T) {
 		t.Helper()
 		if err := a.store.update(func(st *State) error {
 			for i := range st.CASTemporary {
-				st.CASTemporary[i].LastUsed = time.Now().Add(-3 * time.Hour)
+				st.CASTemporary[i].LastUsed = time.Now().Add(-25 * time.Hour)
 			}
 			return nil
 		}); err != nil {
@@ -179,6 +189,13 @@ func TestCASLifecycle(t *testing.T) {
 	}
 	release()
 	release2()
+	_ = a.store.update(func(st *State) error {
+		st.CASTemporary[0].LastUsed = time.Now().Add(-13 * time.Hour)
+		return nil
+	})
+	if n, err := a.cleanupCAS(context.Background()); err != nil || n != 0 {
+		t.Fatal("custom retention ignored", n, err)
+	}
 	playback := httptest.NewRequest("GET", u.RequestURI(), nil)
 	playback.Header.Set("Range", "bytes=0-4")
 	response := httptest.NewRecorder()
@@ -240,6 +257,29 @@ func TestCASStorageValidation(t *testing.T) {
 	parts := casParts(101 << 20)
 	if len(parts) != 2 || parts[1]["partSize"] != int64(1<<20) {
 		t.Fatalf("bad part descriptors %#v", parts)
+	}
+}
+
+func TestCASRetentionDefaultsAndValidation(t *testing.T) {
+	a := testApp(t)
+	s := Storage{ID: "189", Name: "test", Type: "tianyi", Enabled: true, Config: map[string]string{"username": "test", "password": "test"}}
+	_ = a.store.update(func(st *State) error { st.Storages = append(st.Storages, s); return nil })
+	for _, hours := range []int{-1, 8761} {
+		task := Task{Name: "CAS", Kind: "cas", StorageID: s.ID, Mode: "full", RetentionHours: hours}
+		if a.validateTask(&task) == nil {
+			t.Fatal("invalid retention accepted", hours)
+		}
+	}
+	now := time.Now()
+	for _, hours := range []int{0, 1, 12, 24, 8760} {
+		entry := CASTemporary{LastUsed: now, RetentionHours: hours}
+		want := hours
+		if want == 0 {
+			want = 12
+		}
+		if entry.expiresAt().Sub(now) != time.Duration(want)*time.Hour {
+			t.Fatal("incorrect expiry", hours)
+		}
 	}
 }
 

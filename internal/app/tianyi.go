@@ -373,7 +373,7 @@ func (a *App) tianyiLink(ctx context.Context, s Storage, fid string) (Download, 
 }
 
 func (a *App) tianyiCASFolder(ctx context.Context, s Storage) (string, error) {
-	name := "Aether_CAS_TEMP_" + s.ID
+	name := "Aether"
 	files, err := a.tianyiList(ctx, s, "-11")
 	if err != nil {
 		return "", err

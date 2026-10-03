@@ -26,27 +26,28 @@ type Storage struct {
 }
 
 type Task struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Kind         string    `json:"kind"`
-	StorageID    string    `json:"storageId"`
-	Source       string    `json:"source"`
-	Target       string    `json:"target"`
-	Mode         string    `json:"mode"`
-	APIInterval  int       `json:"apiInterval"`
-	Cron         string    `json:"cron"`
-	Depth        int       `json:"depth"`
-	Interval     int       `json:"interval"`
-	CacheTTL     int       `json:"cacheTTL"`
-	ExcludeDirs  string    `json:"excludeDirs"`
-	ExcludeFiles string    `json:"excludeFiles"`
-	ExcludeTypes string    `json:"excludeTypes"`
-	Enabled      bool      `json:"enabled"`
-	Status       string    `json:"status"`
-	Message      string    `json:"message"`
-	Processed    int       `json:"processed"`
-	LastRun      time.Time `json:"lastRun"`
-	NextRun      time.Time `json:"nextRun"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Kind           string    `json:"kind"`
+	StorageID      string    `json:"storageId"`
+	Source         string    `json:"source"`
+	Target         string    `json:"target"`
+	Mode           string    `json:"mode"`
+	APIInterval    int       `json:"apiInterval"`
+	Cron           string    `json:"cron"`
+	Depth          int       `json:"depth"`
+	Interval       int       `json:"interval"`
+	CacheTTL       int       `json:"cacheTTL"`
+	RetentionHours int       `json:"retentionHours,omitempty"`
+	ExcludeDirs    string    `json:"excludeDirs"`
+	ExcludeFiles   string    `json:"excludeFiles"`
+	ExcludeTypes   string    `json:"excludeTypes"`
+	Enabled        bool      `json:"enabled"`
+	Status         string    `json:"status"`
+	Message        string    `json:"message"`
+	Processed      int       `json:"processed"`
+	LastRun        time.Time `json:"lastRun"`
+	NextRun        time.Time `json:"nextRun"`
 }
 
 type Settings struct {

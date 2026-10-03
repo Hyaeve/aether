@@ -644,6 +644,12 @@ func (a *App) validateTask(t *Task) error {
 	switch t.Kind {
 	case "strm", "cas":
 		if t.Kind == "cas" {
+			if t.RetentionHours == 0 {
+				t.RetentionHours = 12
+			}
+			if t.RetentionHours < 1 || t.RetentionHours > 8760 {
+				return errors.New("还原文件保留时间必须为 1–8760 小时")
+			}
 			s, _ := a.store.storage(t.StorageID)
 			if !casStorage(s) {
 				return errors.New("CAS 任务需要原生移动新版个人云或天翼个人云存储池")

@@ -15,8 +15,18 @@ import (
 	"time"
 )
 
-const casIdleTTL = 2 * time.Hour
 const casLimit = 1 << 20
+
+func casRetentionHours(hours int) int {
+	if hours < 1 || hours > 8760 {
+		return 12
+	}
+	return hours
+}
+
+func (entry CASTemporary) expiresAt() time.Time {
+	return entry.LastUsed.Add(time.Duration(casRetentionHours(entry.RetentionHours)) * time.Hour)
+}
 
 type CASInfo struct {
 	Provider string `json:"provider"`
@@ -27,13 +37,14 @@ type CASInfo struct {
 }
 
 type CASTemporary struct {
-	Key       string    `json:"key"`
-	StorageID string    `json:"storageId"`
-	FileID    string    `json:"fileId"`
-	Name      string    `json:"name"`
-	LastUsed  time.Time `json:"lastUsed"`
-	Ready     bool      `json:"ready"`
-	Trashed   bool      `json:"trashed,omitempty"`
+	Key            string    `json:"key"`
+	StorageID      string    `json:"storageId"`
+	FileID         string    `json:"fileId"`
+	Name           string    `json:"name"`
+	LastUsed       time.Time `json:"lastUsed"`
+	Ready          bool      `json:"ready"`
+	Trashed        bool      `json:"trashed,omitempty"`
+	RetentionHours int       `json:"retentionHours,omitempty"`
 }
 
 func validateCAS(info CASInfo) error {
@@ -160,7 +171,7 @@ func (a *App) casFolder(ctx context.Context, s Storage, host string) (string, er
 	if nativeTianyi(s) {
 		return a.tianyiCASFolder(ctx, s)
 	}
-	name := "Aether_CAS_TEMP_" + s.ID
+	name := "Aether"
 	files, err := a.mobileListAt(ctx, s, host, "/")
 	if err != nil {
 		return "", err
@@ -218,6 +229,13 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		return Download{}, done, err
 	}
 	defer func() { <-a.casGate }()
+	retention := casRetentionHours(claim.RetentionHours)
+	for _, task := range a.store.snapshot().Tasks {
+		if claim.TaskID != "" && task.ID == claim.TaskID && task.Kind == "cas" && task.StorageID == s.ID {
+			retention = casRetentionHours(task.RetentionHours)
+			break
+		}
+	}
 	account, _, _ := mobileAccount(s)
 	hash := claim.CAS.SHA256
 	if nativeTianyi(s) {
@@ -273,7 +291,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		if !ready {
 			recordKey += ":failed:" + id()
 		}
-		entry = CASTemporary{Key: recordKey, StorageID: s.ID, FileID: data.ID, Name: name, LastUsed: time.Now(), Ready: ready}
+		entry = CASTemporary{Key: recordKey, StorageID: s.ID, FileID: data.ID, Name: name, LastUsed: time.Now(), Ready: ready, RetentionHours: retention}
 		// Persist every returned file ID, even failed uploads, so cleanup never needs a directory-wide delete.
 		if err := a.store.update(func(st *State) error { st.CASTemporary = append(st.CASTemporary, entry); return nil }); err != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -304,6 +322,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		for i := range st.CASTemporary {
 			if st.CASTemporary[i].Key == key {
 				st.CASTemporary[i].LastUsed = time.Now()
+				st.CASTemporary[i].RetentionHours = max(casRetentionHours(st.CASTemporary[i].RetentionHours), retention)
 			}
 		}
 		return nil
@@ -337,7 +356,7 @@ func (a *App) cleanupCAS(ctx context.Context) (int, error) {
 	defer func() { <-a.casGate }()
 	count := 0
 	for _, entry := range a.store.snapshot().CASTemporary {
-		if time.Since(entry.LastUsed) < casIdleTTL || a.casActive[entry.Key] > 0 {
+		if time.Now().Before(entry.expiresAt()) || a.casActive[entry.Key] > 0 {
 			continue
 		}
 		s, err := a.store.storage(entry.StorageID)
@@ -389,9 +408,9 @@ func (a *App) casStatus(w http.ResponseWriter, r *http.Request) {
 	defer func() { <-a.casGate }()
 	items := []map[string]any{}
 	for _, item := range a.store.snapshot().CASTemporary {
-		items = append(items, map[string]any{"name": item.Name, "storageId": item.StorageID, "lastUsed": item.LastUsed, "active": a.casActive[item.Key] > 0, "expiresAt": item.LastUsed.Add(casIdleTTL)})
+		items = append(items, map[string]any{"name": item.Name, "storageId": item.StorageID, "lastUsed": item.LastUsed, "active": a.casActive[item.Key] > 0, "expiresAt": item.expiresAt(), "retentionHours": casRetentionHours(item.RetentionHours)})
 	}
-	jsonResponse(w, 200, map[string]any{"items": items, "idleMinutes": 120})
+	jsonResponse(w, 200, map[string]any{"items": items, "defaultRetentionHours": 12})
 }
 
 func (a *App) casCleanup(w http.ResponseWriter, r *http.Request) {
