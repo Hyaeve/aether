@@ -40,6 +40,47 @@ func TestListenAddress(t *testing.T) {
 	}
 }
 
+func TestShortPasswordsAndValidation(t *testing.T) {
+	for _, password := range []string{"", strings.Repeat("a", 73), strings.Repeat("密", 25)} {
+		a := testApp(t)
+		h := a.Handler(t.TempDir())
+		w := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: password}, nil)
+		if w.Code != 400 {
+			t.Fatalf("invalid password accepted: %d", w.Code)
+		}
+		if a.store.snapshot().Password != "" {
+			t.Fatal("invalid password initialized account")
+		}
+	}
+	a := testApp(t)
+	h := a.Handler(t.TempDir())
+	w := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
+	if w.Code != 201 {
+		t.Fatalf("single-character setup failed: %d %s", w.Code, w.Body.String())
+	}
+	cookie := w.Result().Cookies()[0]
+	for _, password := range []string{"", strings.Repeat("a", 73)} {
+		w = request(t, h, "PUT", "/api/account", credentials{Username: "owner", Current: "x", Password: password}, cookie)
+		if w.Code != 400 {
+			t.Fatalf("invalid replacement password accepted: %d", w.Code)
+		}
+	}
+	w = request(t, h, "PUT", "/api/account", credentials{Username: "owner", Current: "x", Password: "新"}, cookie)
+	if w.Code != 200 {
+		t.Fatalf("short password change failed: %d %s", w.Code, w.Body.String())
+	}
+	if request(t, h, "GET", "/api/state", nil, cookie).Code != 401 {
+		t.Fatal("password change did not revoke old session")
+	}
+	w = request(t, h, "POST", "/api/auth/login", credentials{Username: "owner", Password: "新"}, nil)
+	if w.Code != 200 {
+		t.Fatalf("short password login failed: %d", w.Code)
+	}
+	if request(t, h, "POST", "/api/auth/login", credentials{Username: "owner", Password: "x"}, nil).Code != 401 {
+		t.Fatal("old password still works")
+	}
+}
+
 func testApp(t *testing.T) *App {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())

@@ -102,3 +102,21 @@
 - 已执行 `git fetch origin`，确认提交前 `main` 与远程一致；差异格式检查通过。
 - 使用此前针对当前功能执行通过的 Go 测试、静态检查、前端构建和两个浏览器测试结果，本次不重复生成运行产物。
 - 推送前核对暂存文件，排除配置、密钥、exe、日志、依赖、构建与测试产物；推送完成状态以 Git 命令结果及最终回复为准。
+
+## 2026-10-03：登录交互、密码校验和星河视觉调整
+
+- 修改 `internal/app/server.go`：`setup`、`account` 取消 12 字节密码下限，非空即可；继续限制 bcrypt 支持的 72 字节上限，保留鉴权及会话撤销。
+- 修改 `internal/app/app_test.go`：新增 `TestShortPasswordsAndValidation`，覆盖单字符创建、短中文密码修改/登录、空值及超长密码拒绝、旧密码和旧会话失效。
+- 修改 `web/src/pages/LoginPage.vue`：移除创建密码最短长度；独立密码 label，闭眼表示隐藏、睁眼表示可见，按钮标签描述下一步操作。
+- 修改 `web/src/pages/SettingsPage.vue`：账户与安全中的新密码同步取消 12 字符限制。
+- 修改 `web/src/style.css`：登录输入控件仅在已有圆角边框内高亮，密码通过 `focus-within` 使用一层边界；保留键盘可见焦点。
+- 修改 `web/src/components/LoginUniverse.vue`：移除手动播放/暂停按钮及状态，默认持续运行；减少动态效果及隐藏页面仍暂停。`buildGalaxy` 缓存星河粒子和尘埃暗带，`paint` 加强不同频率星点闪烁及星河缓慢变化，`paintMeteor` 绘制偶发流星。网盘和中心标志移除附加背景、边框和阴影，不修改原始图标自带底色。
+- 修改 `web/src/components/ProviderIcon.vue`：天翼资源改为 `/providers/tianyi.png`。
+- 新增 `web/public/providers/tianyi.png`：用户指定地址的高清 PNG，保留原图；旧 ICO 不再引用但保留文件。
+- 重新获取 `web/public/providers/mobile.png`：用户指定的 URL 与此前来源一致，内容未改变，无 Git 差异。
+- 修改 `web/public/providers/SOURCES.md`：记录用户指定的天翼来源、在用资源与历史 ICO 状态。
+- 修改 `web/tests/workspace.spec.js`：以短密码验证创建与重新登录；验证单层焦点、显隐眼睛、无暂停按钮、无图标附加框、高清图加载、Canvas 帧变化及响应式显示。
+- 修改 `README.md`、`docs/design-system.md`：同步密码规则、图标来源、自动动效及焦点设计约定。
+- 修改 `AGENTS.md`：记录本次全部文件、关键实现及验证。
+- 验证：`go test ./... -count=1`、`go vet ./...`、`npm run build`、两个 Playwright 测试通过。首次浏览器测试发现断言与 Lucide 实际 class 名不一致，修正断言后全量重跑通过。已查看桌面及 768px 截图，测试同时覆盖 1920/1024/390/375px、画布非空与动态变化。
+- 本次未生成仓库根目录 exe，未修改用户运行配置或重启旧预览后端；密码后端变更需运行新版本生效。按用户要求提交推送，结果以 Git 确认为准。

@@ -310,6 +310,13 @@ tbody tr:hover { background: color-mix(in srgb,var(--bg) 65%,var(--surface)); }
 .login-form > p { color: var(--muted); font-size: 12px; margin-bottom: 36px; }
 .login-form label { margin-bottom: 22px; font-size: 12px; }
 .login-form input { min-height: 44px; }
+.login-password-field { margin-bottom: 22px; }
+.login-password-field > label { margin-bottom: 9px; }
+.login-form input:focus-visible { outline: none; }
+.login-form > label > input:focus { border-color: #8997cb; box-shadow: inset 0 0 0 1px #8997cb; }
+.login-form .input-action:focus-within { border-color: #8997cb; box-shadow: inset 0 0 0 1px #8997cb; }
+.login-form .input-action input:focus { outline: none; box-shadow: none; }
+.login-form .input-action button:focus-visible { outline-offset: -3px; }
 .login-form .error-message { color: var(--red); margin-bottom: 18px; }
 .login-submit { width: 100%; min-height: 44px; margin-top: 5px; justify-content: space-between; }
 .login-security { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 24px; color: var(--muted); font-size: 10px; }

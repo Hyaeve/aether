@@ -1,18 +1,17 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
-import Icon from './Icon.vue'
 
 const universe = ref(), canvas = ref(), scene = ref()
-const paused = ref(false), reducedMotion = ref(false)
-const stopped = computed(() => paused.value || reducedMotion.value)
+const reducedMotion = ref(false)
 const rings = [0.29, 0.36, 0.44]
 const ringByProvider = [0, 2, 1, 2, 1, 2, 0]
 const satellites = []
 let observer, motionPreference, frame = 0, elapsed = 0, previous = 0, lastPaint = 0
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
+let galaxy
 const tilt = -18 * Math.PI / 180
 
 function randomGenerator() {
@@ -35,9 +34,54 @@ function resize() {
   const random = randomGenerator()
   stars = Array.from({ length: Math.min(850, Math.floor(width * height / 1000)) }, () => ({
     x: random(), y: random(), radius: .35 + random() ** 4 * 1.3,
-    opacity: .16 + random() * .6, phase: random() * Math.PI * 2, warm: random() > .89
+    opacity: .2 + random() * .7, phase: random() * Math.PI * 2,
+    speed: .45 + random() * 1.1, warm: random() > .89
   }))
+  buildGalaxy(random, scale)
   paint(elapsed)
+}
+
+function buildGalaxy(random, scale) {
+  galaxy = document.createElement('canvas')
+  galaxy.width = canvas.value.width
+  galaxy.height = canvas.value.height
+  const dust = galaxy.getContext('2d')
+  if (!dust) return
+  dust.scale(scale, scale)
+  // A cached band of tiny stellar particles forms a textured galaxy, not blurred blobs.
+  const count = Math.min(42000, Math.floor(width * height / 18))
+  for (let i = 0; i < count; i++) {
+    const along = random()
+    const spread = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
+    const x = width * (1.12 - along * 1.3) + spread * width * .055
+    const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .025
+    // Dark lanes break up the star cloud, giving the band an irregular structure.
+    if (Math.abs(spread + .24 * Math.sin(along * 26)) < .15) continue
+    const core = Math.exp(-spread * spread * .7)
+    const alpha = (.06 + random() * .28) * core
+    dust.fillStyle = i % 7 === 0 ? `rgba(220,194,163,${alpha})` : `rgba(158,178,222,${alpha})`
+    const radius = .4 + random() * 1.1
+    dust.fillRect(x, y, radius, radius)
+  }
+}
+
+function paintMeteor(time) {
+  // A brief, infrequent streak in the upper sky leaves the form and logos untouched.
+  const phase = (time + 5) % 19
+  if (phase > 1.8) return
+  const progress = phase / 1.8
+  const x = width * (.28 + progress * .32)
+  const y = height * (.09 + progress * .14)
+  const tail = width * .12
+  ctx.save()
+  ctx.globalAlpha = Math.sin(progress * Math.PI) * .6
+  const trail = ctx.createLinearGradient(x - tail, y - tail * .5, x, y)
+  trail.addColorStop(0, 'rgba(173,200,234,0)')
+  trail.addColorStop(1, 'rgba(218,230,249,.85)')
+  ctx.strokeStyle = trail
+  ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(x - tail, y - tail * .5); ctx.lineTo(x, y); ctx.stroke()
+  ctx.restore()
 }
 
 function positionSatellites(time) {
@@ -59,11 +103,17 @@ function paint(time) {
   positionSatellites(time)
   if (!ctx || !width || !height) return
   ctx.clearRect(0, 0, width, height)
+  if (galaxy) {
+    ctx.save()
+    ctx.globalAlpha = .8 + Math.sin(time * .16) * .15
+    ctx.drawImage(galaxy, Math.sin(time * .04) * 5, Math.cos(time * .04) * 3, width, height)
+    ctx.restore()
+  }
   for (const star of stars) {
     const drift = time * (star.radius > 1 ? 1.1 : .3)
     const x = (star.x * width + drift) % width
     const y = star.y * height
-    const twinkle = .78 + Math.sin(time * .55 + star.phase) * .22
+    const twinkle = .56 + Math.sin(time * star.speed + star.phase) * .44
     ctx.fillStyle = star.warm ? `rgba(232,209,177,${star.opacity * twinkle})` : `rgba(199,214,243,${star.opacity * twinkle})`
     ctx.beginPath()
     ctx.arc(x, y, star.radius, 0, Math.PI * 2)
@@ -77,6 +127,7 @@ function paint(time) {
       ctx.stroke()
     }
   }
+  if (!reducedMotion.value) paintMeteor(time)
   // Faint constellation links stay away from the central brand and form.
   for (const points of [
     [[.1, .2], [.18, .16], [.26, .22], [.31, .18]],
@@ -109,14 +160,13 @@ function syncMotion() {
   cancelAnimationFrame(frame)
   previous = 0
   const hidden = document.hidden || !universe.value?.clientWidth
-  if (!stopped.value && !hidden) frame = requestAnimationFrame(tick)
+  if (!reducedMotion.value && !hidden) frame = requestAnimationFrame(tick)
   else paint(elapsed)
 }
 function preferenceChanged() {
   reducedMotion.value = motionPreference.matches
   syncMotion()
 }
-function toggleMotion() { paused.value = !paused.value; syncMotion() }
 
 onMounted(() => {
   motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -136,12 +186,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section ref="universe" class="login-universe" :class="{ 'motion-paused': stopped }">
+  <section ref="universe" class="login-universe" :class="{ 'motion-paused': reducedMotion }">
     <canvas ref="canvas" class="starfield" aria-hidden="true" />
     <div class="login-brand"><img src="/aether.svg" alt="" /><span>Aether<small>以太 · 存储工作空间</small></span></div>
-    <button class="universe-motion" :disabled="reducedMotion" :title="reducedMotion ? '系统已开启减少动态效果' : paused ? '播放星轨动画' : '暂停星轨动画'" :aria-label="paused ? '播放星轨动画' : '暂停星轨动画'" :aria-pressed="paused" @click="toggleMotion">
-      <Icon :name="stopped ? 'Play' : 'Pause'" :size="14" />
-    </button>
     <div ref="scene" class="orbital-system" aria-label="围绕以太运行的存储连接器">
       <div class="orbital-float">
         <div v-for="(radius, i) in rings" :key="i" class="orbit" :style="{ width: `${radius * 200}%`, height: `${radius * 200 * .7 * 1.15}%` }" aria-hidden="true" />
@@ -165,22 +212,21 @@ onUnmounted(() => {
 .orbit { border-color: #8e9fc331; transform: translate(-50%, -50%) rotate(-18deg); }
 .orbit:nth-child(2) { border-color: #8e9fc33b; }
 .orbit:nth-child(3) { border-color: #8e9fc32b; }
-.orbital-center { box-shadow: 0 12px 36px #03061180, 0 0 0 10px #7185b108; }
+.orbital-center { border: 0; background: transparent; box-shadow: none; border-radius: 0; }
 .satellite { left: 0; top: 0; display: block; width: 0; height: 0; will-change: transform; }
 .satellite-body { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); display: grid; justify-items: center; }
-.satellite .provider-icon { width: 48px; height: 48px; background: #f5f7fc; border: 4px solid #323d56; box-shadow: 0 8px 20px #04081760; border-radius: 14px; }
+.satellite .provider-icon { width: 48px; height: 48px; padding: 0; background: transparent; border: 0; box-shadow: none; border-radius: 0; }
+.satellite :deep(.provider-logo) { width: 100%; height: 100%; }
+.satellite :deep(svg) { width: 36px; height: 36px; }
 .satellite-name { position: absolute; top: calc(100% + 8px); white-space: nowrap; font-size: 11px; color: #bbc6de; text-shadow: 0 1px 8px #121827; }
-.universe-motion { position: absolute; top: 45px; right: 40px; display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #8796b332; border-radius: 50%; background: #172032; color: #a5b3cf; z-index: 2; }
-.universe-motion:hover { background: #2a3551; color: #fff; }
 .motion-paused .orbital-float { animation-play-state: paused; }
 @keyframes orbital-float { 0%, 100% { transform: translateY(-5px); } 50% { transform: translateY(6px); } }
-@media (max-width: 1200px) { .universe-motion { top: 37px; right: 28px; } }
 @media (max-width: 960px) {
   .orbital-center { width: 48px; height: 48px; border-radius: 12px; }
   .orbital-center img { width: 40px; height: 40px; }
-  .satellite .provider-icon { width: 35px; height: 35px; border-width: 3px; border-radius: 11px; }
+  .satellite .provider-icon { width: 35px; height: 35px; }
+  .satellite :deep(svg) { width: 29px; height: 29px; }
   .satellite-name { font-size: 9px; }
-  .universe-motion { top: 100px; right: 28px; }
 }
 @media (prefers-reduced-motion: reduce) { .orbital-float { animation: none; } }
 </style>

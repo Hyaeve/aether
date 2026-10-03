@@ -38,7 +38,7 @@ cd ..
 go run ./cmd/aether
 ```
 
-访问 `http://localhost:15151`，创建管理员（密码至少 12 字符）。先在系统设置填写媒体服务器能访问的地址，例如 `http://192.168.1.10:15151`，再生成 STRM。
+访问 `http://localhost:15151`，创建管理员（密码非空即可，不设 12 字符下限；受 bcrypt 限制，最多 72 字节）。先在系统设置填写媒体服务器能访问的地址，例如 `http://192.168.1.10:15151`，再生成 STRM。
 
 前端开发：在另一个终端执行 `cd web` 后运行 `npm run dev`，Vite 代理 API 至 15151。
 
@@ -147,4 +147,4 @@ npm run test:e2e
 
 ## 参考说明
 
-参考本机 LitePan 的存储添加流程、配置字段、目录缓存与 STRM 的交互约定；未引用 AetherLink。LitePan 本机版本的许可证为 PolyForm Noncommercial 1.0.0，本项目未直接复制其源文件或品牌图片。网盘标识来自各服务官网，OpenList 标识来自其官方 Logo 仓库，来源记录见 `web/public/providers/SOURCES.md`；标识仅用于辨识服务，不代表官方授权或合作。Vue、Lucide、Go 扩展库、robfig/cron 等依赖遵循各自许可证。
+参考本机 LitePan 的存储添加流程、配置字段、目录缓存与 STRM 的交互约定；未引用 AetherLink。LitePan 本机版本的许可证为 PolyForm Noncommercial 1.0.0，本项目未直接复制其源文件或品牌图片。网盘标识来自各服务官网（天翼使用用户指定的 PNG），OpenList 标识来自其官方 Logo 仓库，来源记录见 `web/public/providers/SOURCES.md`；标识仅用于辨识服务，不代表官方授权或合作。Vue、Lucide、Go 扩展库、robfig/cron 等依赖遵循各自许可证。

@@ -316,8 +316,8 @@ func (a *App) setup(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &c) {
 		return
 	}
-	if len(c.Password) < 12 || len(c.Password) > 72 || strings.TrimSpace(c.Username) == "" {
-		fail(w, 400, errors.New("请输入账户名及 12–72 字节的密码"))
+	if len(c.Password) == 0 || len(c.Password) > 72 || strings.TrimSpace(c.Username) == "" {
+		fail(w, 400, errors.New("请输入账户名和非空密码，密码不能超过 72 字节"))
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(c.Password), bcrypt.DefaultCost)
@@ -748,8 +748,8 @@ func (a *App) account(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("当前密码不正确"))
 		return
 	}
-	if len(c.Password) < 12 || len(c.Password) > 72 || strings.TrimSpace(c.Username) == "" {
-		fail(w, 400, errors.New("请输入账户名及 12–72 字节的新密码"))
+	if len(c.Password) == 0 || len(c.Password) > 72 || strings.TrimSpace(c.Username) == "" {
+		fail(w, 400, errors.New("请输入账户名和非空新密码，密码不能超过 72 字节"))
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(c.Password), bcrypt.DefaultCost)

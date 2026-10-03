@@ -5,7 +5,7 @@ defineProps({ type: String, small: Boolean })
 const logos = {
   '115': '/providers/115.ico',
   mobile: '/providers/mobile.png',
-  tianyi: '/providers/tianyi.ico',
+  tianyi: '/providers/tianyi.png',
   quark: '/providers/quark.png',
   openlist: '/providers/openlist.svg'
 }
