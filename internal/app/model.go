@@ -68,13 +68,14 @@ type LogEntry struct {
 }
 
 type State struct {
-	Storages []Storage  `json:"storages"`
-	Tasks    []Task     `json:"tasks"`
-	Settings Settings   `json:"settings"`
-	Username string     `json:"username"`
-	Password string     `json:"password"`
-	SignKey  string     `json:"signKey"`
-	Logs     []LogEntry `json:"logs"`
+	CASTemporary []CASTemporary `json:"casTemporary,omitempty"`
+	Storages     []Storage      `json:"storages"`
+	Tasks        []Task         `json:"tasks"`
+	Settings     Settings       `json:"settings"`
+	Username     string         `json:"username"`
+	Password     string         `json:"password"`
+	SignKey      string         `json:"signKey"`
+	Logs         []LogEntry     `json:"logs"`
 }
 
 type Store struct {

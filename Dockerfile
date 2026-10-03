@@ -11,7 +11,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /aether ./cmd/aether
+ARG AETHER_VERSION=0.1.0
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X aether/internal/app.Version=${AETHER_VERSION}" -o /aether ./cmd/aether
 
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tzdata fuse3 \
@@ -19,6 +20,7 @@ RUN apk add --no-cache ca-certificates tzdata fuse3 \
 WORKDIR /app
 COPY --from=backend /aether /app/aether
 COPY --from=web /src/web/dist /app/web
+COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 ENV AETHER_PORT=15151 \
     AETHER_WEB_DIR=/app/web \
     TZ=Asia/Shanghai

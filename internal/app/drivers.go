@@ -78,6 +78,18 @@ func cloudHeaders(s Storage) http.Header {
 }
 
 func rootOf(s Storage) string {
+	if s.Type == "tianyi" {
+		if s.Config["root"] != "" && s.Config["root"] != "/" {
+			return s.Config["root"]
+		}
+		return "-11"
+	}
+	if nativeMobile(s) {
+		if s.Config["root"] != "" {
+			return s.Config["root"]
+		}
+		return "/"
+	}
 	if s.Type == "115" || s.Type == "quark" {
 		if s.Config["root"] != "" {
 			return s.Config["root"]
@@ -127,6 +139,16 @@ func (a *App) listFiles(ctx context.Context, s Storage, dir string, ttl int, fre
 }
 
 func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error) {
+	if s.Type == "tianyi" {
+		return a.tianyiList(ctx, s, dir)
+	}
+	if nativeMobile(s) {
+		host, err := a.mobileHost(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		return a.mobileListAt(ctx, s, host, dir)
+	}
 	out := []File{}
 	switch s.Type {
 	case "local":
@@ -158,7 +180,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 			}
 			out = append(out, File{ID: path.Join("/", dir, entry.Name()), Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size(), Modified: info.ModTime()})
 		}
-	case "openlist", "mobile", "tianyi":
+	case "openlist", "mobile":
 		for page := 1; ; page++ {
 			var res struct {
 				Code    int    `json:"code"`
@@ -371,6 +393,16 @@ func davList(ctx context.Context, s Storage, dir string) ([]File, error) {
 }
 
 func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Download, error) {
+	if s.Type == "tianyi" {
+		return a.tianyiLink(ctx, s, fileID)
+	}
+	if nativeMobile(s) {
+		host, err := a.mobileHost(ctx, s)
+		if err != nil {
+			return Download{}, err
+		}
+		return a.mobileLinkAt(ctx, s, host, fileID)
+	}
 	d := Download{Headers: http.Header{}}
 	switch s.Type {
 	case "local":
@@ -385,7 +417,7 @@ func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Dow
 		req, _ := http.NewRequest("GET", u, nil)
 		req.SetBasicAuth(s.Config["username"], s.Config["password"])
 		d.URL, d.Headers = u, req.Header
-	case "openlist", "mobile", "tianyi":
+	case "openlist", "mobile":
 		var res struct {
 			Code int `json:"code"`
 			Data struct {

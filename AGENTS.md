@@ -137,3 +137,64 @@
 - 修改 `AGENTS.md`：记录本轮变化；前面的根目录平铺记录为历史行为，以本条及当前 README 为准。
 - 验证：`go test ./... -count=1`、`go vet ./...`、三个 Playwright 测试通过。前端沿用上一轮已通过的构建。本次未改动本机配置数据，迁移在新版服务下次启动时执行。
 - 按用户要求，将本轮配置归类与上一轮尚未提交的星空、流星群、图标样式和对应测试一起提交推送；排除配置、密钥、exe、日志、依赖、构建与测试产物，推送结果以 Git 确认为准。
+
+## 2026-10-03：移除缎带并调整流星流畅度和图标比例
+
+- 修改 `web/src/components/LoginUniverse.vue`：移除 `paintRibbons` 及调用；取消 30 FPS 节流，每次 requestAnimationFrame 绘制。流星使用等量像素横纵位移，在不同画布比例下保持一致的 45 度左下方向；保留隐藏页面及减少动态效果暂停。OpenList 白底框尺寸不变，内边距缩为 1px，补偿原始 SVG 留白。
+- 修改 `web/src/meteor.js`：保留每批 2–5 条流星，缩短随机行程；新增 `meteorOpacity`，快速柔和淡入并在途中渐隐，不要求到达左下角。
+- 修改 `web/tests/workspace.spec.js`：更新短行程范围断言，覆盖淡入淡出曲线端点和亮度变化，检查 OpenList 内边距；保留动态像素、图标、响应式和业务流程验证。
+- 修改 `AGENTS.md`：记录以上实现和验证。
+- 验证：`npm run build`、三个 Playwright 测试通过；查看桌面截图确认无缎带、平行流星与放大的 OpenList 主体。实际帧率依赖运行设备，未宣称固定帧率。本轮未改动后端、用户配置或生成根目录 exe。
+
+## 2026-10-03：LitePan 导航、公共控件、存储授权和关于页
+
+- 修改 `web/src/App.vue`：十一项单层主导航，移除空间切换框和底部连接/版本信息；主题单按钮循环三态；最近任务通知与浏览器内按账户保存的已读标记；账户菜单加入关于入口并统一图标。
+- 新增 `web/src/components/TaskTabs.vue`、`NumberInput.vue`：任务栏目移入页面；数字输入单位与上下按钮共用尾部空间，悬浮/聚焦显示步进按钮，支持原生上下键和边界。
+- 修改 `web/src/components/Icon.vue`、`Modal.vue`：加入通知及步进图标；紧凑存储弹窗变体。
+- 修改 `web/src/pages/SettingsPage.vue`、`TasksPage.vue`：设置内部导航、公共数值控件、移除重复任务栏目。
+- 新增 `web/src/pages/ToolsPage.vue`：十类插件卡片，详情显示当前待实现边界；识别规则列出最小视频、黑名单、自定义识别词和匹配。
+- 新增 `web/src/pages/AboutPage.vue`，修改 `web/src/components/LoginUniverse.vue`：复用登录星空作关于页背景，显示后端版本并显式检查 GitHub 正式 Release。
+- 修改 `web/src/pages/StoragePage.vue`：移除连接器底部区和步骤说明行，图标/名称选择、紧凑表单、上一步、默认回收站策略、115 获取 TOKEN 及夸克扫码授权弹窗。关闭/卸载停止轮询并忽略过期请求。
+- 修改 `web/src/style.css`：252px 侧栏、16px 导航、17px 账户菜单、单边框内焦点、数字尾部复用、通知、插件、关于、紧凑弹窗及响应式。小屏弹窗可滚动但不显示滚动条。
+- 新增 `internal/app/authorization.go`：夸克扫码及 Cookie 回填、用户指定可信 HTTPS 115 OAuth 代理协议。授权续询令牌 AES-GCM 加密且绑定登录会话、提供商与五分钟期限；接口鉴权、响应禁止缓存、网络超时及错误处理。不默认使用 LitePan 授权服务，不冒充其客户端。
+- 新增 `internal/app/version.go`，修改 `internal/app/server.go`：受保护版本及 GitHub Release 检查接口；处理未发布、限流、网络异常和语义版本比较；新增授权路由和删除模式校验。
+- 新增 `internal/app/workspace_test.go`：版本检查模拟响应、授权加密/篡改/跨会话/跨提供商/过期验证、接口鉴权及删除模式测试。
+- 修改 `go.mod`、`go.sum`：二维码生成库及语义版本比较依赖；已运行 go mod tidy。
+- 修改 `Dockerfile`、`.github/workflows/docker-amd64.yml`：构建参数注入后端版本，版本标签构建传入标签。
+- 修改 `web/tests/workspace.spec.js`：导航、主题、通知已读、数字步进及焦点、紧凑表单、授权模拟回填、关于更新检查、插件卡片及桌面/移动截图。旧测试标签模糊匹配和登录后跳页竞态修正后全套重跑。
+- 修改 `README.md`、`docs/design-system.md`、`AGENTS.md`：记录当前行为、LitePan 主参考及未实现边界。
+- 验证：最终 `go test ./... -count=1`、`go vet ./...`、`npm run build`、四项 Playwright 测试均通过；查看存储桌面、115 配置弹窗及手机关于页截图。无真实网盘授权账号联调，无本地 Docker 构建验证。
+- 限制：CAS 独立入口尚未实现，缓存任务仍单独保留；辅助插件、目录整理、刮削仍为明确标注的预留模块。删除模式仅保存策略，文件服务仍只读。通知是每任务最新结果而非完整历史。115 授权需要用户信任且兼容协议的代理。
+- 隔离预览：启动 `127.0.0.1:15152`，临时 exe、日志及独立配置位于系统临时目录 `aether-preview-20fc6f670f984067921c3f084b997548`，进程 9980；不改动既有 15151 后端和用户配置，不在仓库根目录生成 exe。本轮未提交推送。
+
+## 2026-10-03：原生移动云盘与 CAS 任务
+
+- 参考本地 `139strm-main/yun139/{client,crypto,cas,strm}.py` 的协议及流程；新增 `THIRD_PARTY_NOTICES.md` 保留其 MIT 许可与协议来源，修改 `Dockerfile` 将声明放入镜像。
+- 新增 `internal/app/mobile.go`：新版个人云 Authorization 校验、请求签名、受限路由发现、分页目录、PC 秒传请求头和下载链接。原生模式与旧 OpenList 网关模式并存；没有自动令牌刷新。
+- 新增 `internal/app/cas.go`：有界 Base64 JSON 解析、名称/大小/SHA256 校验、秒传分片描述、存储池专用临时目录、90 秒播放准备上限、签名信息播放还原、可取消互斥门、活跃播放租约、加密临时记录及重启复用、闲置两小时清理。只处理记录的文件 ID，默认回收站，永久删除需存储池显式选择；失败还原记录不可复用，失效链接记录下次请求重新还原。
+- 修改 `internal/app/model.go`：加密状态中保存临时文件清单。修改 `internal/app/drivers.go`：原生移动目录及下载分流。
+- 修改 `internal/app/server.go`：CAS 校验、状态/清理鉴权接口、Authorization 脱敏、Range/HEAD 播放分流、临时文件存在时禁止切换账号/模式或删除停用存储；允许更新同账号授权。
+- 修改 `internal/app/tasks.go`：CAS 全量/增量、Cron、取消、排除与目录扫描复用任务框架；签名携带已验证 CAS 元数据；输出重名检测；周期清理过期临时文件。
+- 新增 `internal/app/cas_test.go`：格式与路径拒绝、原生存储约束、任务扫描与增量、取消、秒传复用、重启恢复、活跃保护、定向清理、签名篡改、Range/HEAD 代理及授权不泄漏、失败记录和互斥取消测试。上游均为模拟，无真实账号。
+- 修改 `web/src/pages/StoragePage.vue`、`web/src/lib.js`：移动原生/网关切换、Authorization 输入与删除模式说明。
+- 修改 `web/src/pages/TasksPage.vue`、`web/src/App.vue`：CAS 替换预留页，支持创建/编辑/调度/停止/删除任务、筛选原生移动存储、源目录选择、排除和临时文件管理；通知跳转 CAS。
+- 修改 `web/src/style.css`：任务表格保留最小列宽，小屏横向滚动避免逐字换行。
+- 修改 `web/tests/workspace.spec.js`：原生移动配置、CAS 任务表单/目录/持久化/编辑、临时清理和桌面手机截图；目录响应模拟。
+- 修改 `README.md`、`AGENTS.md`：使用步骤、与网关模式兼容、清理和权限边界及限制。历史 CAS 预留记录以本条为准。
+- 验证：Go 全量测试及 vet 通过，前端构建通过；五项浏览器测试通过后调整手机表格并再次全量验证，最终结果以工具输出为准。已查看 CAS 桌面表单与手机列表截图。
+- 真实移动账号、权益和大文件秒传未联调；仅支持 SHA256 视频 CAS。全量不删除本地孤儿，崩溃在云端创建和记录提交之间可能残留未记录文件；不能宣称云端无配额占用。
+- 更新隔离预览 `127.0.0.1:15152`，临时目录保持不变，进程改为 13792；未重启原 15151 实例，未在仓库根目录构建 exe，本轮未提交推送。
+
+## 2026-10-03：天翼原生账户登录、双网盘 CAS 与推送
+
+- 新增 `internal/app/tianyi.go`：参考 OpenList 官方仓库 `drivers/189pc` 的协议（修订 `4c39bbe9c228680e2a6f78555175f7f2063d452c`），用标准库独立接入天翼个人云。账户 RSA PKCS#1 v1.5 提交、HTTPS 域名与跳转限制、登录参数新旧页面兼容、内存会话复用及失效清除、HMAC-SHA1 请求签名、分页目录、下载链接、MD5 秒传、临时目录和定向批量清理；不使用 OpenList 网关。验证码和设备二次验证明确报错，尚无交互验证流程。
+- 修改 `internal/app/drivers.go`：天翼目录/下载原生分流，默认根 ID `-11`，移除天翼网关分支。
+- 修改 `internal/app/server.go`：天翼账号密码与数字根 ID 校验，移除旧网关配置字段；初始化会话缓存；CAS 接受移动、天翼原生池，临时文件存在时保护两种网盘的账户身份。
+- 修改 `internal/app/cas.go`：新增 MD5 字段及按存储校验，拒绝空 CAS 文件名，分派还原/下载/清理；沿用移动既有签名及临时记录键。增加已移入回收站状态，永久清理中断后继续清空指定文件，失败不删除记录。
+- 新增 `internal/app/tianyi_test.go`：模拟 RSA 登录、签名、数字/字符串 ID、目录/CAS 扫描、MD5 还原、Range/HEAD、凭据不泄漏、会话和重启复用、清理失败保留记录、永久清理续步、秒传未命中不提交、会话过期重登、验证码/二次验证/错误密码/无效公钥/网关拒绝和不可信域名。
+- 修改 `web/src/lib.js`、`web/src/pages/StoragePage.vue`：天翼原生账户元数据和精简账号密码表单、根 ID、删除策略；旧网关池编辑时重新配置原生账户，不保留网关密码作天翼凭据。修改 `web/src/pages/TasksPage.vue`：CAS 存储池选择包含原生天翼。
+- 修改 `web/tests/workspace.spec.js`：新增天翼配置、密码脱敏、目录选择、CAS 保存/刷新/编辑以及桌面手机截图测试。
+- 修改 `README.md`、`THIRD_PARTY_NOTICES.md`、`AGENTS.md`：记录协议来源、双网盘 CAS、账号加密、会话周期、验证码限制、旧网关池及任务目录迁移和本轮文件功能。旧记录中“天翼网关”“CAS 仅移动”以本条为准。
+- 验证：Go 测试、vet、前端构建及六项 Playwright 测试通过；检查天翼手机存储表单和桌面 CAS 截图。新增永久清理续步测试首次因测试存储未启用失败，修正夹具后重跑全套。Windows 本机 race 因未启用 CGO 无法执行，GitHub Linux 工作流保留 race 检测。没有真实移动/天翼账号或 Docker 联调，不宣称完成。
+- 隔离预览更新到 `127.0.0.1:15152`，进程 `31332`，临时程序 `aether-next.exe`、日志及配置仍在系统临时目录；健康检查正常。未操作原 15151 后端，未修改仓库用户配置，未生成仓库根目录 exe。
+- 按本轮用户要求，将之前尚未提交的界面、原生移动 CAS 和本轮天翼功能一起提交到 `main` 并推送；排除配置、密钥、exe、日志、依赖、构建与测试产物，实际提交及推送结果以 Git 输出为准。

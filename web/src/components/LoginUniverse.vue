@@ -2,14 +2,15 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
-import { createMeteorBatch } from '../meteor'
+import { createMeteorBatch, meteorOpacity } from '../meteor'
 
 const universe = ref(), canvas = ref(), scene = ref()
+defineProps({ decorative: Boolean })
 const reducedMotion = ref(false)
 const rings = [0.29, 0.36, 0.44]
 const ringByProvider = [0, 2, 1, 2, 1, 2, 0]
 const satellites = []
-let observer, motionPreference, frame = 0, elapsed = 0, previous = 0, lastPaint = 0
+let observer, motionPreference, frame = 0, elapsed = 0, previous = 0
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
 let galaxy
@@ -76,12 +77,14 @@ function paintMeteor(time) {
   for (const meteor of meteors) {
     const progress = (time % 12 - meteor.delay) / meteor.duration
     if (progress <= 0 || progress >= 1) continue
-    const x = width * (meteor.x + progress * meteor.dx)
-    const y = height * (meteor.y + progress * meteor.dy)
-    const tailX = x - width * meteor.dx * meteor.tail
-    const tailY = y - height * meteor.dy * meteor.tail
+    // Equal pixel offsets keep every trail parallel at all viewport aspect ratios.
+    const travel = Math.min(width, height) * meteor.distance
+    const x = width * meteor.x - progress * travel
+    const y = height * meteor.y + progress * travel
+    const tailX = x + travel * meteor.tail
+    const tailY = y - travel * meteor.tail
     ctx.save()
-    ctx.globalAlpha = Math.sin(progress * Math.PI) * .75
+    ctx.globalAlpha = meteorOpacity(progress) * .75
     const trail = ctx.createLinearGradient(tailX, tailY, x, y)
     trail.addColorStop(0, 'rgba(173,200,234,0)')
     trail.addColorStop(1, 'rgba(218,230,249,.95)')
@@ -92,31 +95,6 @@ function paintMeteor(time) {
     ctx.beginPath(); ctx.arc(x, y, 1.3, 0, Math.PI * 2); ctx.fill()
     ctx.restore()
   }
-}
-
-function paintRibbons(time) {
-  ctx.save()
-  ctx.globalCompositeOperation = 'screen'
-  // Fine strands form flowing ribbons while leaving the stars visible between them.
-  for (let band = 0; band < 3; band++) {
-    for (let strand = 0; strand < 24; strand++) {
-      ctx.beginPath()
-      for (let step = 0; step <= 80; step++) {
-        const t = step / 80
-        const x = width * t
-        const envelope = Math.sin(t * Math.PI)
-        const y = height * (.2 + band * .23 + t * .18
-          + Math.sin(t * 7 + band * 1.7 + time * .08) * .08 * envelope
-          + (strand - 12) * .0025 * envelope)
-        if (step === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      }
-      ctx.strokeStyle = band === 1 ? 'rgba(154,204,213,.022)' : 'rgba(180,188,232,.025)'
-      ctx.lineWidth = .8
-      ctx.stroke()
-    }
-  }
-  ctx.restore()
 }
 
 function positionSatellites(time) {
@@ -138,7 +116,6 @@ function paint(time) {
   positionSatellites(time)
   if (!ctx || !width || !height) return
   ctx.clearRect(0, 0, width, height)
-  paintRibbons(time)
   if (galaxy) {
     ctx.save()
     ctx.globalAlpha = .8 + Math.sin(time * .16) * .15
@@ -188,7 +165,7 @@ function tick(now) {
   if (!previous) previous = now
   elapsed += Math.min(now - previous, 100) / 1000
   previous = now
-  if (now - lastPaint >= 1000 / 30) { paint(elapsed); lastPaint = now }
+  paint(elapsed)
   frame = requestAnimationFrame(tick)
 }
 
@@ -222,9 +199,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section ref="universe" class="login-universe" :class="{ 'motion-paused': reducedMotion }">
+  <section ref="universe" class="login-universe" :class="{ 'motion-paused': reducedMotion, 'universe-decorative': decorative }">
     <canvas ref="canvas" class="starfield" aria-hidden="true" />
-    <div class="login-brand"><img src="/aether.svg" alt="" /><span>Aether<small>以太 · 存储工作空间</small></span></div>
+    <div v-if="!decorative" class="login-brand"><img src="/aether.svg" alt="" /><span>Aether<small>以太 · 存储工作空间</small></span></div>
     <div ref="scene" class="orbital-system" aria-label="围绕以太运行的存储连接器">
       <div class="orbital-float">
         <div v-for="(radius, i) in rings" :key="i" class="orbit" :style="{ width: `${radius * 200}%`, height: `${radius * 200 * .7 * 1.15}%` }" aria-hidden="true" />
@@ -234,13 +211,15 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <div class="universe-caption"><span>EVERY SPACE, CONNECTED</span><h2>万千存储，同一片以太。</h2><p>让数据流动，让空间相连。</p></div>
-    <footer>AETHER WORKSPACE <span>01 / CONNECT YOUR SPACE</span></footer>
+    <div v-if="!decorative" class="universe-caption"><span>EVERY SPACE, CONNECTED</span><h2>万千存储，同一片以太。</h2><p>让数据流动，让空间相连。</p></div>
+    <footer v-if="!decorative">AETHER WORKSPACE <span>01 / CONNECT YOUR SPACE</span></footer>
   </section>
 </template>
 
 <style scoped>
 .login-universe { background: #121827; isolation: isolate; }
+.universe-decorative { display: flex; min-height: 100%; height: 100%; padding: 0; }
+.universe-decorative .orbital-system { visibility: hidden; }
 .starfield { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
 .login-brand, .universe-caption, footer { position: relative; z-index: 1; }
 .orbital-system { max-width: 650px; aspect-ratio: 1.15; width: 100%; margin: auto; }
@@ -265,5 +244,6 @@ onUnmounted(() => {
   .satellite :deep(svg) { width: 29px; height: 29px; }
   .satellite-framed .provider-icon { padding: 5px; }
 }
+.satellite[data-provider="openlist"] .provider-icon { padding: 1px; }
 @media (prefers-reduced-motion: reduce) { .orbital-float { animation: none; } }
 </style>

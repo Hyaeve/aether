@@ -30,8 +30,8 @@ export async function reload() {
 }
 export const drivers = [
   { id: '115', name: '115 网盘', subtitle: 'Open API', icon: '115', color: '#2389dc', kind: '云端存储', auth: '访问令牌', root: '0', tags: ['官方 API', '直连接入'] },
-  { id: 'mobile', name: '移动云盘', subtitle: 'China Mobile', icon: 'M', color: '#269cc0', kind: '云端存储', auth: 'OpenList 网关', root: '/', tags: ['OpenList 网关'] },
-  { id: 'tianyi', name: '天翼云盘', subtitle: 'China Telecom', icon: '天', color: '#db9234', kind: '云端存储', auth: 'OpenList 网关', root: '/', tags: ['OpenList 网关'] },
+  { id: 'mobile', name: '移动云盘', subtitle: 'China Mobile', icon: 'M', color: '#269cc0', kind: '云端存储', auth: '原生 / OpenList 网关', root: '/', tags: ['原生个人云', 'CAS'] },
+  { id: 'tianyi', name: '天翼云盘', subtitle: 'China Telecom', icon: '天', color: '#db9234', kind: '云端存储', auth: '原生账户登录', root: '-11', tags: ['原生个人云', 'CAS'] },
   { id: 'quark', name: '夸克网盘', subtitle: 'Quark', icon: 'Q', color: '#277eaf', kind: '云端存储', auth: 'Cookie', root: '0', tags: ['Cookie', '本机代理'] },
   { id: 'openlist', name: 'OpenList', subtitle: 'Storage gateway', icon: 'O', color: '#5479cb', kind: '协议与本地', auth: 'API Token', root: '/', tags: ['聚合存储', 'API'] },
   { id: 'webdav', name: 'WebDAV', subtitle: 'Web Distributed', icon: 'dav', color: '#5c8c78', kind: '协议与本地', auth: '账户密码', root: '/', tags: ['标准协议'] },

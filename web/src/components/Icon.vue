@@ -1,7 +1,7 @@
 <script setup>
 import {
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
-  Box, Check, ChevronDown, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
+  Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
   CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
@@ -11,7 +11,7 @@ import {
 import { computed } from 'vue'
 const icons = {
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
-  Box, Check, ChevronDown, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
+  Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
   CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,

@@ -181,7 +181,7 @@ func (a *App) outputRelative(target string) (string, error) {
 func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	var root *os.Root
 	target := ""
-	if t.Kind == "strm" {
+	if t.Kind == "strm" || t.Kind == "cas" {
 		var err error
 		target, err = a.outputRelative(t.Target)
 		if err != nil {
@@ -195,6 +195,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	}()
 	count := 0
 	visited := map[string]bool{}
+	outputs := map[string]bool{}
 	var walk func(string, string, int) error
 	walk = func(dir, rel string, depth int) error {
 		if err := ctx.Err(); err != nil {
@@ -237,7 +238,21 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 				continue
 			}
-			if t.Kind != "strm" || !isVideo(f.Name) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
+			var info *CASInfo
+			if t.Kind == "cas" {
+				if !strings.EqualFold(path.Ext(f.Name), ".cas") || excluded(f.Name, t.ExcludeFiles) {
+					continue
+				}
+				parsed, err := a.readCAS(ctx, s, f)
+				if err != nil {
+					return fmt.Errorf("%s: %w", f.Name, err)
+				}
+				if excludedType(parsed.Name, t.ExcludeTypes) {
+					continue
+				}
+				info = &parsed
+				child = path.Join(rel, parsed.Name)
+			} else if t.Kind != "strm" || !isVideo(f.Name) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
 				continue
 			}
 			// Create the output root only when a matching file actually needs writing.
@@ -252,6 +267,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			// Retain the source extension so movie.mp4 and movie.mkv never collide.
 			filename := path.Join(target, child+".strm")
+			if outputs[strings.ToLower(filename)] {
+				return fmt.Errorf("输出文件名冲突：%s", filename)
+			}
+			outputs[strings.ToLower(filename)] = true
 			if t.Mode == "incremental" {
 				if _, err := root.Stat(filename); err == nil {
 					continue
@@ -271,7 +290,8 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			if err != nil {
 				return err
 			}
-			_, err = fh.WriteString(a.streamURL(s.ID, f.ID, f.PickCode) + "\n")
+			link := a.signedStreamURL(streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode, CAS: info})
+			_, err = fh.WriteString(link + "\n")
 			closeErr := fh.Close()
 			if err != nil {
 				return err
@@ -288,14 +308,19 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 }
 
 type streamClaim struct {
-	Storage string `json:"s"`
-	File    string `json:"f"`
-	Pick    string `json:"p"`
+	Storage string   `json:"s"`
+	File    string   `json:"f"`
+	Pick    string   `json:"p"`
+	CAS     *CASInfo `json:"cas,omitempty"`
 }
 
 func (a *App) streamURL(sid, fid, pick string) string {
+	return a.signedStreamURL(streamClaim{Storage: sid, File: fid, Pick: pick})
+}
+
+func (a *App) signedStreamURL(claim streamClaim) string {
 	st := a.store.snapshot()
-	b, _ := json.Marshal(streamClaim{sid, fid, pick})
+	b, _ := json.Marshal(claim)
 	token := base64.RawURLEncoding.EncodeToString(b)
 	mac := hmac.New(sha256.New, []byte(st.SignKey))
 	mac.Write([]byte(token))
@@ -308,11 +333,20 @@ func (a *App) scheduler() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	lastSnapshot := time.Now()
+	lastCASCleanup := time.Time{}
 	for {
 		select {
 		case <-a.ctx.Done():
 			return
 		case now := <-ticker.C:
+			if now.Sub(lastCASCleanup) >= time.Minute {
+				lastCASCleanup = now
+				ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+				if _, err := a.cleanupCAS(ctx); err != nil && a.ctx.Err() == nil {
+					a.logger.Printf("CAS cleanup: %v", err)
+				}
+				cancel()
+			}
 			st := a.store.snapshot()
 			for _, t := range st.Tasks {
 				if t.Enabled && !t.NextRun.IsZero() && !now.Before(t.NextRun) {

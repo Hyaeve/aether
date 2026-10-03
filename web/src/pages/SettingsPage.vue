@@ -3,6 +3,8 @@ import { reactive, ref } from 'vue'
 import { api, state, reload, notify, bytes } from '../lib'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
+import NumberInput from '../components/NumberInput.vue'
+import AboutPage from './AboutPage.vue'
 const props = defineProps({ section: { default: 'cache' } })
 const form = reactive({ ...state.settings })
 const account = reactive({ username: state.username, current: '', password: '' })
@@ -25,22 +27,27 @@ async function clear() {
 </script>
 <template>
   <section class="page-head"><div><div class="eyebrow">{{ section === 'cache' ? 'CACHE POLICY' : 'SYSTEM PREFERENCES' }}</div><h1>{{ section === 'cache' ? '缓存设置' : section === 'webdav' ? 'WebDAV 服务' : '系统设置' }}<span class="title-dot">.</span></h1><p>{{ section === 'cache' ? '为目录访问与后台任务设定统一的缓存策略。' : section === 'webdav' ? '以一个入口，访问已连接的存储空间。' : '管理服务、账户与安全。' }}</p></div><button v-if="section === 'cache'" class="btn" @click="$router.push('/tasks/cache')"><Icon name="ArrowLeft" />返回缓存任务</button></section>
-  <div v-if="section === 'account'" class="tabs settings-tabs"><button @click="$router.push('/settings')">常规设置</button><button class="active">账户与安全</button></div>
-  <div v-if="section === 'general'" class="tabs settings-tabs"><button class="active">常规设置</button><button @click="$router.push('/settings/account')">账户与安全</button></div>
-  <form v-if="section === 'account'" class="settings-form" @submit.prevent="changeAccount">
+  <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about'].includes(section) }">
+  <nav v-if="['account', 'general', 'about'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
+    <RouterLink to="/settings" :class="{ active: section === 'general' }"><Icon name="Settings2" />常规设置</RouterLink>
+    <RouterLink to="/settings/account" :class="{ active: section === 'account' }"><Icon name="UserRound" />账户与安全</RouterLink>
+    <RouterLink to="/settings/about" :class="{ active: section === 'about' }"><Icon name="Info" />关于以太</RouterLink>
+  </nav>
+  <AboutPage v-if="section === 'about'" />
+  <form v-else-if="section === 'account'" class="settings-form" @submit.prevent="changeAccount">
     <section class="settings-section"><div class="settings-section-title"><Icon name="ShieldCheck" /><div><h2>账户与安全</h2><p>修改密码后，其他登录会话将失效。</p></div></div><div class="form-grid"><label class="full">账户名<input v-model="account.username" required autocomplete="username" /></label><label class="full">当前密码<input v-model="account.current" type="password" required autocomplete="current-password" /></label><label class="full">新密码<input v-model="account.password" type="password" required maxlength="72" autocomplete="new-password" /></label></div></section><p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button class="btn primary" :disabled="busy"><Icon name="Save" />保存账户</button></div>
   </form>
   <form v-else class="settings-form" @submit.prevent="save">
     <template v-if="section === 'cache'">
       <section class="settings-section"><div class="settings-section-title"><Icon name="Database" /><div><h2>元数据缓存</h2><p>任务级设置优先于存储池设置，其次使用全局设置。</p></div><span class="status success">{{ state.cache.entries || 0 }} 条 · {{ bytes(state.cache.bytes) }}</span></div>
         <label class="settings-row"><span><strong>启用元数据缓存</strong><small>文件浏览、STRM 与缓存任务共用目录缓存</small></span><input v-model="form.cacheEnabled" type="checkbox" role="switch" class="switch" /></label>
-        <label class="settings-row"><span><strong>全局缓存时间</strong><small>未单独配置的存储和任务使用此有效期</small></span><div class="unit-input"><input v-model.number="form.cacheTTL" type="number" min="1" required /><span>分钟</span></div></label>
-        <label class="settings-row"><span><strong>缓存条目上限</strong><small>达到上限后，按 LRU 淘汰最久未使用的条目</small></span><div class="unit-input"><input v-model.number="form.cacheMaxItems" type="number" min="1" max="1000000" required /><span>条</span></div></label>
-        <label class="settings-row"><span><strong>缓存内存上限</strong><small>按序列化元数据大小估算，不含运行时对象开销</small></span><div class="unit-input"><input v-model.number="form.cacheMemoryMB" type="number" min="1" max="4096" required /><span>MB</span></div></label>
+        <div class="settings-row"><span><strong>全局缓存时间</strong><small>未单独配置的存储和任务使用此有效期</small></span><NumberInput v-model="form.cacheTTL" aria-label="全局缓存时间" unit="分钟" min="1" required /></div>
+        <div class="settings-row"><span><strong>缓存条目上限</strong><small>达到上限后，按 LRU 淘汰最久未使用的条目</small></span><NumberInput v-model="form.cacheMaxItems" aria-label="缓存条目上限" unit="条" min="1" max="1000000" required /></div>
+        <div class="settings-row"><span><strong>缓存内存上限</strong><small>按序列化元数据大小估算，不含运行时对象开销</small></span><NumberInput v-model="form.cacheMemoryMB" aria-label="缓存内存上限" unit="MB" min="1" max="4096" required /></div>
       </section>
       <section class="settings-section"><div class="settings-section-title"><Icon name="HardDriveDownload" /><div><h2>持久化</h2><p>将有效缓存写入磁盘，重启后恢复。</p></div></div>
         <label class="settings-row"><span><strong>缓存持久化</strong><small>快照保存在服务数据目录</small></span><input v-model="form.cachePersist" type="checkbox" role="switch" class="switch" /></label>
-        <label class="settings-row"><span><strong>持久化快照间隔</strong><small>正常关闭服务时也会保存一次快照</small></span><div class="unit-input"><input v-model.number="form.snapshotInterval" type="number" min="1" required :disabled="!form.cachePersist" /><span>分钟</span></div></label>
+        <div class="settings-row"><span><strong>持久化快照间隔</strong><small>正常关闭服务时也会保存一次快照</small></span><NumberInput v-model="form.snapshotInterval" aria-label="持久化快照间隔" unit="分钟" min="1" required :disabled="!form.cachePersist" /></div>
       </section>
       <section class="settings-section"><div class="settings-section-title"><Icon name="Network" /><div><h2>WebDAV 缓存</h2><p>使用同一套元数据缓存与容量限制。</p></div></div><label class="settings-row"><span><strong>启用 WebDAV 目录缓存</strong><small>关闭后，每次 PROPFIND 直接读取上游目录</small></span><input v-model="form.webdavCache" type="checkbox" role="switch" class="switch" /></label></section>
     </template>
@@ -58,5 +65,6 @@ async function clear() {
     </template>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button v-if="section === 'cache'" type="button" class="btn danger-outline" @click="clearConfirm = true"><Icon name="Trash2" />清空缓存</button><button class="btn primary" :disabled="busy"><Icon name="Save" />{{ busy ? '保存中…' : '保存设置' }}</button></div>
   </form>
+  </div>
   <Modal v-if="clearConfirm" title="清空缓存" @close="clearConfirm = false"><div class="modal-body">确认清空所有目录缓存及磁盘快照？存储中的文件不会受影响。</div><footer class="modal-footer"><button class="btn" @click="clearConfirm = false">取消</button><button class="btn danger" :disabled="busy" @click="clear">清空缓存</button></footer></Modal>
 </template>

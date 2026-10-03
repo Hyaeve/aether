@@ -27,6 +27,10 @@ import (
 )
 
 type App struct {
+	tianyiMu       sync.Mutex
+	tianyiSessions map[string]tianyiSession
+	casGate        chan struct{}
+	casActive      map[string]int
 	store          *Store
 	cache          *Cache
 	ctx            context.Context
@@ -83,6 +87,9 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	}
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
 		gates: map[string]time.Time{}, intervals: map[string]int{}, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, started: time.Now()}
+	a.casGate = make(chan struct{}, 1)
+	a.casActive = map[string]int{}
+	a.tianyiSessions = map[string]tianyiSession{}
 	a.cache.restore(dataDir, store.snapshot().Settings)
 	a.dav = &webdav.Handler{Prefix: "/dav", FileSystem: davFS{a}, LockSystem: webdav.NewMemLS()}
 	return a, nil
@@ -169,6 +176,12 @@ func (a *App) Handler(webDir string) http.Handler {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 	})
 	mux.Handle("/api/state", a.protected(http.HandlerFunc(a.state)))
+	mux.Handle("GET /api/cas/status", a.protected(http.HandlerFunc(a.casStatus)))
+	mux.Handle("POST /api/cas/cleanup", a.protected(http.HandlerFunc(a.casCleanup)))
+	mux.Handle("GET /api/version", a.protected(http.HandlerFunc(a.version)))
+	mux.Handle("GET /api/version/check", a.protected(http.HandlerFunc(a.checkVersion)))
+	mux.Handle("POST /api/authorization/{provider}/start", a.protected(http.HandlerFunc(a.startAuthorization)))
+	mux.Handle("POST /api/authorization/{provider}/poll", a.protected(http.HandlerFunc(a.pollAuthorization)))
 	mux.Handle("/api/storages", a.protected(http.HandlerFunc(a.storages)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
@@ -366,7 +379,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.store.snapshot()
 	for i := range st.Storages {
-		for _, key := range []string{"password", "token", "accessToken", "refreshToken", "cookie"} {
+		for _, key := range []string{"password", "token", "accessToken", "refreshToken", "cookie", "authorization"} {
 			if st.Storages[i].Config[key] != "" {
 				st.Storages[i].Config[key] = "********"
 			}
@@ -387,6 +400,16 @@ func validateStorage(s *Storage) error {
 	if s.Config == nil {
 		s.Config = map[string]string{}
 	}
+	if s.Config["deleteMode"] == "" {
+		s.Config["deleteMode"] = "trash"
+	}
+	if s.Config["deleteMode"] != "trash" && s.Config["deleteMode"] != "permanent" {
+		return errors.New("无效的删除模式")
+	}
+	if nativeMobile(*s) {
+		_, _, err := mobileAccount(*s)
+		return err
+	}
 	required := []string{}
 	switch s.Type {
 	case "local":
@@ -395,7 +418,19 @@ func validateStorage(s *Storage) error {
 		required = []string{"accessToken"}
 	case "quark":
 		required = []string{"cookie"}
-	case "openlist", "mobile", "tianyi", "webdav":
+	case "tianyi":
+		required = []string{"username", "password"}
+		s.Config["username"] = strings.TrimSpace(s.Config["username"])
+		s.Config["mode"] = "native"
+		if s.Config["root"] == "" || s.Config["root"] == "/" {
+			s.Config["root"] = "-11"
+		}
+		if _, err := strconv.ParseInt(s.Config["root"], 10, 64); err != nil {
+			return errors.New("天翼根目录需填写数字 ID，个人云根目录为 -11")
+		}
+		delete(s.Config, "address")
+		delete(s.Config, "token")
+	case "openlist", "mobile", "webdav":
 		required = []string{"address"}
 		u, err := url.Parse(s.Config["address"])
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
@@ -453,6 +488,11 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "PUT" && !decode(w, r, &incoming) {
 		return
 	}
+	if err := a.acquireCAS(r.Context()); err != nil {
+		fail(w, 408, err)
+		return
+	}
+	defer func() { <-a.casGate }()
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	for _, running := range a.runningStorage {
@@ -465,6 +505,20 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 		for i, s := range st.Storages {
 			if s.ID != sid {
 				continue
+			}
+			for _, temporary := range st.CASTemporary {
+				if temporary.StorageID == sid {
+					if r.Method == "DELETE" || !incoming.Enabled || !casStorage(incoming) {
+						return errors.New("该存储池仍有 CAS 临时文件，请等待过期清理后再删除、停用或切换接入方式")
+					}
+					if nativeTianyi(s) || incoming.Config["authorization"] != "********" {
+						oldAccount, _ := casAccount(s)
+						newAccount, err := casAccount(incoming)
+						if err != nil || oldAccount != newAccount {
+							return errors.New("CAS 临时文件清理前不能更换网盘账号，可更新同账号凭据")
+						}
+					}
+				}
 			}
 			if r.Method == "DELETE" {
 				for _, t := range st.Tasks {
@@ -588,7 +642,13 @@ func (a *App) validateTask(t *Task) error {
 		return errors.New("缓存时间无效")
 	}
 	switch t.Kind {
-	case "strm":
+	case "strm", "cas":
+		if t.Kind == "cas" {
+			s, _ := a.store.storage(t.StorageID)
+			if !casStorage(s) {
+				return errors.New("CAS 任务需要原生移动新版个人云或天翼个人云存储池")
+			}
+		}
 		t.Target = strings.TrimSpace(t.Target)
 		if _, err := a.outputRelative(t.Target); err != nil {
 			return err
@@ -804,7 +864,14 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, err)
 		return
 	}
-	d, err := a.download(r.Context(), s, claim.File, claim.Pick)
+	var d Download
+	if claim.CAS != nil {
+		var release func()
+		d, release, err = a.casDownload(r.Context(), s, claim)
+		defer release()
+	} else {
+		d, err = a.download(r.Context(), s, claim.File, claim.Pick)
+	}
 	if err != nil {
 		fail(w, 502, err)
 		return
