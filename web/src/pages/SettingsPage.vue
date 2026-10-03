@@ -5,9 +5,10 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import NumberInput from '../components/NumberInput.vue'
 import AboutPage from './AboutPage.vue'
+import WebDAVUsers from '../components/WebDAVUsers.vue'
 const props = defineProps({ section: { default: 'cache' } })
 const form = reactive({ ...state.settings })
-const account = reactive({ username: state.username, current: '', password: '' })
+const account = reactive({ username: state.username, password: '', sessionDays: state.settings.sessionDays || 7 })
 const busy = ref(false), error = ref(''), clearConfirm = ref(false)
 async function save() {
   busy.value = true; error.value = ''
@@ -16,7 +17,7 @@ async function save() {
 }
 async function changeAccount() {
   busy.value = true; error.value = ''
-  try { await api('/account', 'PUT', account); account.current = ''; account.password = ''; await reload(); notify('账户已更新，其他会话已退出') }
+  try { await api('/account', 'PUT', account); account.password = ''; await reload(); notify('账号已更新，其他会话已退出') }
   catch (e) { error.value = e.message } finally { busy.value = false }
 }
 async function clear() {
@@ -26,16 +27,17 @@ async function clear() {
 }
 </script>
 <template>
-  <section class="page-head"><div><div class="eyebrow">{{ section === 'cache' ? 'CACHE POLICY' : 'SYSTEM PREFERENCES' }}</div><h1>{{ section === 'cache' ? '缓存设置' : section === 'webdav' ? 'WebDAV 服务' : '系统设置' }}<span class="title-dot">.</span></h1><p>{{ section === 'cache' ? '为目录访问与后台任务设定统一的缓存策略。' : section === 'webdav' ? '以一个入口，访问已连接的存储空间。' : '管理服务、账户与安全。' }}</p></div><button v-if="section === 'cache'" class="btn" @click="$router.push('/tasks/cache')"><Icon name="ArrowLeft" />返回缓存任务</button></section>
+  <section v-if="section === 'cache'" class="page-head"><h1>缓存设置</h1><button class="btn" @click="$router.push('/tasks/cache')"><Icon name="ArrowLeft" />返回缓存任务</button></section>
   <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about'].includes(section) }">
   <nav v-if="['account', 'general', 'about'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
-    <RouterLink to="/settings" :class="{ active: section === 'general' }"><Icon name="Settings2" />常规设置</RouterLink>
-    <RouterLink to="/settings/account" :class="{ active: section === 'account' }"><Icon name="UserRound" />账户与安全</RouterLink>
+    <RouterLink to="/settings/account" :class="{ active: section === 'account' }"><Icon name="UserRound" />账号与安全</RouterLink>
     <RouterLink to="/settings/about" :class="{ active: section === 'about' }"><Icon name="Info" />关于以太</RouterLink>
   </nav>
   <AboutPage v-if="section === 'about'" />
   <form v-else-if="section === 'account'" class="settings-form" @submit.prevent="changeAccount">
-    <section class="settings-section"><div class="settings-section-title"><Icon name="ShieldCheck" /><div><h2>账户与安全</h2><p>修改密码后，其他登录会话将失效。</p></div></div><div class="form-grid"><label class="full">账户名<input v-model="account.username" required autocomplete="username" /></label><label class="full">当前密码<input v-model="account.current" type="password" required autocomplete="current-password" /></label><label class="full">新密码<input v-model="account.password" type="password" required maxlength="72" autocomplete="new-password" /></label></div></section><p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button class="btn primary" :disabled="busy"><Icon name="Save" />保存账户</button></div>
+    <section class="settings-section"><div class="form-grid"><label>账号<input v-model="account.username" required maxlength="150" autocomplete="username" /></label><label>密码<input v-model="account.password" type="password" required maxlength="72" autocomplete="new-password" /></label></div></section>
+    <section class="settings-section"><div class="settings-row"><strong>会话有效期</strong><NumberInput v-model="account.sessionDays" aria-label="会话有效期" unit="天" min="1" max="365" required /></div></section>
+    <p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button class="btn primary" :disabled="busy"><Icon name="Save" />保存账号</button></div>
   </form>
   <form v-else class="settings-form" @submit.prevent="save">
     <template v-if="section === 'cache'">
@@ -52,9 +54,10 @@ async function clear() {
       <section class="settings-section"><div class="settings-section-title"><Icon name="Network" /><div><h2>WebDAV 缓存</h2><p>使用同一套元数据缓存与容量限制。</p></div></div><label class="settings-row"><span><strong>启用 WebDAV 目录缓存</strong><small>关闭后，每次 PROPFIND 直接读取上游目录</small></span><input v-model="form.webdavCache" type="checkbox" role="switch" class="switch" /></label></section>
     </template>
     <template v-else-if="section === 'webdav'">
+      <section class="settings-section"><label>外部访问地址<input v-model="form.publicURL" type="url" required placeholder="http://192.168.1.10:15151" /></label></section>
       <section class="settings-section"><div class="settings-section-title"><Icon name="Network" /><div><h2>聚合 WebDAV</h2><p>与主服务共用 15151 端口，当前提供只读访问。</p></div></div>
         <label class="settings-row"><span><strong>启用 WebDAV 服务</strong><small>支持目录浏览、文件读取及 Range 请求</small></span><input v-model="form.webdavEnabled" type="checkbox" role="switch" class="switch" /></label>
-        <div class="settings-row"><span><strong>服务地址</strong><small>使用管理员账户与密码；公网访问请配置 HTTPS</small></span><code>{{ form.publicURL }}/dav/</code></div>
+        <div class="settings-row"><span><strong>服务地址</strong><small>使用管理员账号与密码；公网访问请配置 HTTPS</small></span><code>{{ form.publicURL }}/dav/</code></div>
         <div class="settings-row"><span><strong>目录映射</strong><small>使用固定的存储池 ID 作为根目录，重命名不影响路径</small></span><span>{{ state.storages.filter(s => s.enabled).length }} 个存储池</span></div>
         <div v-for="s in state.storages.filter(s => s.enabled)" :key="s.id" class="settings-row"><strong>{{ s.name }}</strong><code>/{{ s.id }}/</code></div>
       </section>
@@ -66,5 +69,6 @@ async function clear() {
     <p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button v-if="section === 'cache'" type="button" class="btn danger-outline" @click="clearConfirm = true"><Icon name="Trash2" />清空缓存</button><button class="btn primary" :disabled="busy"><Icon name="Save" />{{ busy ? '保存中…' : '保存设置' }}</button></div>
   </form>
   </div>
+  <WebDAVUsers v-if="section === 'webdav'" />
   <Modal v-if="clearConfirm" title="清空缓存" @close="clearConfirm = false"><div class="modal-body">确认清空所有目录缓存及磁盘快照？存储中的文件不会受影响。</div><footer class="modal-footer"><button class="btn" @click="clearConfirm = false">取消</button><button class="btn danger" :disabled="busy" @click="clear">清空缓存</button></footer></Modal>
 </template>

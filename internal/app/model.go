@@ -51,6 +51,7 @@ type Task struct {
 }
 
 type Settings struct {
+	SessionDays      int    `json:"sessionDays"`
 	CacheEnabled     bool   `json:"cacheEnabled"`
 	CacheTTL         int    `json:"cacheTTL"`
 	CacheMaxItems    int    `json:"cacheMaxItems"`
@@ -69,6 +70,7 @@ type LogEntry struct {
 }
 
 type State struct {
+	DAVUsers     []DAVUser      `json:"davUsers,omitempty"`
 	CASTemporary []CASTemporary `json:"casTemporary,omitempty"`
 	Storages     []Storage      `json:"storages"`
 	Tasks        []Task         `json:"tasks"`
@@ -121,7 +123,7 @@ func NewStore(dir string) (*Store, error) {
 	s := &Store{dir: dir, aead: aead}
 	s.state = State{
 		Storages: []Storage{}, Tasks: []Task{}, Logs: []LogEntry{}, SignKey: id(),
-		Settings: Settings{CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: "http://localhost:15151"},
+		Settings: Settings{SessionDays: 7, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: "http://localhost:15151"},
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "state.enc"))
 	if err == nil {

@@ -25,9 +25,9 @@ function applyTheme() { document.documentElement.dataset.theme = theme.value ===
 watch(theme, () => { localStorage.setItem('aether-theme', theme.value); applyTheme() })
 applyTheme()
 const navigation = [
-  { path: '/dashboard', label: '仪表盘', icon: 'LayoutDashboard' }, { path: '/files', label: '文件管理', icon: 'FolderOpen' },
+  { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件管理', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/backup', label: '备份中心', icon: 'ArchiveRestore' },
-  { path: '/webdav', label: 'WebDAV 服务', icon: 'Network' }, { path: '/mounts', label: '本地挂载', icon: 'Monitor' },
+  { path: '/webdav', label: 'WebDAV', icon: 'Network' }, { path: '/mounts', label: '本地挂载', icon: 'Monitor' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
   { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings2' }
@@ -79,8 +79,8 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
   <div v-else class="app-shell">
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
     <aside class="sidebar" :class="{ open: mobileNav }">
-      <RouterLink to="/dashboard" class="brand"><img src="/aether.svg" alt="" /><span>Aether<small>以太</small></span></RouterLink>
-      <nav aria-label="主导航"><div class="nav-group"><RouterLink v-for="item in navigation" :key="item.path" :to="item.path" :class="{ active: activeNav?.path === item.path }"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></RouterLink></div></nav>
+      <button class="brand" @click="router.push('/dashboard')"><img src="/aether.svg" alt="" /><span>Aether<small>以太</small></span></button>
+      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path, 'nav-bottom': item.path === '/settings' }" @click="router.push(item.path)"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
     </aside>
     <div class="main-shell">
       <header class="topbar">
@@ -95,21 +95,21 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
             <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><h2>最近任务</h2><p v-if="!taskNotices.length" class="small-empty">暂无已结束任务</p><button v-for="t in taskNotices" :key="t.key" @click="router.push(`/tasks/${['cas', 'cache'].includes(t.kind) ? t.kind : 'strm'}`); closeMenus()"><Icon :name="t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断' }} · {{ date(t.lastRun) }}</small></span></button></section>
           </div>
           <div class="account-control" @click.stop>
-            <button class="account-button" title="账户菜单" aria-label="账户菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
-            <div v-if="accountMenu" class="account-dropdown"><button @click="router.push('/settings/account'); closeMenus()"><Icon name="UserRound" :size="22" />账户设置</button><button @click="router.push('/settings/about'); closeMenus()"><Icon name="Info" :size="22" />关于以太</button><button @click="logout"><Icon name="LogOut" :size="22" />退出登录</button></div>
+            <button class="account-button" title="账号菜单" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
+            <div v-if="accountMenu" class="account-dropdown"><button @click="router.push('/settings/account'); closeMenus()"><Icon name="UserRound" :size="22" />账号设置</button><button @click="router.push('/settings/about'); closeMenus()"><Icon name="Info" :size="22" />关于以太</button><button @click="logout"><Icon name="LogOut" :size="22" />退出登录</button></div>
           </div>
         </div>
       </header>
       <main class="page-content" :key="currentPath">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
-        <TaskTabs v-if="currentPath.startsWith('/tasks/')" />
+        <TaskTabs v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cache'].includes(currentPath)" />
         <StoragePage v-if="currentPath === '/storage'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
         <FilesPage v-else-if="currentPath === '/files'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
         <SettingsPage v-else-if="currentPath === '/webdav'" section="webdav" />
-        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('account') ? 'account' : currentPath.endsWith('about') ? 'about' : 'general'" />
+        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : 'account'" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />

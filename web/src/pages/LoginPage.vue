@@ -19,8 +19,8 @@ async function submit() {
       <form class="login-form" @submit.prevent="submit">
         <span class="eyebrow">YOUR STORAGE, TOGETHER</span>
         <h1>{{ state.initialized ? '欢迎回到以太' : '建立你的以太空间' }}</h1>
-        <p>{{ state.initialized ? '登录，连接你的存储世界。' : '创建管理员账户，开始连接存储。' }}</p>
-        <label>账户名<input v-model="form.username" required autocomplete="username" placeholder="请输入账户名" /></label>
+        <p>{{ state.initialized ? '登录，连接你的存储世界。' : '创建管理员账号，开始连接存储。' }}</p>
+        <label>账号<input v-model="form.username" required autocomplete="username" placeholder="请输入账号" /></label>
         <div class="login-password-field">
           <label for="login-password">密码</label>
           <div class="input-action">
@@ -29,7 +29,7 @@ async function submit() {
           </div>
         </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-        <button class="btn primary login-submit" :disabled="busy">{{ busy ? '正在连接…' : state.initialized ? '登录工作空间' : '创建管理员账户' }}<Icon name="ArrowRight" /></button>
+        <button class="btn primary login-submit" :disabled="busy">{{ busy ? '正在连接…' : state.initialized ? '登录工作空间' : '创建管理员账号' }}<Icon name="ArrowRight" /></button>
         <div class="login-security"><Icon name="ShieldCheck" :size="16" />安全连接 · 凭据本地加密</div>
       </form>
       <footer>Aether 以太 <span>v0.1.0</span></footer>

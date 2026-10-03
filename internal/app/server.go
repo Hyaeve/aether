@@ -27,6 +27,9 @@ import (
 )
 
 type App struct {
+	versionMu      sync.Mutex
+	versionExpiry  time.Time
+	versionResult  map[string]any
 	tianyiMu       sync.Mutex
 	tianyiSessions map[string]tianyiSession
 	casGate        chan struct{}
@@ -191,6 +194,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/tasks/{id}/{action}", a.protected(http.HandlerFunc(a.taskAction)))
 	mux.Handle("/api/settings", a.protected(http.HandlerFunc(a.settings)))
 	mux.Handle("/api/account", a.protected(http.HandlerFunc(a.account)))
+	mux.Handle("/api/webdav/users", a.protected(http.HandlerFunc(a.davUsers)))
+	mux.Handle("/api/webdav/users/{id}", a.protected(http.HandlerFunc(a.davUsers)))
 	mux.Handle("/api/cache/clear", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			w.WriteHeader(405)
@@ -272,6 +277,10 @@ func (a *App) protected(next http.Handler) http.Handler {
 
 func (a *App) setSession(w http.ResponseWriter, r *http.Request) {
 	token := id()
+	days := a.store.snapshot().Settings.SessionDays
+	if days < 1 || days > 365 {
+		days = 7
+	}
 	a.sessionMu.Lock()
 	for k, v := range a.sessions {
 		if time.Now().After(v) {
@@ -284,9 +293,9 @@ func (a *App) setSession(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	a.sessions[token] = time.Now().Add(24 * time.Hour)
+	a.sessions[token] = time.Now().Add(time.Duration(days) * 24 * time.Hour)
 	a.sessionMu.Unlock()
-	http.SetCookie(w, &http.Cookie{Name: "aether_session", Value: token, Path: "/", MaxAge: 86400, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "aether_session", Value: token, Path: "/", MaxAge: days * 86400, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
 }
 
 func (a *App) allowLogin(r *http.Request) bool {
@@ -315,9 +324,10 @@ func (a *App) allowLogin(r *http.Request) bool {
 }
 
 type credentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Current  string `json:"current,omitempty"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Current     string `json:"current,omitempty"`
+	SessionDays int    `json:"sessionDays,omitempty"`
 }
 
 func (a *App) setup(w http.ResponseWriter, r *http.Request) {
@@ -330,7 +340,7 @@ func (a *App) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(c.Password) == 0 || len(c.Password) > 72 || strings.TrimSpace(c.Username) == "" {
-		fail(w, 400, errors.New("请输入账户名和非空密码，密码不能超过 72 字节"))
+		fail(w, 400, errors.New("请输入账号和非空密码，密码不能超过 72 字节"))
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(c.Password), bcrypt.DefaultCost)
@@ -350,7 +360,7 @@ func (a *App) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setSession(w, r)
-	a.store.log("info", "管理员账户已创建")
+	a.store.log("info", "管理员账号已创建")
 	jsonResponse(w, 201, map[string]bool{"ok": true})
 }
 
@@ -365,7 +375,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.store.snapshot()
 	if bcrypt.CompareHashAndPassword([]byte(st.Password), []byte(c.Password)) != nil || subtle.ConstantTimeCompare([]byte(c.Username), []byte(st.Username)) != 1 {
-		fail(w, 401, errors.New("账户名或密码错误"))
+		fail(w, 401, errors.New("账号或密码错误"))
 		return
 	}
 	a.setSession(w, r)
@@ -780,6 +790,8 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &s) {
 		return
 	}
+	// Session policy changes go through the account endpoint and rotate sessions.
+	s.SessionDays = a.store.snapshot().Settings.SessionDays
 	if s.CacheTTL < 1 || s.CacheMaxItems < 1 || s.CacheMaxItems > 1000000 || s.CacheMemoryMB < 1 || s.CacheMemoryMB > 4096 || s.SnapshotInterval < 1 {
 		fail(w, 400, errors.New("缓存设置超出有效范围"))
 		return
@@ -809,13 +821,16 @@ func (a *App) account(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &c) {
 		return
 	}
-	st := a.store.snapshot()
-	if bcrypt.CompareHashAndPassword([]byte(st.Password), []byte(c.Current)) != nil {
-		fail(w, 400, errors.New("当前密码不正确"))
+	c.Username = strings.TrimSpace(c.Username)
+	if c.SessionDays == 0 {
+		c.SessionDays = 7
+	}
+	if c.SessionDays < 1 || c.SessionDays > 365 {
+		fail(w, 400, errors.New("会话有效期必须为 1–365 天"))
 		return
 	}
-	if len(c.Password) == 0 || len(c.Password) > 72 || strings.TrimSpace(c.Username) == "" {
-		fail(w, 400, errors.New("请输入账户名和非空新密码，密码不能超过 72 字节"))
+	if len(c.Password) == 0 || len(c.Password) > 72 || c.Username == "" || len(c.Username) > 150 {
+		fail(w, 400, errors.New("请输入账号和非空密码，密码不能超过 72 字节"))
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(c.Password), bcrypt.DefaultCost)
@@ -823,7 +838,17 @@ func (a *App) account(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	if err := a.store.update(func(st *State) error { st.Username = c.Username; st.Password = string(hash); return nil }); err != nil {
+	if err := a.store.update(func(st *State) error {
+		for _, user := range st.DAVUsers {
+			if strings.EqualFold(user.Username, c.Username) {
+				return errors.New("账号与 WebDAV 用户重名")
+			}
+		}
+		st.Username = c.Username
+		st.Password = string(hash)
+		st.Settings.SessionDays = c.SessionDays
+		return nil
+	}); err != nil {
 		fail(w, 500, err)
 		return
 	}
@@ -931,7 +956,29 @@ func (a *App) serveDAV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, pass, ok := r.BasicAuth()
-	if !ok || user != st.Username || bcrypt.CompareHashAndPassword([]byte(st.Password), []byte(pass)) != nil {
+	authorized := false
+	if ok && len(pass) <= 72 && a.allowLogin(r) {
+		if user == st.Username {
+			authorized = bcrypt.CompareHashAndPassword([]byte(st.Password), []byte(pass)) == nil
+		} else {
+			for _, u := range st.DAVUsers {
+				if u.Enabled && u.Username == user && bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(pass)) == nil {
+					grants := append([]DAVGrant{}, u.Grants...)
+					r = r.WithContext(context.WithValue(r.Context(), davGrantsKey{}, grants))
+					authorized = true
+					break
+				}
+			}
+		}
+		// Successful DAV requests are not login attempts; do not throttle playback.
+		if authorized {
+			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+			a.loginMu.Lock()
+			delete(a.loginAttempts, ip)
+			a.loginMu.Unlock()
+		}
+	}
+	if !authorized {
 		w.Header().Set("WWW-Authenticate", `Basic realm="Aether WebDAV"`)
 		w.WriteHeader(401)
 		return

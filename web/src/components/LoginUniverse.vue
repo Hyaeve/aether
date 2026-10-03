@@ -78,13 +78,13 @@ function paintMeteor(time) {
     const progress = (time % 12 - meteor.delay) / meteor.duration
     if (progress <= 0 || progress >= 1) continue
     // Equal pixel offsets keep every trail parallel at all viewport aspect ratios.
-    const travel = Math.min(width, height) * meteor.distance
+    const travel = width * meteor.distance
     const x = width * meteor.x - progress * travel
-    const y = height * meteor.y + progress * travel
+    const y = height * meteor.y + progress * travel * .42
     const tailX = x + travel * meteor.tail
-    const tailY = y - travel * meteor.tail
+    const tailY = y - travel * meteor.tail * .42
     ctx.save()
-    ctx.globalAlpha = meteorOpacity(progress) * .75
+    ctx.globalAlpha = meteorOpacity(progress, meteor.fadeStart, meteor.fadeEnd) * .75
     const trail = ctx.createLinearGradient(tailX, tailY, x, y)
     trail.addColorStop(0, 'rgba(173,200,234,0)')
     trail.addColorStop(1, 'rgba(218,230,249,.95)')

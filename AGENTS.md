@@ -214,3 +214,35 @@
 ## 2026-10-03：推送 CAS 保留时间改动
 
 - 按用户后续要求，提交并推送上一条记录中的 CAS 保留时间、`/Aether` 默认目录、测试及文档改动；修改 `AGENTS.md` 补充推送记录。沿用上一轮已通过的测试结果，本次不修改功能代码，不包含配置、密钥或构建产物；推送结果以 Git 确认为准。
+
+## 2026-10-04：紧凑工作区、组合目录选择、账号会话与镜像检查
+
+- 修改 `web/src/App.vue`：侧栏改为无 href 的可键盘操作按钮导航，避免悬浮触发浏览器链接地址预览；WebDAV 简称、系统设置底部固定、默认进入账号页、账号术语统一；任务页自带同排栏目和操作区。
+- 修改 `web/src/pages/StoragePage.vue`：删除全部/云端/本地筛选，刷新、搜索、添加按钮按顺序同排；保留存储数量统计。
+- 新增 `web/src/components/TaskSourcePicker.vue`：左选存储账号、右选目录，目录名筛选、修改时间、上级与刷新、确认和取消；请求序号防止切换后旧响应覆盖；无效日期显示短横线；可访问目录按钮名不包含日期。
+- 修改 `web/src/pages/TasksPage.vue`：栏目和添加按钮同排；名称/下拉生成方式、组合源目录/生成目录各占两列，更多选项两列；移除多余说明。STRM、CAS、缓存共用选择器，CAS 仅传入原生移动/天翼池。
+- 修改 `web/src/pages/SettingsPage.vue`：横向账号与安全/关于栏目，移除常规入口；账号密码并列、移除当前密码、会话天数控件默认 7；外部访问地址迁至 WebDAV 页，避免原功能不可配置。
+- 修改 `web/src/pages/LoginPage.vue`、`web/src/lib.js`：界面统一“账号”用词。修改 `web/src/meteor.js`、`web/src/components/LoginUniverse.vue`：流星并行斜率 0.42，淡出起点在路程三分之一之后随机，淡出终点也随机，保留数量、方向及减少动画偏好。
+- 修改 `web/src/style.css`：236px 蓝紫侧栏、56px 顶栏、主界面上下衔接圆角、紧凑存储卡片和 14px 圆角、账号菜单右移且 16px 字体；去重页面标题、横向设置栏目、桌面四列工具卡片、组合选择器及手机适配。
+- 修改 `internal/app/model.go`、`internal/app/server.go`：设置保存 `sessionDays`，新会话默认七天，账号接口校验 1–365 天。已登录管理员无需当前密码可修改账号密码，其他会话撤销并签发新会话；保留鉴权、同源校验和 Strict Cookie。普通设置接口不能覆盖会话策略。会话仍仅驻内存，重启须登录。
+- 修改 `internal/app/version.go`：更新检查查询 GHCR token、latest 索引、linux/amd64 manifest 与配置 OCI 标签，对比构建修订号，成功缓存五分钟；错误/缺少修订号明确提示，不误报最新。不自动拉取或重启。旧 Release 工具函数仅保留既有单元测试，不再用于更新检查路由。
+- 修改 `Dockerfile`、`.github/workflows/docker-amd64.yml`：注入 `AETHER_REVISION` 与版本、OCI 标签，使后续镜像能准确与 GHCR latest 比对。
+- 新增 `internal/app/preferences_test.go`：账号无需旧密码、鉴权、默认/自定义会话时长、非法范围、旧会话撤销及持久化；GHCR 相同/不同/未知修订、拒绝/限流、摘要与平台错误模拟。
+- 修改 `web/tests/workspace.spec.js`：更新标签与组合目录交互；增加侧栏无链接、设置置底、顶栏高度、工具四列、账号策略保存、任务操作对齐、CAS 存储限制、目录过滤及手机截图、流星淡出边界断言。初轮目录精确定位因日期参与名称失败，修正可访问名称后全部重跑通过。
+- 修改 `README.md`：首部 Aether 图标，GHCR 检查、会话语义及安全提醒、外部地址新入口、组合选择器。修改 `docs/design-system.md`、`AGENTS.md`：记录布局与本轮文件功能。
+- 验证：Go 全量测试、vet、前端构建通过；最终六项 Playwright 全部通过，检查存储桌面、账号设置、目录选择器桌面/手机截图。真实 GHCR 匿名读取成功，latest 标签读到修订 `804edbe44648f6bb1184af03c4d5629c44c0889e`。未在本机构建 Docker、未声称真实网盘联调完成。
+- 隔离预览 `127.0.0.1:15152` 更新为临时 `aether-workspace.exe`，进程 `14264`；未改原 15151 实例、仓库用户配置或生成仓库 exe。本轮未请求推送，未提交推送。
+
+## 2026-10-04：WebDAV 独立用户与目录权限、工具说明及推送
+
+- 新增 `internal/app/dav_users.go`：管理员鉴权的 WebDAV 用户列表、新增、编辑、删除接口；账号唯一性、与管理员重名拒绝、密码 bcrypt、空密码编辑保留、目录可读性及别名校验，最多 100 项授权；列表不返回哈希。
+- 修改 `internal/app/model.go`：加密状态保存独立 DAV 用户及目录授权。修改 `internal/app/server.go`：注册用户接口，Basic Auth 支持独立用户，停用拒绝；管理员保持全盘访问，普通用户请求上下文携带授权；错误认证受限流，账号修改不能与 DAV 用户重名。
+- 修改 `internal/app/webdav.go`：授权别名构成独立虚拟根，只解析授权目录及子项；直接其他存储 ID、上级路径均不可越权；本地目录使用授权子目录作为 os.Root，隔离管理员根目录缓存，保持只读与 Range/HEAD。已开始的响应不强制中断。
+- 新增 `internal/app/dav_users_test.go`：用户 API 鉴权、密码不泄漏、管理员预热缓存后权限隔离、目录枚举及读取、越权路径、只读、错误密码、撤销、停用和删除。
+- 新增 `web/src/components/WebDAVUsers.vue`，修改 `web/src/pages/SettingsPage.vue`：WebDAV 页面新增用户管理，复用组合目录选择器配置多个目录，别名输入、启用、编辑留空密码及删除确认。
+- 修改 `web/src/App.vue`、`web/src/components/Icon.vue`：仪表盘使用 Gauge 仪表语义图标，注册用户/目录添加和辅助工具专用 Lucide 图标。修改 `web/src/pages/ToolsPage.vue`：每工具有独立语义图标、标题与功能描述，仍明确标注待实现。
+- 修改 `web/src/pages/FilesPage.vue`：刷新仅图标按钮，移到搜索栏左侧，保留禁用、旋转状态及可访问标签。修改 `web/src/style.css`：工具图标色块、标题/小字单行省略与悬浮完整说明、用户授权布局。
+- 修改 `web/tests/workspace.spec.js`：新增 WebDAV 用户创建/选目录/编辑与桌面手机截图、仪表盘图标、工具描述省略、刷新按钮顺序断言。修改 `README.md`、`AGENTS.md`：独立用户配置、权限和在途响应限制。
+- 验证：Go 全量测试、vet 和前端构建通过；浏览器最终结果以本轮输出为准。新增 Go 测试首轮因多余 import 编译失败，移除后全量通过。无真实云盘/Docker 联调。
+- 用户要求完成推送，包含上一轮未提交的紧凑工作区、账号会话、GHCR 检查和本轮 WebDAV 功能；不提交配置、密钥、构建或截图产物。推送结果以 Git 确认为准。
+- 最终七项 Playwright 测试通过，已查看工具说明桌面截图及 WebDAV 用户手机编辑截图。隔离预览 15152 更新为临时 `aether-dav-users.exe`，进程 `31548`；原 15151 服务不变。

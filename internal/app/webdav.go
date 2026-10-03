@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,9 @@ func (i davInfo) IsDir() bool        { return i.file.IsDir }
 func (i davInfo) Sys() any           { return nil }
 
 func (d davFS) list(ctx context.Context, s Storage, dir string) ([]File, error) {
+	if _, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant); restricted && s.Type == "local" {
+		return d.a.rawList(ctx, s, dir)
+	}
 	return d.a.listFiles(ctx, s, dir, 0, !d.a.store.snapshot().Settings.WebDAVCache)
 }
 
@@ -47,8 +51,23 @@ func (d davFS) resolve(ctx context.Context, name string) (Storage, File, error) 
 	}
 	parts := strings.Split(clean, "/")
 	var s Storage
+	grants, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant)
+	var grant DAVGrant
+	storageID := parts[0]
+	if restricted {
+		for _, g := range grants {
+			if g.Name == parts[0] {
+				grant = g
+				storageID = g.StorageID
+				break
+			}
+		}
+		if grant.StorageID == "" {
+			return s, File{}, os.ErrNotExist
+		}
+	}
 	for _, v := range d.a.store.snapshot().Storages {
-		if v.Enabled && v.ID == parts[0] {
+		if v.Enabled && v.ID == storageID {
 			s = v
 			break
 		}
@@ -57,6 +76,18 @@ func (d davFS) resolve(ctx context.Context, name string) (Storage, File, error) 
 		return s, File{}, os.ErrNotExist
 	}
 	current := File{ID: rootOf(s), Name: s.ID, IsDir: true}
+	if restricted {
+		current = File{ID: grant.Directory, Name: grant.Name, IsDir: true}
+		if s.Type == "local" {
+			rel, err := relative(grant.Directory)
+			if err != nil {
+				return s, File{}, os.ErrPermission
+			}
+			// Confine local symlink resolution to the granted directory, not the whole pool.
+			s.Config["root"] = filepath.Join(s.Config["root"], filepath.FromSlash(rel))
+			current.ID = "/"
+		}
+	}
 	for _, segment := range parts[1:] {
 		if !current.IsDir {
 			return s, File{}, os.ErrNotExist
@@ -97,9 +128,18 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	if f.IsDir {
 		files := []File{}
 		if s.ID == "" {
+			grants, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant)
 			for _, s := range d.a.store.snapshot().Storages {
 				if s.Enabled {
-					files = append(files, File{ID: s.ID, Name: s.ID, IsDir: true})
+					if restricted {
+						for _, g := range grants {
+							if g.StorageID == s.ID {
+								files = append(files, File{ID: g.Directory, Name: g.Name, IsDir: true})
+							}
+						}
+					} else {
+						files = append(files, File{ID: s.ID, Name: s.ID, IsDir: true})
+					}
 				}
 			}
 		} else {

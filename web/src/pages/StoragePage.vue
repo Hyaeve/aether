@@ -6,13 +6,13 @@ import ProviderIcon from '../components/ProviderIcon.vue'
 import Modal from '../components/Modal.vue'
 import NumberInput from '../components/NumberInput.vue'
 
-const query = ref(''), filter = ref('all'), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
+const query = ref(''), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
 const testing = ref('')
 const authorization = ref(false), qr = ref(null), authError = ref(''), authBusy = ref(false), authGeneration = ref(0)
 const oauthBase = ref('')
 let pollTimer
 const form = reactive({ name: '', type: '', enabled: true, cacheTTL: 0, config: {} })
-const visible = computed(() => state.storages.filter(s => (!query.value || s.name.toLowerCase().includes(query.value.toLowerCase())) && (filter.value === 'all' || (filter.value === 'local' ? s.type === 'local' : s.type !== 'local'))))
+const visible = computed(() => state.storages.filter(s => !query.value || s.name.toLowerCase().includes(query.value.toLowerCase())))
 const online = computed(() => state.storages.filter(s => s.status === 'connected' && s.enabled).length)
 const picked = computed(() => driverOf(selected.value))
 function open(storage) {
@@ -86,8 +86,9 @@ async function remove() {
 </script>
 
 <template>
-  <section class="page-head">
-    <div><div class="eyebrow">STORAGE WORKSPACE</div><h1>存储管理<span class="title-dot">.</span></h1><p>连接云端与本地，让每一份文件各有所归。</p></div>
+  <section class="storage-actions">
+    <button class="icon-btn bordered" title="刷新" aria-label="刷新" @click="reload().catch(e => notify(e.message, true))"><Icon name="RefreshCw" /></button>
+    <div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="搜索存储池" placeholder="搜索存储池…" /></div>
     <button class="btn primary" @click="open()"><Icon name="Plus" />添加存储池</button>
   </section>
   <div class="metric-strip">
@@ -95,10 +96,6 @@ async function remove() {
     <div><span class="metric-icon green"><Icon name="CircleCheck" /></span><span><small>已连接</small><strong>{{ online }}<em>个</em></strong></span></div>
     <div><span class="metric-icon amber"><Icon name="Cloud" /></span><span><small>云端存储</small><strong>{{ state.storages.filter(s => s.type !== 'local').length }}<em>个</em></strong></span></div>
     <div><span class="metric-icon neutral"><Icon name="HardDrive" /></span><span><small>本地存储</small><strong>{{ state.storages.filter(s => s.type === 'local').length }}<em>个</em></strong></span></div>
-  </div>
-  <div class="section-toolbar">
-    <div class="tabs"><button :class="{ active: filter === 'all' }" @click="filter = 'all'">全部存储 <span>{{ state.storages.length }}</span></button><button :class="{ active: filter === 'cloud' }" @click="filter = 'cloud'">云端</button><button :class="{ active: filter === 'local' }" @click="filter = 'local'">本地</button></div>
-    <div class="toolbar-right"><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="搜索存储池" placeholder="搜索存储池…" /></div><button class="icon-btn bordered" title="刷新" aria-label="刷新" @click="reload().catch(e => notify(e.message, true))"><Icon name="RefreshCw" /></button></div>
   </div>
   <div class="storage-grid">
     <article v-for="s in visible" :key="s.id" class="storage-card">
