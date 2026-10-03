@@ -1,0 +1,14 @@
+.git
+.github
+data
+config
+storage
+node_modules
+web/node_modules
+web/dist
+test-results
+web/test-results
+web/playwright-report
+*.exe
+*.log
+.env

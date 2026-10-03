@@ -1,0 +1,18 @@
+services:
+  aetherlink:
+    image: ghcr.io/hyaeve/aether:latest
+    container_name: Aether
+    network_mode: host
+    volumes:
+      - ./config:/config
+      - ./data:/data
+      # 可选：将 FUSE 读缓存单独映射，建议放到更快的磁盘
+      # - ./fuse_read_cache:/data/fuse_read_cache
+    environment:
+      - TZ=Asia/Shanghai
+      - AETHER_PORT=15151
+    devices:
+      - /dev/fuse:/dev/fuse
+    pid: "host"
+    privileged: true
+    restart: unless-stopped
