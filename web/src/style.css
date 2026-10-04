@@ -421,7 +421,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .about-copy > img { width: 72px; height: 72px; margin-bottom: 18px; }
 .about-copy h1 { font-size: 30px; margin-bottom: 18px; }
 .about-copy p { line-height: 1.9; font-size: 15px; margin: 14px 0; }
-.about-version { display: block; margin: 24px 0; color: #b4bfd8; }
 .about-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; }
 .about-actions .btn { color: #27313e; background: #fff; }
 .about-actions .primary { color: #fff; background: #3a4980; }
@@ -602,15 +601,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .account-dropdown { min-width: 0; width: max-content; padding: 5px; }
 .account-dropdown button { gap: 8px; padding: 9px 10px; }
 .account-dropdown svg { width: 18px; height: 18px; }
-.content-tabs a, .settings-navigation a { font-size: 17px; border-bottom-width: 3px; }
+.content-tabs a, .settings-navigation a { font-size: 17px; border-bottom-width: 2px; }
 .content-tabs a.active, .settings-navigation a.active { font-weight: 650; border-bottom-color: var(--primary); background: radial-gradient(ellipse at 50% 80%,var(--primary-soft),transparent 75%); border-radius: 10px 10px 0 0; }
 .login-page { height: 100dvh; min-height: 0; overflow: hidden; }
 .login-page > .login-universe { min-height: 0; height: 100%; }
 .login-form-side { min-height: 0; height: 100%; overflow-y: auto; scrollbar-width: none; }
 .login-form-side::-webkit-scrollbar { display: none; }
-.settings-layout:has(.about-page) { min-height: calc(100dvh - 96px); display: flex; flex-direction: column; }
+.settings-layout:has(.about-page) { min-height: calc(100dvh - 96px); display: flex; flex-direction: column; gap: 0; }
 .settings-layout:has(.about-page) .about-page { flex: 1; min-height: 0; }
-.settings-layout:has(.about-page) .settings-navigation { flex-shrink: 0; }
+.settings-layout:has(.about-page) .settings-navigation { flex-shrink: 0; margin-bottom: 0; }
 .page-content:has(.about-page) { padding-bottom: 0; }
 .settings-form:has(input[autocomplete=username]) { padding: 22px; border: 1px solid var(--border); border-radius: 8px; }
 .dav-symbol { position: relative; display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; }
@@ -643,13 +642,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .log-entry.raw code { font-size: 14px; line-height: 24px; color: var(--text); }
 .raw-level { font-size: 14px; line-height: 24px; }
 .about-page { display: block; min-height: 620px; }
+.about-universe { overflow: hidden; border-radius: 48% 52% 0 0 / 36px 24px 0 0; }
 .settings-layout:has(.about-page) .about-page { min-height: 620px; }
-.about-copy { position: absolute; top: 42%; left: 50%; transform: translate(-50%,-50%); width: min(430px,64%); margin: 0; padding: 0; }
+.about-copy { position: absolute; top: 390px; left: 50%; transform: translateX(-50%); width: min(500px,calc(100% - 48px)); margin: 0; padding: 0; }
 .about-copy > p { font-size: 14px; }
 .about-actions { position: absolute; bottom: 28px; left: 20px; right: 20px; }
-.about-emblem { position: relative; isolation: isolate; width: 72px; height: 72px; margin: 0 auto 18px; }
-.about-emblem > img { width: 72px; height: 72px; }
-.about-emblem { margin-bottom: 32px; }
 .login-form { max-width: 310px; }
 .login-form .credential-input { height: 46px; padding: 0 12px; gap: 10px; border-radius: 11px; }
 .login-form .credential-input input { font-size: 16px; }

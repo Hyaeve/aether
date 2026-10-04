@@ -253,7 +253,10 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   await expect(accountTab).toHaveCSS('border-radius', '0px')
   await page.getByRole('link', { name: '关于以太', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Aether 以太', exact: true })).toBeVisible()
-  await expect(page.getByText('当前版本 v0.1.0', { exact: true })).toBeVisible()
+  await expect(page.locator('.about-page')).not.toContainText('当前版本')
+  await expect(page.locator('.settings-navigation a.active')).toHaveCSS('border-bottom-width', '2px')
+  expect(await page.locator('.about-page').evaluate(el => Math.abs(el.getBoundingClientRect().top - document.querySelector('.settings-navigation').getBoundingClientRect().bottom))).toBeLessThanOrEqual(1)
+  await expect(page.locator('.about-universe')).toHaveCSS('border-top-left-radius', '48% 36px')
   await page.route('**/api/version/check', route => route.fulfill({ json: { current: '0.1.0', latest: 'v0.2.0', available: true, message: '发现新版本，请更新容器镜像' } }))
   await page.getByRole('button', { name: '检查更新', exact: true }).click()
   const updateToast = page.locator('.toast').filter({ hasText: '发现新版本' })
@@ -270,9 +273,26 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   const frame = await page.locator('.about-page .starfield').evaluate(el => el.toDataURL())
   await expect.poll(() => page.locator('.about-page .starfield').evaluate(el => el.toDataURL())).not.toBe(frame)
   await expect(page.locator('.about-page .gravity-well')).toBeVisible()
+  const checkAboutOrbit = async () => {
+    expect(await page.locator('.about-page').evaluate(el => {
+      const scene = el.querySelector('.orbital-system').getBoundingClientRect()
+      const center = el.querySelector('.orbital-center').getBoundingClientRect()
+      const copy = el.querySelector('.about-copy').getBoundingClientRect()
+      return Math.abs(center.x + center.width / 2 - (scene.x + scene.width / 2)) < 1
+        && Math.abs(center.y + center.height / 2 - (scene.y + scene.height / 2)) < 8
+        && scene.bottom < copy.top
+        && [...el.querySelectorAll('.satellite-body')].every(node => {
+          const box = node.getBoundingClientRect()
+          return box.top >= scene.top && box.bottom <= scene.bottom && box.left >= scene.left && box.right <= scene.right
+        })
+    })).toBe(true)
+  }
+  await checkAboutOrbit()
   await page.screenshot({ path: testInfo.outputPath('about-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.locator('.about-page .login-universe')).toBeVisible()
+  await checkAboutOrbit()
+  expect(await page.locator('.about-page').evaluate(el => Math.abs(el.getBoundingClientRect().top - document.querySelector('.settings-navigation').getBoundingClientRect().bottom))).toBeLessThanOrEqual(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('about-mobile.png'), fullPage: true })
   expect(await page.locator('.about-actions').evaluate(el => el.getBoundingClientRect().top > document.querySelector('.about-copy').getBoundingClientRect().bottom)).toBe(true)

@@ -104,8 +104,8 @@ function positionSatellites(time) {
     if (!el) continue
     if (props.decorative) {
       const angle = i * Math.PI * 2 / drivers.length - Math.PI / 2 + time * Math.PI * 2 / 240
-      const rx = Math.min(sceneWidth * .43, 390), ry = Math.min(sceneHeight * .29, 240)
-      el.style.transform = `translate3d(${sceneWidth / 2 + Math.cos(angle) * rx}px, ${sceneHeight * .42 + Math.sin(angle) * ry}px, 0)`
+      const rx = sceneWidth * .4, ry = sceneHeight * .36
+      el.style.transform = `translate3d(${sceneWidth / 2 + Math.cos(angle) * rx}px, ${sceneHeight / 2 + Math.sin(angle) * ry}px, 0)`
       continue
     }
     // Equal angular speed preserves spacing; elliptic coordinates match the visible rings.
@@ -212,7 +212,7 @@ onUnmounted(() => {
     <div ref="scene" class="orbital-system" aria-label="围绕以太运行的存储连接器">
       <div class="orbital-float">
         <div v-for="(radius, i) in rings" :key="i" class="orbit" :style="{ width: `${radius * 200}%`, height: `${radius * 200 * .7 * 1.15}%` }" aria-hidden="true" />
-        <div class="orbital-center"><GravityWell v-if="!decorative" /><img src="/aether.svg" alt="Aether" /></div>
+        <div class="orbital-center"><GravityWell /><img src="/aether.svg" alt="Aether" /></div>
         <div v-for="(d, i) in drivers" :key="d.id" :ref="el => satellites[i] = el" class="satellite" :class="{ 'satellite-framed': ['openlist', 'webdav', 'local'].includes(d.id) }" :data-provider="d.id" role="img" :aria-label="d.name">
           <div class="satellite-body"><ProviderIcon :type="d.id" /></div>
         </div>
@@ -226,8 +226,10 @@ onUnmounted(() => {
 <style scoped>
 .login-universe { background: #121827; isolation: isolate; }
 .universe-decorative { display: flex; min-height: 100%; height: 100%; padding: 0; }
-.universe-decorative .orbital-system { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; aspect-ratio: auto; margin: 0; pointer-events: none; }
-.universe-decorative .orbital-center, .universe-decorative .orbit { display: none; }
+.universe-decorative .orbital-system { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); height: 320px; max-width: 680px; aspect-ratio: auto; margin: 0; pointer-events: none; }
+.universe-decorative .orbit { display: none; }
+.universe-decorative .orbital-center { width: 72px; height: 72px; }
+.universe-decorative .orbital-center img { width: 72px; height: 72px; }
 .starfield { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
 .login-brand, .universe-caption, footer { position: relative; z-index: 1; }
 .orbital-system { max-width: 650px; aspect-ratio: 1.15; width: 100%; margin: auto; }
