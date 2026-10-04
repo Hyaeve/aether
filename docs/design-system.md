@@ -17,6 +17,10 @@ LitePan is the primary layout and interaction reference, including its local Adm
 
 ## Compact Workspace
 
+- Select triggers use 12px corners while preserving native keyboard and mobile picker behavior. Breadcrumb controls, refresh and log-mode buttons keep accessible labels without hover titles.
+- Unselected navigation and page tabs have a softer rounded hover wash between their resting and active states. Framed orbit-provider icons use 25% corner radii, matching the Quark mark.
+- Login and About center emblems share a responsive Canvas gravity well: a depressed membrane mesh with a dark interior, drawn on resize without an additional animation loop.
+
 - Login and account settings share equal-height 62px rounded icon fields with accessible names and placeholder text, without visible field labels. Account settings are a compact 380px panel. Login uses larger consistent typography and no version footer.
 - About keeps provider icons on a slow elliptical orbit around the central identity, with update and repository buttons at the bottom. WebDAV combines a cloud outline with DAV text; local mount/storage uses CloudDownload.
 - Selected and unselected tabs use identical 17px/600 typography to prevent layout shifts. Rounded diffused selection remains visible. Deep cosmic blue-purple navigation includes animated twinkling selection stars, respecting reduced motion.

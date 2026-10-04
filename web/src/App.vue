@@ -89,13 +89,13 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
         <div class="topbar-actions">
           <div class="traffic-stat upload"><Icon name="ArrowUp" /><span>上传 <b>{{ bytes(state.traffic.uploaded) }}</b></span></div>
           <div class="traffic-stat download"><Icon name="ArrowDown" /><span>下载 <b>{{ bytes(state.traffic.downloaded) }}</b></span></div>
-          <button class="icon-btn theme-toggle" :title="`当前：${activeTheme.label}，点击切换主题`" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
+          <button class="icon-btn theme-toggle" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
           <div class="notification-control" @click.stop>
-            <button class="icon-btn notification-button" title="任务通知" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
+            <button class="icon-btn notification-button" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
             <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><h2>最近任务</h2><p v-if="!taskNotices.length" class="small-empty">暂无已结束任务</p><button v-for="t in taskNotices" :key="t.key" @click="router.push(`/tasks/${['cas', 'cache'].includes(t.kind) ? t.kind : 'strm'}`); closeMenus()"><Icon :name="t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断' }} · {{ date(t.lastRun) }}</small></span></button></section>
           </div>
           <div class="account-control" @click.stop>
-            <button class="account-button" title="账号菜单" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
+            <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
             <div v-if="accountMenu" class="account-dropdown"><button @click="router.push('/settings/account'); closeMenus()"><Icon name="UserRound" :size="22" />账号设置</button><button @click="router.push('/settings/about'); closeMenus()"><Icon name="Info" :size="22" />关于以太</button><button @click="logout"><Icon name="LogOut" :size="22" />退出登录</button></div>
           </div>
         </div>

@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
+import GravityWell from './GravityWell.vue'
 import { createMeteorBatch, meteorOpacity } from '../meteor'
 
 const universe = ref(), canvas = ref(), scene = ref()
@@ -211,7 +212,7 @@ onUnmounted(() => {
     <div ref="scene" class="orbital-system" aria-label="围绕以太运行的存储连接器">
       <div class="orbital-float">
         <div v-for="(radius, i) in rings" :key="i" class="orbit" :style="{ width: `${radius * 200}%`, height: `${radius * 200 * .7 * 1.15}%` }" aria-hidden="true" />
-        <div class="orbital-center"><img src="/aether.svg" alt="Aether" /></div>
+        <div class="orbital-center"><GravityWell v-if="!decorative" /><img src="/aether.svg" alt="Aether" /></div>
         <div v-for="(d, i) in drivers" :key="d.id" :ref="el => satellites[i] = el" class="satellite" :class="{ 'satellite-framed': ['openlist', 'webdav', 'local'].includes(d.id) }" :data-provider="d.id" role="img" :aria-label="d.name">
           <div class="satellite-body"><ProviderIcon :type="d.id" /></div>
         </div>
@@ -234,13 +235,13 @@ onUnmounted(() => {
 .orbit { border-color: #8e9fc331; transform: translate(-50%, -50%) rotate(-18deg); }
 .orbit:nth-child(2) { border-color: #8e9fc33b; }
 .orbit:nth-child(3) { border-color: #8e9fc32b; }
-.orbital-center { border: 0; background: transparent; box-shadow: none; border-radius: 0; }
+.orbital-center { border: 0; background: transparent; box-shadow: none; border-radius: 0; isolation: isolate; }
 .satellite { left: 0; top: 0; display: block; width: 0; height: 0; will-change: transform; }
 .satellite-body { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); display: grid; justify-items: center; }
 .satellite .provider-icon { width: 48px; height: 48px; padding: 0; background: transparent; border: 0; box-shadow: none; border-radius: 0; }
 .satellite :deep(.provider-logo) { width: 100%; height: 100%; }
 .satellite :deep(svg) { width: 36px; height: 36px; }
-.satellite-framed .provider-icon { background: #fff; border-radius: 8px; padding: 7px; box-sizing: border-box; }
+.satellite-framed .provider-icon { background: #fff; border-radius: 25%; padding: 7px; box-sizing: border-box; overflow: hidden; }
 .satellite-framed :deep(svg) { width: 100%; height: 100%; }
 .motion-paused .orbital-float { animation-play-state: paused; }
 @keyframes orbital-float { 0%, 100% { transform: translateY(-5px); } 50% { transform: translateY(6px); } }

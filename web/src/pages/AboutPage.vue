@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { api, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 import LoginUniverse from '../components/LoginUniverse.vue'
+import GravityWell from '../components/GravityWell.vue'
 const version = ref(''), result = ref(null), error = ref(''), busy = ref(false)
 onMounted(async () => {
   try { version.value = (await api('/version')).version } catch (e) { error.value = e.message }
@@ -18,7 +19,7 @@ async function check() {
   <section class="about-page">
     <div class="about-universe"><LoginUniverse decorative /></div>
     <div class="about-copy">
-      <img src="/aether.svg" alt="" /><h1>Aether 以太</h1>
+      <div class="about-emblem"><GravityWell /><img src="/aether.svg" alt="" /></div><h1>Aether 以太</h1>
       <p>聚合多网盘的自托管存储管理服务，连接云端与本地，统一管理文件、存储与媒体任务。</p>
       <span class="about-version">当前版本 {{ version ? `v${version.replace(/^v/, '')}` : '读取中…' }}</span>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>

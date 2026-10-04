@@ -647,6 +647,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .about-copy { position: absolute; top: 42%; left: 50%; transform: translate(-50%,-50%); width: min(430px,64%); margin: 0; padding: 0; }
 .about-copy > p { font-size: 14px; }
 .about-actions { position: absolute; bottom: 28px; left: 20px; right: 20px; }
+.about-emblem { position: relative; isolation: isolate; width: 72px; height: 72px; margin: 0 auto 18px; }
+.about-emblem > img { width: 72px; height: 72px; }
+select { border-radius: 12px; }
+.content-tabs a, .settings-navigation a, .nav-group button { transition: background-color .18s ease, color .18s ease; }
+.content-tabs a:not(.active):hover, .settings-navigation a:not(.active):hover { border-radius: 14px; background: radial-gradient(ellipse at center,#a5b4e036,#b4b9d614 67%,transparent 92%); color: var(--primary); }
+.nav-group button:not(.active):hover { border-radius: 14px; background: radial-gradient(ellipse at center,#94a9e833,#879ace10 70%,transparent 98%); color: white; }
 @media (prefers-reduced-motion: reduce) { .nav-group button.active::after { animation: none; } }
 @media (max-width:760px) {
   .main-shell { padding-top: 48px; }.topbar { height: 48px; }

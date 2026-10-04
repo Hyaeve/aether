@@ -244,8 +244,9 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   await expect.poll(() => satellite.evaluate(el => el.style.transform)).not.toBe(satellitePosition)
   await page.screenshot({ path: testInfo.outputPath('update-toast-desktop.png'), fullPage: true })
   await expect(updateToast).toHaveCount(0, { timeout: 7000 })
-  const frame = await page.locator('.about-page canvas').evaluate(el => el.toDataURL())
-  await expect.poll(() => page.locator('.about-page canvas').evaluate(el => el.toDataURL())).not.toBe(frame)
+  const frame = await page.locator('.about-page .starfield').evaluate(el => el.toDataURL())
+  await expect.poll(() => page.locator('.about-page .starfield').evaluate(el => el.toDataURL())).not.toBe(frame)
+  await expect(page.locator('.about-page .gravity-well')).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('about-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.locator('.about-page .login-universe')).toBeVisible()
@@ -446,6 +447,8 @@ test('log filters, isolated refresh and virtual scrolling', async ({ page }, tes
   await page.getByLabel('搜索日志').fill('事件 149')
   await expect(page.locator('.log-panel footer')).toHaveText('6 条记录')
   await expect(page.locator('.log-view-toggle')).toHaveText('')
+  await expect(page.locator('.topbar button[title], .log-toolbar button[title]')).toHaveCount(0)
+  await expect(page.getByLabel('日志级别')).toHaveCSS('border-radius', '12px')
   await expect(page.locator('.log-view-toggle svg')).toHaveClass(/lucide-table-properties/)
   await page.getByRole('button', { name: '当前结构化列表，切换原始列表', exact: true }).click()
   await expect(page.locator('.log-view-toggle svg')).toHaveClass(/lucide-logs/)
@@ -509,6 +512,13 @@ test('login starfield, orbit motion and provider assets', async ({ page }, testI
   expect(logoStyles).toEqual({ background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none' })
   await expect(page.locator('.satellite-name')).toHaveCount(0)
   await expect(page.locator('.satellite-framed')).toHaveCount(3)
+  await expect(page.locator('.satellite-framed .provider-icon').first()).toHaveCSS('border-radius', '25%')
+  expect(await page.locator('.gravity-well').evaluate(canvas => {
+    const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
+    let filled = 0
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 20) filled++
+    return filled
+  })).toBeGreaterThan(500)
   expect(await page.locator('[data-provider="openlist"] .provider-icon').evaluate(el => getComputedStyle(el).padding)).toBe('1px')
   for (const provider of ['openlist', 'webdav', 'local']) {
     expect(await page.locator(`[data-provider="${provider}"] .provider-icon`).evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)')

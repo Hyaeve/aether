@@ -293,3 +293,13 @@
 - 验证：Go全量测试、go vet、前端构建通过，首轮八项Playwright通过并检查登录桌面、账号窗口和关于页手机截图；补充断言后的最终结果以本轮工具输出为准。无真实115账号/代理或Docker联调，授权仍需可信代理，不宣称真实授权验证完成。
 - 按用户要求提交推送，仅源码测试文档，不含配置密钥与产物；未操作15151服务。15152前端已由新构建更新，已有预览后端尚未重启，server_use变动需运行新后端生效。
 - 最终补充断言后八项Playwright全部通过（36.6秒），栏目切换宽度一致、最新提示和底部按钮验证通过。
+
+## 2026-10-04：圆角选择器、栏目悬浮态与中心引力阱
+
+- 新增 `web/src/components/GravityWell.vue`：Canvas投影下沉膜面，同心网格和径向线条形成凹陷，暗部增强纵深；响应式尺寸、DPR上限2，ResizeObserver按尺寸重绘并在卸载清理，无额外持续动画循环。
+- 修改 `web/src/components/LoginUniverse.vue`、`web/src/pages/AboutPage.vue`：中心图标复用引力阱；关于页图标增加独立容器。OpenList、WebDAV、本机存储白底框统一25%圆角比例，接近夸克原始图标，不增加其他网盘外框。
+- 修改 `web/src/App.vue`、`web/src/pages/FilesPage.vue`、`web/src/pages/LogsPage.vue`：移除顶栏主题/通知/账号、文件刷新、日志刷新和模式切换的title，保留aria-label和键盘行为。
+- 修改 `web/src/style.css`：下拉选择器触发框12px圆角，保留原生弹出菜单及平台行为；侧栏和页面栏目非选中悬浮使用弱于选中态的圆角晕染，文字不改变尺寸；关于图标容器样式。
+- 修改 `web/tests/workspace.spec.js`：多Canvas场景精准定位星空；校验引力阱可见且像素非空、圆角比例、无悬浮title和选择器圆角。修改 `docs/design-system.md`、`AGENTS.md`同步规范记录。
+- 验证：前端构建、git diff --check通过，八项Playwright全部通过（37.3秒），包含多视口布局、Canvas动态、减少动画偏好及既有业务流程；查看登录桌面和关于页手机截图确认凹陷网格不遮挡内容。本轮纯前端未重复Go测试，无Docker或真实网盘联调声明。
+- 按用户要求提交推送，仅源码测试文档；15152沿用新前端构建，未操作15151、用户配置或生成仓库exe。实际提交与推送结果以Git输出为准。
