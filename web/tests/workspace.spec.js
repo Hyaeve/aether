@@ -64,7 +64,7 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await expect(page.getByText('待验证', { exact: true })).toHaveCount(0)
   expect(await page.locator('.storage-grid').evaluate(el => {
     const card = el.querySelector('.storage-card').getBoundingClientRect(), add = el.querySelector('.add-storage-tile').getBoundingClientRect()
-    return card.width === add.width && card.height === add.height
+    return card.width === add.width && card.height === add.height && card.height === 136
   })).toBe(true)
   await expect(page.locator('.storage-card footer')).toHaveCount(0)
   await page.getByRole('button', { name: '存储操作 本地影音库', exact: true }).click()
@@ -544,12 +544,15 @@ test('login starfield, orbit motion and provider assets', async ({ page }, testI
   await expect(page.locator('.satellite-name')).toHaveCount(0)
   await expect(page.locator('.satellite-framed')).toHaveCount(3)
   await expect(page.locator('.satellite-framed .provider-icon').first()).toHaveCSS('border-radius', '25%')
-  expect(await page.locator('.gravity-well').evaluate(canvas => {
+  const glow = await page.locator('.gravity-well').evaluate(canvas => {
     const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
-    let filled = 0
-    for (let i = 3; i < data.length; i += 4) if (data[i] > 20) filled++
-    return filled
-  })).toBeGreaterThan(500)
+    let filled = 0, alpha = 0
+    for (let i = 3; i < data.length; i += 4) { if (data[i] > 5) filled++; alpha = Math.max(alpha, data[i]) }
+    return { filled, alpha, width: canvas.clientWidth }
+  })
+  expect(glow.filled).toBeGreaterThan(100)
+  expect(glow.alpha).toBeLessThanOrEqual(56)
+  expect(glow.width).toBeLessThanOrEqual(100)
   expect(await page.locator('[data-provider="openlist"] .provider-icon').evaluate(el => getComputedStyle(el).padding)).toBe('1px')
   for (const provider of ['openlist', 'webdav', 'local']) {
     expect(await page.locator(`[data-provider="${provider}"] .provider-icon`).evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)')
@@ -564,6 +567,9 @@ test('login starfield, orbit motion and provider assets', async ({ page }, testI
   expect(await username.evaluate(el => getComputedStyle(el.parentElement).boxShadow)).toContain('inset')
   await expect(page.locator('.login-form label')).toHaveCount(0)
   await expect(page.locator('.login-form-side > footer')).toHaveCount(0)
+  await expect(page.locator('.login-form')).toHaveCSS('max-width', '310px')
+  await expect(page.locator('.login-submit')).toHaveCSS('height', '44px')
+  await expect(page.locator('.credential-input').first()).toHaveCSS('height', '46px')
   expect(await page.locator('.credential-input').evaluateAll(nodes => nodes[0].clientHeight === nodes[1].clientHeight && nodes[0].clientWidth === nodes[1].clientWidth)).toBe(true)
   const password = page.getByLabel('密码', { exact: true })
   await password.fill('test')

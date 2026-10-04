@@ -630,7 +630,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .login-form h1 { font-size: 32px; }
 .login-form > p { font-size: 16px; }
 .login-form .eyebrow, .login-status, .login-security { font-size: 14px; }
-.login-submit { min-height: 54px; font-size: 17px; margin-top: 26px; }
+.login-submit { height: 44px; min-height: 44px; font-size: 15px; margin-top: 20px; }
 .login-brand small { font-size: 14px; }
 .sidebar .brand small { font-size: 11px; color: #c0c8e4; white-space: nowrap; }
 .sidebar { background: linear-gradient(155deg,#343d70,#283e68 55%,#3c3967); color: #dbe1f5; }
@@ -650,7 +650,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .about-emblem { position: relative; isolation: isolate; width: 72px; height: 72px; margin: 0 auto 18px; }
 .about-emblem > img { width: 72px; height: 72px; }
 .about-emblem { margin-bottom: 32px; }
-.login-form { max-width: 350px; }
+.login-form { max-width: 310px; }
+.login-form .credential-input { height: 46px; padding: 0 12px; gap: 10px; border-radius: 11px; }
+.login-form .credential-input input { font-size: 16px; }
+.login-form .credential-input > svg { width: 18px; height: 18px; }
+.login-form .account-fields { gap: 18px; }
 .account-settings .credential-input { height: 40px; padding: 0 10px; gap: 8px; border-radius: 8px; }
 .account-settings .credential-input input { font-size: 14px; }
 .account-settings .credential-input > svg { width: 18px; height: 18px; }
@@ -665,13 +669,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .content-tabs a:hover::before, .settings-navigation a:hover::before { opacity: .5; }
 .content-tabs a.active::before, .settings-navigation a.active::before { opacity: 1; }
 .file-tabs a { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.storage-grid > .storage-card, .storage-grid > .add-storage-tile { height: 172px; min-height: 172px; align-self: stretch; box-sizing: border-box; }
-.storage-grid > .storage-card { position: relative; overflow: visible; padding: 16px; }
+.storage-grid > .storage-card, .storage-grid > .add-storage-tile { height: 136px; min-height: 136px; align-self: stretch; box-sizing: border-box; }
+.storage-grid > .storage-card { position: relative; overflow: visible; padding: 12px 14px; }
+.storage-card .storage-card-status { margin-top: 8px; flex-wrap: nowrap; min-width: 0; }
+.storage-card-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-card-status > .status { flex-shrink: 0; }
 .storage-card.menu-open { z-index: 5; }
 .storage-card-name h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.storage-card .storage-root { margin: 10px 0 0; overflow: hidden; }
+.storage-card .storage-root { margin: 6px 0 0; overflow: hidden; }
 .storage-card .storage-root code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.storage-card .card-error { margin: 6px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.storage-card .card-error { margin: 3px 0 0; padding-bottom: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 15px; }
 .storage-menu-control { position: relative; flex-shrink: 0; }
 .storage-menu { position: absolute; top: 35px; right: 0; width: 146px; padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
 .storage-menu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px; border: 0; border-radius: 5px; background: transparent; font-size: 14px; text-align: left; }
