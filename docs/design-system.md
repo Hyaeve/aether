@@ -21,7 +21,9 @@ LitePan is the primary layout and interaction reference, including its local Adm
 - Do not repeat page titles beneath breadcrumbs. Align task tabs and actions in one desktop row. Settings use horizontal tabs without a general-settings section.
 - Storage cards use compact padding and 14px corners; the dashed tile is the only add entry and provider icons toggle enabled state. Account menus use compact 14px typography.
 - Task forms use two-column rows and select controls for generation mode. A combined source picker places accounts on the left and directory rows on the right; CAS filters eligible providers.
-- Meteors retain parallel trajectories at slope 0.22 with shorter tails, start fading randomly after at least one third of travel and vanish before or at the end. The particulate galaxy is broader. Login fits the viewport without visible scrollbars.
+- Meteors retain parallel trajectories at slope 0.30 with short tails. Each trail randomly uses the original duration, twice that duration or three times that duration; fades begin after at least one third of travel. Login fits the viewport without visible scrollbars.
+- About displays seven floating provider icons around the central content, using CloudDownload for WebDAV and FolderSync for local storage, matching navigation. Sidebar and tab selection use rounded diffused highlights, not rectangular fills.
+- Toasts slide in from the upper right with a colored left edge and filled status icon, then fade and slide out; reduced-motion preferences are respected. Raw logs use wrapped JSON, severity coloring and measured variable-height virtualization, with a single current-mode icon toggle.
 - Page tabs use 17px text and a stronger active underline. Workspace scrollbars are thin pale indigo with a darker hover. Logs use a fixed-height virtual list; account settings are framed and About fills remaining page height.
 - Accessibility: labeled icon controls, visible focus, modal focus containment and restoration, Escape close, live notifications, reduced motion.
 - States: genuine empty state, pending connection, disabled, error, active task, interrupted task. No fabricated storage or task metrics.

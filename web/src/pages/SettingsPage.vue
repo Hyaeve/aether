@@ -13,7 +13,7 @@ const busy = ref(false), error = ref(''), clearConfirm = ref(false)
 async function save() {
   busy.value = true; error.value = ''
   try { await api('/settings', 'PUT', form); await reload(); notify('设置已保存') }
-  catch (e) { error.value = e.message; if (props.section === 'webdav') form.webdavEnabled = state.settings.webdavEnabled } finally { busy.value = false }
+  catch (e) { error.value = e.message; if (props.section === 'webdav') { form.webdavEnabled = state.settings.webdavEnabled; notify(e.message, true) } } finally { busy.value = false }
 }
 async function changeAccount() {
   busy.value = true; error.value = ''
@@ -54,7 +54,7 @@ async function clear() {
       <section class="settings-section"><div class="settings-section-title"><Icon name="Network" /><div><h2>WebDAV 缓存</h2><p>使用同一套元数据缓存与容量限制。</p></div></div><label class="settings-row"><span><strong>启用 WebDAV 目录缓存</strong><small>关闭后，每次 PROPFIND 直接读取上游目录</small></span><input v-model="form.webdavCache" type="checkbox" role="switch" class="switch" /></label></section>
     </template>
     <template v-else-if="section === 'webdav'">
-      <section class="settings-section"><label>外部访问地址<input v-model="form.publicURL" type="url" required placeholder="http://192.168.1.10:15151" /></label></section>
+      <section class="settings-section"><label>外部访问地址<input v-model="form.publicURL" type="url" required placeholder="http://192.168.1.10:15151" :disabled="busy" @change="save" /></label></section>
       <section class="settings-section">
         <label class="settings-row"><span><strong>启用 WebDAV 服务</strong><small>只读访问 · 与管理后台共用端口</small></span><input v-model="form.webdavEnabled" type="checkbox" role="switch" class="switch" :disabled="busy" @change="save" /></label>
         <div class="settings-row"><span><strong>服务地址</strong><small>使用管理员账号与密码；公网访问请配置 HTTPS</small></span><code>{{ form.publicURL }}/dav/</code></div>
@@ -64,7 +64,7 @@ async function clear() {
       <section class="settings-section"><div class="settings-section-title"><Icon name="Server" /><div><h2>服务地址</h2><p>STRM 文件中的播放链接使用此地址。</p></div></div><label>外部访问地址<input v-model="form.publicURL" type="url" required placeholder="http://192.168.1.10:15151" /><small>填写媒体服务器可访问的地址；修改后需重新全量生成 STRM。</small></label></section>
       <section class="settings-section"><div class="settings-section-title"><Icon name="Box" /><div><h2>运行环境</h2></div></div><div class="settings-row"><strong>服务版本</strong><code>0.1.0</code></div><div class="settings-row"><strong>容器端口</strong><code>15151</code></div><div class="settings-row"><strong>STRM 根目录</strong><code>{{ state.strmRoot }}</code></div></section>
     </template>
-    <p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button v-if="section === 'cache'" type="button" class="btn danger-outline" @click="clearConfirm = true"><Icon name="Trash2" />清空缓存</button><button class="btn primary" :disabled="busy"><Icon name="Save" />{{ busy ? '保存中…' : '保存设置' }}</button></div>
+    <p v-if="error" class="error-message" role="alert">{{ error }}</p><div v-if="section !== 'webdav'" class="settings-actions"><button v-if="section === 'cache'" type="button" class="btn danger-outline" @click="clearConfirm = true"><Icon name="Trash2" />清空缓存</button><button class="btn primary" :disabled="busy"><Icon name="Save" />{{ busy ? '保存中…' : '保存设置' }}</button></div>
   </form>
   </div>
   <WebDAVUsers v-if="section === 'webdav'" />

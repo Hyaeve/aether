@@ -27,7 +27,7 @@ applyTheme()
 const navigation = [
   { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件管理', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/backup', label: '备份中心', icon: 'ArchiveRestore' },
-  { path: '/webdav', label: 'WebDAV', icon: 'Router' }, { path: '/mounts', label: '本地挂载', icon: 'FolderSync' },
+  { path: '/webdav', label: 'WebDAV', icon: 'CloudDownload' }, { path: '/mounts', label: '本地挂载', icon: 'FolderSync' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
   { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
@@ -117,5 +117,5 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
       </main>
     </div>
   </div>
-  <div class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }"><Icon :name="n.error ? 'CircleAlert' : 'CircleCheck'" :size="19" /><span>{{ n.message }}</span><button class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></div>
+  <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : 'Check'" :size="15" /></span><span>{{ n.message }}</span><button class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>
 </template>

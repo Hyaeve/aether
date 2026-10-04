@@ -1,6 +1,6 @@
 <script setup>
 import {
-  Settings, FolderSync, Router,
+  Settings, FolderSync, CloudDownload, Logs, TableProperties,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
   Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-vue-next'
 import { computed } from 'vue'
 const icons = {
-  Settings, FolderSync, Router,
+  Settings, FolderSync, CloudDownload, Logs, TableProperties,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
   Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,

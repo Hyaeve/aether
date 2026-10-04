@@ -5,7 +5,7 @@ import ProviderIcon from './ProviderIcon.vue'
 import { createMeteorBatch, meteorOpacity } from '../meteor'
 
 const universe = ref(), canvas = ref(), scene = ref()
-defineProps({ decorative: Boolean })
+const props = defineProps({ decorative: Boolean })
 const reducedMotion = ref(false)
 const rings = [0.29, 0.36, 0.44]
 const ringByProvider = [0, 2, 1, 2, 1, 2, 0]
@@ -80,9 +80,9 @@ function paintMeteor(time) {
     // Equal pixel offsets keep every trail parallel at all viewport aspect ratios.
     const travel = width * meteor.distance
     const x = width * meteor.x - progress * travel
-    const y = height * meteor.y + progress * travel * .22
+    const y = height * meteor.y + progress * travel * .3
     const tailX = x + travel * meteor.tail
-    const tailY = y - travel * meteor.tail * .22
+    const tailY = y - travel * meteor.tail * .3
     ctx.save()
     ctx.globalAlpha = meteorOpacity(progress, meteor.fadeStart, meteor.fadeEnd) * .75
     const trail = ctx.createLinearGradient(tailX, tailY, x, y)
@@ -101,6 +101,12 @@ function positionSatellites(time) {
   for (let i = 0; i < satellites.length; i++) {
     const el = satellites[i]
     if (!el) continue
+    if (props.decorative) {
+      const anchors = [[.22, .1], [.78, .12], [.075, .37], [.925, .4], [.16, .83], [.83, .82], [.5, .93]]
+      const [x, y] = anchors[i]
+      el.style.transform = `translate3d(${sceneWidth * x + Math.sin(time * .18 + i) * 5}px, ${sceneHeight * y + Math.cos(time * .22 + i) * 6}px, 0)`
+      continue
+    }
     // Equal angular speed preserves spacing; elliptic coordinates match the visible rings.
     const angle = i * Math.PI * 2 / drivers.length - Math.PI / 2 + time * Math.PI * 2 / 180
     const radius = rings[ringByProvider[i]] * sceneWidth
@@ -219,7 +225,8 @@ onUnmounted(() => {
 <style scoped>
 .login-universe { background: #121827; isolation: isolate; }
 .universe-decorative { display: flex; min-height: 100%; height: 100%; padding: 0; }
-.universe-decorative .orbital-system { visibility: hidden; }
+.universe-decorative .orbital-system { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; aspect-ratio: auto; margin: 0; pointer-events: none; }
+.universe-decorative .orbital-center, .universe-decorative .orbit { display: none; }
 .starfield { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
 .login-brand, .universe-caption, footer { position: relative; z-index: 1; }
 .orbital-system { max-width: 650px; aspect-ratio: 1.15; width: 100%; margin: auto; }
