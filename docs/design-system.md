@@ -17,11 +17,12 @@ LitePan is the primary layout and interaction reference, including its local Adm
 
 ## Compact Workspace
 
-- Use a 236px cosmic indigo sidebar, 56px topbar, rounded main-surface junctions and bottom-pinned settings. Sidebar navigation uses keyboard-accessible buttons without link-preview URLs.
+- Use a 236px cosmic indigo sidebar, 48px topbar, rounded sidebar right corners and square main-surface junctions. Logs and settings are bottom-pinned. Active navigation has translucent highlights and restrained star points.
 - Do not repeat page titles beneath breadcrumbs. Align task tabs and actions in one desktop row. Settings use horizontal tabs without a general-settings section.
-- Storage cards use compact padding and 14px corners; refresh, search and add actions share one row. Account menus match 16px sidebar typography.
+- Storage cards use compact padding and 14px corners; the dashed tile is the only add entry and provider icons toggle enabled state. Account menus use compact 14px typography.
 - Task forms use two-column rows and select controls for generation mode. A combined source picker places accounts on the left and directory rows on the right; CAS filters eligible providers.
-- Meteors retain parallel trajectories at a shallower slope of 0.42, start fading randomly after at least one third of travel and vanish before or at the end.
+- Meteors retain parallel trajectories at slope 0.22 with shorter tails, start fading randomly after at least one third of travel and vanish before or at the end. The particulate galaxy is broader. Login fits the viewport without visible scrollbars.
+- Page tabs use 17px text and a stronger active underline. Workspace scrollbars are thin pale indigo with a darker hover. Logs use a fixed-height virtual list; account settings are framed and About fills remaining page height.
 - Accessibility: labeled icon controls, visible focus, modal focus containment and restoration, Escape close, live notifications, reduced motion.
 - States: genuine empty state, pending connection, disabled, error, active task, interrupted task. No fabricated storage or task metrics.
 - Login: 3:2 desktop split, twinkling canvas stars, a cached particulate galaxy with dark dust lanes, faint constellations and occasional meteor trails; three floating elliptical orbits. Provider logos have no added frames, remain upright and complete a revolution in 180 seconds. Motion runs automatically without a playback button; hidden tabs and reduced-motion preferences still suspend animation. Mobile hides the decorative side. Brand assets are bundled locally; sources are recorded in `web/public/providers/SOURCES.md`.

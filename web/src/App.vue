@@ -27,10 +27,10 @@ applyTheme()
 const navigation = [
   { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件管理', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/backup', label: '备份中心', icon: 'ArchiveRestore' },
-  { path: '/webdav', label: 'WebDAV', icon: 'Network' }, { path: '/mounts', label: '本地挂载', icon: 'Monitor' },
+  { path: '/webdav', label: 'WebDAV', icon: 'Router' }, { path: '/mounts', label: '本地挂载', icon: 'FolderSync' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
   { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
-  { path: '/settings', label: '系统设置', icon: 'Settings2' }
+  { path: '/settings', label: '系统设置', icon: 'Settings' }
 ]
 const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/strm' : route.path)
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
@@ -80,7 +80,7 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
     <aside class="sidebar" :class="{ open: mobileNav }">
       <button class="brand" @click="router.push('/dashboard')"><img src="/aether.svg" alt="" /><span>Aether<small>以太</small></span></button>
-      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path, 'nav-bottom': item.path === '/settings' }" @click="router.push(item.path)"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
+      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path, 'nav-bottom': item.path === '/logs' }" @click="router.push(item.path)"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
     </aside>
     <div class="main-shell">
       <header class="topbar">

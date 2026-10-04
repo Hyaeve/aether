@@ -7,6 +7,11 @@ import TaskSourcePicker from './TaskSourcePicker.vue'
 const users = ref([]), open = ref(false), picker = ref(false), busy = ref(false), error = ref(''), removing = ref(null)
 const form = reactive({ id: '', username: '', password: '', enabled: true, grants: [] })
 async function load() { try { users.value = await api('/webdav/users') } catch (e) { notify(e.message, true) } }
+async function toggle(user) {
+  busy.value = true
+  try { await api(`/webdav/users/${user.id}`, 'PATCH', { enabled: !user.enabled }); await load() }
+  catch (e) { notify(e.message, true) } finally { busy.value = false }
+}
 onMounted(load)
 function edit(user) {
   Object.assign(form, user ? JSON.parse(JSON.stringify(user)) : { id: '', username: '', password: '', enabled: true, grants: [] })
@@ -36,7 +41,12 @@ async function remove() {
   <section class="dav-users">
     <div class="section-label"><h2>WebDAV 用户</h2><button type="button" class="btn primary" @click="edit()"><Icon name="UserPlus" />添加用户</button></div>
     <p v-if="!users.length" class="small-empty">暂无独立用户</p>
-    <div v-for="user in users" :key="user.id" class="settings-row"><span><strong>{{ user.username }}</strong><small>{{ user.enabled ? '已启用' : '已停用' }} · {{ user.grants.length }} 个授权目录</small></span><div class="row-actions"><button type="button" class="icon-btn" title="编辑用户" aria-label="编辑用户" @click="edit(user)"><Icon name="Pencil" /></button><button type="button" class="icon-btn danger-text" title="删除用户" aria-label="删除用户" @click="removing = user"><Icon name="Trash2" /></button></div></div>
+    <div class="dav-user-grid"><article v-for="user in users" :key="user.id" class="dav-user-card">
+      <header><Icon name="UserRound" :size="28" /><strong>{{ user.username }}</strong><span class="status" :class="user.enabled ? 'success' : 'muted'">{{ user.enabled ? '已启用' : '已停用' }}</span></header>
+      <span class="dav-readonly">只读</span>
+      <div class="dav-paths"><div v-for="grant in user.grants" :key="grant.id" :title="`${grant.name} · ${grant.directory}`"><Icon name="Folder" :size="15" /><span>/{{ grant.name }}</span></div><span v-if="!user.grants.length" class="muted">未授权目录</span></div>
+      <footer><button type="button" class="icon-btn" title="编辑用户" aria-label="编辑用户" @click="edit(user)"><Icon name="Pencil" /></button><button type="button" class="icon-btn" :disabled="busy" :title="user.enabled ? '停用用户' : '启用用户'" :aria-label="user.enabled ? '停用用户' : '启用用户'" @click="toggle(user)"><Icon :name="user.enabled ? 'Pause' : 'Play'" /></button><button type="button" class="icon-btn danger-text" title="删除用户" aria-label="删除用户" @click="removing = user"><Icon name="Trash2" /></button></footer>
+    </article></div>
   </section>
   <Modal v-if="open" :title="form.id ? '编辑 WebDAV 用户' : '添加 WebDAV 用户'" wide @close="!busy && (open = false)">
     <form @submit.prevent="save"><div class="modal-body">

@@ -64,6 +64,7 @@ type Settings struct {
 }
 
 type LogEntry struct {
+	Module  string    `json:"module"`
 	Time    time.Time `json:"time"`
 	Level   string    `json:"level"`
 	Message string    `json:"message"`
@@ -123,7 +124,7 @@ func NewStore(dir string) (*Store, error) {
 	s := &Store{dir: dir, aead: aead}
 	s.state = State{
 		Storages: []Storage{}, Tasks: []Task{}, Logs: []LogEntry{}, SignKey: id(),
-		Settings: Settings{SessionDays: 7, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: "http://localhost:15151"},
+		Settings: Settings{SessionDays: 7, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: defaultPublicURL()},
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "state.enc"))
 	if err == nil {
@@ -145,6 +146,9 @@ func NewStore(dir string) (*Store, error) {
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
+	}
+	if s.state.Settings.PublicURL == "http://localhost:15151" {
+		s.state.Settings.PublicURL = defaultPublicURL()
 	}
 	return s, s.saveLocked()
 }
@@ -209,13 +213,7 @@ func (s *Store) update(fn func(*State) error) error {
 }
 
 func (s *Store) log(level, message string) {
-	_ = s.update(func(st *State) error {
-		st.Logs = append(st.Logs, LogEntry{time.Now(), level, message})
-		if len(st.Logs) > 500 {
-			st.Logs = st.Logs[len(st.Logs)-500:]
-		}
-		return nil
-	})
+	s.event(level, "system", message)
 }
 
 func (s *Store) storage(storageID string) (Storage, error) {

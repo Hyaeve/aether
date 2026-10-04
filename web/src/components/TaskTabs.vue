@@ -6,6 +6,6 @@ const tabs = [
 </script>
 <template>
   <nav class="content-tabs" aria-label="任务栏目">
-    <RouterLink v-for="[path, label] in tabs" :key="path" :to="path" :class="{ active: $route.path.startsWith(path) }">{{ label }}</RouterLink>
+    <RouterLink v-for="[path, label] in tabs" :key="path" :to="path" :class="{ active: ($route.path === '/tasks' ? '/tasks/strm' : $route.path).startsWith(path) }">{{ label }}</RouterLink>
   </nav>
 </template>

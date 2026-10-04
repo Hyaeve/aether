@@ -154,7 +154,7 @@ func (a *App) startTask(taskID string) error {
 			}
 		}
 		a.taskUpdate(taskID, func(t *Task) { t.Status = status; t.Message = message; t.Processed = count })
-		a.store.log(status, task.Name+"："+message)
+		a.store.event(status, "tasks", task.Name+"："+message)
 		a.runMu.Lock()
 		delete(a.running, taskID)
 		delete(a.runningStorage, taskID)

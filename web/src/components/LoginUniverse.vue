@@ -56,8 +56,8 @@ function buildGalaxy(random, scale) {
   for (let i = 0; i < count; i++) {
     const along = random()
     const spread = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
-    const x = width * (1.12 - along * 1.3) + spread * width * .055
-    const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .025
+    const x = width * (1.12 - along * 1.3) + spread * width * .12
+    const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .06
     // Dark lanes break up the star cloud, giving the band an irregular structure.
     if (Math.abs(spread + .24 * Math.sin(along * 26)) < .15) continue
     const core = Math.exp(-spread * spread * .7)
@@ -80,9 +80,9 @@ function paintMeteor(time) {
     // Equal pixel offsets keep every trail parallel at all viewport aspect ratios.
     const travel = width * meteor.distance
     const x = width * meteor.x - progress * travel
-    const y = height * meteor.y + progress * travel * .42
+    const y = height * meteor.y + progress * travel * .22
     const tailX = x + travel * meteor.tail
-    const tailY = y - travel * meteor.tail * .42
+    const tailY = y - travel * meteor.tail * .22
     ctx.save()
     ctx.globalAlpha = meteorOpacity(progress, meteor.fadeStart, meteor.fadeEnd) * .75
     const trail = ctx.createLinearGradient(tailX, tailY, x, y)

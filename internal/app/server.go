@@ -120,7 +120,7 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	server := &http.Server{Handler: a.Handler(env("AETHER_WEB_DIR", "web/dist")), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	log.Printf("Aether listening on %s", addr)
+	a.store.event("info", "system", fmt.Sprintf("Aether listening on %s", addr))
 	select {
 	case err = <-done:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -179,6 +179,9 @@ func (a *App) Handler(webDir string) http.Handler {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 	})
 	mux.Handle("/api/state", a.protected(http.HandlerFunc(a.state)))
+	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(w, 200, a.store.snapshot().Logs)
+	})))
 	mux.Handle("GET /api/cas/status", a.protected(http.HandlerFunc(a.casStatus)))
 	mux.Handle("POST /api/cas/cleanup", a.protected(http.HandlerFunc(a.casCleanup)))
 	mux.Handle("GET /api/version", a.protected(http.HandlerFunc(a.version)))
@@ -245,6 +248,23 @@ func (a *App) Handler(webDir string) http.Handler {
 					return
 				}
 			}
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") && (r.Method != "GET" && r.Method != "HEAD" || r.URL.Path == "/api/files") && !strings.HasSuffix(r.URL.Path, "/poll") {
+			rec := &auditResponse{ResponseWriter: w}
+			mux.ServeHTTP(rec, r)
+			level := "info"
+			if r.URL.Path == "/api/files" {
+				level = "debug"
+			}
+			if rec.status >= 400 {
+				level = "warn"
+			}
+			if rec.status >= 500 {
+				level = "error"
+			}
+			// Route patterns omit object names, credentials, query strings and playback tokens.
+			a.store.event(level, logModule(r.URL.Path), fmt.Sprintf("%s %s [%d]", r.Method, strings.TrimPrefix(r.Pattern, r.Method+" "), rec.status))
+			return
 		}
 		mux.ServeHTTP(w, r)
 	})
@@ -484,7 +504,7 @@ func (a *App) storages(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	a.store.log("info", "添加存储池："+s.Name)
+	a.store.event("info", "storage", "添加存储池："+s.Name)
 	jsonResponse(w, 201, map[string]string{"id": s.ID})
 }
 

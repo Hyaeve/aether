@@ -246,3 +246,25 @@
 - 验证：Go 全量测试、vet 和前端构建通过；浏览器最终结果以本轮输出为准。新增 Go 测试首轮因多余 import 编译失败，移除后全量通过。无真实云盘/Docker 联调。
 - 用户要求完成推送，包含上一轮未提交的紧凑工作区、账号会话、GHCR 检查和本轮 WebDAV 功能；不提交配置、密钥、构建或截图产物。推送结果以 Git 确认为准。
 - 最终七项 Playwright 测试通过，已查看工具说明桌面截图及 WebDAV 用户手机编辑截图。隔离预览 15152 更新为临时 `aether-dav-users.exe`，进程 `31548`；原 15151 服务不变。
+
+## 2026-10-04：宇宙侧栏、紧凑控件、存储启停与系统日志
+
+- 修改 `web/src/App.vue`、`web/src/components/Icon.vue`：WebDAV 使用 Router、本地挂载使用 FolderSync、系统设置使用齿轮 Settings；系统日志与设置固定侧栏底部。修改 `web/src/components/TaskTabs.vue`：默认 `/tasks` 明确选中首个 STRM 栏目。
+- 修改 `web/src/style.css`：48px 顶栏、侧栏自身右侧上下圆角、白色主体直角、蓝紫侧栏与透明星点选中态；14px 紧凑账号菜单、17px 页面栏目与明显选中线、淡蓝紫细滚动条；账号设置边框窗口、关于页填满剩余高度、登录无外部滚动条；日志固定窗口及44px虚拟行、WebDAV用户卡片和响应式。
+- 修改 `web/src/components/LoginUniverse.vue`、`web/src/meteor.js`：流星斜率0.22、拖尾缩短至行程的5.5%–10%，保留随机淡出、平行方向与减少动画偏好；扩大粒子星河横向宽度。
+- 修改 `web/src/pages/StoragePage.vue`：移除刷新/搜索/添加工具行，虚线卡片为添加入口；提供商图标通过现有 PUT 接口启停存储，保留运行任务与CAS保护、错误反馈及忙状态。
+- 修改 `web/src/components/WebDAVUsers.vue`、`web/src/pages/SettingsPage.vue`：只读用户卡片展示授权路径，编辑、启停、删除；服务开关自动保存，失败恢复原状态；保留外部地址编辑及保存。修改 `internal/app/dav_users.go`：独立 PATCH 启停用户，仅更改 Enabled，不依赖上游在线，不修改密码或授权。
+- 新增 `internal/app/logs.go`：模块化事件、级别规范化、最近2000条持久化上限、JSON行标准输出；持久化失败写标准错误。新增响应状态包装与模块分类；`defaultPublicURL` 根据本机网卡及监听端口初始化，不信任请求Host。
+- 修改 `internal/app/model.go`：日志增加 module；旧日志兼容；新安装默认外部地址自动探测，旧固定 localhost:15151 启动迁移，其他自定义地址保留。修改 `internal/app/server.go`：受保护 GET `/api/logs`，变更操作与文件浏览按模块记录路由模板和状态，不记录正文或查询参数；启动事件输出日志；不记录轮询、日志读取、播放请求。修改 `internal/app/tasks.go`：任务结果归入任务模块。
+- 修改 `web/src/pages/LogsPage.vue`：独立获取日志，原始JSON/结构化切换、搜索与级别/模块组合筛选、按账号在浏览器持久化、刷新仅获取日志、ResizeObserver驱动的固定行高虚拟列表。
+- 新增 `internal/app/logs_test.go`：鉴权、审计不含请求凭据、级别归一化、重载、2000条上限、地址端口、离线用户启停权限保持。修改 `internal/app/app_test.go`：STRM断言采用配置的实际外部地址。修改 `web/tests/workspace.spec.js`：紧凑布局、存储/用户启停、默认栏目、1500条虚拟列表、筛选持久化、日志刷新、手机布局与登录无滚动条。
+- 修改 `README.md`、`docs/design-system.md`、`AGENTS.md`：记录日志、默认地址、多网卡确认要求、视觉约定、实现与验证边界。
+- 验证：最终 Go 全量测试、go vet、前端构建通过；八项 Playwright 全部通过，覆盖桌面/手机、星空像素和运动、图标加载。首次后端测试固定localhost断言失效，更新为实际配置；新增日志测试误将搜索结果预计为5条（实际包含149本身共6条），修正后全量重跑。查看日志桌面/手机、WebDAV卡片、关于页截图。
+- 限制：保留最近2000条而非无限日志归档，原始视图是应用JSON事件，不是任意进程输出；未实现的备份、挂载、以太链接不生成模拟日志。WebDAV仍只读。多网卡或桥接容器地址需管理员确认；没有本地Docker和真实网盘联调。
+- 隔离预览15152原进程已不存在，确认端口空闲后启动临时目录中的 `aether-log-workspace.exe`，进程25992；健康检查通过，标准输出确认JSON启动事件。未操作原15151服务、未在仓库根生成exe、未修改仓库用户配置。本轮未提交或推送。
+
+## 2026-10-04：提交推送系统日志与界面调整
+
+- 按用户要求提交并推送上一条记录中的全部源代码、测试和文档；本轮仅修改 `AGENTS.md` 补充交付记录，无新增业务改动。
+- 验证沿用上一轮通过的 Go 测试、go vet、前端构建与八项 Playwright；推送前执行远程同步、差异格式及暂存文件检查，不提交配置、密钥、exe、日志、依赖或测试产物。
+- 实际提交与推送结果以 Git 输出及最终回复为准；Docker与真实网盘联调限制不变。

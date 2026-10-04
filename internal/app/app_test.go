@@ -212,7 +212,7 @@ func TestSTRMGenerationFilteringAndIncremental(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(content), "http://localhost:15151/stream/") {
+	if !strings.HasPrefix(string(content), a.store.snapshot().Settings.PublicURL+"/stream/") {
 		t.Fatal("stream does not reuse port")
 	}
 	if !strings.Contains(string(content), "?sign=") {

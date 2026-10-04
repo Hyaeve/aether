@@ -8,6 +8,12 @@ import NumberInput from '../components/NumberInput.vue'
 
 const query = ref(''), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
 const testing = ref('')
+const toggling = ref('')
+async function toggle(storage) {
+  toggling.value = storage.id
+  try { await api(`/storages/${storage.id}`, 'PUT', { ...storage, enabled: !storage.enabled }); await reload() }
+  catch (e) { notify(e.message, true) } finally { toggling.value = '' }
+}
 const authorization = ref(false), qr = ref(null), authError = ref(''), authBusy = ref(false), authGeneration = ref(0)
 const oauthBase = ref('')
 let pollTimer
@@ -86,11 +92,6 @@ async function remove() {
 </script>
 
 <template>
-  <section class="storage-actions">
-    <button class="icon-btn bordered" title="刷新" aria-label="刷新" @click="reload().catch(e => notify(e.message, true))"><Icon name="RefreshCw" /></button>
-    <div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="搜索存储池" placeholder="搜索存储池…" /></div>
-    <button class="btn primary" @click="open()"><Icon name="Plus" />添加存储池</button>
-  </section>
   <div class="metric-strip">
     <div><span class="metric-icon"><Icon name="Layers3" /></span><span><small>全部存储池</small><strong>{{ state.storages.length }}<em>个</em></strong></span></div>
     <div><span class="metric-icon green"><Icon name="CircleCheck" /></span><span><small>已连接</small><strong>{{ online }}<em>个</em></strong></span></div>
@@ -99,13 +100,13 @@ async function remove() {
   </div>
   <div class="storage-grid">
     <article v-for="s in visible" :key="s.id" class="storage-card">
-      <div class="storage-card-top"><ProviderIcon :type="s.type" /><div class="storage-card-name"><h3>{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><button class="icon-btn" title="编辑存储池" aria-label="编辑存储池" @click="open(s)"><Icon name="Ellipsis" /></button></div>
+      <div class="storage-card-top"><button class="provider-toggle" :title="s.enabled ? '停用存储池' : '启用存储池'" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3>{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><button class="icon-btn" title="编辑存储池" aria-label="编辑存储池" @click="open(s)"><Icon name="Ellipsis" /></button></div>
       <div class="storage-card-status"><span class="status" :class="!s.enabled ? 'muted' : s.status === 'connected' ? 'success' : s.status === 'error' ? 'danger' : 'pending'"><i />{{ !s.enabled ? '已停用' : s.status === 'connected' ? '连接正常' : s.status === 'error' ? '连接异常' : '待验证' }}</span><span>{{ s.cacheTTL ? `${s.cacheTTL} 分钟缓存` : '跟随全局缓存' }}</span></div>
       <div class="storage-root"><Icon name="Folder" :size="15" /><code>{{ s.config.root || '/' }}</code></div>
       <p v-if="s.lastError" class="card-error">{{ s.lastError }}</p>
       <footer><button class="text-btn" :disabled="testing === s.id || !s.enabled" @click="test(s)"><Icon name="Activity" :size="15" />{{ testing === s.id ? '正在连接…' : '测试连接' }}</button><div><button class="icon-btn" title="浏览文件" aria-label="浏览文件" @click="$router.push(`/files?storage=${s.id}`)"><Icon name="FolderOpen" :size="17" /></button><button class="icon-btn danger-text" title="删除存储池" aria-label="删除存储池" @click="confirmDelete = s"><Icon name="Trash2" :size="16" /></button></div></footer>
     </article>
-    <button class="add-storage-tile" @click="open()"><span class="add-tile-icon"><Icon name="Plus" :size="25" /></span><strong>添加存储池</strong><span>连接一个新的存储空间</span></button>
+    <button class="add-storage-tile" aria-label="添加存储池" @click="open()"><span class="add-tile-icon"><Icon name="Plus" :size="25" /></span><strong>添加存储池</strong><span>连接一个新的存储空间</span></button>
   </div>
   <div v-if="!visible.length && query" class="small-empty">没有匹配的存储池</div>
   <Modal v-if="modal" :title="editing ? '编辑存储池' : step === 1 ? '添加存储池' : '配置存储池'" compact wide @close="!busy && (modal = false)">

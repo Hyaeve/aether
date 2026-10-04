@@ -26,6 +26,29 @@ type DAVUser struct {
 type davGrantsKey struct{}
 
 func (a *App) davUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "PATCH" {
+		var input struct {
+			Enabled bool `json:"enabled"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		err := a.store.update(func(st *State) error {
+			for i := range st.DAVUsers {
+				if st.DAVUsers[i].ID == r.PathValue("id") {
+					st.DAVUsers[i].Enabled = input.Enabled
+					return nil
+				}
+			}
+			return errors.New("WebDAV 用户不存在")
+		})
+		if err != nil {
+			fail(w, 404, err)
+			return
+		}
+		jsonResponse(w, 200, map[string]bool{"ok": true})
+		return
+	}
 	if r.Method == "GET" {
 		users := a.store.snapshot().DAVUsers
 		if users == nil {
