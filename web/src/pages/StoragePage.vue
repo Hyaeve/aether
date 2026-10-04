@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, state, reload, notify, drivers, driverOf } from '../lib'
 import Icon from '../components/Icon.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
@@ -8,6 +8,11 @@ import NumberInput from '../components/NumberInput.vue'
 
 const query = ref(''), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
 const testing = ref('')
+const menu = ref('')
+function closeMenu() { menu.value = '' }
+function menuKey(event) { if (event.key === 'Escape') closeMenu() }
+onMounted(() => { document.addEventListener('click', closeMenu); document.addEventListener('keydown', menuKey) })
+onUnmounted(() => { document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', menuKey) })
 const toggling = ref('')
 async function toggle(storage) {
   toggling.value = storage.id
@@ -15,7 +20,7 @@ async function toggle(storage) {
   catch (e) { notify(e.message, true) } finally { toggling.value = '' }
 }
 const authorization = ref(false), qr = ref(null), authError = ref(''), authBusy = ref(false), authGeneration = ref(0)
-const oauthBase = ref(localStorage.getItem('aether-oauth-base') || '')
+const oauthBase = ref(localStorage.getItem('aether-oauth-base') || 'https://oauth.litepan.top')
 let authWindow
 let pollTimer
 const form = reactive({ name: '', type: '', enabled: true, cacheTTL: 0, config: {} })
@@ -23,6 +28,7 @@ const visible = computed(() => state.storages.filter(s => !query.value || s.name
 const online = computed(() => state.storages.filter(s => s.status === 'connected' && s.enabled).length)
 const picked = computed(() => driverOf(selected.value))
 function open(storage) {
+  closeMenu()
   error.value = ''; editing.value = storage?.id || ''; step.value = storage ? 2 : 1; selected.value = storage?.type || ''
   Object.assign(form, storage ? JSON.parse(JSON.stringify(storage)) : { name: '', type: '', enabled: true, cacheTTL: 0, config: {} })
   form.config.deleteMode ||= 'trash'
@@ -40,20 +46,21 @@ function next(type) {
 function closeAuthorization() { authorization.value = false; clearTimeout(pollTimer); authGeneration.value++; authBusy.value = false; if (authWindow && !authWindow.closed) authWindow.close(); authWindow = null }
 function openAuthorizationWindow() {
   authWindow = window.open('', '_blank')
-  if (!authWindow) { notify('请允许弹出窗口后重试', true); return }
+  if (!authWindow) { authError.value = '请允许弹出窗口后重试'; notify(authError.value, true); return false }
   authWindow.opener = null
   authWindow.document.title = '115 Open 授权'
-  authWindow.document.body.textContent = '正在准备 115 授权，请在以太确认可信 OAuth 代理地址。'
+  authWindow.document.body.textContent = '正在连接授权服务，即将打开 115 账号登录页面…'
+  return true
 }
 watch(modal, value => { if (!value) closeAuthorization() })
 onUnmounted(closeAuthorization)
 async function startAuthorization() {
   closeAuthorization(); authorization.value = true; authError.value = ''; qr.value = null
-  if (selected.value === '115') { openAuthorizationWindow(); if (!oauthBase.value) return }
+  if (selected.value === '115' && !openAuthorizationWindow()) return
   await requestAuthorization()
 }
 async function requestAuthorization() {
-  if (selected.value === '115' && (!authWindow || authWindow.closed)) openAuthorizationWindow()
+  if (selected.value === '115' && (!authWindow || authWindow.closed) && !openAuthorizationWindow()) return
   clearTimeout(pollTimer); authGeneration.value++
   authError.value = ''; qr.value = null
   authBusy.value = true
@@ -72,6 +79,7 @@ async function requestAuthorization() {
     const deadline = Date.now() + result.expiresIn * 1000
     async function poll() {
       if (generation !== authGeneration.value) return
+      if (provider === '115' && authWindow?.closed) { authError.value = '授权窗口已关闭，请重试'; return }
       if (Date.now() >= deadline) { authError.value = '二维码已过期，请重新获取'; return }
       try {
         const result = await api(`/authorization/${provider}/poll`, 'POST', { token: qr.value.token })
@@ -117,12 +125,11 @@ async function remove() {
     <div><span class="metric-icon neutral"><Icon name="HardDrive" /></span><span><small>本地存储</small><strong>{{ state.storages.filter(s => s.type === 'local').length }}<em>个</em></strong></span></div>
   </div>
   <div class="storage-grid">
-    <article v-for="s in visible" :key="s.id" class="storage-card">
-      <div class="storage-card-top"><button class="provider-toggle" :title="s.enabled ? '停用存储池' : '启用存储池'" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3>{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><button class="icon-btn" title="编辑存储池" aria-label="编辑存储池" @click="open(s)"><Icon name="Ellipsis" /></button></div>
-      <div class="storage-card-status"><span class="status" :class="!s.enabled ? 'muted' : s.status === 'connected' ? 'success' : s.status === 'error' ? 'danger' : 'pending'"><i />{{ !s.enabled ? '已停用' : s.status === 'connected' ? '连接正常' : s.status === 'error' ? '连接异常' : '待验证' }}</span><span>{{ s.cacheTTL ? `${s.cacheTTL} 分钟缓存` : '跟随全局缓存' }}</span></div>
+    <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id }">
+      <div class="storage-card-top"><button class="provider-toggle" :title="s.enabled ? '停用存储池' : '启用存储池'" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3 :title="s.name">{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><div class="storage-menu-control" @click.stop><button class="icon-btn" :aria-label="`存储操作 ${s.name}`" :aria-expanded="menu === s.id" @click="menu = menu === s.id ? '' : s.id"><Icon name="Ellipsis" /></button><div v-if="menu === s.id" class="storage-menu"><button @click="open(s)"><Icon name="Pencil" />编辑存储</button><button :disabled="testing === s.id || !s.enabled" @click="closeMenu(); test(s)"><Icon name="Activity" />测试连接</button><button class="danger-text" @click="closeMenu(); confirmDelete = s"><Icon name="Trash2" />删除存储</button></div></div></div>
+      <div class="storage-card-status"><span v-if="!s.enabled || ['connected', 'error'].includes(s.status)" class="status" :class="!s.enabled ? 'muted' : s.status === 'connected' ? 'success' : 'danger'"><i />{{ !s.enabled ? '已停用' : s.status === 'connected' ? '连接正常' : '连接异常' }}</span><span>{{ s.cacheTTL ? `${s.cacheTTL} 分钟缓存` : '跟随全局缓存' }}</span></div>
       <div class="storage-root"><Icon name="Folder" :size="15" /><code>{{ s.config.root || '/' }}</code></div>
-      <p v-if="s.lastError" class="card-error">{{ s.lastError }}</p>
-      <footer><button class="text-btn" :disabled="testing === s.id || !s.enabled" @click="test(s)"><Icon name="Activity" :size="15" />{{ testing === s.id ? '正在连接…' : '测试连接' }}</button><div><button class="icon-btn" title="浏览文件" aria-label="浏览文件" @click="$router.push(`/files?storage=${s.id}`)"><Icon name="FolderOpen" :size="17" /></button><button class="icon-btn danger-text" title="删除存储池" aria-label="删除存储池" @click="confirmDelete = s"><Icon name="Trash2" :size="16" /></button></div></footer>
+      <p v-if="s.lastError" class="card-error" :title="s.lastError">{{ s.lastError }}</p>
     </article>
     <button class="add-storage-tile" aria-label="添加存储池" @click="open()"><span class="add-tile-icon"><Icon name="Plus" :size="25" /></span><strong>添加存储池</strong></button>
   </div>
@@ -138,6 +145,7 @@ async function remove() {
           <label class="full">存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" placeholder="例如：家庭影音库" /></label>
           <label v-if="selected === 'mobile'" class="full">Authorization<input v-model="form.config.authorization" type="password" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
           <template v-if="selected === '115'"><label>Access Token <span class="required">*</span><input v-model="form.config.accessToken" type="password" required autocomplete="off" /></label><label>Refresh Token<input v-model="form.config.refreshToken" type="password" autocomplete="off" /></label></template>
+          <small v-if="selected === '115'" class="full muted">获取 TOKEN 将通过第三方 OAuth 服务打开 115 登录授权；授权服务会接收本次生成的令牌。</small>
           <label v-if="selected === 'quark'" class="full">Cookie <span class="required">*</span><textarea v-model="form.config.cookie" required rows="3" autocomplete="off" placeholder="粘贴夸克网页版的完整 Cookie" /></label>
           <template v-if="selected === 'tianyi'"><label>天翼账号<input v-model="form.config.username" required autocomplete="off" /></label><label>天翼密码<input v-model="form.config.password" type="password" required autocomplete="new-password" /></label></template>
           <template v-if="['openlist', 'webdav'].includes(selected)">
@@ -158,9 +166,9 @@ async function remove() {
   <Modal v-if="authorization" :title="selected === '115' ? '获取 115 Open TOKEN' : '夸克扫码授权'" @close="closeAuthorization">
     <div v-if="selected === 'quark'" class="modal-body qr-authorization"><p v-if="authBusy">正在获取二维码…</p><img v-if="qr && !authError" :src="qr.image" alt="夸克授权二维码" /><p v-if="qr && !authError">请使用夸克网盘 App 扫码确认</p><p v-if="authError" class="error-message" role="alert">{{ authError }}</p><button v-if="authError" class="btn" @click="startAuthorization"><Icon name="RefreshCw" />重新获取</button></div>
     <div v-else class="modal-body oauth-authorization">
-      <label>OAuth 代理地址<input v-model="oauthBase" type="url" placeholder="https://oauth.example.com" :disabled="authBusy" /></label>
-      <p class="muted">请仅填写你信任且支持 LitePan OAuth 协议的代理。该代理会接收本次授权生成的令牌，Aether 不发送已有凭据。</p>
-      <button class="btn primary" :disabled="authBusy || !oauthBase" @click="requestAuthorization">{{ authBusy ? '正在连接…' : '连接授权代理' }}</button>
+      <p v-if="authBusy" role="status">正在打开 115 登录授权…</p>
+      <details><summary>授权服务设置</summary><label>OAuth 代理地址<input v-model="oauthBase" type="url" placeholder="https://oauth.example.com" :disabled="authBusy" /></label><p class="muted">默认使用 LitePan 的第三方授权服务。仅更换为你信任的兼容代理，Aether 不发送已有凭据。</p></details>
+      <button class="btn primary" :disabled="authBusy || !oauthBase" @click="requestAuthorization">{{ authBusy ? '正在连接…' : '重新打开授权' }}</button>
       <a v-if="qr?.url && !authError" class="btn" :href="qr.url" target="_blank" rel="noopener noreferrer"><Icon name="ArrowUpRight" />打开授权页面</a>
       <p v-if="qr?.url && !authError" role="status">等待授权完成，令牌将自动填入存储表单。</p>
       <p v-if="authError" class="error-message" role="alert">{{ authError }}</p>

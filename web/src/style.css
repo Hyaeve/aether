@@ -665,6 +665,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .content-tabs a:hover::before, .settings-navigation a:hover::before { opacity: .5; }
 .content-tabs a.active::before, .settings-navigation a.active::before { opacity: 1; }
 .file-tabs a { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.storage-grid > .storage-card, .storage-grid > .add-storage-tile { height: 172px; min-height: 172px; align-self: stretch; box-sizing: border-box; }
+.storage-grid > .storage-card { position: relative; overflow: visible; padding: 16px; }
+.storage-card.menu-open { z-index: 5; }
+.storage-card-name h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.storage-card .storage-root { margin: 10px 0 0; overflow: hidden; }
+.storage-card .storage-root code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-card .card-error { margin: 6px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.storage-menu-control { position: relative; flex-shrink: 0; }
+.storage-menu { position: absolute; top: 35px; right: 0; width: 146px; padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+.storage-menu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px; border: 0; border-radius: 5px; background: transparent; font-size: 14px; text-align: left; }
+.storage-menu button:hover { background: var(--primary-soft); }
 select { border-radius: 12px; }
 .content-tabs a, .settings-navigation a, .nav-group button { transition: background-color .18s ease, color .18s ease; }
 .content-tabs a:not(.active):hover, .settings-navigation a:not(.active):hover { border-radius: 14px; background: radial-gradient(ellipse at center,#a5b4e036,#b4b9d614 67%,transparent 92%); color: var(--primary); }
