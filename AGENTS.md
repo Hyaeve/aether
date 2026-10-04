@@ -280,3 +280,16 @@
 - 修改 `README.md`、`docs/design-system.md`、`AGENTS.md`：同步当前交互、动效及验证记录。
 - 验证：Go全量测试、go vet、前端构建通过。第一轮八项浏览器测试通过后，截图发现手机筛选框过窄，修正并增加宽度断言，最终再次八项全部通过；查看原始日志桌面/手机、更新提示与关于页桌面/手机截图。未改后端协议，无Docker/真实云盘联调声明。
 - 已运行的隔离预览15152继续使用新构建的前端，无需重启Go后端；未改原15151服务、用户配置或在仓库生成exe。按用户要求提交推送，本次仅源码、测试及文档，实际推送结果以Git输出为准。
+
+## 2026-10-04：登录与账号统一表单、环绕关于页及115授权窗口
+
+- 新增 `web/src/components/AccountFields.vue`：账号/密码共用62px等尺寸圆角图标输入框，提示文本代替可见标题，保留无障碍名称、自动填充及显隐按钮。修改 `web/src/pages/LoginPage.vue`、`web/src/pages/SettingsPage.vue`：复用控件、移除登录版本页脚，账号设置限制380px窗口。
+- 修改 `web/src/components/Icon.vue`、`web/src/components/ProviderIcon.vue`、`web/src/App.vue`：Lucide云轮廓内组合DAV标记，本地挂载及本机存储使用CloudDownload，侧栏与卫星一致；品牌副标题“云端本地 · 以太空间”。
+- 修改 `web/src/components/LoginUniverse.vue`、`web/src/pages/AboutPage.vue`：关于页图标慢速椭圆环绕中心，底部独立更新/GitHub按钮；确认同修订号时提示“当前版本已是最新”，有更新简短提示，不把无法比对误报最新。修改 `web/src/meteor.js`：尾迹缩短为行程1.8%–3.8%。
+- 修改 `web/src/pages/StoragePage.vue`、`web/src/lib.js`：移动仅原生个人云CAS表单，旧网关编辑需重新填写授权，后端旧模式运行兼容保留；添加卡片去说明、降低高度。115先同步打开新窗口，申请HTTPS授权地址后跳转，保留轮询回填、取消关闭及弹窗拦截提示；可信代理首次手动指定并由当前浏览器记忆，不擅自使用LitePan公共代理。
+- 修改 `internal/app/authorization.go`：参考本地LitePan的OAuth请求流程，增加server_use标识；不复制其源码或客户端身份，不改变会话绑定、加密、HTTPS和鉴权保护。
+- 修改 `web/src/style.css`：登录字号、紧凑账号窗口、圆角晕染高亮、选中未选中同字号字重、深蓝紫侧栏及浮动闪烁星点、完整换行原始日志14px/24px可读性、关于页环绕布局，减少动态效果兼容。
+- 修改 `web/tests/workspace.spec.js`：115真实新窗口模拟跳转/回填、移动无模式切换、图标一致、输入框等尺寸无标题与版本页脚、短尾、栏目不跳宽、紧凑账号、底部按钮及最新提示断言。修改 `README.md`、`docs/design-system.md`、`AGENTS.md`同步说明。
+- 验证：Go全量测试、go vet、前端构建通过，首轮八项Playwright通过并检查登录桌面、账号窗口和关于页手机截图；补充断言后的最终结果以本轮工具输出为准。无真实115账号/代理或Docker联调，授权仍需可信代理，不宣称真实授权验证完成。
+- 按用户要求提交推送，仅源码测试文档，不含配置密钥与产物；未操作15151服务。15152前端已由新构建更新，已有预览后端尚未重启，server_use变动需运行新后端生效。
+- 最终补充断言后八项Playwright全部通过（36.6秒），栏目切换宽度一致、最新提示和底部按钮验证通过。

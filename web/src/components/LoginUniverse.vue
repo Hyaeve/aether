@@ -102,9 +102,9 @@ function positionSatellites(time) {
     const el = satellites[i]
     if (!el) continue
     if (props.decorative) {
-      const anchors = [[.22, .1], [.78, .12], [.075, .37], [.925, .4], [.16, .83], [.83, .82], [.5, .93]]
-      const [x, y] = anchors[i]
-      el.style.transform = `translate3d(${sceneWidth * x + Math.sin(time * .18 + i) * 5}px, ${sceneHeight * y + Math.cos(time * .22 + i) * 6}px, 0)`
+      const angle = i * Math.PI * 2 / drivers.length - Math.PI / 2 + time * Math.PI * 2 / 240
+      const rx = Math.min(sceneWidth * .43, 390), ry = Math.min(sceneHeight * .29, 240)
+      el.style.transform = `translate3d(${sceneWidth / 2 + Math.cos(angle) * rx}px, ${sceneHeight * .42 + Math.sin(angle) * ry}px, 0)`
       continue
     }
     // Equal angular speed preserves spacing; elliptic coordinates match the visible rings.

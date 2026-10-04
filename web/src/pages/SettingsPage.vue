@@ -6,6 +6,7 @@ import Modal from '../components/Modal.vue'
 import NumberInput from '../components/NumberInput.vue'
 import AboutPage from './AboutPage.vue'
 import WebDAVUsers from '../components/WebDAVUsers.vue'
+import AccountFields from '../components/AccountFields.vue'
 const props = defineProps({ section: { default: 'cache' } })
 const form = reactive({ ...state.settings })
 const account = reactive({ username: state.username, password: '', sessionDays: state.settings.sessionDays || 7 })
@@ -34,8 +35,8 @@ async function clear() {
     <RouterLink to="/settings/about" :class="{ active: section === 'about' }"><Icon name="Info" />关于以太</RouterLink>
   </nav>
   <AboutPage v-if="section === 'about'" />
-  <form v-else-if="section === 'account'" class="settings-form" @submit.prevent="changeAccount">
-    <section class="settings-section"><div class="form-grid"><label>账号<input v-model="account.username" required maxlength="150" autocomplete="username" /></label><label>密码<input v-model="account.password" type="password" required maxlength="72" autocomplete="new-password" /></label></div></section>
+  <form v-else-if="section === 'account'" class="settings-form account-settings" @submit.prevent="changeAccount">
+    <AccountFields v-model:username="account.username" v-model:password="account.password" />
     <section class="settings-section"><div class="settings-row"><strong>会话有效期</strong><NumberInput v-model="account.sessionDays" aria-label="会话有效期" unit="天" min="1" max="365" required /></div></section>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button class="btn primary" :disabled="busy"><Icon name="Save" />保存账号</button></div>
   </form>

@@ -7,7 +7,7 @@ export function createMeteorBatch(random = Math.random) {
     fadeEnd: .7 + random() * .3,
     delay: random() * .6,
     duration: (1.8 + random() * .8) * [1, 2, 3][Math.floor(random() * 3)],
-    tail: .055 + random() * .045
+    tail: .018 + random() * .02
   }))
 }
 

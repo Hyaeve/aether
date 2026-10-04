@@ -258,8 +258,8 @@ func (a *App) start115Authorization(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("请输入可信任的 HTTPS OAuth 代理地址（不含查询参数）"))
 		return
 	}
-	result, err := oauthProxyRequest(r, "POST", input.Base+"/api/oauth/start", map[string]string{
-		"driver_type": "115网盘Open", "callback_url": input.Base + "/callback-popup",
+	result, err := oauthProxyRequest(r, "POST", input.Base+"/api/oauth/start", map[string]any{
+		"driver_type": "115网盘Open", "callback_url": input.Base + "/callback-popup", "server_use": true,
 	})
 	if err != nil {
 		fail(w, 502, err)

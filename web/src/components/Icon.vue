@@ -1,6 +1,6 @@
 <script setup>
 import {
-  Settings, FolderSync, CloudDownload, Logs, TableProperties,
+  Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
   Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-vue-next'
 import { computed } from 'vue'
 const icons = {
-  Settings, FolderSync, CloudDownload, Logs, TableProperties,
+  Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
   Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
@@ -25,4 +25,4 @@ const icons = {
 const props = defineProps({ name: String, size: { type: Number, default: 18 } })
 const icon = computed(() => icons[props.name] || icons.Circle)
 </script>
-<template><component :is="icon" :size="size" :stroke-width="1.7" aria-hidden="true" /></template>
+<template><span v-if="name === 'WebDAV'" class="dav-symbol" :style="{ width: `${size}px`, height: `${size}px` }" aria-hidden="true"><Cloud :size="size" :stroke-width="1.5" /><span>DAV</span></span><component v-else :is="icon" :size="size" :stroke-width="1.7" aria-hidden="true" /></template>

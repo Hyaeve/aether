@@ -17,6 +17,11 @@ LitePan is the primary layout and interaction reference, including its local Adm
 
 ## Compact Workspace
 
+- Login and account settings share equal-height 62px rounded icon fields with accessible names and placeholder text, without visible field labels. Account settings are a compact 380px panel. Login uses larger consistent typography and no version footer.
+- About keeps provider icons on a slow elliptical orbit around the central identity, with update and repository buttons at the bottom. WebDAV combines a cloud outline with DAV text; local mount/storage uses CloudDownload.
+- Selected and unselected tabs use identical 17px/600 typography to prevent layout shifts. Rounded diffused selection remains visible. Deep cosmic blue-purple navigation includes animated twinkling selection stars, respecting reduced motion.
+- Meteor tails span only 1.8%–3.8% of travel. Raw JSON logs remain fully wrapped with no line clamp, using 14px text and 24px leading.
+
 - Use a 236px cosmic indigo sidebar, 48px topbar, rounded sidebar right corners and square main-surface junctions. Logs and settings are bottom-pinned. Active navigation has translucent highlights and restrained star points.
 - Do not repeat page titles beneath breadcrumbs. Align task tabs and actions in one desktop row. Settings use horizontal tabs without a general-settings section.
 - Storage cards use compact padding and 14px corners; the dashed tile is the only add entry and provider icons toggle enabled state. Account menus use compact 14px typography.
