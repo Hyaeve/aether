@@ -17,6 +17,10 @@ LitePan is the primary layout and interaction reference, including its local Adm
 
 ## Compact Workspace
 
+- File services consolidate file browsing, WebDAV and local mounts into three page tabs, with browsing first and legacy-route redirects.
+- Center emblems have a soft elliptical light beneath them without a mesh. Meteors start across the top band from one-third of the scene width to the right edge, with tails spanning 4%–6.5% of travel.
+- Login fields and button share a 350px maximum width. Account fields and session duration share a 40px height and equal width. Tab glows use a rounded pseudo-element independent of the straight active underline; WebDAV's cloud outline is enlarged to match adjacent icons.
+
 - Select triggers use 12px corners while preserving native keyboard and mobile picker behavior. Breadcrumb controls, refresh and log-mode buttons keep accessible labels without hover titles.
 - Unselected navigation and page tabs have a softer rounded hover wash between their resting and active states. Framed orbit-provider icons use 25% corner radii, matching the Quark mark.
 - Login and About center emblems share a responsive Canvas gravity well: a depressed membrane mesh with a dark interior, drawn on resize without an additional animation loop.

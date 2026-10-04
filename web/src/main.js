@@ -5,6 +5,10 @@ import './style.css'
 
 const router = createRouter({
   history: createWebHistory(),
-  routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+  routes: [
+    { path: '/webdav', redirect: '/files/webdav' },
+    { path: '/mounts', redirect: '/files/mounts' },
+    { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
+  ]
 })
 createApp(App).use(router).mount('#app')

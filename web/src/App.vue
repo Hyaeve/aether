@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, state, reload, notify, notices, bytes, date } from './lib'
 import Icon from './components/Icon.vue'
 import TaskTabs from './components/TaskTabs.vue'
+import FileTabs from './components/FileTabs.vue'
 import LoginPage from './pages/LoginPage.vue'
 import StoragePage from './pages/StoragePage.vue'
 import TasksPage from './pages/TasksPage.vue'
@@ -25,9 +26,8 @@ function applyTheme() { document.documentElement.dataset.theme = theme.value ===
 watch(theme, () => { localStorage.setItem('aether-theme', theme.value); applyTheme() })
 applyTheme()
 const navigation = [
-  { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件管理', icon: 'FolderOpen' },
+  { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/backup', label: '备份中心', icon: 'ArchiveRestore' },
-  { path: '/webdav', label: 'WebDAV', icon: 'WebDAV' }, { path: '/mounts', label: '本地挂载', icon: 'CloudDownload' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
   { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
@@ -37,7 +37,7 @@ const activeNav = computed(() => navigation.find(n => currentPath.value === n.pa
 const title = computed(() => activeNav.value?.label || '以太')
 const planned = computed(() => ({
   '/backup': { title: '备份中心', icon: 'ArchiveRestore', items: ['备份计划', '备份历史', '恢复与校验'] },
-  '/mounts': { title: '本地挂载', icon: 'Monitor', items: ['FUSE 挂载管理', '挂载点状态'] },
+  '/files/mounts': { title: '本地挂载', icon: 'CloudDownload', items: ['FUSE 挂载管理', '挂载点状态'] },
   '/links': { title: '以太链接', icon: 'Waypoints', items: ['Audiobookshelf 反向代理', 'Emby 反向代理', '飞牛影视反向代理'] },
   '/tasks/organize': { title: '目录整理', icon: 'FolderTree', items: ['目录整理任务', '整理规则与预览'] },
   '/tasks/scrape': { title: 'STRM 刮削', icon: 'ScanSearch', items: ['媒体识别', 'TMDB 元数据', 'NFO 与封面'] }
@@ -102,13 +102,14 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
       </header>
       <main class="page-content" :key="currentPath">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
+        <FileTabs v-if="currentPath === '/files' || currentPath.startsWith('/files/')" />
         <TaskTabs v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cache'].includes(currentPath)" />
         <StoragePage v-if="currentPath === '/storage'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
         <FilesPage v-else-if="currentPath === '/files'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
-        <SettingsPage v-else-if="currentPath === '/webdav'" section="webdav" />
+        <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : 'account'" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
         <LogsPage v-else-if="currentPath === '/logs'" />

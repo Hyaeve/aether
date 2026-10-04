@@ -1,13 +1,13 @@
 export function createMeteorBatch(random = Math.random) {
   return Array.from({ length: 2 + Math.floor(random() * 4) }, () => ({
-    x: .72 + random() * .27,
-    y: .01 + random() * .22,
+    x: 1 / 3 + random() * (2 / 3),
+    y: .01 + random() * .08,
     distance: .65 + random() * .35,
     fadeStart: 1 / 3 + random() * .27,
     fadeEnd: .7 + random() * .3,
     delay: random() * .6,
     duration: (1.8 + random() * .8) * [1, 2, 3][Math.floor(random() * 3)],
-    tail: .018 + random() * .02
+    tail: .04 + random() * .025
   }))
 }
 

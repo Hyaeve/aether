@@ -649,6 +649,22 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .about-actions { position: absolute; bottom: 28px; left: 20px; right: 20px; }
 .about-emblem { position: relative; isolation: isolate; width: 72px; height: 72px; margin: 0 auto 18px; }
 .about-emblem > img { width: 72px; height: 72px; }
+.about-emblem { margin-bottom: 32px; }
+.login-form { max-width: 350px; }
+.account-settings .credential-input { height: 40px; padding: 0 10px; gap: 8px; border-radius: 8px; }
+.account-settings .credential-input input { font-size: 14px; }
+.account-settings .credential-input > svg { width: 18px; height: 18px; }
+.account-settings .credential-input, .account-settings .number-control { width: 100%; }
+.account-settings .settings-row { flex-direction: column; align-items: stretch; gap: 12px; }
+.dav-symbol > svg { transform: scale(1.22); }
+.dav-symbol > span { font-size: 7.5px; }
+.provider-icon .dav-symbol > svg { transform: scale(1.18); }
+.content-tabs a, .settings-navigation a { position: relative; isolation: isolate; }
+.content-tabs a.active, .settings-navigation a.active, .content-tabs a:not(.active):hover, .settings-navigation a:not(.active):hover { background: transparent; border-radius: 0; }
+.content-tabs a::before, .settings-navigation a::before { content: ''; position: absolute; inset: 3px -3px 3px; border-radius: 14px; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at center,#9aa9dc70,#b4b9d622 67%,transparent 92%); opacity: 0; transition: opacity .18s; }
+.content-tabs a:hover::before, .settings-navigation a:hover::before { opacity: .5; }
+.content-tabs a.active::before, .settings-navigation a.active::before { opacity: 1; }
+.file-tabs a { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 select { border-radius: 12px; }
 .content-tabs a, .settings-navigation a, .nav-group button { transition: background-color .18s ease, color .18s ease; }
 .content-tabs a:not(.active):hover, .settings-navigation a:not(.active):hover { border-radius: 14px; background: radial-gradient(ellipse at center,#a5b4e036,#b4b9d614 67%,transparent 92%); color: var(--primary); }
