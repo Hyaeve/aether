@@ -9,6 +9,29 @@ import NumberInput from '../components/NumberInput.vue'
 const query = ref(''), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
 const testing = ref('')
 const menu = ref('')
+const dragging = ref(''), dropTarget = ref(''), sorting = ref(false)
+function dragStart(event, storage) {
+  if (sorting.value || event.target.closest('button')) { event.preventDefault(); return }
+  closeMenu(); dragging.value = storage.id
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', storage.id)
+}
+function dragEnd() { dragging.value = ''; dropTarget.value = '' }
+async function moveStorage(id, target) {
+  dragEnd()
+  if (!id || id === target || sorting.value) return
+  sorting.value = true
+  try { await api('/storages/reorder', 'POST', { id, target }); await reload() }
+  catch (e) { notify(e.message, true) }
+  finally { sorting.value = false }
+}
+function reorderKey(event, storage) {
+  if (event.target !== event.currentTarget || !event.altKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
+  event.preventDefault()
+  const index = visible.value.findIndex(s => s.id === storage.id)
+  const target = visible.value[index + (['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1)]
+  if (target) moveStorage(storage.id, target.id)
+}
 function closeMenu() { menu.value = '' }
 function menuKey(event) { if (event.key === 'Escape') closeMenu() }
 onMounted(() => { document.addEventListener('click', closeMenu); document.addEventListener('keydown', menuKey) })
@@ -125,11 +148,8 @@ async function remove() {
     <div><span class="metric-icon neutral"><Icon name="HardDrive" /></span><span><small>本地存储</small><strong>{{ state.storages.filter(s => s.type === 'local').length }}<em>个</em></strong></span></div>
   </div>
   <div class="storage-grid">
-    <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id }">
+    <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id, dragging: dragging === s.id, 'drop-target': dropTarget === s.id, 'storage-disabled': !s.enabled }" :draggable="!sorting" tabindex="0" :aria-label="`${s.name}，${s.enabled ? '已启用' : '已停用'}`" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" @keydown="reorderKey($event, s)" @dragstart="dragStart($event, s)" @dragend="dragEnd" @dragover.prevent="dragging && (dropTarget = s.id)" @dragleave.self="dropTarget = ''" @drop.prevent="moveStorage(dragging, s.id)">
       <div class="storage-card-top"><button class="provider-toggle" :title="s.enabled ? '停用存储池' : '启用存储池'" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3 :title="s.name">{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><div class="storage-menu-control" @click.stop><button class="icon-btn" :aria-label="`存储操作 ${s.name}`" :aria-expanded="menu === s.id" @click="menu = menu === s.id ? '' : s.id"><Icon name="Ellipsis" /></button><div v-if="menu === s.id" class="storage-menu"><button @click="open(s)"><Icon name="Pencil" />编辑存储</button><button :disabled="testing === s.id || !s.enabled" @click="closeMenu(); test(s)"><Icon name="Activity" />测试连接</button><button class="danger-text" @click="closeMenu(); confirmDelete = s"><Icon name="Trash2" />删除存储</button></div></div></div>
-      <div class="storage-card-status"><span v-if="!s.enabled || ['connected', 'error'].includes(s.status)" class="status" :class="!s.enabled ? 'muted' : s.status === 'connected' ? 'success' : 'danger'"><i />{{ !s.enabled ? '已停用' : s.status === 'connected' ? '连接正常' : '连接异常' }}</span><span>{{ s.cacheTTL ? `${s.cacheTTL} 分钟缓存` : '跟随全局缓存' }}</span></div>
-      <div class="storage-root"><Icon name="Folder" :size="15" /><code>{{ s.config.root || '/' }}</code></div>
-      <p v-if="s.lastError" class="card-error" :title="s.lastError">{{ s.lastError }}</p>
     </article>
     <button class="add-storage-tile" aria-label="添加存储池" @click="open()"><span class="add-tile-icon"><Icon name="Plus" :size="25" /></span><strong>添加存储池</strong></button>
   </div>

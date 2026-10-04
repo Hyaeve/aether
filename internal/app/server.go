@@ -189,6 +189,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/authorization/{provider}/start", a.protected(http.HandlerFunc(a.startAuthorization)))
 	mux.Handle("POST /api/authorization/{provider}/poll", a.protected(http.HandlerFunc(a.pollAuthorization)))
 	mux.Handle("/api/storages", a.protected(http.HandlerFunc(a.storages)))
+	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
 	mux.Handle("/api/files", a.protected(http.HandlerFunc(a.files)))
@@ -506,6 +507,49 @@ func (a *App) storages(w http.ResponseWriter, r *http.Request) {
 	}
 	a.store.event("info", "storage", "添加存储池："+s.Name)
 	jsonResponse(w, 201, map[string]string{"id": s.ID})
+}
+
+func (a *App) reorderStorage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var move struct {
+		ID     string `json:"id"`
+		Target string `json:"target"`
+	}
+	if !decode(w, r, &move) {
+		return
+	}
+	err := a.store.update(func(st *State) error {
+		from, to := -1, -1
+		for i, s := range st.Storages {
+			if s.ID == move.ID {
+				from = i
+			}
+			if s.ID == move.Target {
+				to = i
+			}
+		}
+		if from < 0 || to < 0 {
+			return errors.New("存储池不存在，请刷新后重试")
+		}
+		item := st.Storages[from]
+		if from < to {
+			copy(st.Storages[from:to], st.Storages[from+1:to+1])
+		}
+		if from > to {
+			copy(st.Storages[to+1:from+1], st.Storages[to:from])
+		}
+		st.Storages[to] = item
+		return nil
+	})
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
+	a.store.event("info", "storage", "调整存储池排序")
+	jsonResponse(w, 200, map[string]bool{"ok": true})
 }
 
 func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {

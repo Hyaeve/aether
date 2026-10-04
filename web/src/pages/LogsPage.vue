@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, state, date, notify } from '../lib'
 import Icon from '../components/Icon.vue'
+import RoundedSelect from '../components/RoundedSelect.vue'
 const key = `aether-log-filters:${state.username}`
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(key) || '{}') || {} } catch {}
@@ -66,8 +67,8 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
     <div class="log-toolbar">
       <button class="icon-btn log-view-toggle" :aria-label="filters.view === 'raw' ? '当前原始列表，切换结构化列表' : '当前结构化列表，切换原始列表'" @click="filters.view = filters.view === 'raw' ? 'structured' : 'raw'"><Icon :name="filters.view === 'raw' ? 'Logs' : 'TableProperties'" :size="21" /></button>
       <div class="search-field"><Icon name="Search" :size="16" /><input v-model="filters.query" aria-label="搜索日志" placeholder="搜索日志…" /></div>
-      <select v-model="filters.level" aria-label="日志级别"><option value="all">全部级别</option><option v-for="(label, value) in levels" :key="value" :value="value">{{ label }}</option></select>
-      <select v-model="filters.module" aria-label="日志模块"><option value="all">全部模块</option><option v-for="(label, value) in modules" :key="value" :value="value">{{ label }}</option></select>
+      <RoundedSelect v-model="filters.level" label="日志级别" :options="[{ value: 'all', label: '全部级别' }, ...Object.entries(levels).map(([value, label]) => ({ value, label }))]" />
+      <RoundedSelect v-model="filters.module" label="日志模块" :options="[{ value: 'all', label: '全部模块' }, ...Object.entries(modules).map(([value, label]) => ({ value, label }))]" />
       <button class="icon-btn" aria-label="刷新日志" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     </div>
     <div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" @scroll="scroll = $event.target.scrollTop">
