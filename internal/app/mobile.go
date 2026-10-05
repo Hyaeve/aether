@@ -160,11 +160,13 @@ func (a *App) mobileListAt(ctx context.Context, s Storage, host, dir string) ([]
 	seen := map[string]bool{}
 	for {
 		type item struct {
-			ID       string `json:"fileId"`
-			Name     string `json:"name"`
-			Size     int64  `json:"size"`
-			Type     string `json:"type"`
-			Category string `json:"category"`
+			Hash          string `json:"contentHash"`
+			HashAlgorithm string `json:"contentHashAlgorithm"`
+			ID            string `json:"fileId"`
+			Name          string `json:"name"`
+			Size          int64  `json:"size"`
+			Type          string `json:"type"`
+			Category      string `json:"category"`
 		}
 		var data struct {
 			Items []item `json:"items"`
@@ -185,7 +187,11 @@ func (a *App) mobileListAt(ctx context.Context, s Storage, host, dir string) ([]
 			if f.ID == "" || !safeName(f.Name) {
 				continue
 			}
-			files = append(files, File{ID: f.ID, Name: f.Name, Size: f.Size, IsDir: strings.EqualFold(f.Type, "folder") || strings.EqualFold(f.Category, "folder")})
+			hash := ""
+			if strings.EqualFold(f.HashAlgorithm, "SHA256") {
+				hash = f.Hash
+			}
+			files = append(files, File{ID: f.ID, Name: f.Name, Size: f.Size, SHA256: hash, IsDir: strings.EqualFold(f.Type, "folder") || strings.EqualFold(f.Category, "folder")})
 		}
 		if data.Next == "" {
 			return files, nil

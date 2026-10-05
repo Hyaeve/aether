@@ -131,6 +131,8 @@ func TestCASLifecycle(t *testing.T) {
 	if err := a.validateTask(&task); err != nil {
 		t.Fatal(err)
 	}
+	// Exercise the legacy decoder for already-issued playback links.
+	task.CASOperation = "restore"
 	if task.RetentionHours != 12 {
 		t.Fatal("CAS default retention must be 12h")
 	}
@@ -245,7 +247,7 @@ func TestCASLifecycle(t *testing.T) {
 func TestCASStorageValidation(t *testing.T) {
 	a := testApp(t)
 	s := addLocal(t, a)
-	task := Task{Name: "invalid CAS", Kind: "cas", StorageID: s.ID, Mode: "incremental"}
+	task := Task{Name: "invalid CAS", Kind: "cas", StorageID: s.ID, Mode: "incremental", CASOperation: "restore"}
 	if err := a.validateTask(&task); err == nil {
 		t.Fatal("local CAS accepted")
 	}

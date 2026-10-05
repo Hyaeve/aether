@@ -738,8 +738,14 @@ func (a *App) validateTask(t *Task) error {
 				return errors.New("还原文件保留时间必须为 1–8760 小时")
 			}
 			s, _ := a.store.storage(t.StorageID)
-			if !casStorage(s) {
-				return errors.New("CAS 任务需要原生移动新版个人云或天翼个人云存储池")
+			if t.CASOperation == "" {
+				t.CASOperation = "generate"
+			}
+			if t.CASOperation != "generate" {
+				return errors.New("CAS 任务仅生成 CAS 文件，请重新编辑保存旧任务")
+			}
+			if !casStorage(s) && !(s.Type == "local" && t.CASOperation == "generate") {
+				return errors.New("CAS 生成支持本地、原生移动或天翼存储；还原仅支持原生移动或天翼")
 			}
 		}
 		t.Target = strings.TrimSpace(t.Target)

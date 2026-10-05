@@ -321,6 +321,7 @@ func (a *App) tianyiList(ctx context.Context, s Storage, dir string) ([]File, er
 	files := []File{}
 	seen := map[string]bool{}
 	type item struct {
+		MD5  string `json:"md5"`
 		ID   json.Number
 		Name string
 		Size int64
@@ -343,7 +344,7 @@ func (a *App) tianyiList(ctx context.Context, s Storage, dir string) ([]File, er
 					continue
 				}
 				seen[string(f.ID)] = true
-				files = append(files, File{ID: string(f.ID), Name: f.Name, Size: f.Size, IsDir: index == 0})
+				files = append(files, File{ID: string(f.ID), Name: f.Name, Size: f.Size, MD5: f.MD5, IsDir: index == 0})
 				added++
 			}
 		}

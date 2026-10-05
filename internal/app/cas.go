@@ -29,11 +29,12 @@ func (entry CASTemporary) expiresAt() time.Time {
 }
 
 type CASInfo struct {
-	Provider string `json:"provider"`
-	Name     string `json:"name"`
-	Size     int64  `json:"size"`
-	SHA256   string `json:"sha256"`
-	MD5      string `json:"md5,omitempty"`
+	RetentionHours int    `json:"retentionHours,omitempty"`
+	Provider       string `json:"provider"`
+	Name           string `json:"name"`
+	Size           int64  `json:"size"`
+	SHA256         string `json:"sha256"`
+	MD5            string `json:"md5,omitempty"`
 }
 
 type CASTemporary struct {

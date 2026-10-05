@@ -116,6 +116,9 @@ func (a *App) startTask(taskID string) error {
 	if task.ID == "" {
 		return errors.New("任务不存在")
 	}
+	if task.Kind == "cas" && task.CASOperation != "generate" {
+		return errors.New("旧版 CAS 转 STRM 任务已停用，请重新选择视频源目录并保存")
+	}
 	if _, ok := a.running[taskID]; ok {
 		return errors.New("任务正在执行")
 	}
@@ -194,6 +197,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		}
 	}()
 	count := 0
+	generateCAS := t.Kind == "cas" && (t.CASOperation == "generate" || (t.CASOperation == "" && s.Type == "local"))
 	visited := map[string]bool{}
 	outputs := map[string]bool{}
 	var walk func(string, string, int) error
@@ -239,7 +243,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				continue
 			}
 			var info *CASInfo
-			if t.Kind == "cas" {
+			if t.Kind == "cas" && !generateCAS {
 				if !strings.EqualFold(path.Ext(f.Name), ".cas") || excluded(f.Name, t.ExcludeFiles) {
 					continue
 				}
@@ -252,7 +256,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 				info = &parsed
 				child = path.Join(rel, parsed.Name)
-			} else if t.Kind != "strm" || !isVideo(f.Name) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
+			} else if (t.Kind != "strm" && !generateCAS) || !isVideo(f.Name) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
 				continue
 			}
 			// Create the output root only when a matching file actually needs writing.
@@ -267,6 +271,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			// Retain the source extension so movie.mp4 and movie.mkv never collide.
 			filename := path.Join(target, child+".strm")
+			if generateCAS {
+				filename = path.Join(target, child+".cas")
+			}
 			if outputs[strings.ToLower(filename)] {
 				return fmt.Errorf("输出文件名冲突：%s", filename)
 			}
@@ -275,6 +282,22 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if _, err := root.Stat(filename); err == nil {
 					continue
 				}
+			}
+			if generateCAS {
+				info, err := a.generateCASInfo(ctx, s, f)
+				if err != nil {
+					return fmt.Errorf("%s: %w", f.Name, err)
+				}
+				info.RetentionHours = casRetentionHours(t.RetentionHours)
+				data, err := json.Marshal(info)
+				if err != nil {
+					return err
+				}
+				if err := writeCASOutput(root, filename, []byte(base64.StdEncoding.EncodeToString(data)), t.Mode == "incremental"); err != nil {
+					return err
+				}
+				count++
+				continue
 			}
 			if err := root.MkdirAll(path.Dir(filename), 0755); err != nil {
 				return err

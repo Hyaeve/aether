@@ -1,5 +1,18 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-06：目录名称导航与本地 CAS 生成
+
+- 修改 `internal/app/model.go`：Task 新增 sourceLabel、sourceTrail、casOperation，分离目录显示信息和接口 ID，保留旧任务默认还原语义。修改 `internal/app/server.go`：校验生成/还原操作，本地仅允许生成，云盘仍保留原生限定。
+- 修改 `web/src/components/TaskSourcePicker.vue`、`DirectoryPicker.vue`：显示目录名称而非 opaque ID；父级名称历史、根目录按钮及无历史时返回根目录。TaskSourcePicker 将名称和父级轨迹一并回传，旧任务缺失名称显示“已选目录”，重选后补齐。
+- 修改 `web/src/pages/TasksPage.vue`：CAS 选择器加入本地存储，新增生成 CAS/读取 CAS 生成 STRM 两种操作；本地仅生成，保留时间只用于还原；任务列表和编辑按钮使用显示名称，重开恢复目录导航。
+- 修改 `internal/app/drivers.go`、`mobile.go`、`tianyi.go`：File 增加 SHA256/MD5 元数据，移动读取显式 SHA256 contentHash、天翼读取 MD5。只接受兼容有效哈希，缺失报错，不伪造或隐式下载视频补算。
+- 新增 `internal/app/cas_generate.go`：generateCASInfo 在 os.Root 内流式计算本地 SHA256 与 MD5、检查取消/普通文件/读前后大小时间，拒绝路径越界；writeCASOutput 临时文件写入同步后发布，增量通过硬链接避免覆盖已有输出，全量原子替换；文件系统不支持硬链接时明确返回错误。
+- 修改 `internal/app/tasks.go`：生成操作遍历普通视频，复用目录排除/类型排除/调度/全量增量，输出 Base64 JSON 的原文件名.cas；原还原生成 STRM 流程保持。输出仍受既有 STRM 根目录限制。
+- 新增 `internal/app/cas_generate_test.go`，修改 `internal/app/cas_test.go`：本地 SHA256/MD5 精确值、解码兼容、全量增量、取消、越界和符号链接保护、云端缺失哈希拒绝；原本地全部拒绝断言改为本地还原拒绝。
+- 修改 `web/tests/workspace.spec.js`，新增 `web/tests/zz-cas.spec.js`：云端目录名回显、刷新恢复、回上级/根目录、本地 CAS 真实执行与输出哈希验证、表单截图。修改 `README.md`、`AGENTS.md`：记录操作差异与边界。
+- 验证过程：前端构建和 go vet 通过；首次测试暴露旧测试假设及新增夹具缺少天翼凭据、自定义选择器角色不符，已修正并全量重跑。最终结果追加于下方。
+- 限制：无真实移动/天翼凭据或 Docker 联调；云端生成依赖目录接口返回兼容哈希，未实现缺失哈希的额外详情接口查询。本地计算只支持现有视频类型；旧任务未保存名称无法凭空恢复路径。未改用户配置、15151 服务或生成根目录 exe；本轮未提交推送，前一轮本地 v0.1.1 推送失败状态不变。
+
 ## 必须遵守的记录规范
 
 - 发布推送默认递增补丁版本：以 `VERSION` 为准，未指定版本时每次发布加 `0.0.1`（如 `0.1.9` → `0.1.10`），同步后端、Docker默认值、前端包版本并推送对应 `v` 标签。本轮从 `v0.1.0` 升至 `v0.1.1`。
@@ -399,3 +412,25 @@
 - 限制：无真实媒体库、真实iOS或Docker内联调；M4A适配覆盖STRM音频目标和映射到容器内的ABS原始AAC/WMA/M4B文件，其他普通非STRM媒体仍交原服务器；通用媒体标签补全、备份恢复未实现。原15151服务与用户数据不改动，15152旧预览后端尚未更新。
 - 按用户要求连同此前84px卡片调整提交发布v0.1.1并推送main及版本标签，结果以Git工具输出为准。
 - 最终验证补充：Go全量测试、go vet、前端v0.1.1构建通过；10项Playwright最终全部通过（44.0秒）。查看手机文件网格截图确认工具栏已重新排列、搜索框不再挤窄。模拟ABS/Emby/飞牛302及未授权拒绝、真实FFmpeg M4B转换与缓存复用均通过。CI显式写入OCI版本标签避免分支名覆盖镜像版本。
+
+## 2026-10-06：目录导航与 CAS 生成验证补充
+
+- 本轮逐文件实现记录见本文件顶部同日条目；最终 `go test ./... -count=1`、`go vet ./...`、`npm run build`、`git diff --check` 通过，11项 Playwright 全部通过（47.4秒）。
+- 已查看本地 CAS 创建表单截图，名称与生成方式、源目录与生成目录两列对齐，没有重叠。本地实际生成 CAS 并校验 SHA256；未声明云盘真实生成联调完成。
+- 本轮未提交、推送或升版本；测试运行于隔离15159且已退出，未更新15151或既有15152后端。
+
+## 2026-10-06：纠正 CAS 任务为仅生成 CAS
+
+- 修改 `web/src/pages/TasksPage.vue`：移除 CAS 操作选择及转 STRM 入口，保存时统一 generate；还原保留时长恢复显示，默认12h。修改 `internal/app/server.go`：缺省操作为 generate，拒绝提交 restore；修改 `internal/app/tasks.go`：startTask 拒绝旧转换任务，要求重新选择视频源目录保存，避免自动改变旧任务行为；生成结果写入保留时长。
+- 修改 `internal/app/cas.go`：CASInfo 增加可选 retentionHours 元数据。不宣称外部消费端已经支持该字段或支持直接播放；旧签名播放解码与临时文件清理兼容保留，不删除已有输出。
+- 修改 `internal/app/cas_generate_test.go`：覆盖旧转换提交/执行拒绝及新默认生成；修改 `internal/app/cas_test.go`、`internal/app/tianyi_test.go`：既有生命周期测试显式标为旧解码兼容，不再依赖新任务默认行为。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/zz-cas.spec.js`：断言无 CAS 操作选择器，保留时长默认12h，本地真实生成及目录导航回归。修改 `README.md`、`AGENTS.md`：撤销上一条“双操作”的当前功能说明，区分新生成和旧播放兼容。
+- 验证：首次 Go 回归发现两个生命周期测试依赖旧默认值，调整夹具后全量 `go test ./... -count=1` 通过；go vet、前端构建通过；11项 Playwright 通过（48.7秒）。未进行真实云端/媒体库 CAS 直接播放联调，Base64 JSON CAS 不等于任意播放器可识别的 URL 文本。
+- 未提交推送、未升版本、未修改用户数据或15151服务。
+
+## 2026-10-06：发布 v0.1.2 并补推上一版本
+
+- 按用户“推送”要求，修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`，补丁版本从0.1.1同步提升到0.1.2；修改 `AGENTS.md` 追加发布记录。
+- 提交范围为前两轮已逐文件记录的目录名称/回根导航、本地 CAS 生成及“仅生成 CAS”纠正、测试与文档；一并推送此前因网络失败仅在本地的 v0.1.1 提交与标签。不包含 config、data、凭据、exe、日志、依赖或构建测试产物。
+- 已成功 fetch 远端，main 无分叉；本轮全量 Go 测试、go vet、前端0.1.2构建、差异格式检查通过。浏览器沿用上一轮同一业务代码11项通过（48.7秒）的结果，本轮仅更新版本元数据，不重复浏览器测试。
+- 真实云盘、媒体库直接识别 CAS 和 Docker 联调限制保持不变。计划推送 main、v0.1.1、v0.1.2，最终远端确认以 Git 输出为准；未操作15151服务或用户配置。

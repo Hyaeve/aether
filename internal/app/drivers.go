@@ -18,6 +18,8 @@ import (
 )
 
 type File struct {
+	SHA256   string    `json:"sha256,omitempty"`
+	MD5      string    `json:"md5,omitempty"`
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
 	IsDir    bool      `json:"isDir"`

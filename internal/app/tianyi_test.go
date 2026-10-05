@@ -164,6 +164,8 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 	if err := a.validateTask(&task); err != nil {
 		t.Fatal(err)
 	}
+	// Exercise the legacy decoder for already-issued playback links.
+	task.CASOperation = "restore"
 	if n, err := a.executeTask(context.Background(), task, s); err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
