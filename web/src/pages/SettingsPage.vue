@@ -29,12 +29,18 @@ async function clear() {
 </script>
 <template>
   <section v-if="section === 'cache'" class="page-head"><h1>缓存设置</h1><button class="btn" @click="$router.push('/tasks/cache')"><Icon name="ArrowLeft" />返回缓存任务</button></section>
-  <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about'].includes(section) }">
-  <nav v-if="['account', 'general', 'about'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
+  <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about', 'logs'].includes(section) }">
+  <nav v-if="['account', 'general', 'about', 'logs'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
     <RouterLink to="/settings/account" :class="{ active: section === 'account' }"><Icon name="UserRound" />账号与安全</RouterLink>
     <RouterLink to="/settings/about" :class="{ active: section === 'about' }"><Icon name="Info" />关于以太</RouterLink>
+    <RouterLink to="/settings/logs" :class="{ active: section === 'logs' }"><Icon name="Logs" />日志管理</RouterLink>
   </nav>
   <AboutPage v-if="section === 'about'" />
+  <form v-else-if="section === 'logs'" class="log-settings-panel" @submit.prevent="save">
+    <div class="settings-row"><strong>日志保留天数</strong><NumberInput v-model="form.logDays" aria-label="日志保留天数" unit="天" min="1" max="3650" required /></div>
+    <div class="settings-row"><strong>日志条数上限</strong><NumberInput v-model="form.logMaxEntries" aria-label="日志条数上限" unit="条" min="100" max="1000000" required /></div>
+    <p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button class="btn primary" :disabled="busy">保存设置</button></div>
+  </form>
   <form v-else-if="section === 'account'" class="settings-form account-settings" @submit.prevent="changeAccount">
     <AccountFields v-model:username="account.username" v-model:password="account.password" />
     <section class="settings-section"><div class="settings-row"><strong>会话有效期</strong><NumberInput v-model="account.sessionDays" aria-label="会话有效期" unit="天" min="1" max="365" required /></div></section>

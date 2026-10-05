@@ -8,7 +8,7 @@ test('meteor batches contain two to five upper-right to lower-left trails', () =
     const batch = createMeteorBatch(() => value)
     expect(batch).toHaveLength(2 + Math.floor(value * 4))
     for (const meteor of batch) {
-      expect(meteor.x).toBeGreaterThanOrEqual(1 / 3)
+      expect(meteor.x).toBeGreaterThanOrEqual(1 / 6)
       expect(meteor.x).toBeLessThanOrEqual(1)
       expect(meteor.y).toBeLessThan(.24)
       expect(meteor.distance).toBeGreaterThanOrEqual(.65)
@@ -58,13 +58,13 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.getByRole('dialog').getByRole('button', { name: /本机存储/ }).click()
   await page.getByLabel('存储池名称').fill('本地影音库')
   await page.getByLabel('本地根目录').fill(path.join(process.env.AETHER_E2E_ROOT, 'media'))
-  await expect(page.getByLabel('删除模式')).toHaveValue('trash')
+  await expect(page.getByRole('button', { name: '删除模式', exact: true })).toHaveText('移到回收站')
   await page.getByRole('button', { name: '保存存储池' }).click()
   await expect(page.getByRole('heading', { name: '本地影音库', exact: true })).toBeVisible()
   await expect(page.getByText('待验证', { exact: true })).toHaveCount(0)
   expect(await page.locator('.storage-grid').evaluate(el => {
     const card = el.querySelector('.storage-card').getBoundingClientRect(), add = el.querySelector('.add-storage-tile').getBoundingClientRect()
-    return card.width === add.width && card.height === add.height && card.height === 136
+    return card.width === add.width && card.height === add.height && card.height === 84
   })).toBe(true)
   await expect(page.locator('.storage-card footer')).toHaveCount(0)
   await page.getByRole('button', { name: '存储操作 本地影音库', exact: true }).click()
@@ -211,7 +211,7 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   await page.getByRole('button', { name: '添加存储池', exact: true }).click()
   await expect(page.locator('.wizard-steps')).toHaveCount(0)
   await page.getByRole('dialog').getByRole('button', { name: '115 网盘', exact: true }).click()
-  await expect(page.getByLabel('删除模式')).toHaveValue('trash')
+  await expect(page.getByRole('button', { name: '删除模式', exact: true })).toHaveText('移到回收站')
   await page.screenshot({ path: testInfo.outputPath('storage-115-desktop.png'), fullPage: true })
   expect(await page.getByRole('dialog').evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true)
   await page.context().route('https://example.com/authorize', route => route.fulfill({ contentType: 'text/html', body: '<title>115 Authorization Test</title>' }))
@@ -301,10 +301,10 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   await expect(page.locator('.toast').filter({ hasText: '当前版本已是最新' })).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
-  await expect(page.locator('.plugin-card')).toHaveCount(10)
+  await expect(page.locator('.plugin-card')).toHaveCount(11)
   expect(await page.locator('.plugin-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4)
   await page.screenshot({ path: testInfo.outputPath('plugins-desktop.png'), fullPage: true })
-  await page.getByRole('button', { name: /识别规则/ }).click()
+  await page.getByRole('button', { name: /^识别规则/ }).click()
   await expect(page.getByRole('dialog')).toContainText('最小视频、整理黑名单、自定义识别词、自定义匹配')
 })
 
@@ -470,7 +470,7 @@ test('WebDAV users and scoped directories', async ({ page }, testInfo) => {
   await expect(page.getByRole('button', { name: '刷新目录', exact: true })).toHaveText('')
   expect(await page.locator('.file-toolbar .search-field').evaluate(el => el.previousElementSibling.getAttribute('aria-label'))).toBe('刷新目录')
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
-  await expect(page.locator('.plugin-description')).toHaveCount(10)
+  await expect(page.locator('.plugin-description')).toHaveCount(11)
   await expect(page.locator('.plugin-description').first()).toHaveCSS('text-overflow', 'ellipsis')
   await page.screenshot({ path: testInfo.outputPath('tools-descriptions.png'), fullPage: true })
 })
@@ -566,6 +566,13 @@ test('storage drag order persists and cards remain minimal', async ({ page }, te
   await expect(cards.locator('.storage-root, .storage-card-status, .card-error')).toHaveCount(0)
   await expect(cards.first().locator('.provider-icon')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(cards.first().locator('.provider-icon')).toHaveCSS('border-radius', '0px')
+  expect(await cards.first().evaluate(el => {
+    const card = el.getBoundingClientRect()
+    const icon = el.querySelector('.provider-icon').getBoundingClientRect()
+    const name = el.querySelector('.storage-card-name').getBoundingClientRect()
+    return icon.height === 48 && Math.abs(icon.height - name.height) <= 4
+      && icon.right < name.left && Math.abs(icon.top + icon.height / 2 - (card.top + card.height / 2)) < 1
+  })).toBe(true)
   const changed = page.waitForResponse(r => r.url().endsWith('/api/storages/reorder') && r.request().method() === 'POST')
   await cards.first().dragTo(cards.nth(1))
   expect((await changed).ok()).toBe(true)

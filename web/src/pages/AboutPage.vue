@@ -6,7 +6,7 @@ import LoginUniverse from '../components/LoginUniverse.vue'
 const busy = ref(false)
 async function check() {
   busy.value = true
-  try { const result = await api('/version/check'); notify(result.available ? '发现新版本，可更新镜像' : result.revision && result.message.includes('一致') ? '当前版本已是最新' : result.message) }
+  try { const result = await api('/version/check'); notify(`${result.available ? '发现新版本，可更新镜像' : result.revision && result.message.includes('一致') ? '当前版本已是最新' : result.message} · 当前 v${String(result.current || '').replace(/^v/, '')}`) }
   catch (e) { notify(e.message, true) }
   finally { busy.value = false }
 }

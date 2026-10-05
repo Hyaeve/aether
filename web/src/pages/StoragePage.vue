@@ -5,6 +5,7 @@ import Icon from '../components/Icon.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import Modal from '../components/Modal.vue'
 import NumberInput from '../components/NumberInput.vue'
+import RoundedSelect from '../components/RoundedSelect.vue'
 
 const query = ref(''), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
 const testing = ref('')
@@ -175,7 +176,7 @@ async function remove() {
           </template>
           <label>{{ selected === 'local' ? '本地根目录' : ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" :required="selected === 'local'" /></label>
           <div class="field"><label for="storage-cache">缓存时间</label><NumberInput id="storage-cache" v-model="form.cacheTTL" aria-label="缓存时间" unit="分钟" min="0" max="525600" /><small>0 跟随全局设置</small></div>
-          <label>删除模式<select v-model="form.config.deleteMode"><option value="trash">移到回收站</option><option value="permanent">永久删除</option></select><small>{{ selected === 'tianyi' || (selected === 'mobile' && form.config.mode === 'native') ? '用于 CAS 临时文件清理。' : '当前文件服务只读，此设置预留。' }}</small></label>
+          <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /><small>{{ selected === 'tianyi' || (selected === 'mobile' && form.config.mode === 'native') ? '用于 CAS 临时文件清理。' : '当前文件服务只读，此设置预留。' }}</small></div>
           <label class="toggle-line full"><span>启用此存储池</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
         </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>

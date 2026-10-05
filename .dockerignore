@@ -2,6 +2,8 @@
 .github
 data
 config
+!internal/linkcore/config
+!internal/linkcore/config/**
 storage
 node_modules
 web/node_modules

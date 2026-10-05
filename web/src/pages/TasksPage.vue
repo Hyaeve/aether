@@ -2,6 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { api, state, reload, notify, date, driverOf } from '../lib'
 import Icon from '../components/Icon.vue'
+import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
 import TaskSourcePicker from '../components/TaskSourcePicker.vue'
 import TaskTabs from '../components/TaskTabs.vue'
@@ -59,7 +60,7 @@ async function toggle(t) {
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />{{ kind === 'cas' ? '需要原生移动或天翼个人云存储池。' : '请先添加并启用一个存储池。' }}<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
       <div class="form-grid">
         <label>任务名称 <span class="required">*</span><input v-model="form.name" required placeholder="例如：电影库每日同步" /></label>
-        <label v-if="kind !== 'cache'">生成方式<select v-model="form.mode"><option value="full">全量生成</option><option value="incremental">增量生成</option></select></label>
+        <div v-if="kind !== 'cache'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-else class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" @click="picker = true"><span>{{ storage(form.storageId)?.name || '选择存储池' }} · {{ form.source }}</span><Icon name="FolderOpen" /></button></div>
         <label v-if="kind !== 'cache'">生成目录<input v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /></label>

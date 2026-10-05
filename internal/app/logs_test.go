@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLogsEndpointAndAuditRedaction(t *testing.T) {
@@ -33,6 +34,9 @@ func TestLogsEndpointAndAuditRedaction(t *testing.T) {
 		t.Fatal("missing audit category")
 	}
 	reloaded, err := NewStore(a.store.dir)
+	if err == nil {
+		err = reloaded.initLogs(a.store.logDir)
+	}
 	if err != nil || len(reloaded.snapshot().Logs) != len(entries) {
 		t.Fatal("logs did not persist", err)
 	}
@@ -40,10 +44,16 @@ func TestLogsEndpointAndAuditRedaction(t *testing.T) {
 
 func TestLogBoundAndPublicAddress(t *testing.T) {
 	a := testApp(t)
-	_ = a.store.update(func(st *State) error { st.Logs = make([]LogEntry, 2000); return nil })
+	_ = a.store.update(func(st *State) error {
+		st.Logs = make([]LogEntry, 20000)
+		for i := range st.Logs {
+			st.Logs[i].Time = time.Now()
+		}
+		return nil
+	})
 	a.store.event("debug", "files", "listed directory")
 	entries := a.store.snapshot().Logs
-	if len(entries) != 2000 || entries[1999].Module != "files" {
+	if len(entries) != 20000 || entries[19999].Module != "files" {
 		t.Fatal("invalid ring bound")
 	}
 	t.Setenv("AETHER_ADDR", "192.168.50.20:15160")

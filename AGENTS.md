@@ -2,6 +2,8 @@
 
 ## 必须遵守的记录规范
 
+- 发布推送默认递增补丁版本：以 `VERSION` 为准，未指定版本时每次发布加 `0.0.1`（如 `0.1.9` → `0.1.10`），同步后端、Docker默认值、前端包版本并推送对应 `v` 标签。本轮从 `v0.1.0` 升至 `v0.1.1`。
+
 - 每次新增、修改或删除文件，都必须在本文件追加记录，再向用户交付。
 - 每条记录包含日期、需求、文件路径、关键代码或入口、功能变化、验证结果与未完成项。
 - 路径以仓库根目录为基准；同一次变更可分组列出，但不能遗漏文件。
@@ -367,3 +369,33 @@
 - 新增 `internal/app/storage_order_test.go`：验证排序鉴权、方法限制、向前/向后/原位移动、无效ID拒绝及重新加载加密状态后的顺序。
 - 验证：Go格式化、全量Go测试、go vet、前端构建通过；九项Playwright测试通过（40.3秒），覆盖真实拖拽、键盘排序、刷新持久化、圆角筛选键盘操作及桌面/手机布局。检查卡片和日志截图，补充等待展开动画完成再截图的断言。未进行Docker或真实网盘联调。
 - 按用户要求提交推送；不含配置、密钥或构建测试产物，不操作15151实例。15152仅前端构建已更新，其旧后端需重启新版程序才能使用排序接口；本轮排序端到端在隔离15159测试服务验证。
+
+## 2026-10-05：收紧存储卡片高度与图文对齐
+
+- 修改 `web/src/style.css`：存储卡片与添加卡片由136px共同降至84px；图标48px，右侧名称17px与类型12px上下排列，两行文本与图标整体垂直居中。添加卡片改为图标和文字横排，保持等宽等高，保留三点菜单和拖拽排序。
+- 修改 `web/tests/workspace.spec.js`：更新84px卡片等高断言，增加图标高度、图文高度匹配、左右顺序及垂直居中验证。
+- 修改 `AGENTS.md`：记录本轮变化。前端构建及九项Playwright测试通过（49.3秒），查看桌面存储截图确认底部空白已收紧。纯样式修改未重跑Go测试，未进行Docker或真实云盘联调。
+- 未修改配置、运行数据或15151实例；本轮未请求推送，未提交推送。
+
+## 2026-10-05：v0.1.1 以太链接、日志管理与文件工作区
+
+- 发布规则：用户要求未指定版本时每次发布加一个补丁号，本轮从0.1.0更新为0.1.1；新增 `VERSION`，修改 `internal/app/version.go`、`Dockerfile`、`.github/workflows/docker-amd64.yml`、`web/package.json`、`web/package-lock.json`。镜像从VERSION取版本并增加对应镜像标签；Docker和CI安装FFmpeg。
+- 新增 `internal/app/links.go`：加密MediaLink模型、受保护增删改查、热启停独立端口、冲突回滚、四种跳转策略、UA屏蔽、真实播放流水接口、共享音频缓存；缓存位于data/cache/link，不使用AetherLink原管理后台。
+- 新增 `internal/app/link_auth.go`：媒体解析前使用播放器自身凭据请求上游授权，不注入服务API Key，防止通过配置密钥绕过媒体登录；校验缓存命中之前也执行。
+- 新增 `internal/app/config_backup.go`：管理员POST导出配置ZIP，包含密文状态、密钥与JSON规则，拒绝跟随符号链接，排除日志和缓存，总大小限制32MB；UI明确提示备份包含敏感凭据。
+- 修改 `internal/app/model.go`、`internal/app/server.go`：Links加密存储、日志设置默认15天/20000条、API与启动退出挂接；日志从加密配置迁出。修改 `internal/app/logs.go`：迁移和读取data/log/system.json，按天数及数量联合裁剪、原子保存并继续stdout输出；以链归入links模块。修改 `internal/app/tasks.go`：每小时执行日志过期维护。
+- 新增 `internal/app/links_test.go`、`internal/app/link_playback_test.go`、`internal/app/config_backup_test.go`，修改 `internal/app/logs_test.go`：覆盖监听启停、端口冲突回滚、加密恢复、三种媒体模拟302、缓存与播放器鉴权、日志独立恢复及保留限制、备份鉴权与内容。
+- 按用户指定从本地AetherLink机械迁入 `internal/linkcore/config/{config.go,config_test.go,fnos_test.go,intranetcidrs_test.go,trustedproxy_test.go}`、`logx/{logx.go,redact.go,redact_test.go}`、`pathmap/{pathmap.go,pathmap_test.go}`、`proxy/{proxy.go,proxy_test.go,playback_cache_test.go,fnos_test.go,clientip.go,clientip_test.go}`、`resolver/{resolver.go,resolver_test.go,cache.go,cache_scope_test.go,localnet.go}`、`stats/{stats.go,stats_test.go}`、`strm/{strm.go,strm_test.go}`、`upstream/{upstream.go,upstream_test.go,abs.go,emby.go,fnos.go,fnos_test.go,cache_scope.go,cache_scope_test.go}`、`urlx/{urlx.go,urlx_test.go}`。保留来源注释与测试，将内部导入改为aether/internal/linkcore；修改Go模块 `go.mod`、`go.sum`加入yaml依赖。
+- 核心适配：`internal/linkcore/logx/logx.go`增加系统日志sink；`proxy/proxy.go`增加共享、可取消的音频缓存与M4B转M4A、FFmpeg输入协议限制、生成及活动播放保护；`resolver/cache.go`修复持久化错误变量作用域。新增 `proxy/aether_audio_test.go`，实际生成M4B、FFmpeg转码和复用缓存。沿用两小时闲置、十分钟清理、24小时空目录清扫与源项目TTL/LRU规则。
+- 新增 `web/src/pages/LinksPage.vue`：以链管理/直链缓存栏目，两步创建三类型、独立端口/地址/凭据/跳转/UA表单、媒体图标启停、编辑删除、真实播放流水。新增 `web/public/media/{abs.png,emby.png,fnmovie.png,SOURCES.md}`，素材来自指定本地项目并记录归属。
+- 修改 `web/src/App.vue`：接入真实以太链接页与日志管理设置；修改 `web/src/pages/SettingsPage.vue`：日志管理居中窗口、保留天数及条数；修改 `web/src/pages/ToolsPage.vue`：新增可执行配置备份卡片，其他插件保持待实现。
+- 修改 `web/src/pages/FilesPage.vue`：可点击路径、按账号/存储池收藏及移除、侧栏展开、列表/网格切换和浏览器持久化、图标反映当前视图，文件窗口圆角。参考LitePan FileBrowser的收藏栏交互，未复制其代码。
+- 修改 `web/src/components/RoundedSelect.vue`：支持禁用及空选项保护；`web/src/pages/StoragePage.vue`、`TasksPage.vue`和文件页全部改用圆角弹出选择器。修改 `web/src/style.css`：以链、日志设置、文件网格和收藏布局及手机工具栏；包含上一轮未提交的84px紧凑存储卡。
+- 修改 `web/src/components/Icon.vue`：WebDAV三瓣云轮廓扩大、共享DAV字样，增加文件视图与收藏图标；修改 `web/src/meteor.js`：流星起点覆盖顶部1/6至右边；修改 `web/src/components/LoginUniverse.vue`：缓存Canvas绘制带明暗与坑纹的月球，复用登录和关于页。
+- 修改 `web/src/pages/AboutPage.vue`：更新气泡带当前版本号，确认一致时仍显示已是最新，不误报无法比对结果；不恢复关于页常驻版本。
+- 修改 `web/tests/workspace.spec.js`，新增 `web/tests/z-links.spec.js`：适配圆角选项及11张工具卡、流星范围，覆盖以链保存/启停/编辑脱敏/跳转持久化、日志设置、文件收藏与网格、备份下载、桌面手机截图。
+- 修改 `.gitignore`、`.dockerignore`：仅忽略运行配置，确保linkcore/config源码参与提交和镜像构建。修改 `README.md`、`THIRD_PARTY_NOTICES.md`、`AGENTS.md`：更新功能、部署、敏感缓存、来源许可边界和逐文件记录；本地AetherLink未带LICENSE，不虚构许可声明。
+- 当前验证：全量Go测试、go vet通过；本机FFmpeg实际M4B转换及复用通过；10项Playwright通过（46.9秒），查看以链、月球及文件桌面/手机截图后进一步改善手机工具栏。最终重跑结果在下条补充。
+- 限制：无真实媒体库、真实iOS或Docker内联调；M4A适配覆盖STRM音频目标和映射到容器内的ABS原始AAC/WMA/M4B文件，其他普通非STRM媒体仍交原服务器；通用媒体标签补全、备份恢复未实现。原15151服务与用户数据不改动，15152旧预览后端尚未更新。
+- 按用户要求连同此前84px卡片调整提交发布v0.1.1并推送main及版本标签，结果以Git工具输出为准。
+- 最终验证补充：Go全量测试、go vet、前端v0.1.1构建通过；10项Playwright最终全部通过（44.0秒）。查看手机文件网格截图确认工具栏已重新排列、搜索框不再挤窄。模拟ABS/Emby/飞牛302及未授权拒绝、真实FFmpeg M4B转换与缓存复用均通过。CI显式写入OCI版本标签避免分支名覆盖镜像版本。

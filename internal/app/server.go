@@ -22,11 +22,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"aether/internal/linkcore/stats"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/webdav"
 )
 
 type App struct {
+	links          *linkRuntime
 	versionMu      sync.Mutex
 	versionExpiry  time.Time
 	versionResult  map[string]any
@@ -93,6 +95,10 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	a.casGate = make(chan struct{}, 1)
 	a.casActive = map[string]int{}
 	a.tianyiSessions = map[string]tianyiSession{}
+	a.links = &linkRuntime{services: map[string]*linkService{}, stats: stats.NewWithPersistence(2000, filepath.Join(dataDir, "cache", "link", "playback.json"))}
+	if err := store.initLogs(filepath.Join(dataDir, "log")); err != nil {
+		return nil, err
+	}
 	a.cache.restore(dataDir, store.snapshot().Settings)
 	a.dav = &webdav.Handler{Prefix: "/dav", FileSystem: davFS{a}, LockSystem: webdav.NewMemLS()}
 	return a, nil
@@ -116,6 +122,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 		return err
 	}
 	a.wg.Add(1)
+	a.startLinks()
+	defer a.closeLinks()
 	go a.scheduler()
 	server := &http.Server{Handler: a.Handler(env("AETHER_WEB_DIR", "web/dist")), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
@@ -180,6 +188,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	})
 	mux.Handle("/api/state", a.protected(http.HandlerFunc(a.state)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a.store.pruneLogs()
 		jsonResponse(w, 200, a.store.snapshot().Logs)
 	})))
 	mux.Handle("GET /api/cas/status", a.protected(http.HandlerFunc(a.casStatus)))
@@ -189,6 +198,10 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/authorization/{provider}/start", a.protected(http.HandlerFunc(a.startAuthorization)))
 	mux.Handle("POST /api/authorization/{provider}/poll", a.protected(http.HandlerFunc(a.pollAuthorization)))
 	mux.Handle("/api/storages", a.protected(http.HandlerFunc(a.storages)))
+	mux.Handle("/api/links", a.protected(http.HandlerFunc(a.mediaLinks)))
+	mux.Handle("/api/links/{id}", a.protected(http.HandlerFunc(a.mediaLinks)))
+	mux.Handle("/api/link-playback", a.protected(http.HandlerFunc(a.linkPlayback)))
+	mux.Handle("/api/config/backup", a.protected(http.HandlerFunc(a.configBackup)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
@@ -856,6 +869,16 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Session policy changes go through the account endpoint and rotate sessions.
 	s.SessionDays = a.store.snapshot().Settings.SessionDays
+	if s.LogDays == 0 {
+		s.LogDays = 15
+	}
+	if s.LogMaxEntries == 0 {
+		s.LogMaxEntries = 20000
+	}
+	if s.LogDays < 1 || s.LogDays > 3650 || s.LogMaxEntries < 100 || s.LogMaxEntries > 1000000 {
+		fail(w, 400, errors.New("日志保留天数为1–3650，条数为100–1000000"))
+		return
+	}
 	if s.CacheTTL < 1 || s.CacheMaxItems < 1 || s.CacheMaxItems > 1000000 || s.CacheMemoryMB < 1 || s.CacheMemoryMB > 4096 || s.SnapshotInterval < 1 {
 		fail(w, 400, errors.New("缓存设置超出有效范围"))
 		return
@@ -870,6 +893,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.cache.clear()
+	a.store.pruneLogs()
 	if err := os.Remove(filepath.Join(a.dataDir, "cache.json")); err != nil && !os.IsNotExist(err) {
 		a.logger.Printf("remove snapshot: %v", err)
 	}

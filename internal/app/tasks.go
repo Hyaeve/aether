@@ -339,12 +339,17 @@ func (a *App) scheduler() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	lastSnapshot := time.Now()
+	lastLogPrune := time.Now()
 	lastCASCleanup := time.Time{}
 	for {
 		select {
 		case <-a.ctx.Done():
 			return
 		case now := <-ticker.C:
+			if now.Sub(lastLogPrune) >= time.Hour {
+				a.store.pruneLogs()
+				lastLogPrune = now
+			}
 			if now.Sub(lastCASCleanup) >= time.Minute {
 				lastCASCleanup = now
 				ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)

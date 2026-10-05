@@ -41,3 +41,20 @@ SOFTWARE.
 
 139Strm's README also credits OpenList and community CAS implementations as
 protocol references. No OpenList source files were copied into this change.
+
+## AetherLink local integration (2026-10-05)
+
+At the user's explicit request, the media proxy core and its tests were imported
+from `C:/Develop/AetherLink/internal` into `internal/linkcore`: config, logx,
+pathmap, proxy, resolver, stats, strm, upstream and urlx. Internal import paths
+were mechanically rewritten; the original comments and tests are retained.
+Integration changes add a shared cancellable audio cache, M4B conversion, active
+audio protection, FFmpeg protocol restrictions and the Aether logging sink.
+
+`web/public/media/abs.png`, `emby.png` and `fnmovie.png` come from that local
+project's `web/public/icons`. They identify their respective media products;
+ownership remains with the original owners.
+
+No LICENSE file was present in the supplied AetherLink checkout. No open-source
+license grant is inferred here; this provenance record does not replace
+permission from the original rights holders.

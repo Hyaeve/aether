@@ -1,6 +1,6 @@
 export function createMeteorBatch(random = Math.random) {
   return Array.from({ length: 2 + Math.floor(random() * 4) }, () => ({
-    x: 1 / 3 + random() * (2 / 3),
+    x: 1 / 6 + random() * (5 / 6),
     y: .01 + random() * .08,
     distance: .65 + random() * .35,
     fadeStart: 1 / 3 + random() * .27,

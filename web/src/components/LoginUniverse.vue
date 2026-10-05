@@ -14,7 +14,7 @@ const satellites = []
 let observer, motionPreference, frame = 0, elapsed = 0, previous = 0
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
-let galaxy
+let galaxy, moon
 let meteorCycle = -1, meteors = []
 const tilt = -18 * Math.PI / 180
 
@@ -42,7 +42,24 @@ function resize() {
     speed: .45 + random() * 1.1, warm: random() > .89
   }))
   buildGalaxy(random, scale)
+  buildMoon(random)
   paint(elapsed)
+}
+
+function buildMoon(random) {
+  moon = document.createElement('canvas'); moon.width = 220; moon.height = 220
+  const m = moon.getContext('2d'), cx = 110, radius = 100
+  m.save(); m.beginPath(); m.arc(cx, cx, radius, 0, Math.PI * 2); m.clip()
+  const surface = m.createRadialGradient(66, 58, 8, 130, 135, 142)
+  surface.addColorStop(0, '#d2d4db'); surface.addColorStop(.6, '#7e8599'); surface.addColorStop(1, '#20283f')
+  m.fillStyle = surface; m.fillRect(0, 0, 220, 220)
+  for (let i = 0; i < 110; i++) {
+    const x = random() * 220, y = random() * 220, r = 1.5 + random() ** 3 * 16
+    const crater = m.createRadialGradient(x - r * .2, y - r * .3, 0, x, y, r)
+    crater.addColorStop(0, '#30374970'); crater.addColorStop(.7, '#444b6040'); crater.addColorStop(.88, '#dde2ed65'); crater.addColorStop(1, '#68718b00')
+    m.fillStyle = crater; m.beginPath(); m.arc(x, y, r, 0, Math.PI * 2); m.fill()
+  }
+  m.restore()
 }
 
 function buildGalaxy(random, scale) {
@@ -123,6 +140,10 @@ function paint(time) {
   positionSatellites(time)
   if (!ctx || !width || !height) return
   ctx.clearRect(0, 0, width, height)
+  if (moon) {
+    const size = Math.min(92, width * .14)
+    ctx.save(); ctx.globalAlpha = .62; ctx.drawImage(moon, width * .78, height * .15, size, size); ctx.restore()
+  }
   if (galaxy) {
     ctx.save()
     ctx.globalAlpha = .8 + Math.sin(time * .16) * .15

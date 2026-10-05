@@ -51,6 +51,8 @@ type Task struct {
 }
 
 type Settings struct {
+	LogDays          int    `json:"logDays"`
+	LogMaxEntries    int    `json:"logMaxEntries"`
 	SessionDays      int    `json:"sessionDays"`
 	CacheEnabled     bool   `json:"cacheEnabled"`
 	CacheTTL         int    `json:"cacheTTL"`
@@ -71,6 +73,7 @@ type LogEntry struct {
 }
 
 type State struct {
+	Links        []MediaLink    `json:"links,omitempty"`
 	DAVUsers     []DAVUser      `json:"davUsers,omitempty"`
 	CASTemporary []CASTemporary `json:"casTemporary,omitempty"`
 	Storages     []Storage      `json:"storages"`
@@ -83,10 +86,11 @@ type State struct {
 }
 
 type Store struct {
-	mu    sync.RWMutex
-	state State
-	dir   string
-	aead  cipher.AEAD
+	logDir string
+	mu     sync.RWMutex
+	state  State
+	dir    string
+	aead   cipher.AEAD
 }
 
 func id() string {
@@ -124,7 +128,7 @@ func NewStore(dir string) (*Store, error) {
 	s := &Store{dir: dir, aead: aead}
 	s.state = State{
 		Storages: []Storage{}, Tasks: []Task{}, Logs: []LogEntry{}, SignKey: id(),
-		Settings: Settings{SessionDays: 7, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: defaultPublicURL()},
+		Settings: Settings{LogDays: 15, LogMaxEntries: 20000, SessionDays: 7, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: defaultPublicURL()},
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "state.enc"))
 	if err == nil {
@@ -177,7 +181,11 @@ func atomicWrite(name string, data []byte) error {
 }
 
 func (s *Store) saveLocked() error {
-	plain, err := json.Marshal(s.state)
+	persisted := s.state
+	if s.logDir != "" {
+		persisted.Logs = nil
+	}
+	plain, err := json.Marshal(persisted)
 	if err != nil {
 		return err
 	}

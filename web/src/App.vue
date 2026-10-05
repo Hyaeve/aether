@@ -14,6 +14,7 @@ import DashboardPage from './pages/DashboardPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import PlannedPage from './pages/PlannedPage.vue'
 import ToolsPage from './pages/ToolsPage.vue'
+import LinksPage from './pages/LinksPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -110,7 +111,8 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
-        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : 'account'" />
+        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : 'account'" />
+        <LinksPage v-else-if="currentPath === '/links'" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />
