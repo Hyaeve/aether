@@ -28,9 +28,28 @@ func TestAudiobookshelfLink302(t *testing.T) {
 		t.Fatal(err)
 	}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/public/session/new-session/track/1" {
+			if r.Header.Get("Range") != "bytes=0-0" {
+				t.Error("session authorization must request bounded bytes")
+			}
+			w.WriteHeader(http.StatusPartialContent)
+			return
+		}
 		token := r.Header.Get("Authorization")
 		if token != "Bearer player" && token != "Bearer service" {
 			w.WriteHeader(401)
+			return
+		}
+		if r.URL.Path == "/api/session/new-session" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Path == "/api/sessions/open" {
+			json.NewEncoder(w).Encode(map[string]any{"sessions": []any{map[string]any{"id": "new-session", "libraryItemId": "book"}}})
+			return
+		}
+		if r.URL.Query().Get("expanded") == "1" {
+			json.NewEncoder(w).Encode(map[string]any{"id": "book", "media": map[string]any{"audioFiles": []any{map[string]any{"index": 1, "ino": "file", "metadata": map[string]any{"path": "/audiobooks/chapter.strm", "filename": "chapter.strm"}}}}})
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{"id": "book", "libraryFiles": []any{map[string]any{"ino": "file", "metadata": map[string]any{"path": "/audiobooks/chapter.strm", "filename": "chapter.strm"}}}})
@@ -65,6 +84,14 @@ func TestAudiobookshelfLink302(t *testing.T) {
 		if token != "" && (res.StatusCode != 302 || res.Header.Get("Location") != finalURL) {
 			t.Fatal("abs redirect", res.StatusCode, res.Header)
 		}
+	}
+	res, err := client.Get("http://127.0.0.1:" + fmtPort(link.Port) + "/public/session/new-session/track/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 302 || res.Header.Get("Location") != finalURL {
+		t.Fatal("active session playback blocked", res.StatusCode, res.Header)
 	}
 }
 

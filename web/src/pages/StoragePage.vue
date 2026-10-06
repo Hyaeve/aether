@@ -7,6 +7,8 @@ import Modal from '../components/Modal.vue'
 import NumberInput from '../components/NumberInput.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import SecretInput from '../components/SecretInput.vue'
+import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
+const directoryPicker = ref(false)
 
 const query = ref(''), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
 const testing = ref('')
@@ -185,7 +187,8 @@ async function remove() {
             <label v-if="selected !== 'webdav'" class="full">API Token<SecretInput v-model="form.config.token" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="token" autocomplete="off" /></label>
             <label v-if="selected === 'webdav'">用户名<input v-model="form.config.username" autocomplete="off" /></label><label :class="{ full: selected !== 'webdav' }">{{ selected === 'webdav' ? '密码' : '目录访问密码（可选）' }}<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" autocomplete="off" /></label>
           </template>
-          <label>{{ selected === 'local' ? '本地目录' : ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" :required="selected === 'local'" /></label>
+          <div v-if="selected === 'local'" class="field"><label for="storage-local-directory">本地目录</label><div class="directory-input"><input id="storage-local-directory" v-model="form.config.root" required /><button type="button" class="icon-btn" aria-label="选择本地目录" @click="directoryPicker = true"><Icon name="FolderOpen" /></button></div></div>
+          <label v-else>{{ ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" /></label>
           <div class="field"><label for="storage-cache">缓存时间</label><NumberInput id="storage-cache" v-model="form.cacheTTL" aria-label="缓存时间" unit="分钟" min="0" max="525600" /><small>0 跟随全局设置</small></div>
           <label class="toggle-line full"><span>启用此存储池</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
         </div>
@@ -194,6 +197,7 @@ async function remove() {
       <footer class="modal-footer"><button v-if="['115', 'quark'].includes(selected)" type="button" class="btn auth-button" :disabled="busy" @click="startAuthorization"><Icon name="ShieldCheck" />{{ selected === '115' ? '获取 TOKEN' : '扫码获取授权' }}</button><button v-if="!editing" type="button" class="btn" :disabled="busy" @click="step = 1"><Icon name="ArrowLeft" />上一步</button><button class="btn primary" :disabled="busy"><Icon name="Check" />{{ busy ? '保存中…' : '保存存储池' }}</button></footer>
     </form>
   </Modal>
+  <LocalDirectoryPicker v-if="directoryPicker" :initial="form.config.root" @close="directoryPicker = false" @select="form.config.root = $event; directoryPicker = false" />
   <Modal v-if="authorization" :title="selected === '115' ? '获取 115 Open TOKEN' : '夸克扫码授权'" @close="closeAuthorization">
     <div v-if="selected === 'quark'" class="modal-body qr-authorization"><p v-if="authBusy">正在获取二维码…</p><img v-if="qr && !authError" :src="qr.image" alt="夸克授权二维码" /><p v-if="qr && !authError">请使用夸克网盘 App 扫码确认</p><p v-if="authError" class="error-message" role="alert">{{ authError }}</p><button v-if="authError" class="btn" @click="startAuthorization"><Icon name="RefreshCw" />重新获取</button></div>
     <div v-else class="modal-body oauth-authorization">

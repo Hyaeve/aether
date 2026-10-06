@@ -528,3 +528,23 @@
 - 修改 `README.md`、`Dockerfile`、`VERSION`、`internal/app/version.go`、`web/package.json`、`web/package-lock.json`：同步云盘读写边界、上传暂存策略与 `v0.1.7` amd64 镜像版本。
 - 验证：`go test ./... -count=1`、`go vet ./...`、`npm run build`、12 项 Playwright 全量测试通过；上传协议使用模拟服务验证，未使用真实网盘账号、Docker、Linux FUSE 或宿主机传播环境。
 - 未完成项：挂载仍要求完整文件顺序写入，不等同于 POSIX 随机写入；真实云盘风控、配额、秒传和生产 FUSE 联调待后续验证。没有生成仓库根目录 exe、没有修改用户 `config/data` 或原 15151 服务。
+
+## 2026-10-06：挂载目录交互与 ABS 新会话播放校验
+
+- 新增 `web/src/components/LocalDirectoryPicker.vue`：本地存储与挂载点复用的640px目录弹窗、固定受视口约束高度、隐藏滚动条但保留滚动、根目录及各级路径点击跳转、异步过期响应保护。
+- 修改 `web/src/pages/MountsPage.vue`、`web/src/App.vue`：添加挂载与文件栏目同排右对齐；名称/源/挂载点分三行，目录图标内置输入框，使用共用目录选择器。修改 `web/src/pages/StoragePage.vue`、`web/src/lib.js`：新本地目录默认留空，可浏览容器目录，已有配置不改动。
+- 修改 `web/src/components/TaskSourcePicker.vue`：固定窗口及隐藏滚动条，挂载选择根目录时明确显示“选择整个存储池”。修改 `web/src/style.css`：上述布局、折叠标题悬浮高亮、卡片淡描边、夜间滚动条及播放结果差异颜色。修改 `web/src/pages/LinksPage.vue`：超过60分钟的有效期按小时/分钟显示。
+- 修改 `internal/app/link_auth.go`：ABS公开会话音轨使用实际播放端点及原始客户端凭据进行有界Range校验，不使用服务密钥越权；保留上游401/403/404和跳转。参考本地 `C:/Develop/AetherLink/internal/upstream/abs.go` 的新会话尚未落库行为，修复Aether额外鉴权层提前404而阻止活跃会话解析的问题。
+- 新增 `internal/app/link_auth_test.go`，修改 `internal/app/link_playback_test.go`：根路径/子路径、授权成功与拒绝、不注入服务密钥、新会话详情404后活跃会话回退及真实HTTP302测试。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/zzz-workspace-actions.spec.js`、`web/tests/z-links.spec.js`：本地空目录及浏览、挂载三行和栏目按钮对齐、单池根选择、等宽隐藏滚动条目录弹窗、缓存小时显示。修改 `README.md`、`AGENTS.md`：记录交互、鉴权和验证边界。
+- 验证：前端构建、Go全量测试与vet通过；新增ABS端到端测试另行通过。浏览器全量回归结果见后续补充。无本次真实播放错误日志或真实ABS环境，修复的是已复现阻断点，不声称用户现场播放已恢复。未修改用户配置、原15151实例；本轮未要求推送，版本保持0.1.7，不提交推送。
+- 最终验证补充：12项Playwright全部通过（1.7分钟），已查看挂载三行表单与栏目右侧按钮截图；差异格式检查通过。隔离预览 `127.0.0.1:15153` 返回200，PID20692，程序及日志位于系统临时目录 `aether-mount-preview`，继续使用该隔离预览配置，不操作仓库用户数据。
+
+## 2026-10-06：存储图标、夜间账号按钮与 v0.1.8 发布
+
+- 修改 `web/src/style.css`：添加存储池的类型图标容器从44px放大到54px，协议/本机矢量主体40px；不影响已添加卡片或星轨图标。不新增外层包装。账号按钮使用夜间主题色及悬浮/键盘焦点配色，保留关于页透明优先级；以链卡片左侧图标和名称统一右移6px，不移动右侧模式及端口。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/z-links.spec.js`：断言选择图标尺寸、夜间账号背景及线条颜色、以链左侧内边距，保留桌面/手机截图与完整工作流回归。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：发布版本同步递增至0.1.8，仍仅构建linux/amd64。修改 `AGENTS.md` 记录此次全部文件。
+- 发布范围包含上一条记录中尚未推送的挂载/目录交互、直链缓存展示和ABS会话鉴权修复；不包含用户配置、凭据、构建及测试产物。使用中文提交及标签，推送main和v0.1.8，实际结果以Git输出为准。
+- 验证：前端0.1.8构建、Go全量测试和vet通过；浏览器全量回归正在执行，最终结果另补。真实ABS客户端和Linux/FUSE环境仍未联调，不声称现场播放验证完成。
+- 最终验证：12项Playwright全部通过（1.5分钟），查看存储类型选择和夜间界面截图，差异格式检查通过；此次不重启隔离预览，15153继续提供最新web/dist界面，后台原15151及用户配置保持不变。

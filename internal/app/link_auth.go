@@ -22,6 +22,54 @@ func authorizeLinkPlayer(provider upstream.Provider, next http.Handler) http.Han
 			next.ServeHTTP(w, r)
 			return
 		}
+		// New ABS sessions may exist only in memory, and public track URLs do
+		// not necessarily carry credentials accepted by /api/session/:id.
+		// Let the actual track endpoint validate its own session access instead.
+		if provider.Type() == "audiobookshelf" && ref.SessionID != "" {
+			target := *provider.BaseURL()
+			base := strings.TrimRight(target.Path, "/")
+			target.Path = r.URL.Path
+			if base != "" && target.Path != base && !strings.HasPrefix(target.Path, base+"/") {
+				target.Path = base + target.Path
+			}
+			target.RawPath = ""
+			target.RawQuery = r.URL.RawQuery
+			ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+			if err != nil {
+				http.Error(w, "Media authorization unavailable", 502)
+				return
+			}
+			for _, name := range []string{"Authorization", "Cookie", "User-Agent"} {
+				req.Header.Set(name, r.Header.Get(name))
+			}
+			req.Header.Set("Range", "bytes=0-0")
+			response, err := client.Do(req)
+			if err != nil {
+				http.Error(w, "Media authorization unavailable", 502)
+				return
+			}
+			response.Body.Close()
+			if response.StatusCode == http.StatusOK || response.StatusCode == http.StatusPartialContent {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Preserve upstream denials and redirects instead of substituting
+			// service credentials or treating a login redirect as authorization.
+			if response.StatusCode >= 300 && response.StatusCode < 400 && response.Header.Get("Location") != "" {
+				w.Header().Set("Location", response.Header.Get("Location"))
+				w.Header().Set("Cache-Control", "no-store")
+				w.WriteHeader(response.StatusCode)
+				return
+			}
+			status := response.StatusCode
+			if status != 401 && status != 403 && status != 404 {
+				status = 502
+			}
+			http.Error(w, "Media authorization denied", status)
+			return
+		}
 		target := *provider.BaseURL()
 		q := url.Values{}
 		for _, key := range []string{"api_key", "token", "X-Emby-Token", "userId", "UserId", "MediaSourceId"} {

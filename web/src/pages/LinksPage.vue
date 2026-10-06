@@ -89,7 +89,11 @@ const outcomeLabel = e => ({ redirect: '302 跳转', proxy: '中继', transcode:
 const targetText = e => e.target || e.mediaPath || e.error || e.path || '—'
 const uaText = e => e.effectiveUserAgent && e.effectiveUserAgent !== e.userAgent ? `${e.userAgent || '空'} → ${e.effectiveUserAgent}` : e.userAgent || '空'
 const cacheText = e => e.cacheSource === 'restored' ? '恢复命中' : e.cacheSource === 'hit' || e.cacheHit ? '缓存命中' : '首次获取'
-const ttl = e => e.cacheTtlSeconds > 0 ? `${Math.ceil(e.cacheTtlSeconds / 60)} min` : '不缓存'
+const ttl = e => {
+  if (!(e.cacheTtlSeconds > 0)) return '不缓存'
+  const minutes = Math.ceil(e.cacheTtlSeconds / 60)
+  return minutes > 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}` : `${minutes} min`
+}
 async function copyValue(value) { if (!value) return; try { await copyText(value); notify('已复制') } catch { notify('复制失败，请检查浏览器权限', true) } }
 function clock(value) {
   const d = new Date(value)

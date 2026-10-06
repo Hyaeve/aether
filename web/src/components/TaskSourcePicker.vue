@@ -11,6 +11,7 @@ const dir = ref(props.initial || '/'), trail = ref((props.initialTrail || []).ma
 const label = ref(props.initialLabel || (dir.value === '/' ? '根目录' : '已选目录'))
 let generation = 0
 const visible = computed(() => items.value.filter(f => f.name.toLowerCase().includes(query.value.toLowerCase())))
+const wholeStorage = computed(() => props.allowAll && !!selected.value && trail.value.length === 0 && (dir.value === '/' || dir.value === props.storages.find(s => s.id === selected.value)?.config?.root))
 async function load() {
   const run = ++generation
   error.value = ''; busy.value = true; items.value = []
@@ -29,7 +30,7 @@ watch([selected, dir], load, { immediate: true })
 onUnmounted(() => generation++)
 </script>
 <template>
-  <Modal title="选择存储目录" wide @close="emit('close')">
+  <Modal title="选择存储目录" compact wide @close="emit('close')">
     <div class="task-source-picker">
       <aside class="source-accounts"><h3>选择存储</h3><button v-if="allowAll" type="button" :class="{ active: !selected }" @click="choose('')"><Icon name="Layers" /><span>所有存储池</span></button><button v-for="s in storages" :key="s.id" type="button" :class="{ active: selected === s.id }" :aria-pressed="selected === s.id" @click="choose(s.id)"><ProviderIcon :type="s.type" small /><span><strong>{{ s.name }}</strong><small>{{ driverOf(s.type).name }}</small></span></button><p v-if="!storages.length" class="small-empty">暂无可用存储池</p></aside>
       <section class="source-directories">
@@ -41,7 +42,7 @@ onUnmounted(() => generation++)
           <p v-else-if="!visible.length" class="small-empty">当前目录没有匹配的文件夹</p>
           <button v-for="item in visible" :key="item.id" type="button" class="source-directory" :aria-label="item.name" @click="enter(item)"><Icon name="Folder" /><span>{{ item.name }}</span><time>{{ item.modified && !item.modified.startsWith('0001') ? date(item.modified) : '-' }}</time></button>
         </div>
-        <footer class="source-footer"><button type="button" class="btn" :disabled="busy" @click="load"><Icon name="RefreshCw" />刷新</button><button type="button" class="btn primary" :disabled="busy || !!error || (!selected && !allowAll)" @click="emit('select', { storageId: selected, source: dir, sourceLabel: selected ? label : '所有存储池', sourceTrail: trail })">{{ !selected && allowAll ? '选择所有存储池' : '选择当前目录' }}</button></footer>
+        <footer class="source-footer"><button type="button" class="btn" :disabled="busy" @click="load"><Icon name="RefreshCw" />刷新</button><button type="button" class="btn primary" :disabled="busy || !!error || (!selected && !allowAll)" @click="emit('select', { storageId: selected, source: dir, sourceLabel: selected ? (wholeStorage ? '根目录' : label) : '所有存储池', sourceTrail: trail })">{{ !selected && allowAll ? '选择所有存储池' : wholeStorage ? '选择整个存储池' : '选择当前目录' }}</button></footer>
       </section>
     </div>
   </Modal>
