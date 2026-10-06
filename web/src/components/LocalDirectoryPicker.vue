@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
+import VirtualList from './VirtualList.vue'
 const props = defineProps({ initial: { type: String, default: '' } })
 const emit = defineEmits(['select', 'close'])
 const directory = ref({ path: '', items: [] }), busy = ref(false), error = ref('')
@@ -34,7 +35,7 @@ onUnmounted(() => generation++)
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       <div class="container-directory-list" :aria-busy="busy">
         <p v-if="busy" class="small-empty">正在读取目录…</p>
-        <template v-else-if="!error"><button v-for="entry in directory.items" :key="entry.path" type="button" class="directory-row" @click="load(entry.path)"><Icon name="Folder" /><span>{{ entry.name }}</span><Icon name="ChevronRight" /></button><p v-if="!directory.items.length" class="small-empty">此目录没有子目录</p></template>
+        <template v-else-if="!error"><VirtualList v-if="directory.items.length" :items="directory.items"><template #default="{ item }"><button type="button" class="directory-row" @click="load(item.path)"><Icon name="Folder" /><span>{{ item.name }}</span><Icon name="ChevronRight" /></button></template></VirtualList><p v-else class="small-empty">此目录没有子目录</p></template>
       </div>
     </div>
     <footer class="modal-footer"><button class="btn" @click="emit('close')">取消</button><button class="btn primary" :disabled="busy || !!error || !directory.path" @click="emit('select', directory.path)">选择当前目录</button></footer>

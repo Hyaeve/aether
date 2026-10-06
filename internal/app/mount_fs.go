@@ -61,7 +61,7 @@ func (d mountFS) selectPath(name string) (Storage, string, string, error) {
 
 func (d mountFS) localRoot(s Storage, source string) (*os.Root, error) {
 	real, err := filepath.EvalSymlinks(s.Config["root"])
-	if err != nil || pathOverlaps(real, d.config.MountPoint) {
+	if err != nil || pathOverlaps(real, mountTarget(d.config)) {
 		return nil, os.ErrPermission
 	}
 	root, err := os.OpenRoot(real)

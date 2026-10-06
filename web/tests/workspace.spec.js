@@ -494,7 +494,7 @@ test('WebDAV users and scoped directories', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('link', { name: '文件管理', exact: true }).click()
   await expect(page.getByRole('button', { name: '刷新目录', exact: true })).toHaveText('')
-  expect(await page.locator('.file-toolbar .search-field').evaluate(el => el.previousElementSibling.getAttribute('aria-label'))).toBe('刷新目录')
+  expect(await page.locator('.files-heading-actions .search-field').evaluate(el => el.previousElementSibling.getAttribute('aria-label'))).toBe('刷新目录')
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
   await expect(page.locator('.plugin-description')).toHaveCount(11)
   await expect(page.locator('.plugin-description').first()).toHaveCSS('text-overflow', 'ellipsis')

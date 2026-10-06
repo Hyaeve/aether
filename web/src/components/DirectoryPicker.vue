@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { api } from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
+import VirtualList from './VirtualList.vue'
 const props = defineProps({ storage: String, initial: String })
 const emit = defineEmits(['select', 'close'])
 const path = ref(props.initial || '/'), history = ref([]), items = ref([]), busy = ref(false), error = ref('')
@@ -24,7 +25,7 @@ onMounted(load)
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       <div v-if="busy" class="small-empty">正在读取目录…</div>
       <div v-else-if="!items.length && !error" class="small-empty">当前目录没有子文件夹</div>
-      <button v-for="item in items" :key="item.id" class="directory-row" @click="enter(item)"><Icon name="Folder" /><span>{{ item.name }}</span><Icon name="ChevronRight" /></button>
+      <div v-if="!busy && !error" style="height: min(360px, 50dvh)"><VirtualList :items="items"><template #default="{ item }"><button class="directory-row" @click="enter(item)"><Icon name="Folder" /><span>{{ item.name }}</span><Icon name="ChevronRight" /></button></template></VirtualList></div>
     </div>
     <footer class="modal-footer"><button class="btn" @click="emit('close')">取消</button><button class="btn primary" :disabled="busy || !!error" @click="emit('select', path)">选择当前目录</button></footer>
   </Modal>

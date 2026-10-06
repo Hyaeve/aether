@@ -219,6 +219,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/config/import", a.protected(http.HandlerFunc(a.configImport)))
 	mux.Handle("/api/links/{id}/test", a.protected(http.HandlerFunc(a.testMediaLink)))
 	mux.Handle("/api/files/action", a.protected(http.HandlerFunc(a.fileAction)))
+	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
+	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.offlineFile)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))

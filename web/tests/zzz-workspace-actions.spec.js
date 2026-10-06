@@ -199,7 +199,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await page.getByRole('button',{name:'renamed.txt',exact:true}).click()
   await page.getByRole('button',{name:'two.txt',exact:true}).click({modifiers:['Shift']})
   await page.getByRole('button',{name:'two.txt',exact:true}).click({button:'right'})
-  await expect(page.locator('.context-menu button')).toHaveText(['移动到','复制到','删除'])
+  await expect(page.locator('.context-menu button')).toHaveText(['移动到','复制到','删除','查看详情'])
   await page.getByRole('button',{name:'复制到',exact:true}).click()
   await page.getByRole('button',{name:'选择当前目录',exact:true}).click()
   await expect(page.locator('.toast').filter({hasText:'文件操作完成'})).toBeVisible()

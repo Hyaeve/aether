@@ -4,6 +4,7 @@ import { api, date, driverOf } from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import ProviderIcon from './ProviderIcon.vue'
+import VirtualList from './VirtualList.vue'
 const props = defineProps({ storages: Array, storage: String, initial: String, initialLabel: String, initialTrail: Array, allowAll: Boolean })
 const emit = defineEmits(['select', 'close'])
 const selected = ref(props.storage || '')
@@ -40,7 +41,7 @@ onUnmounted(() => generation++)
           <p v-if="error" class="error-message" role="alert">{{ error }}</p>
           <p v-else-if="busy" class="small-empty">正在读取目录…</p>
           <p v-else-if="!visible.length" class="small-empty">当前目录没有匹配的文件夹</p>
-          <button v-for="item in visible" :key="item.id" type="button" class="source-directory" :aria-label="item.name" @click="enter(item)"><Icon name="Folder" /><span>{{ item.name }}</span><time>{{ item.modified && !item.modified.startsWith('0001') ? date(item.modified) : '-' }}</time></button>
+          <VirtualList v-if="!busy && !error && visible.length" :items="visible"><template #default="{ item }"><button type="button" class="source-directory" :aria-label="item.name" @click="enter(item)"><Icon name="Folder" /><span>{{ item.name }}</span><time>{{ item.modified && !item.modified.startsWith('0001') ? date(item.modified) : '-' }}</time></button></template></VirtualList>
         </div>
         <footer class="source-footer"><button type="button" class="btn" :disabled="busy" @click="load"><Icon name="RefreshCw" />刷新</button><button type="button" class="btn primary" :disabled="busy || !!error || (!selected && !allowAll)" @click="emit('select', { storageId: selected, source: dir, sourceLabel: selected ? (wholeStorage ? '根目录' : label) : '所有存储池', sourceTrail: trail })">{{ !selected && allowAll ? '选择所有存储池' : wholeStorage ? '选择整个存储池' : '选择当前目录' }}</button></footer>
       </section>

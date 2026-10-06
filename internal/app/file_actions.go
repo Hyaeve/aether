@@ -36,6 +36,22 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
+	if req.Action == "mkdir" {
+		a.runMu.Lock()
+		defer a.runMu.Unlock()
+		if len(a.running) != 0 {
+			fail(w, 409, errors.New("有任务正在执行，请等待完成后操作文件"))
+			return
+		}
+		if err := a.createDirectory(r.Context(), s, req.Source, req.Name); err != nil {
+			fail(w, 400, err)
+			return
+		}
+		a.cache.clear()
+		a.store.event("info", "files", "创建目录："+req.Name)
+		jsonResponse(w, 200, map[string]int{"processed": 1})
+		return
+	}
 	if len(req.IDs) == 0 || len(req.IDs) > 200 {
 		fail(w, 400, errors.New("请选择1–200个项目"))
 		return

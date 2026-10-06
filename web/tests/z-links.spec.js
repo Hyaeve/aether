@@ -70,6 +70,11 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   expect(toolbar.x).toBeGreaterThan(tabs.x + tabs.width)
   await expect(page.locator('.playback-event').first().locator('.playback-pill')).toHaveCount(4)
   await expect(page.locator('.playback-copy').first()).toHaveCSS('border-radius', '8px')
+  await expect(page.locator('.playback-result').first()).toHaveCSS('border-radius', '999px')
+  expect(await page.locator('.playback-copy').first().evaluate(el => {
+    const td = el.closest('td'), style = getComputedStyle(td)
+    return Math.abs(el.getBoundingClientRect().width - (td.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))) < 2
+  })).toBe(true)
   await expect(page.locator('.cache-state').first()).toHaveClass(/fresh/)
   await expect(page.locator('.playback-event td').first()).toHaveCSS('font-size', '14px')
   await expect(page.locator('.link-playback th')).toHaveText(['时间', '上游', 'UA', '结果', '目标', '客户端 IP', '缓存状态', '缓存有效期', '耗时'])

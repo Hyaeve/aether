@@ -225,11 +225,12 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 				Status int `json:"status"`
 				Data   struct {
 					List []struct {
-						ID   string `json:"fid"`
-						Name string `json:"file_name"`
-						Dir  bool   `json:"dir"`
-						Type int    `json:"file_type"`
-						Size int64  `json:"size"`
+						ID      string        `json:"fid"`
+						Name    string        `json:"file_name"`
+						Dir     bool          `json:"dir"`
+						Type    int           `json:"file_type"`
+						Size    int64         `json:"size"`
+						Updated fileTimestamp `json:"updated_at"`
 					} `json:"list"`
 				} `json:"data"`
 			}
@@ -244,7 +245,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 				return nil, errors.New("夸克授权已失效或接口访问被拒绝")
 			}
 			for _, f := range res.Data.List {
-				out = append(out, File{ID: f.ID, Name: f.Name, IsDir: f.Dir || f.Type == 0, Size: f.Size})
+				out = append(out, File{ID: f.ID, Name: f.Name, IsDir: f.Dir || f.Type == 0, Size: f.Size, Modified: f.Updated.Time})
 			}
 			if len(res.Data.List) < 200 {
 				break
@@ -318,7 +319,7 @@ func file115(data map[string]json.RawMessage) (File, error) {
 		return File{}, errors.New("115 返回了无法识别的目录条目，请检查接口版本")
 	}
 	size, _ := strconv.ParseInt(scalarFields(data, "fs", "size_byte", "s", "size"), 10, 64)
-	return File{ID: fid, Name: name, IsDir: isDir, Size: size, PickCode: scalarFields(data, "pick_code", "pickcode", "pc", "code")}, nil
+	return File{ID: fid, Name: name, IsDir: isDir, Size: size, Modified: parseFileTime(scalarFields(data, "user_utime", "upt", "te", "update_time")), PickCode: scalarFields(data, "pick_code", "pickcode", "pc", "code")}, nil
 }
 
 func davURL(s Storage, dir string) (string, error) {

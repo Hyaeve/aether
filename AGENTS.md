@@ -575,3 +575,26 @@
 - 验证：首轮 Go 全量测试、vet、前端构建与 12 项 Playwright 通过；已检查 WebDAV 授权窗口及直链缓存截图。长挂载路径布局补强后的最终回归结果另补。
 - 限制：未在用户生产环境测量以链加载耗时，优化为已确认的多余请求和全状态复制；未做真实 Docker/FUSE 或云盘账号联调。未修改用户配置、原 15151 服务或创建根目录 exe。
 - 最终验证：补强后的 Go 全量测试、前端构建、12 项 Playwright（2.3 分钟）再次全部通过；差异格式检查通过，已检查挂载补全截图。推送结果以 Git 确认为准。
+
+## 2026-10-07：仪表盘取消横向溢出
+
+- 修改 `web/src/pages/DashboardPage.vue`：增加仪表盘专用容器及 scoped 样式；存储名称和日志长文本允许断行，活动列表采用可收缩文本列，小屏时间另起一行；指标区在窄桌面改为两列、手机允许内部换行，避免内容最小宽度撑开页面。未通过裁切隐藏内容，未改变其他页面样式。
+- 新增 `web/tests/dashboard.spec.js`：模拟长无空格存储名称、长 URL 日志和大指标值，在 1920/1440/1024/768/390/320px 检查仪表盘、主体及文档无横向溢出，并生成桌面/手机截图。
+- 修改 `AGENTS.md`：记录上述全部文件与验证。`npm run build`、专项 Playwright 测试通过，已查看手机长文本截图；本轮纯前端调整，未重跑后端测试或全部浏览器测试。
+- 本轮未要求推送，不提交或递增版本；不修改用户配置和原 15151 服务。
+
+## 2026-10-07：挂载路径校验、文件操作与目录虚拟列表，发布 v0.1.11
+
+- 修改 `internal/app/mounts.go`、`internal/app/mount_fs.go`：冲突检查统一使用父目录下实际 `AetherDrive` 路径，允许同一父目录下互不相交的本地源/挂载位置；错误列出实际挂载路径及冲突目录。保留系统、配置、数据、本地源递归及其他挂载点保护，不绕过真实冲突。
+- 新增 `internal/app/file_time.go`，修改 `internal/app/drivers.go`、`internal/app/mobile.go`、`internal/app/tianyi.go`：解析 115、夸克、移动、天翼目录/文件修改时间；支持 Unix 秒/毫秒、RFC3339 和本地日期字符串，无值不伪造。字段对照本地 LitePan 驱动模型，未复制其实现。
+- 新增 `internal/app/file_create.go`，修改 `internal/app/file_actions.go`、`internal/app/server.go`：管理员鉴权的新建目录、原始文件上传、HTTP(S) 服务端下载接口。按存储驱动逐级创建上传相对目录；本地使用 os.Root 与排他创建，云端复用已有发布流程；重名拒绝、取消/长度验证、100GiB 上限、临时文件清理，缓存失效及文件日志。下载超时30分钟、最多10次跳转，无持久任务或磁力/BT实现。
+- 新增 `web/src/virtual-list.js`、`web/src/components/VirtualList.vue`：基于固定行高、可见范围和 ResizeObserver 的虚拟列表/网格，保留上下占位；修改 `web/src/components/TaskSourcePicker.vue`、`LocalDirectoryPicker.vue`、`DirectoryPicker.vue` 接入目录虚拟滚动。文件 API 仍读取完整目录，未宣称实现服务端按视口分页。
+- 新增 `web/src/components/PathBreadcrumbs.vue`：目录间距紧凑；根据实际宽度从前往后省略目录但保留根目录，省略菜单可跳转原目录，尾部过长省略文本。
+- 修改 `web/src/pages/FilesPage.vue`、`web/src/App.vue`：栏目同行刷新/搜索/新建菜单、收窄存储选择器，文件详情最后置于右键菜单；新建空白目录仅在有效名称确认时提交；已有名称回车确认、点非输入及非按钮区域时二次确认，空值取消。列表/网格虚拟滚动，上传文件/文件夹保留层级及数量进度，服务端下载表单；浏览器不提供空文件夹条目，不上传空目录。
+- 修改 `web/src/style.css`：文件固定视口、列表52px/网格148px行高、固定表头与淡分隔线；任务按钮和栏目同行；直链缓存结果胶囊、UA/目标/IP圆角框填满对应列的内容宽度；目录虚拟列表条纹及悬浮。系统日志和直链缓存沿用已实现的虚拟滚动，不重复另建。
+- 新增 `internal/app/file_create_test.go`：本地建目录、层级上传、重名/非法路径拒绝、鉴权、HTTP下载、目录时间、模拟WebDAV发布、上传取消/不完整/暂存清理、挂载同级目录允许和递归拒绝。新增 `web/tests/file-browser.spec.js`：新建/改名/详情、上传文件与文件夹、下载表单、深路径省略、2000条文件列表/网格和源目录虚拟滚动、任务按钮同行。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/zzz-workspace-actions.spec.js`、`web/tests/z-links.spec.js`：适配搜索栏位置和详情菜单、检查播放结果胶囊及固定宽度。发布包含前轮 `web/src/pages/DashboardPage.vue`、`web/tests/dashboard.spec.js` 仪表盘无横向溢出改动，记录见上一条。
+- 修改 `README.md`：挂载校验、文件新建上传下载、时间字段、虚拟滚动及限制说明。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：同步0.1.11，仍仅amd64镜像；修改 `AGENTS.md` 记录本轮全部文件。
+- 验证：Go全量测试、vet、前端构建通过，14项浏览器测试全量通过（1.5分钟），查看文件列表和源目录虚拟滚动截图。首轮旧测试搜索栏定位已修正；误启动第二测试实例导致端口/产物冲突后改为串行重新全量通过。最终发布版本和新增断言验证另补。
+- 限制：没有真实 Docker/FUSE、网盘账号或生产离线下载联调；云端缺少修改时间仍显示空值，云端发布失败可能留下临时文件。下载是连接期HTTP任务，不可关闭页面后作为持久队列使用。保留用户配置/数据及15151服务，无仓库根目录exe。
+- 最终验证：0.1.11 前端构建、Go全量测试通过；新增深目录测试曾误点同名面包屑，限定文件区域并等待路径更新后，14项Playwright全量再次通过（1.4分钟）。查看手机文件网格、桌面文件列表和源目录截图，差异格式检查通过。按用户要求中文提交并推送main/v0.1.11，最终以Git结果为准。

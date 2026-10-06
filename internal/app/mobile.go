@@ -160,13 +160,16 @@ func (a *App) mobileListAt(ctx context.Context, s Storage, host, dir string) ([]
 	seen := map[string]bool{}
 	for {
 		type item struct {
-			Hash          string `json:"contentHash"`
-			HashAlgorithm string `json:"contentHashAlgorithm"`
-			ID            string `json:"fileId"`
-			Name          string `json:"name"`
-			Size          int64  `json:"size"`
-			Type          string `json:"type"`
-			Category      string `json:"category"`
+			Hash          string        `json:"contentHash"`
+			HashAlgorithm string        `json:"contentHashAlgorithm"`
+			ID            string        `json:"fileId"`
+			Name          string        `json:"name"`
+			Size          int64         `json:"size"`
+			Type          string        `json:"type"`
+			Category      string        `json:"category"`
+			Updated       fileTimestamp `json:"updatedAt"`
+			UpdatedSnake  fileTimestamp `json:"updated_at"`
+			LastModified  fileTimestamp `json:"lastModifiedTime"`
 		}
 		var data struct {
 			Items []item `json:"items"`
@@ -191,7 +194,7 @@ func (a *App) mobileListAt(ctx context.Context, s Storage, host, dir string) ([]
 			if strings.EqualFold(f.HashAlgorithm, "SHA256") {
 				hash = f.Hash
 			}
-			files = append(files, File{ID: f.ID, Name: f.Name, Size: f.Size, SHA256: hash, IsDir: strings.EqualFold(f.Type, "folder") || strings.EqualFold(f.Category, "folder")})
+			files = append(files, File{ID: f.ID, Name: f.Name, Size: f.Size, SHA256: hash, Modified: firstFileTime(f.Updated, f.UpdatedSnake, f.LastModified), IsDir: strings.EqualFold(f.Type, "folder") || strings.EqualFold(f.Category, "folder")})
 		}
 		if data.Next == "" {
 			return files, nil

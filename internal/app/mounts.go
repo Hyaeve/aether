@@ -141,12 +141,12 @@ func (a *App) validateMount(input *MountConfig) error {
 		}
 	}
 	for _, root := range protected {
-		if pathOverlaps(root, input.MountPoint) {
-			return errors.New("挂载点不能与系统、配置、数据或本机存储目录重叠")
+		if pathOverlaps(root, mountTarget(*input)) {
+			return fmt.Errorf("实际挂载目录 %s 与受保护目录 %s 重叠，请选择其他位置", mountTarget(*input), root)
 		}
 	}
 	for _, old := range a.store.snapshot().Mounts {
-		if old.ID != input.ID && (old.Name == input.Name || pathOverlaps(old.MountPoint, input.MountPoint)) {
+		if old.ID != input.ID && (old.Name == input.Name || pathOverlaps(mountTarget(old), mountTarget(*input))) {
 			return errors.New("挂载名称重复或挂载点相互包含")
 		}
 	}
