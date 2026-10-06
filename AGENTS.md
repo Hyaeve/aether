@@ -434,3 +434,22 @@
 - 提交范围为前两轮已逐文件记录的目录名称/回根导航、本地 CAS 生成及“仅生成 CAS”纠正、测试与文档；一并推送此前因网络失败仅在本地的 v0.1.1 提交与标签。不包含 config、data、凭据、exe、日志、依赖或构建测试产物。
 - 已成功 fetch 远端，main 无分叉；本轮全量 Go 测试、go vet、前端0.1.2构建、差异格式检查通过。浏览器沿用上一轮同一业务代码11项通过（48.7秒）的结果，本轮仅更新版本元数据，不重复浏览器测试。
 - 真实云盘、媒体库直接识别 CAS 和 Docker 联调限制保持不变。计划推送 main、v0.1.1、v0.1.2，最终远端确认以 Git 输出为准；未操作15151服务或用户配置。
+
+## 2026-10-06：v0.1.3 工作区交互、文件操作与加密配置备份
+
+- 修改 `web/src/style.css`、`web/src/components/LoginUniverse.vue`：登录星轨按桌面高度收缩，最低520px后允许页面滚动；关于页轨道随可用高度调整，星空铺满侧栏右侧内容区，深浅主题保持星空与可读栏目；表单输入、数值、下拉统一40px，菜单收窄、收藏夹240ms展开收起、选中态与双三角排序。
+- 新增 `web/src/components/SecretInput.vue`：单行密码输入及尾部眼睛显隐，不在外层再套焦点框。修改 `web/src/components/Icon.vue`：DAV三瓣云轮廓、GripVertical/Power/Copy/FolderInput图标。
+- 修改 `web/src/pages/StoragePage.vue`：Cookie/Authorization/Token 使用单行显隐；卡片非按钮点击编辑，450ms长按后才允许原生拖拽，清晰六点手柄、Alt方向键保留；右键和三点共用菜单，删除前加入启停项。保留既有拖拽排序接口，未改变配置数据。
+- 修改 `web/src/pages/LinksPage.vue`：反代端口默认空，编辑窗口复用存储的compact wide尺寸/隐藏滚动条；右键编辑、测试连接、启停、删除菜单。新增 `internal/app/link_test_connection.go`、`link_test_connection_test.go`：管理员POST连接探测，十秒超时、不跟随重定向、非2xx/3xx报错，测试鉴权/不存在/离线；仅探测服务可达性，不声称凭据验证。
+- 修改 `web/src/pages/TasksPage.vue`：删除任务搜索栏和搜索过滤。修改 `web/src/pages/SettingsPage.vue`：日志管理排到关于前。
+- 修改 `web/src/pages/FilesPage.vue`：工具栏与文件框一体；收窄存储下拉并移除返回上层按钮；收藏夹标题右侧切换当前目录收藏与高亮，移除逐项删除按钮；单击选中/双击进入、Shift范围/Ctrl增选、F2或右键内联重命名与回车提交、右键移动/复制/确认删除；目标选择限制同类型池，列表四字段双向排序，无操作列。保留右键复制播放链接。
+- 新增 `internal/app/file_actions.go`、`file_actions_test.go`：受保护文件操作，单次最多200项；本地os.Root约束、根目录/符号链接/父子混选/自身与子目录/目标重名检查、同池原生移动、跨本地池流式复制后删除；文件复制校验大小时间，失败清理新建副本并报告已完成数；默认移入源根`.aether-trash/<随机ID>/`，永久删除需存储显式配置。任务执行时拒绝文件写入，成功失败均清目录缓存。
+- 新增 `internal/app/cloud_file_actions.go`、`cloud_file_actions_test.go`：独立实现LitePan本地协议参考的115/夸克/移动/天翼同池重命名、移动、复制及回收站删除；源目录实时核对ID、目标重名拒绝、天翼/夸克异步轮询有超时。移动/天翼支持显式永久删除；115/夸克永久删除直接拒绝，不照搬可能误清其他回收记录的逻辑。模拟覆盖四种提供商重命名/删除/不存在及跨池拒绝，移动复制等真实云端流程待联调。
+- 修改 `internal/app/config_backup.go`、`config_backup_test.go`：原明文ZIP替换为版本化`.aether`加密包，PBKDF2-HMAC-SHA256 600000轮/随机16字节盐、AES-256-GCM/随机nonce；导出State及JSON规则，日志不包含，master.key不外发；导入校验密码/认证标签/大小/文件数/路径，将待导入内容用当前密钥加密写到import.pending。启动时应用，普通写失败回滚；测试密码错误、篡改、空密码、路径穿越、存储与以链恢复及磁盘持久化。
+- 修改 `internal/app/server.go`：新增文件操作/以链探测/配置导入受保护路由，在监听及调度前应用待导入配置。修改 `internal/app/logs.go`：文件写操作归入files模块。
+- 修改 `web/src/pages/ToolsPage.vue`：配置备份排最后，导入/导出独立流程；导出设置密码，导入先选文件再密码；错误不关闭流程，导入成功明确重启后生效、使用备份账号。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/z-links.spec.js`：适配菜单项、真实长按拖拽、双击目录、收藏位置、无圆弧关于背景及加密导出。新增 `web/tests/zzz-workspace-actions.spec.js`：1920×1080/1366×768/1280×600/1024×600/800×480登录截图、卡片右键/点击、输入下拉等高、空端口、F2/Shift/复制/排序、关于完整可见、备份错误密码及导入成功。套件新增登录触发现有限流时等待一分钟重试，不削弱服务限流。
+- 修改 `README.md`、`THIRD_PARTY_NOTICES.md`、`AGENTS.md`：同步功能/协议参考及边界。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：按要求发布补丁版本0.1.3。
+- 验证过程：后端全量测试、go vet、前端构建通过；新增浏览器用例初次因登录限流失败，明确处理后12项通过（2.3分钟）。已查看1280×600登录与1366×768关于截图，修正关于选中栏目低对比；最终版本全量重跑结果后补。
+- 限制：OpenList/WebDAV写操作和跨云端池传输尚未实现，同类型不等于跨账号已支持；四云写协议无真实凭据联调，不宣称全部操作云端验证。云端异步操作及多文件操作失败可能部分完成，需刷新核对。新备份不导入旧明文ZIP；导入重启生效且覆盖同名配置，备份外JSON保留；普通错误回滚不等于断电事务保证，须保留原始备份。收藏与视图属于浏览器偏好，不在服务端备份内。未本地构建Docker，未修改用户config/data或原15151服务。
+- 最终验证：v0.1.3全量Go测试、go vet、前端构建、git diff --check通过；12项Playwright最终全部通过（2.0分钟），低高度截图及关于页/文件操作截图检查完成。预览使用独立`127.0.0.1:15153`，PID32676，程序、日志与隔离配置位于系统临时目录`aether-preview-v013`，健康检查ok；仓库未生成exe，原服务与用户数据不改动。按用户要求提交main及v0.1.3标签，推送结果以Git确认。

@@ -58,3 +58,12 @@ ownership remains with the original owners.
 No LICENSE file was present in the supplied AetherLink checkout. No open-source
 license grant is inferred here; this provenance record does not replace
 permission from the original rights holders.
+
+## Cloud file operation protocol references
+
+`internal/app/cloud_file_actions.go` independently implements request fields and
+endpoint flows inspected in the user-supplied local LitePan checkout:
+`drivers/139Cloud/{transport,ops}.go`, `drivers/189Cloud/ops.go`,
+`drivers/115_Open/{transport,ops}.go`, and `drivers/Quark/{transport,ops}.go`.
+No LitePan service implementation or framework code is incorporated. Native
+provider authorization and transport remain Aether's existing drivers.

@@ -100,7 +100,7 @@ func logModule(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/api/auth/"), path == "/api/account":
 		return "audit"
-	case path == "/api/files":
+	case path == "/api/files" || strings.HasPrefix(path, "/api/files/"):
 		return "files"
 	case strings.HasPrefix(path, "/api/storages"), strings.HasPrefix(path, "/api/webdav"):
 		return "storage"

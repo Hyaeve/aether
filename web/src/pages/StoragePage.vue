@@ -6,18 +6,28 @@ import ProviderIcon from '../components/ProviderIcon.vue'
 import Modal from '../components/Modal.vue'
 import NumberInput from '../components/NumberInput.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
+import SecretInput from '../components/SecretInput.vue'
 
 const query = ref(''), modal = ref(false), step = ref(1), selected = ref(''), editing = ref(''), busy = ref(false), error = ref(''), confirmDelete = ref(null)
 const testing = ref('')
 const menu = ref('')
 const dragging = ref(''), dropTarget = ref(''), sorting = ref(false)
+const armed = ref('')
+let holdTimer, suppressClick = false
+function hold(event, s) {
+  if (event.button !== 0 || event.target.closest('button')) return
+  clearTimeout(holdTimer)
+  holdTimer = setTimeout(() => { armed.value = s.id; suppressClick = true }, 450)
+}
+function release() { clearTimeout(holdTimer); setTimeout(() => { armed.value = ''; suppressClick = false }, 100) }
+function cardClick(event, s) { if (!suppressClick && !event.target.closest('button')) open(s) }
 function dragStart(event, storage) {
-  if (sorting.value || event.target.closest('button')) { event.preventDefault(); return }
+  if (sorting.value || armed.value !== storage.id || event.target.closest('button')) { event.preventDefault(); return }
   closeMenu(); dragging.value = storage.id
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData('text/plain', storage.id)
 }
-function dragEnd() { dragging.value = ''; dropTarget.value = '' }
+function dragEnd() { dragging.value = ''; dropTarget.value = ''; release() }
 async function moveStorage(id, target) {
   dragEnd()
   if (!id || id === target || sorting.value) return
@@ -36,7 +46,7 @@ function reorderKey(event, storage) {
 function closeMenu() { menu.value = '' }
 function menuKey(event) { if (event.key === 'Escape') closeMenu() }
 onMounted(() => { document.addEventListener('click', closeMenu); document.addEventListener('keydown', menuKey) })
-onUnmounted(() => { document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', menuKey) })
+onUnmounted(() => { clearTimeout(holdTimer); document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', menuKey) })
 const toggling = ref('')
 async function toggle(storage) {
   toggling.value = storage.id
@@ -149,8 +159,8 @@ async function remove() {
     <div><span class="metric-icon neutral"><Icon name="HardDrive" /></span><span><small>本地存储</small><strong>{{ state.storages.filter(s => s.type === 'local').length }}<em>个</em></strong></span></div>
   </div>
   <div class="storage-grid">
-    <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id, dragging: dragging === s.id, 'drop-target': dropTarget === s.id, 'storage-disabled': !s.enabled }" :draggable="!sorting" tabindex="0" :aria-label="`${s.name}，${s.enabled ? '已启用' : '已停用'}`" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" @keydown="reorderKey($event, s)" @dragstart="dragStart($event, s)" @dragend="dragEnd" @dragover.prevent="dragging && (dropTarget = s.id)" @dragleave.self="dropTarget = ''" @drop.prevent="moveStorage(dragging, s.id)">
-      <div class="storage-card-top"><button class="provider-toggle" :title="s.enabled ? '停用存储池' : '启用存储池'" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3 :title="s.name">{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><div class="storage-menu-control" @click.stop><button class="icon-btn" :aria-label="`存储操作 ${s.name}`" :aria-expanded="menu === s.id" @click="menu = menu === s.id ? '' : s.id"><Icon name="Ellipsis" /></button><div v-if="menu === s.id" class="storage-menu"><button @click="open(s)"><Icon name="Pencil" />编辑存储</button><button :disabled="testing === s.id || !s.enabled" @click="closeMenu(); test(s)"><Icon name="Activity" />测试连接</button><button class="danger-text" @click="closeMenu(); confirmDelete = s"><Icon name="Trash2" />删除存储</button></div></div></div>
+    <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id, 'drag-armed': armed === s.id, dragging: dragging === s.id, 'drop-target': dropTarget === s.id, 'storage-disabled': !s.enabled }" :draggable="armed === s.id && !sorting" tabindex="0" :aria-label="`${s.name}，${s.enabled ? '已启用' : '已停用'}`" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" @pointerdown="hold($event,s)" @pointerup="release" @pointerleave="!dragging && release()" @click="cardClick($event,s)" @contextmenu.prevent.stop="menu = s.id" @keydown="reorderKey($event, s)" @dragstart="dragStart($event, s)" @dragend="dragEnd" @dragover.prevent="dragging && (dropTarget = s.id)" @dragleave.self="dropTarget = ''" @drop.prevent="moveStorage(dragging, s.id)">
+      <div class="storage-card-top"><button class="provider-toggle" :title="s.enabled ? '停用存储池' : '启用存储池'" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click.stop="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3 :title="s.name">{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><Icon name="GripVertical" :size="18" class="drag-grip" /><div class="storage-menu-control" @click.stop><button class="icon-btn" :aria-label="`存储操作 ${s.name}`" :aria-expanded="menu === s.id" @click="menu = menu === s.id ? '' : s.id"><Icon name="Ellipsis" /></button><div v-if="menu === s.id" class="storage-menu"><button @click="open(s)"><Icon name="Pencil" />编辑存储</button><button :disabled="testing === s.id || !s.enabled" @click="closeMenu(); test(s)"><Icon name="Activity" />测试连接</button><button @click="closeMenu(); toggle(s)"><Icon name="Power" />{{ s.enabled ? '停用存储' : '启用存储' }}</button><button class="danger-text" @click="closeMenu(); confirmDelete = s"><Icon name="Trash2" />删除存储</button></div></div></div>
     </article>
     <button class="add-storage-tile" aria-label="添加存储池" @click="open()"><span class="add-tile-icon"><Icon name="Plus" :size="25" /></span><strong>添加存储池</strong></button>
   </div>
@@ -164,19 +174,19 @@ async function remove() {
         <div class="selected-driver"><ProviderIcon :type="selected" small /><h3>{{ picked.name }}</h3></div>
         <div class="form-grid">
           <label class="full">存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" placeholder="例如：家庭影音库" /></label>
-          <label v-if="selected === 'mobile'" class="full">Authorization<input v-model="form.config.authorization" type="password" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
-          <template v-if="selected === '115'"><label>Access Token <span class="required">*</span><input v-model="form.config.accessToken" type="password" required autocomplete="off" /></label><label>Refresh Token<input v-model="form.config.refreshToken" type="password" autocomplete="off" /></label></template>
+          <label v-if="selected === 'mobile'" class="full">Authorization<SecretInput v-model="form.config.authorization" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
+          <template v-if="selected === '115'"><label>Access Token <span class="required">*</span><SecretInput v-model="form.config.accessToken" required autocomplete="off" /></label><label>Refresh Token<SecretInput v-model="form.config.refreshToken" autocomplete="off" /></label></template>
           <small v-if="selected === '115'" class="full muted">获取 TOKEN 将通过第三方 OAuth 服务打开 115 登录授权；授权服务会接收本次生成的令牌。</small>
-          <label v-if="selected === 'quark'" class="full">Cookie <span class="required">*</span><textarea v-model="form.config.cookie" required rows="3" autocomplete="off" placeholder="粘贴夸克网页版的完整 Cookie" /></label>
+          <label v-if="selected === 'quark'" class="full">Cookie <span class="required">*</span><SecretInput v-model="form.config.cookie" required autocomplete="off" placeholder="粘贴夸克网页版的完整 Cookie" /></label>
           <template v-if="selected === 'tianyi'"><label>天翼账号<input v-model="form.config.username" required autocomplete="off" /></label><label>天翼密码<input v-model="form.config.password" type="password" required autocomplete="new-password" /></label></template>
           <template v-if="['openlist', 'webdav'].includes(selected)">
             <label class="full">{{ selected === 'webdav' ? 'WebDAV' : 'OpenList' }} 服务地址 <span class="required">*</span><input v-model="form.config.address" required type="url" placeholder="https://storage.example.com" /></label>
-            <label v-if="selected !== 'webdav'" class="full">API Token<input v-model="form.config.token" type="password" autocomplete="off" /></label>
+            <label v-if="selected !== 'webdav'" class="full">API Token<SecretInput v-model="form.config.token" autocomplete="off" /></label>
             <label v-if="selected === 'webdav'">用户名<input v-model="form.config.username" autocomplete="off" /></label><label :class="{ full: selected !== 'webdav' }">{{ selected === 'webdav' ? '密码' : '目录访问密码（可选）' }}<input v-model="form.config.password" type="password" autocomplete="off" /></label>
           </template>
           <label>{{ selected === 'local' ? '本地根目录' : ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" :required="selected === 'local'" /></label>
           <div class="field"><label for="storage-cache">缓存时间</label><NumberInput id="storage-cache" v-model="form.cacheTTL" aria-label="缓存时间" unit="分钟" min="0" max="525600" /><small>0 跟随全局设置</small></div>
-          <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /><small>{{ selected === 'tianyi' || (selected === 'mobile' && form.config.mode === 'native') ? '用于 CAS 临时文件清理。' : '当前文件服务只读，此设置预留。' }}</small></div>
+          <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /><small>{{ ['115', 'quark'].includes(selected) ? '当前仅支持回收站删除。' : ['openlist', 'webdav'].includes(selected) ? '此驱动的写操作尚未接入。' : '用于文件删除及 CAS 临时文件清理。' }}</small></div>
           <label class="toggle-line full"><span>启用此存储池</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
         </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>

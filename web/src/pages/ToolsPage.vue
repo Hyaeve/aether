@@ -2,21 +2,33 @@
 import { ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
+import SecretInput from '../components/SecretInput.vue'
 import { notify } from '../lib'
 const busy = ref(false)
+const flow = ref(''), password = ref(''), backupFile = ref(null), importStep = ref(1)
+function start(mode) { flow.value = mode; password.value = ''; backupFile.value = null; importStep.value = 1 }
+async function restore() {
+  busy.value = true
+  try {
+    const data = new FormData(); data.append('file', backupFile.value); data.append('password', password.value)
+    const res = await fetch('/api/config/import', { method: 'POST', credentials: 'same-origin', body: data })
+    const result = await res.json()
+    if (!res.ok) throw new Error(result.error || '导入失败')
+    notify(result.message); flow.value = ''; selected.value = null
+  } catch (e) { notify(e.message, true) } finally { busy.value = false; password.value = '' }
+}
 async function backup() {
   busy.value = true
   try {
-    const response = await fetch('/api/config/backup', { method: 'POST', credentials: 'same-origin' })
-    if (!response.ok) throw new Error('配置备份失败')
+    const response = await fetch('/api/config/backup', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: password.value }) })
+    if (!response.ok) throw new Error((await response.json()).error || '配置备份失败')
     const url = URL.createObjectURL(await response.blob()), anchor = document.createElement('a')
-    anchor.href = url; anchor.download = `aether-config-${new Date().toISOString().slice(0, 10)}.zip`; anchor.click()
-    setTimeout(() => URL.revokeObjectURL(url), 30000); notify('配置备份已导出'); selected.value = null
-  } catch (e) { notify(e.message, true) } finally { busy.value = false }
+    anchor.href = url; anchor.download = `aether-config-${new Date().toISOString().slice(0, 10)}.aether`; anchor.click()
+    setTimeout(() => URL.revokeObjectURL(url), 30000); notify('配置备份已导出'); selected.value = null; flow.value = ''
+  } catch (e) { notify(e.message, true) } finally { busy.value = false; password.value = '' }
 }
 const selected = ref(null)
 const tools = [
-  { name: '配置备份', icon: 'ArchiveRestore', detail: '备份系统配置、存储凭据与整理识别规则' },
   { name: '115 STRM 增强', icon: 'Sparkles', detail: '增强 115 媒体链接生成与播放解析' },
   { name: '115 分享 STRM', icon: 'Share2', detail: '从 115 分享目录生成媒体播放链接' },
   { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', detail: '接管夸克媒体链接与播放请求' },
@@ -26,7 +38,8 @@ const tools = [
   { name: 'AI 辅助识别', icon: 'BrainCircuit', file: 'ai.json', detail: '辅助识别复杂文件名与媒体信息' },
   { name: '识别规则', icon: 'ListFilter', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
   { name: 'TMDB 配置', icon: 'Film', detail: '配置影视元数据接口与语言偏好' },
-  { name: '代理配置', icon: 'Network', detail: '管理外部服务请求使用的网络代理' }
+  { name: '代理配置', icon: 'Network', detail: '管理外部服务请求使用的网络代理' },
+  { name: '配置备份', icon: 'ArchiveRestore', detail: '加密导入导出系统、存储池、以链与规则配置' }
 ]
 </script>
 <template>
@@ -37,7 +50,13 @@ const tools = [
     </button>
   </div>
   <Modal v-if="selected" :title="selected.name" @close="selected = null">
-    <template v-if="selected.name === '配置备份'"><div class="modal-body"><p>备份包含账号、网盘凭据和解密密钥，请妥善保管，勿公开分享。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="backup"><Icon name="Download" />导出配置备份</button></footer></template>
+    <template v-if="selected.name === '配置备份'"><div class="modal-body"><p>备份包含账号、存储池、以链和规则配置，使用你设置的密码加密。导入后需重启容器，并使用备份中的账号登录。</p></div><footer class="modal-footer"><button class="btn" @click="start('import')"><Icon name="ArchiveRestore" />导入配置备份</button><button class="btn primary" @click="start('export')"><Icon name="Download" />导出配置备份</button></footer></template>
     <div v-else class="modal-body"><p>该插件尚未实现，当前不能启用或执行。</p><p v-if="selected.detail">{{ selected.detail }}</p><code v-if="selected.file">/config/organize/{{ selected.file }}</code></div>
+  </Modal>
+  <Modal v-if="flow" :title="flow === 'export' ? '加密导出' : '导入配置'" compact @close="!busy && (flow = '')">
+    <form @submit.prevent="flow === 'export' ? backup() : importStep === 1 ? (importStep = 2) : restore()">
+      <div class="modal-body"><label v-if="flow === 'import' && importStep === 1">选择备份文件<input type="file" accept=".aether" required @change="backupFile = $event.target.files[0]" /></label><label v-else>备份密码<SecretInput v-model="password" required autocomplete="off" /></label><p v-if="flow === 'import'" class="muted">现有配置将由备份中的配置覆盖，重启后生效。</p></div>
+      <footer class="modal-footer"><button v-if="flow === 'import' && importStep === 2" type="button" class="btn" :disabled="busy" @click="importStep = 1">上一步</button><button class="btn primary" :disabled="busy">{{ flow === 'export' ? '确认导出' : importStep === 1 ? '下一步' : '确认导入' }}</button></footer>
+    </form>
   </Modal>
 </template>

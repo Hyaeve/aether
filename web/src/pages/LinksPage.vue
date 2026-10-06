@@ -8,6 +8,14 @@ const types = [{ id: 'audiobookshelf', name: 'Audiobookshelf', icon: 'abs' }, { 
 const modes = [{ value: 'always', label: '始终跳转' }, { value: 'public', label: '公网跳转' }, { value: 'private', label: '内网跳转' }, { value: 'never', label: '始终中继' }]
 const links = ref([]), tab = ref('manage'), modal = ref(false), step = ref(1), busy = ref(false), error = ref(''), events = ref([]), query = ref(''), deleting = ref(null)
 const form = reactive({})
+const menu = ref(null)
+function context(event, link) { menu.value = { link, x: Math.min(event.clientX, window.innerWidth - 160), y: Math.min(event.clientY, window.innerHeight - 190) } }
+function closeMenu() { menu.value = null }
+function escapeMenu(e) { if (e.key === 'Escape') closeMenu() }
+async function testLink(link) {
+  closeMenu()
+  try { await api(`/links/${link.id}/test`, 'POST'); notify('以链连接成功') } catch (e) { notify(e.message, true) }
+}
 const displayed = computed(() => events.value.filter(e => `${linkName(e.upstream)} ${e.mediaPath} ${e.path} ${e.client}`.toLowerCase().includes(query.value.toLowerCase())))
 const typeOf = type => types.find(t => t.id === type) || types[0]
 const linkName = id => links.value.find(l => l.id === id)?.name || id
@@ -16,7 +24,7 @@ async function load() {
   try { links.value = await api('/links'); events.value = (await api('/link-playback')).recentEvents || [] }
   catch (e) { notify(e.message, true) }
 }
-function open(link) { Object.assign(form, { id: '', name: '', type: '', address: '', port: 15160, apiKey: '', username: '', password: '', mode: 'always', enabled: true, blockedUA: '' }, link || {}); error.value = ''; step.value = link ? 2 : 1; modal.value = true }
+function open(link) { closeMenu(); Object.assign(form, { id: '', name: '', type: '', address: '', port: '', apiKey: '', username: '', password: '', mode: 'always', enabled: true, blockedUA: '' }, link || {}); error.value = ''; step.value = link ? 2 : 1; modal.value = true }
 async function save() {
   busy.value = true; error.value = ''
   try { await api(form.id ? `/links/${form.id}` : '/links', form.id ? 'PUT' : 'POST', form); await load(); modal.value = false; notify('以链已保存') }
@@ -33,13 +41,13 @@ async function remove() {
   catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 let timer
-onMounted(() => { load(); timer = setInterval(() => { if (tab.value === 'cache') load() }, 5000) })
-onUnmounted(() => clearInterval(timer))
+onMounted(() => { document.addEventListener('click', closeMenu); document.addEventListener('keydown', escapeMenu); load(); timer = setInterval(() => { if (tab.value === 'cache') load() }, 5000) })
+onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', escapeMenu) })
 </script>
 <template>
   <nav class="content-tabs" aria-label="以太链接栏目"><a href="#" :class="{ active: tab === 'manage' }" @click.prevent="tab = 'manage'">以链管理</a><a href="#" :class="{ active: tab === 'cache' }" @click.prevent="tab = 'cache'; load()">直链缓存</a></nav>
   <div v-if="tab === 'manage'" class="link-grid">
-    <article v-for="link in links" :key="link.id" class="link-card">
+    <article v-for="link in links" :key="link.id" class="link-card" @contextmenu.prevent.stop="context($event, link)">
       <div class="link-identity"><button class="link-toggle" :aria-label="`${link.enabled ? '停用' : '启用'}以链 ${link.name}`" :aria-pressed="link.enabled" :disabled="busy" @click="update(link, { enabled: !link.enabled })"><img :src="`/media/${typeOf(link.type).icon}.png`" :alt="typeOf(link.type).name" /></button><strong :title="link.name">{{ link.name }}</strong></div>
       <div class="link-card-controls"><RoundedSelect :model-value="link.mode" :label="`${link.name}跳转模式`" :options="modes" :disabled="busy" @update:model-value="update(link, { mode: $event })" /><a :href="endpoint(link)" target="_blank" rel="noopener noreferrer"><Icon name="ArrowUpRight" />{{ link.port }}</a><div class="row-actions"><button class="icon-btn" :aria-label="`编辑以链 ${link.name}`" @click="open(link)"><Icon name="Pencil" /></button><button class="icon-btn danger-text" :aria-label="`删除以链 ${link.name}`" @click="deleting = link"><Icon name="Trash2" /></button></div></div>
     </article>
@@ -49,7 +57,8 @@ onUnmounted(() => clearInterval(timer))
     <div class="section-toolbar"><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div><button class="icon-btn" aria-label="刷新播放流水" @click="load"><Icon name="RefreshCw" /></button></div>
     <div class="table-wrap"><table><thead><tr><th>时间</th><th>以链</th><th>媒体</th><th>处理方式</th><th>缓存</th><th>有效期</th><th>客户端</th></tr></thead><tbody><tr v-for="(event, i) in displayed" :key="i"><td>{{ date(event.time) }}</td><td>{{ linkName(event.upstream) }}</td><td class="playback-path" :title="event.mediaPath || event.path">{{ event.mediaPath || event.path }}</td><td>{{ ({ redirect: '302 跳转', proxy: '中继', transcode: '音频适配', passthrough: '透传', local: '本地', error: '失败', unauthorized: '未授权' })[event.outcome] || event.outcome }}</td><td>{{ event.cacheHit ? '命中' : '首次解析' }}</td><td>{{ event.cacheTtlSeconds || 0 }} s</td><td>{{ event.client }}</td></tr></tbody></table><div v-if="!displayed.length" class="small-empty">暂无播放记录</div></div>
   </section>
-  <Modal v-if="modal" :title="form.id ? '编辑以太链接' : '添加以太链接'" @close="!busy && (modal = false)">
+  <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop><button @click="open(menu.link)"><Icon name="Pencil" />编辑以链</button><button @click="testLink(menu.link)"><Icon name="Activity" />测试连接</button><button @click="update(menu.link, { enabled: !menu.link.enabled }); closeMenu()"><Icon name="Power" />{{ menu.link.enabled ? '停用链接' : '启用链接' }}</button><button class="danger-text" @click="deleting = menu.link; closeMenu()"><Icon name="Trash2" />删除链接</button></div></Teleport>
+  <Modal v-if="modal" compact wide :title="form.id ? '编辑以太链接' : '添加以太链接'" @close="!busy && (modal = false)">
     <div v-if="step === 1" class="modal-body link-type-picker"><button v-for="type in types" :key="type.id" @click="form.type = type.id; step = 2"><img :src="`/media/${type.icon}.png`" alt="" /><strong>{{ type.name }}</strong></button></div>
     <form v-else @submit.prevent="save"><div class="modal-body"><div class="form-grid">
       <label class="full">以链名称<input v-model="form.name" required maxlength="60" /></label>

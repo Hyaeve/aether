@@ -247,7 +247,7 @@ onUnmounted(() => {
 <style scoped>
 .login-universe { background: #121827; isolation: isolate; }
 .universe-decorative { display: flex; min-height: 100%; height: 100%; padding: 0; }
-.universe-decorative .orbital-system { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); height: 320px; max-width: 680px; aspect-ratio: auto; margin: 0; pointer-events: none; }
+.universe-decorative .orbital-system { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); height: max(230px, calc(100% - 220px)); max-height: 420px; max-width: 680px; aspect-ratio: auto; margin: 0; pointer-events: none; }
 .universe-decorative .orbit { display: none; }
 .universe-decorative .orbital-center { width: 72px; height: 72px; }
 .universe-decorative .orbital-center img { width: 72px; height: 72px; }
