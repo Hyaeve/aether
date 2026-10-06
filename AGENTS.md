@@ -548,3 +548,17 @@
 - 发布范围包含上一条记录中尚未推送的挂载/目录交互、直链缓存展示和ABS会话鉴权修复；不包含用户配置、凭据、构建及测试产物。使用中文提交及标签，推送main和v0.1.8，实际结果以Git输出为准。
 - 验证：前端0.1.8构建、Go全量测试和vet通过；浏览器全量回归正在执行，最终结果另补。真实ABS客户端和Linux/FUSE环境仍未联调，不声称现场播放验证完成。
 - 最终验证：12项Playwright全部通过（1.5分钟），查看存储类型选择和夜间界面截图，差异格式检查通过；此次不重启隔离预览，15153继续提供最新web/dist界面，后台原15151及用户配置保持不变。
+
+## 2026-10-06：存储选择图标、直链缓存布局、AetherDrive 挂载与 v0.1.9 发布
+
+- 修改 `web/src/pages/StoragePage.vue`、`web/src/style.css`：给移动云、天翼、夸克、OpenList 的选择图标增加真实图片主体尺寸，保持 115、本机和 WebDAV 图标比例不变。
+- 修改 `web/src/style.css` 中容器目录选择器样式：放大目录项和路径文字，保留固定弹窗、根目录导航及隐藏滚动条；组件逻辑未变。
+- 修改 `web/src/style.css`：高级设置和更多选项的悬浮/焦点态只强调图标与文字，不再显示整行圆角背景。
+- 修改 `web/src/pages/LinksPage.vue`、`web/src/style.css`：直链缓存的类型筛选、刷新、搜索移动到栏目右侧；播放流水扩大可用高度，文字放大，UA、目标、客户端 IP、缓存状态改为胶囊展示，时间列与后续列更紧凑，保留虚拟列表和触底稳定行为。
+- 修改 `internal/app/mounts.go`、`internal/app/mounts_test.go`：挂载配置保存所选父目录，实际启动时在其下创建并挂载到 `AetherDrive`；父目录可保留其他文件，专用子目录必须为空、真实目录且不能为符号链接，避免覆盖用户数据。
+- 修改 `web/src/pages/MountsPage.vue`：移除 `/mnt/media` 挂载点占位提示。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/z-links.spec.js`、`web/tests/zzz-workspace-actions.spec.js`：增加图标主体、目录文字、折叠标题、缓存工具栏/胶囊流水和挂载目录边界回归。
+- 修改 `README.md`：记录父目录与 `/AetherDrive` 实际挂载路径、创建时机和数据保护约束。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：版本由 `0.1.8` 递增到 `0.1.9`，工作流继续只构建 Linux amd64 镜像。
+- 验证：`go test ./... -count=1`、`go vet ./...`、`npm run build`、12 项 Playwright 全量测试及 `git diff --check` 通过；已检查直链缓存和目录选择器截图。
+- 未完成项：本机无 Docker/Linux FUSE 与真实云盘环境，未进行生产容器挂载和真实账号联调；本次未修改用户 `config/data`、15151 服务或生成仓库根目录 exe。

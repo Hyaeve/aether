@@ -55,6 +55,9 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.getByRole('button', { name: '添加存储池', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.locator('.driver-option .provider-icon').first()).toHaveCSS('width', '54px')
+  for (const provider of ['mobile', 'tianyi', 'quark', 'openlist']) {
+    await expect(page.locator(`.driver-option[data-provider="${provider}"] .provider-logo`)).toHaveCSS('width', '54px')
+  }
   await page.screenshot({ path: testInfo.outputPath('storage-picker-desktop.png'), fullPage: true })
   await page.getByRole('dialog').getByRole('button', { name: /本机存储/ }).click()
   await page.getByLabel('存储池名称').fill('本地影音库')

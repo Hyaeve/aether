@@ -37,8 +37,11 @@ func TestMountConfigAndValidation(t *testing.T) {
 	}
 	nonempty := t.TempDir()
 	os.WriteFile(filepath.Join(nonempty, "keep.txt"), []byte("keep"), 0600)
-	if err := a.validateMount(&MountConfig{Name: "nonempty", MountPoint: nonempty, Mode: 0755}); err == nil {
-		t.Fatal("nonempty mount target accepted")
+	if err := a.validateMount(&MountConfig{Name: "nonempty", MountPoint: nonempty, Mode: 0755}); err != nil {
+		t.Fatal("parent containing unrelated files rejected", err)
+	}
+	if _, err := os.Stat(mountTarget(saved)); !os.IsNotExist(err) {
+		t.Fatal("saving created mount child", err)
 	}
 	root := t.TempDir()
 	a.store.update(func(st *State) error {
@@ -79,6 +82,53 @@ func TestMountConfigAndValidation(t *testing.T) {
 	if _, err := os.Stat(saved.MountPoint); err != nil {
 		t.Fatal("deleted mount directory", err)
 	}
+}
+
+func TestDedicatedMountTarget(t *testing.T) {
+	mount := MountConfig{MountPoint: t.TempDir()}
+	keep := filepath.Join(mount.MountPoint, "keep.txt")
+	if err := os.WriteFile(keep, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := prepareMountTarget(mount, true); err != nil {
+			t.Fatal("create or reuse empty child", err)
+		}
+	}
+	target := mountTarget(mount)
+	if target != filepath.Join(mount.MountPoint, "AetherDrive") {
+		t.Fatal(target)
+	}
+	if err := os.WriteFile(filepath.Join(target, "occupied"), []byte("user data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, create := range []bool{false, true} {
+		if err := prepareMountTarget(mount, create); err == nil {
+			t.Fatal("nonempty child accepted")
+		}
+	}
+	data, err := os.ReadFile(keep)
+	if err != nil || string(data) != "keep" {
+		t.Fatal("parent data changed", err)
+	}
+	t.Run("file", func(t *testing.T) {
+		mount := MountConfig{MountPoint: t.TempDir()}
+		if err := os.WriteFile(mountTarget(mount), []byte("keep"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := prepareMountTarget(mount, true); err == nil {
+			t.Fatal("file accepted as child")
+		}
+	})
+	t.Run("symlink", func(t *testing.T) {
+		mount := MountConfig{MountPoint: t.TempDir()}
+		if err := os.Symlink(t.TempDir(), mountTarget(mount)); err != nil {
+			t.Skip("symlink unavailable:", err)
+		}
+		if err := prepareMountTarget(mount, true); err == nil {
+			t.Fatal("symlink accepted as child")
+		}
+	})
 }
 
 func TestMountFSLocalAndAggregate(t *testing.T) {
@@ -189,6 +239,7 @@ func TestLinuxFUSEMountIntegration(t *testing.T) {
 	if err := a.mounts.start(mount.ID); err != nil {
 		t.Fatal(err)
 	}
+	target = mountTarget(mount)
 	if !mountedAt(target) {
 		t.Fatal("mount did not appear in mountinfo")
 	}

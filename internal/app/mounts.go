@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -75,6 +76,41 @@ func pathOverlaps(a, b string) bool {
 	return inside(a, b) || inside(b, a)
 }
 
+func mountTarget(mount MountConfig) string {
+	return filepath.Join(mount.MountPoint, "AetherDrive")
+}
+
+// Only the dedicated child may be created; never hide existing user files.
+func prepareMountTarget(mount MountConfig, create bool) error {
+	root, err := os.OpenRoot(mount.MountPoint)
+	if err != nil {
+		return errors.New("挂载父目录不可访问")
+	}
+	defer root.Close()
+	if create {
+		if err := root.Mkdir("AetherDrive", 0755); err != nil && !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("创建 AetherDrive 失败：%w", err)
+		}
+	}
+	info, err := root.Lstat("AetherDrive")
+	if errors.Is(err, os.ErrNotExist) && !create {
+		return nil
+	}
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("AetherDrive 必须是普通目录，不能是文件或符号链接")
+	}
+	dir, err := root.Open("AetherDrive")
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	entries, err := dir.ReadDir(1)
+	if (err != nil && !errors.Is(err, io.EOF)) || len(entries) != 0 {
+		return errors.New("AetherDrive 必须是可访问的空目录，不会覆盖已有文件")
+	}
+	return nil
+}
+
 func (a *App) validateMount(input *MountConfig) error {
 	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" || len(input.Name) > 180 {
@@ -84,7 +120,7 @@ func (a *App) validateMount(input *MountConfig) error {
 		return errors.New("挂载点须为非根目录的绝对路径")
 	}
 	input.MountPoint = filepath.Clean(input.MountPoint)
-	// Never create a directory implicitly or mount over existing user data.
+	// The selected parent must already exist and contain no symlink components.
 	real, err := filepath.EvalSymlinks(input.MountPoint)
 	if err != nil || real != input.MountPoint {
 		return errors.New("挂载点须为已存在的目录，且不能经过符号链接")
@@ -114,9 +150,8 @@ func (a *App) validateMount(input *MountConfig) error {
 			return errors.New("挂载名称重复或挂载点相互包含")
 		}
 	}
-	entries, err := os.ReadDir(input.MountPoint)
-	if err != nil || len(entries) != 0 {
-		return errors.New("挂载点必须是可访问的空目录")
+	if err := prepareMountTarget(*input, false); err != nil {
+		return err
 	}
 	if input.Source == "" {
 		input.Source = "/"
@@ -188,10 +223,14 @@ func (m *mountManager) start(key string) (err error) {
 	if err != nil {
 		return errors.New("未安装 rclone 挂载引擎")
 	}
-	if mountedAt(mount.MountPoint) {
+	point := mountTarget(mount)
+	if mountedAt(point) {
 		return errors.New("挂载点已被占用")
 	}
 	if err := m.app.validateMount(&mount); err != nil {
+		return err
+	}
+	if err := prepareMountTarget(mount, true); err != nil {
 		return err
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -218,7 +257,7 @@ func (m *mountManager) start(key string) (err error) {
 		handler.ServeHTTP(w, r)
 	})}
 	go server.Serve(listener)
-	args := []string{"mount", ":webdav:", mount.MountPoint, "--config", "/dev/null",
+	args := []string{"mount", ":webdav:", point, "--config", "/dev/null",
 		"--uid", strconv.Itoa(mount.UID), "--gid", strconv.Itoa(mount.GID),
 		"--dir-perms", fmt.Sprintf("%04o", mount.Mode), "--file-perms", fmt.Sprintf("%04o", mount.Mode&0666),
 		"--allow-other", "--vfs-cache-mode", "off", "--dir-cache-time", "0s", "--log-level", "NOTICE"}
@@ -242,7 +281,7 @@ func (m *mountManager) start(key string) (err error) {
 		server.Close()
 		return fmt.Errorf("启动挂载引擎失败：%w", err)
 	}
-	process := &mountProcess{cmd: cmd, server: server, done: make(chan struct{}), point: mount.MountPoint}
+	process := &mountProcess{cmd: cmd, server: server, done: make(chan struct{}), point: point}
 	m.active[key] = process
 	go func() {
 		scanner := bufio.NewScanner(stderr)
@@ -270,9 +309,9 @@ func (m *mountManager) start(key string) (err error) {
 			_ = m.stopLocked(key)
 			return m.app.ctx.Err()
 		case <-ticker.C:
-			if mountedAt(mount.MountPoint) {
+			if mountedAt(point) {
 				delete(m.failures, key)
-				m.app.store.event("info", "storage", mount.Name+" 已挂载到 "+mount.MountPoint)
+				m.app.store.event("info", "storage", mount.Name+" 已挂载到 "+point)
 				return nil
 			}
 		}

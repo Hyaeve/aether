@@ -169,7 +169,7 @@ async function remove() {
   <div v-if="!visible.length && query" class="small-empty">没有匹配的存储池</div>
   <Modal v-if="modal" :title="editing ? '编辑存储池' : step === 1 ? '添加存储池' : '配置存储池'" compact wide @close="!busy && (modal = false)">
     <div v-if="step === 1" class="modal-body">
-      <div class="driver-grid"><button v-for="d in drivers" :key="d.id" class="driver-option" @click="next(d.id)"><ProviderIcon :type="d.id" /><strong>{{ d.name }}</strong></button></div>
+      <div class="driver-grid"><button v-for="d in drivers" :key="d.id" class="driver-option" :data-provider="d.id" @click="next(d.id)"><ProviderIcon :type="d.id" /><strong>{{ d.name }}</strong></button></div>
     </div>
     <form v-else @submit.prevent="save">
       <div class="modal-body">
