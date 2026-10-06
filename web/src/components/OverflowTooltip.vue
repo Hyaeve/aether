@@ -8,7 +8,7 @@ function show(event) {
   if (!el) return
   const value = el.dataset.tooltip || el.textContent
   const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight
-  if (!value || (!el.dataset.tooltip && !clipped)) return
+  if (!value || !clipped) return
   hide(); target = el
   timer = setTimeout(() => {
     const r = el.getBoundingClientRect()

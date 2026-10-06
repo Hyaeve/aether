@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -17,8 +18,13 @@ func TestAudiobookshelfLink302(t *testing.T) {
 	defer cancel()
 	data := t.TempDir()
 	mediaRoot := t.TempDir()
+	download := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer download.Close()
+	finalURL := download.URL + "/chapter.m4b"
 	pointer := filepath.Join(mediaRoot, "chapter.strm")
-	if err := os.WriteFile(pointer, []byte("https://cdn.example.test/chapter.m4b"), 0600); err != nil {
+	if err := os.WriteFile(pointer, []byte(finalURL), 0600); err != nil {
 		t.Fatal(err)
 	}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +62,7 @@ func TestAudiobookshelfLink302(t *testing.T) {
 		if token == "" && res.StatusCode != 401 {
 			t.Fatal("unauthorized", res.StatusCode)
 		}
-		if token != "" && (res.StatusCode != 302 || res.Header.Get("Location") != "https://cdn.example.test/chapter.m4b") {
+		if token != "" && (res.StatusCode != 302 || res.Header.Get("Location") != finalURL) {
 			t.Fatal("abs redirect", res.StatusCode, res.Header)
 		}
 	}
@@ -65,7 +71,31 @@ func TestAudiobookshelfLink302(t *testing.T) {
 func TestLink302AndPlayerAuthorization(t *testing.T) {
 	for _, kind := range []string{"emby", "fnos"} {
 		t.Run(kind, func(t *testing.T) {
-			source := map[string]any{"Id": "source", "Path": "https://cdn.example.test/movie.mp4", "Protocol": "Http", "Container": "strm"}
+			var probes atomic.Int32
+			download := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer download.Close()
+			finalURL := download.URL + "/movie.mp4"
+			pointer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				probes.Add(1)
+				if r.Header.Get("User-Agent") != "Hills/test" {
+					t.Errorf("probe UA = %q", r.Header.Get("User-Agent"))
+				}
+				if r.Header.Get("X-Emby-Token") != "" {
+					t.Error("player credential leaked to STRM backend")
+				}
+				if r.Method == http.MethodHead {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				if r.Header.Get("Range") != "bytes=0-0" {
+					t.Error("GET probe must be bounded")
+				}
+				http.Redirect(w, r, finalURL, http.StatusFound)
+			}))
+			defer pointer.Close()
+			source := map[string]any{"Id": "source", "Path": pointer.URL + "/d/cswkrcrho9ghsdd6u.mkv?/movie.mkv", "Protocol": "Http", "Container": "strm"}
 			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if strings.HasSuffix(r.URL.Path, "/PlaybackInfo") {
@@ -102,13 +132,14 @@ func TestLink302AndPlayerAuthorization(t *testing.T) {
 			for _, token := range []string{"", "player-token", "player-token", "invalid"} {
 				req, _ := http.NewRequest("GET", address, nil)
 				req.Header.Set("X-Emby-Token", token)
+				req.Header.Set("User-Agent", "Hills/test")
 				res, err := client.Do(req)
 				if err != nil {
 					t.Fatal(err)
 				}
 				res.Body.Close()
 				if token == "player-token" {
-					if res.StatusCode != 302 || res.Header.Get("Location") != "https://cdn.example.test/movie.mp4" {
+					if res.StatusCode != 302 || res.Header.Get("Location") != finalURL {
 						t.Fatalf("redirect: %d %s", res.StatusCode, res.Header.Get("Location"))
 					}
 				} else if res.StatusCode != 401 {
@@ -118,6 +149,9 @@ func TestLink302AndPlayerAuthorization(t *testing.T) {
 			events := a.links.stats.Snapshot(10).RecentEvents
 			if len(events) != 2 || !events[0].CacheHit {
 				t.Fatalf("cache events: %+v", events)
+			}
+			if probes.Load() != 2 {
+				t.Fatalf("expected HEAD/GET once and then final-URL cache hit, got %d probes", probes.Load())
 			}
 		})
 	}

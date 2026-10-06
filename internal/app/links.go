@@ -88,6 +88,7 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 	}
 	cfg := lc.Default()
 	cfg.Redirect.Mode = lc.RedirectMode(link.Mode)
+	cfg.Redirect.FollowUpstreamRedirects = true
 	cfg.Redirect.BlockClientUserAgent = lc.Bool(strings.TrimSpace(link.BlockedUA) != "")
 	cfg.Redirect.BlockedUserAgents = strings.Split(link.BlockedUA, "\n")
 	cfg.Redirect.StreamTimeout = 2 * time.Hour
@@ -100,7 +101,8 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("反代端口不可用：%w", err)
 	}
-	r := resolver.NewWithPersistence(cfg.Cache, cfg.Redirect, filepath.Join(a.dataDir, "cache", "link", link.ID+"-direct.json"))
+	// Old snapshots may contain unprobed STRM URLs instead of resolved download URLs.
+	r := resolver.NewWithPersistence(cfg.Cache, cfg.Redirect, filepath.Join(a.dataDir, "cache", "link", link.ID+"-direct-v2.json"))
 	handler := proxy.NewWithAudioCache(provider, r, a.links.stats, cfg.Redirect, a.links.audio)
 	service := &linkService{resolver: r, server: &http.Server{Handler: authorizeLinkPlayer(provider, handler), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}}
 	go func() {

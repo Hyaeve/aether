@@ -34,7 +34,7 @@ export const drivers = [
   { id: 'tianyi', name: '天翼云盘', subtitle: 'China Telecom', icon: '天', color: '#db9234', kind: '云端存储', auth: '原生账号登录', root: '-11', tags: ['原生个人云', 'CAS'] },
   { id: 'quark', name: '夸克网盘', subtitle: 'Quark', icon: 'Q', color: '#277eaf', kind: '云端存储', auth: 'Cookie', root: '0', tags: ['Cookie', '本机代理'] },
   { id: 'openlist', name: 'OpenList', subtitle: 'Storage gateway', icon: 'O', color: '#5479cb', kind: '协议与本地', auth: 'API Token', root: '/', tags: ['聚合存储', 'API'] },
-  { id: 'webdav', name: 'WebDAV', subtitle: 'Web Distributed', icon: 'dav', color: '#5c8c78', kind: '协议与本地', auth: '账号密码', root: '/', tags: ['标准协议'] },
+  { id: 'webdav', name: 'WebDAV', subtitle: 'Web Distributed', icon: 'dav', color: '#5c8c78', kind: '协议与本地', auth: '账号密码', root: '/dav', tags: ['标准协议'] },
   { id: 'local', name: '本机存储', subtitle: 'Local filesystem', icon: 'local', color: '#7b8491', kind: '协议与本地', auth: '本地目录', root: '/mnt', tags: ['本地磁盘', '容器目录'] }
 ]
 export const driverOf = type => drivers.find(d => d.id === type) || drivers[0]

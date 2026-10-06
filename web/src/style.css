@@ -914,4 +914,48 @@ select { border-radius: 12px; }
 .link-playback { min-height: 300px; display: flex; flex-direction: column; flex: 1; }
 .playback-scroller { flex: 1; height: auto; min-height: 0; scrollbar-width: none; }
 .playback-scroller::-webkit-scrollbar { display: none; }
+.file-view th, .file-view td { border-color: color-mix(in srgb,var(--border) 45%,transparent); }
+.content-tabs, .settings-navigation { overflow: visible; flex-wrap: wrap; scrollbar-width: none; }
+.content-tabs::-webkit-scrollbar, .settings-navigation::-webkit-scrollbar { display: none; }
+.playback-scroller { overflow-anchor: none; overscroll-behavior: contain; }
+.playback-scroller table { border-collapse: separate; border-spacing: 0; }
+.playback-scroller .playback-event td { height: 52px; max-height: 52px; padding-top: 0; padding-bottom: 0; }
+.playback-scroller .playback-spacer { line-height: 0; }
+.app-shell:has(.about-page) { background: #121827; }
+.main-shell:has(.about-page) .topbar .icon-btn,
+.main-shell:has(.about-page) .topbar .account-button { border-color: transparent; background: transparent; box-shadow: none; }
+.main-shell:has(.about-page) .topbar .icon-btn:hover,
+.main-shell:has(.about-page) .topbar .account-button:hover { color: #fff; background: #ffffff0d; }
+.main-shell:has(.about-page) .traffic-stat b { color: #d6dcf3; }
+.app-shell:has(.about-page) .about-universe { position: fixed; inset: 0 0 0 214px; }
+@media (max-width:760px) { .app-shell:has(.about-page) .about-universe { left: 0; } }
+.page-content:has(.planned-list) .empty-state { padding: 24px 0; min-height: 0; }
+.mount-advanced { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin-top: 16px; }
+.mount-advanced .number-control { width: 100%; }
+.mount-card { padding: 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
+.mount-card h3, .mount-card p { overflow-wrap: anywhere; margin-bottom: 10px; }
+.mount-card p { color: var(--muted); font-size: 13px; }
+.mount-card .row-actions { justify-content: flex-start; }
+.storage-card, .link-card, .mount-card, .add-storage-tile { transition: border-color .18s ease, box-shadow .18s ease; }
+.storage-card:hover, .link-card:hover, .mount-card:hover, .add-storage-tile:hover { border-color: var(--primary); box-shadow: 0 0 0 1px color-mix(in srgb,var(--primary) 30%,transparent); }
+.file-view th { font-size: 14px; }
+.file-view td, .file-view .file-name, .file-view .file-name strong, .file-grid-name strong { font-size: 15px; }
+.driver-option, .driver-option:hover, .selected-driver { background: transparent; border-color: transparent; box-shadow: none; }
+.driver-option .provider-icon, .selected-driver .provider-icon { background: transparent; border: 0; box-shadow: none; padding: 0; }
+.driver-option:hover { color: var(--primary); }
+.mount-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+.mount-grid .mount-card { display: flex; align-items: center; gap: 16px; min-height: 112px; cursor: pointer; position: relative; }
+.mount-identity { min-width: 0; flex: 1; }
+.mount-identity h3 { font-size: 16px; margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mount-identity p { margin: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mount-identity .error-message { margin-top: 6px; }
+.mount-toggle { border: 0; background: transparent; padding: 0; display: grid; place-items: center; flex-shrink: 0; }
+.mount-toggle .provider-icon { width: 42px; height: 42px; padding: 0; background: transparent; }
+.mount-toggle[aria-pressed=false] { opacity: .5; }
+@media (max-width:1100px) { .mount-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width:700px) { .mount-grid { grid-template-columns: minmax(0,1fr); } }
+.mount-toolbar { justify-content: space-between; margin-bottom: 20px; }
+.mount-point-input { display: flex; align-items: center; gap: 8px; }
+.mount-point-input input { flex: 1; }
+.container-directory-list { max-height: 320px; overflow: auto; scrollbar-width: thin; }
 .overflow-tooltip { position: fixed; z-index: 200; width: max-content; max-width: min(460px,calc(100vw - 16px)); max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-size: 14px; line-height: 1.5; }

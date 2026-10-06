@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"unicode/utf8"
 )
 
 // Only an explicit administrator action reveals one field; list APIs stay masked.
@@ -14,7 +15,8 @@ func (a *App) revealSecret(kind string) http.HandlerFunc {
 			return
 		}
 		var input struct {
-			Field string `json:"field"`
+			Field        string `json:"field"`
+			MetadataOnly bool   `json:"metadataOnly"`
 		}
 		if !decode(w, r, &input) {
 			return
@@ -31,7 +33,11 @@ func (a *App) revealSecret(kind string) http.HandlerFunc {
 		if kind == "storages" {
 			for _, storage := range st.Storages {
 				if storage.ID == r.PathValue("id") {
-					jsonResponse(w, 200, map[string]string{"value": storage.Config[input.Field]})
+					if input.MetadataOnly {
+						jsonResponse(w, 200, map[string]int{"length": utf8.RuneCountInString(storage.Config[input.Field])})
+					} else {
+						jsonResponse(w, 200, map[string]string{"value": storage.Config[input.Field]})
+					}
 					return
 				}
 			}
@@ -42,7 +48,11 @@ func (a *App) revealSecret(kind string) http.HandlerFunc {
 					if input.Field == "password" {
 						value = link.Password
 					}
-					jsonResponse(w, 200, map[string]string{"value": value})
+					if input.MetadataOnly {
+						jsonResponse(w, 200, map[string]int{"length": utf8.RuneCountInString(value)})
+					} else {
+						jsonResponse(w, 200, map[string]string{"value": value})
+					}
 					return
 				}
 			}

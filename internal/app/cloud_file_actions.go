@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 )
@@ -16,6 +17,9 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 	defer cancel()
 	if s.ID != target.ID {
 		return errors.New("云端跨存储池传输尚未实现，请选择当前存储池内的目录")
+	}
+	if s.Type == "openlist" || s.Type == "webdav" {
+		return a.protocolFileAction(ctx, s, req)
 	}
 	if !nativeMobile(s) && !nativeTianyi(s) && s.Type != "115" && s.Type != "quark" {
 		return errors.New("此存储驱动尚未接入写操作")
@@ -230,6 +234,104 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 			}
 			if result.Data.Status == 2 {
 				break
+			}
+		}
+	}
+	return nil
+}
+
+func (a *App) protocolFileAction(ctx context.Context, s Storage, req fileActionRequest) error {
+	if req.Action == "delete" && s.Config["deleteMode"] != "permanent" {
+		trash := path.Join(req.Source, ".aether-trash")
+		if strings.Contains("/"+strings.Trim(req.Source, "/")+"/", "/.aether-trash/") {
+			return errors.New("回收站中的项目须显式选择永久删除")
+		}
+		found, err := a.cloudByName(ctx, s, req.Source, ".aether-trash")
+		if err != nil {
+			return err
+		}
+		if found == nil {
+			if err := a.cloudMkdir(ctx, s, req.Source, ".aether-trash"); err != nil {
+				return err
+			}
+		} else if !found.IsDir {
+			return errors.New("回收站路径已被文件占用")
+		}
+		batch := id()
+		if err := a.cloudMkdir(ctx, s, trash, batch); err != nil {
+			return err
+		}
+		req.Action = "move"
+		req.Target = path.Join(trash, batch)
+	}
+	for _, fid := range req.IDs {
+		items, err := a.rawList(ctx, s, req.Source)
+		if err != nil {
+			return err
+		}
+		var file *File
+		for _, f := range items {
+			if f.ID == fid {
+				copy := f
+				file = &copy
+				break
+			}
+		}
+		if file == nil || fid == "/" {
+			return errors.New("源项目不存在")
+		}
+		dest := path.Join(req.Target, file.Name)
+		if req.Action == "rename" {
+			dest = path.Join(req.Source, req.Name)
+		}
+		if req.Action == "rename" || req.Action == "move" || req.Action == "copy" {
+			found, err := a.cloudByName(ctx, s, path.Dir(dest), path.Base(dest))
+			if err != nil {
+				return err
+			}
+			if found != nil {
+				return errors.New("目标名称已存在，不覆盖已有项目")
+			}
+		}
+		if s.Type == "openlist" {
+			root := func(p string) string { return path.Join("/", s.Config["root"], p) }
+			body := map[string]any{}
+			action := req.Action
+			switch action {
+			case "rename":
+				body = map[string]any{"path": root(fid), "name": req.Name}
+			case "move", "copy":
+				body = map[string]any{"src_dir": root(req.Source), "dst_dir": root(req.Target), "names": []string{file.Name}}
+			case "delete":
+				action = "remove"
+				body = map[string]any{"dir": root(req.Source), "names": []string{file.Name}}
+			default:
+				return errors.New("无效操作")
+			}
+			if err := openlistWriteJSON(ctx, s, action, body); err != nil {
+				return err
+			}
+		} else {
+			address, err := davURL(s, fid)
+			if err != nil {
+				return err
+			}
+			method := strings.ToUpper(req.Action)
+			if req.Action == "rename" {
+				method = "MOVE"
+			}
+			request, _ := http.NewRequest(method, address, nil)
+			request.SetBasicAuth(s.Config["username"], s.Config["password"])
+			if method == "MOVE" || method == "COPY" {
+				destination, err := davURL(s, dest)
+				if err != nil {
+					return err
+				}
+				request.Header.Set("Destination", destination)
+				request.Header.Set("Overwrite", "F")
+			}
+			if _, _, err := writeHTTP(ctx, method, address, request.Header, nil, 0); err != nil {
+				return err
 			}
 		}
 	}

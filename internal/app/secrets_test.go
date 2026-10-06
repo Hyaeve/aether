@@ -41,6 +41,10 @@ func TestExplicitSecretReveal(t *testing.T) {
 			t.Fatal("method")
 		}
 		for _, field := range resource.fields {
+			metadata := request(t, h, "POST", resource.path, map[string]any{"field": field, "metadataOnly": true}, cookie)
+			if metadata.Code != 200 || !strings.Contains(metadata.Body.String(), `"length":`) || strings.Contains(metadata.Body.String(), "real-") || strings.Contains(metadata.Body.String(), `"value"`) {
+				t.Fatal("secret length metadata leaks or fails", metadata.Body.String())
+			}
 			response := request(t, h, "POST", resource.path, map[string]string{"field": field}, cookie)
 			if response.Code != 200 || !strings.Contains(response.Body.String(), "real-") || response.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("reveal failed", response.Body.String())

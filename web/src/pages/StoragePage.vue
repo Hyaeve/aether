@@ -173,7 +173,8 @@ async function remove() {
       <div class="modal-body">
         <div class="selected-driver"><ProviderIcon :type="selected" small /><h3>{{ picked.name }}</h3></div>
         <div class="form-grid">
-          <label class="full">存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" placeholder="例如：家庭影音库" /></label>
+          <label>存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" placeholder="例如：家庭影音库" /></label>
+          <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /></div>
           <label v-if="selected === 'mobile'" class="full">Authorization<SecretInput v-model="form.config.authorization" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="authorization" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
           <template v-if="selected === '115'"><label>Access Token <span class="required">*</span><SecretInput v-model="form.config.accessToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="accessToken" required autocomplete="off" /></label><label>Refresh Token<SecretInput v-model="form.config.refreshToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="refreshToken" autocomplete="off" /></label></template>
           <small v-if="selected === '115'" class="full muted">获取 TOKEN 将通过第三方 OAuth 服务打开 115 登录授权；授权服务会接收本次生成的令牌。</small>
@@ -184,9 +185,8 @@ async function remove() {
             <label v-if="selected !== 'webdav'" class="full">API Token<SecretInput v-model="form.config.token" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="token" autocomplete="off" /></label>
             <label v-if="selected === 'webdav'">用户名<input v-model="form.config.username" autocomplete="off" /></label><label :class="{ full: selected !== 'webdav' }">{{ selected === 'webdav' ? '密码' : '目录访问密码（可选）' }}<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" autocomplete="off" /></label>
           </template>
-          <label>{{ selected === 'local' ? '本地根目录' : ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" :required="selected === 'local'" /></label>
+          <label>{{ selected === 'local' ? '本地目录' : ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" :required="selected === 'local'" /></label>
           <div class="field"><label for="storage-cache">缓存时间</label><NumberInput id="storage-cache" v-model="form.cacheTTL" aria-label="缓存时间" unit="分钟" min="0" max="525600" /><small>0 跟随全局设置</small></div>
-          <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /><small>{{ ['115', 'quark'].includes(selected) ? '当前仅支持回收站删除。' : ['openlist', 'webdav'].includes(selected) ? '此驱动的写操作尚未接入。' : '用于文件删除及 CAS 临时文件清理。' }}</small></div>
           <label class="toggle-line full"><span>启用此存储池</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
         </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>

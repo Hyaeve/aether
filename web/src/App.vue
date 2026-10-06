@@ -16,6 +16,7 @@ import PlannedPage from './pages/PlannedPage.vue'
 import ToolsPage from './pages/ToolsPage.vue'
 import LinksPage from './pages/LinksPage.vue'
 import OverflowTooltip from './components/OverflowTooltip.vue'
+import MountsPage from './pages/MountsPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -82,7 +83,7 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
   <div v-else class="app-shell">
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
     <aside class="sidebar" :class="{ open: mobileNav }">
-      <button class="brand" @click="router.push('/dashboard')"><img src="/aether.svg" alt="" /><span>Aether<small>云端本地 · 以太空间</small></span></button>
+      <div class="brand"><img src="/aether.svg" alt="" /><span>Aether<small>云端本地 · 以太空间</small></span></div>
       <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path, 'nav-bottom': item.path === '/logs' }" @click="router.push(item.path)"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
     </aside>
     <div class="main-shell">
@@ -110,6 +111,7 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
         <StoragePage v-if="currentPath === '/storage'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
         <FilesPage v-else-if="currentPath === '/files'" />
+        <MountsPage v-else-if="currentPath === '/files/mounts'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />

@@ -1,5 +1,13 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-06：修复以链直接返回 STRM 中间地址
+
+- 修改 `internal/app/links.go`：`buildLink` 显式开启 `FollowUpstreamRedirects`，复用本地 AetherLink 的 HEAD 探测、Range GET 回退、有效 UA 传递和有界重定向跟随；此前沿用默认 false 导致中间地址直接返回。客户端网段分类及跳转模式逻辑不变。持久化缓存换用 `*-direct-v2.json`，避免恢复旧的未探测地址，不删除旧缓存或用户数据。
+- 修改 `internal/app/link_playback_test.go`：Emby/飞牛使用真实本地 HTTP 中间跳转服务和下载服务，断言最终 Location、第二次请求缓存命中、HEAD 拒绝后单字节 GET、播放器 UA 保留和不泄漏 Emby 凭据。ABS 用本地下载服务替代外部测试域名，避免探测依赖外网。
+- 修改 `README.md`：说明解析顺序、缓存隔离以及后端本地代理/探测失败的边界。修改 `AGENTS.md` 记录本次全部文件。
+- 验证：针对性播放测试、`go test ./... -count=1`、`go vet ./...`、`git diff --check` 通过；未改前端，不重跑浏览器测试。
+- 限制：未连接用户的 10.0.0.31 服务，未做真实 Emby/115/Docker 播放联调。上游直接返回媒体而非重定向时不能推导不存在于响应中的网盘直链；探测失败保留参考项目原地址回退行为。未操作15151服务、未生成exe；本轮未要求推送，未提交、未发布或递增版本。
+
 ## 2026-10-06：目录名称导航与本地 CAS 生成
 
 - 修改 `internal/app/model.go`：Task 新增 sourceLabel、sourceTrail、casOperation，分离目录显示信息和接口 ID，保留旧任务默认还原语义。修改 `internal/app/server.go`：校验生成/还原操作，本地仅允许生成，云盘仍保留原生限定。
@@ -495,3 +503,28 @@
 - 修改 `README.md`：绑定兼容边界、挂载白名单、显式映射及HTTP复制说明。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：版本递增0.1.6。修改 `AGENTS.md` 记录全部文件。
 - 验证：最终Go全量测试、go vet、前端0.1.6构建、差异检查通过；12项Playwright全部通过（2.3分钟）。修正过程中发现Windows的POSIX路径校验、控件标签3px间距和绑定账号测试误认自定义名称，均修复后重跑。查看CAS表单与流水截图，套件同时覆盖登录画布非空/运动及桌面移动响应式。隔离15153预览更新为临时目录aether-v016.exe，PID29404，未生成仓库根exe。
 - 限制：用户实际容器挂载、读权限、真实移动/天翼秒传和媒体库未联调，不声称该用户播放已现场恢复；新增映射已模拟302验证。旧本地CAS需选择绑定账号；复制回退仍受浏览器策略限制，测试使用禁用Clipboard API的模拟验证，不宣称所有浏览器均可复制。真实手机触摸拖拽未联调。未改用户config/data及原15151。中文提交并推送main和v0.1.6，实际结果以Git输出为准。
+
+## 2026-10-06：文件服务界面细化、CAS手动选择与FUSE挂载
+
+- 修改 `web/src/App.vue`：品牌改为非导航元素，仪表盘只由侧栏导航项触发；接入 `MountsPage`。新增 `web/src/pages/MountsPage.vue`：挂载配置卡片、创建编辑删除、手动挂载/卸载与状态轮询；源选择支持所有启用池、单池或子目录；容器目录浏览；只读默认关闭、自动挂载默认开启；UID/GID/八进制权限为0/0/0755并排展示。删除需确认，不删除源目录。
+- 修改 `web/src/pages/TasksPage.vue`：CAS新增任务不自动绑定存储或选择源，绑定改名为“绑定存储”并放在名称右侧；仅原生移动/天翼可绑定，未绑定不开放源选择，改变类型清除不兼容源。修改 `web/src/components/TaskSourcePicker.vue`：不默认选择首池、可选聚合根；修改 `web/src/components/RoundedSelect.vue`：支持空选项占位提示。
+- 修改 `web/src/pages/LinksPage.vue`：隐藏两项媒体路径映射输入，兼容保留旧数据而不破坏既有映射。修改 `web/src/components/OverflowTooltip.vue`：包括data-tooltip在内均只在文本实际截断时显示全文。
+- 修改 `web/src/style.css`：淡化文件表格分隔线；栏目换行不横向滚动；规划中的刮削等页减少空白高度；关于星空固定延伸到侧栏右侧圆角后方且顶栏按钮透明；播放流水关闭滚动锚定与滚动链传递、分离表格边框和固定52px行高，防止虚拟列表触底抖动；挂载表单与高级控件样式。
+- 修改 `internal/app/model.go`：新增MountConfig及加密State.Mounts，配置备份沿用State序列化自动包含挂载；修改 `internal/app/server.go`：挂载管理鉴权API、容器目录浏览、初始化与自动启动/退出清理。
+- 新增 `internal/app/mounts.go`：rclone进程管理、Linux/FUSE检查、mountinfo确认真正挂载、超时错误、正常卸载及退出延迟卸载兜底、启动自动挂载、日志归入storage。私有DAV仅回环监听，随机Bearer令牌通过进程环境传递，不写配置或参数；运行缓存目录不改变。挂载点必须存在且为空，拒绝与系统/config/data/本机存储/其他挂载点重叠，拒绝符号链接；修改/删除前必须卸载。保存不会自动挂载，自动挂载语义仅为服务启动。
+- 新增 `internal/app/mount_fs.go`：私有DAV桥复用现有云盘读取与元数据缓存；所有池聚合、选定池或子目录解析，停用池不再返回。云端只读，不支持的写操作拒绝；本机使用os.Root限制读写范围、支持新建/重命名/删除，删除遵循回收站策略。无磁盘VFS读写缓存，原读缓存路径仍预留，不宣称云盘上传或完整POSIX兼容已实现。
+- 修改 `Dockerfile`：增加rclone运行依赖，仍仅amd64且版本未变。修改 `THIRD_PARTY_NOTICES.md`：rclone独立进程/MIT来源。修改 `README.md`：挂载行为、目录与传播条件、写入边界、隐藏映射字段兼容和未联调说明。
+- 新增 `internal/app/mounts_test.go`：鉴权/持久化/非法权限/非空挂载点/路径重叠、只读/子目录隔离/本地真实读写重命名回收站、聚合池停用、模拟云端读取及写入拒绝。增加显式 `AETHER_TEST_FUSE=1` 的Linux真实挂载读写卸载测试，本机未运行该集成测试。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/zz-cas.spec.js`：手动绑定及空源、控件同行与现有任务回归；修改 `web/tests/z-links.spec.js`：触底连续滚动稳定、短文本不提示/截断长文本提示；修改 `web/tests/zzz-workspace-actions.spec.js`：品牌不跳转、挂载默认值/聚合确认/目录选择/保存恢复删除与截图。
+- 修改 `AGENTS.md`：本条记录以上所有文件，保留上一轮未提交的302修复。验证：最终 `go test ./... -count=1`、`go vet ./...`、前端构建、Linux/amd64交叉编译通过；12项Playwright全量通过（1.5分钟），首轮旧测试用未截断短地址要求提示而失败，改为长地址后重跑成功。检查关于页与挂载表单截图；其后仅补齐高级数字输入宽度并重新构建，后端卸载兜底与404校验重新全量测试。
+- 限制：本机没有可用Docker或WSL发行版，真实FUSE、真实网盘账号和容器传播未联调，不宣称生产挂载成功；云盘写入、磁盘读缓存尚未实现。未改变用户config/data、15151服务，无根目录exe。隔离预览运行于127.0.0.1:15153，程序/配置/日志在系统临时目录aether-mount-preview，进程34344；Linux检查产物已清理。本轮未要求推送，不提交、不递增发布版本。
+
+## 2026-10-06：云盘挂载读写、挂载卡片与 v0.1.7 发布
+
+- 修改 `internal/app/cloud_write.go`、`internal/app/cloud_file_actions.go`、`internal/app/mount_fs.go`、`internal/app/mounts.go`：挂载写入先落到 `/data/cache/mount-upload`，校验完整长度与云端确认结果后发布；接入云端建目录、移动/删除回收站、同存储池改名与跨目录移动，防止覆盖旧文件；PUT 读入错误立即失败，保留失败暂存。
+- 新增 `internal/app/cloud_upload_mobile.go`、`internal/app/cloud_upload_tianyi.go`、`internal/app/cloud_upload_115.go`、`internal/app/cloud_upload_quark.go`：按现有驱动协议实现移动 SHA256 分片、天翼 MD5 分片、115 OSS 单片/分片、夸克 OSS 分片上传及目录创建；新增 `internal/app/cloud_write_test.go`：WebDAV 生命周期、回收站、只读、失败暂存和四种上传协议模拟验证。
+- 修改 `internal/app/secrets.go`、`internal/app/secrets_test.go`、`web/src/components/SecretInput.vue`：保存密钥按真实字符数显示遮罩，显隐仍只通过管理员按需接口返回明文。
+- 修改 `web/src/pages/StoragePage.vue`、`web/src/lib.js`、`web/src/pages/MountsPage.vue`、`web/src/style.css`、`web/tests/workspace.spec.js`、`web/tests/z-links.spec.js`、`web/tests/zzz-workspace-actions.spec.js`：存储类型选项移除额外圆角包装，本地字段改为“本地目录”，WebDAV 默认 `/dav`；存储名称/删除模式同行；文件视图字体放大；存储、挂载、以链卡片增加悬浮描边；挂载卡片三列、启停图标、右键菜单和点击编辑。
+- 修改 `README.md`、`Dockerfile`、`VERSION`、`internal/app/version.go`、`web/package.json`、`web/package-lock.json`：同步云盘读写边界、上传暂存策略与 `v0.1.7` amd64 镜像版本。
+- 验证：`go test ./... -count=1`、`go vet ./...`、`npm run build`、12 项 Playwright 全量测试通过；上传协议使用模拟服务验证，未使用真实网盘账号、Docker、Linux FUSE 或宿主机传播环境。
+- 未完成项：挂载仍要求完整文件顺序写入，不等同于 POSIX 随机写入；真实云盘风控、配额、秒传和生产 FUSE 联调待后续验证。没有生成仓库根目录 exe、没有修改用户 `config/data` 或原 15151 服务。

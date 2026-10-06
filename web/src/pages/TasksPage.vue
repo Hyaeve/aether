@@ -26,7 +26,7 @@ const modal = ref(false), busy = ref(false), error = ref(''), editing = ref(''),
 const form = reactive({})
 watch(() => form.casBindingId, () => {
   if (props.kind === 'cas' && !availableStorages.value.some(s => s.id === form.storageId)) {
-    Object.assign(form, { storageId: availableStorages.value[0]?.id || '', source: '/', sourceLabel: '根目录', sourceTrail: [] })
+    Object.assign(form, { storageId: '', source: '/', sourceLabel: '', sourceTrail: [] })
   }
 })
 const tasks = computed(() => state.tasks.filter(t => t.kind === props.kind))
@@ -35,9 +35,9 @@ const labels = { idle: '等待执行', running: '执行中', success: '已完成
 function open(t) {
   editing.value = t?.id || ''; error.value = ''; more.value = false
   Object.keys(form).forEach(k => delete form[k])
-  Object.assign(form, t ? JSON.parse(JSON.stringify(t)) : { name: '', kind: props.kind, storageId: availableStorages.value[0]?.id || '', source: '/', target: '', mode: 'incremental', apiInterval: 200, cron: '', depth: 0, interval: 60, cacheTTL: 0, excludeDirs: '', excludeFiles: '', excludeTypes: '', enabled: true })
+  Object.assign(form, t ? JSON.parse(JSON.stringify(t)) : { name: '', kind: props.kind, storageId: props.kind === 'cas' ? '' : availableStorages.value[0]?.id || '', source: '/', target: '', mode: 'incremental', apiInterval: 200, cron: '', depth: 0, interval: 60, cacheTTL: 0, excludeDirs: '', excludeFiles: '', excludeTypes: '', enabled: true })
   if (props.kind === 'cas') {
-    form.casBindingId ||= bindingStorages.value.find(s => s.id === form.storageId)?.id || bindingStorages.value[0]?.id || ''
+    form.casBindingId ||= t ? bindingStorages.value.find(s => s.id === form.storageId)?.id || '' : ''
     form.retentionHours ||= 12
     form.casOperation = 'generate'
   }
@@ -73,13 +73,14 @@ async function toggle(t) {
   <Modal v-if="modal" :title="`${editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />{{ kind === 'cas' ? '需要本地、原生移动或天翼个人云存储池。' : '请先添加并启用一个存储池。' }}<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
       <div class="form-grid">
-        <div v-if="kind === 'cas'" class="field full"><label>绑定账号</label><RoundedSelect v-model="form.casBindingId" label="绑定账号" :options="bindingStorages.map(s => ({ value: s.id, label: s.name }))" /></div>
         <label>任务名称 <span class="required">*</span><input v-model="form.name" required placeholder="例如：电影库每日同步" /></label>
-        <div v-if="kind !== 'cache'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
-        <div v-else class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
-        <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" @click="picker = true"><span>{{ storage(form.storageId)?.name || '选择存储池' }} · {{ sourceLabel(form) }}</span><Icon name="FolderOpen" /></button></div>
+        <div v-if="kind === 'cas'" class="field"><label>绑定存储</label><RoundedSelect v-model="form.casBindingId" label="绑定存储" placeholder="选择移动或天翼存储" :options="bindingStorages.map(s => ({ value: s.id, label: s.name }))" /></div>
+        <div v-if="kind === 'strm'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
+        <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
+        <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" :disabled="kind === 'cas' && !form.casBindingId" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '选择存储池及源目录' }}</span><Icon name="FolderOpen" /></button></div>
         <label v-if="kind !== 'cache'">生成目录<input v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /></label>
         <div v-else class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /></div>
+        <div v-if="kind === 'cas'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
         <div v-if="kind === 'cas'" class="field"><label for="cas-retention">还原文件保留时间</label><NumberInput id="cas-retention" v-model="form.retentionHours" aria-label="还原文件保留时间" unit="h" min="1" max="8760" required /></div>
         <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" placeholder="0 2 * * *" /></label>

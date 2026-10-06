@@ -25,6 +25,23 @@ type Storage struct {
 	CreatedAt time.Time         `json:"createdAt"`
 }
 
+type MountConfig struct {
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	StorageID   string           `json:"storageId,omitempty"`
+	Source      string           `json:"source"`
+	SourceLabel string           `json:"sourceLabel,omitempty"`
+	SourceTrail []DirectoryCrumb `json:"sourceTrail,omitempty"`
+	MountPoint  string           `json:"mountPoint"`
+	ReadOnly    bool             `json:"readOnly"`
+	Automount   bool             `json:"automount"`
+	UID         int              `json:"uid"`
+	GID         int              `json:"gid"`
+	Mode        uint32           `json:"mode"`
+	Status      string           `json:"status"`
+	LastError   string           `json:"lastError,omitempty"`
+}
+
 type Task struct {
 	CASBindingID   string           `json:"casBindingId,omitempty"`
 	SourceLabel    string           `json:"sourceLabel,omitempty"`
@@ -82,6 +99,7 @@ type LogEntry struct {
 }
 
 type State struct {
+	Mounts       []MountConfig  `json:"mounts,omitempty"`
 	Links        []MediaLink    `json:"links,omitempty"`
 	DAVUsers     []DAVUser      `json:"davUsers,omitempty"`
 	CASTemporary []CASTemporary `json:"casTemporary,omitempty"`

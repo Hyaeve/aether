@@ -1,0 +1,473 @@
+package app
+
+import (
+	"bufio"
+	"context"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/net/webdav"
+)
+
+type mountProcess struct {
+	cmd    *exec.Cmd
+	server *http.Server
+	done   chan struct{}
+	point  string
+}
+
+type mountManager struct {
+	app      *App
+	mu       sync.Mutex
+	active   map[string]*mountProcess
+	failures map[string]string
+}
+
+func (m *mountManager) startAutomatic() {
+	for _, mount := range m.app.store.snapshot().Mounts {
+		if mount.Automount {
+			if err := m.start(mount.ID); err != nil {
+				m.app.store.event("error", "storage", mount.Name+" 自动挂载失败："+err.Error())
+			}
+		}
+	}
+}
+
+func (m *mountManager) close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key := range m.active {
+		if err := m.stopLocked(key); err != nil {
+			m.app.store.event("error", "storage", "退出时卸载失败："+err.Error())
+			process := m.active[key]
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			detachErr := exec.CommandContext(ctx, "fusermount3", "-u", "-z", process.point).Run()
+			cancel()
+			if detachErr != nil {
+				m.app.store.event("error", "storage", "退出时延迟卸载失败："+process.point)
+			}
+			_ = process.cmd.Process.Kill()
+			<-process.done
+			process.server.Close()
+			delete(m.active, key)
+		}
+	}
+}
+
+func pathOverlaps(a, b string) bool {
+	a, _ = filepath.Abs(a)
+	b, _ = filepath.Abs(b)
+	inside := func(base, name string) bool {
+		rel, err := filepath.Rel(base, name)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	return inside(a, b) || inside(b, a)
+}
+
+func (a *App) validateMount(input *MountConfig) error {
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" || len(input.Name) > 180 {
+		return errors.New("请输入挂载名称")
+	}
+	if !filepath.IsAbs(input.MountPoint) || filepath.Clean(input.MountPoint) == string(filepath.Separator) {
+		return errors.New("挂载点须为非根目录的绝对路径")
+	}
+	input.MountPoint = filepath.Clean(input.MountPoint)
+	// Never create a directory implicitly or mount over existing user data.
+	real, err := filepath.EvalSymlinks(input.MountPoint)
+	if err != nil || real != input.MountPoint {
+		return errors.New("挂载点须为已存在的目录，且不能经过符号链接")
+	}
+	if input.UID < 0 || input.GID < 0 || uint64(input.UID) > 4294967295 || uint64(input.GID) > 4294967295 || input.Mode == 0 || input.Mode > 0777 {
+		return errors.New("UID、GID 或八进制权限无效")
+	}
+	protected := []string{a.store.dir, a.dataDir}
+	if runtime.GOOS == "linux" {
+		protected = append(protected, "/proc", "/sys", "/dev", "/etc", "/usr", "/bin", "/sbin", "/lib", "/run", "/app")
+	}
+	for _, s := range a.store.snapshot().Storages {
+		if s.Type == "local" {
+			root, err := filepath.EvalSymlinks(s.Config["root"])
+			if err == nil {
+				protected = append(protected, root)
+			}
+		}
+	}
+	for _, root := range protected {
+		if pathOverlaps(root, input.MountPoint) {
+			return errors.New("挂载点不能与系统、配置、数据或本机存储目录重叠")
+		}
+	}
+	for _, old := range a.store.snapshot().Mounts {
+		if old.ID != input.ID && (old.Name == input.Name || pathOverlaps(old.MountPoint, input.MountPoint)) {
+			return errors.New("挂载名称重复或挂载点相互包含")
+		}
+	}
+	entries, err := os.ReadDir(input.MountPoint)
+	if err != nil || len(entries) != 0 {
+		return errors.New("挂载点必须是可访问的空目录")
+	}
+	if input.Source == "" {
+		input.Source = "/"
+	}
+	if input.StorageID != "" {
+		s, err := a.store.storage(input.StorageID)
+		if err != nil {
+			return err
+		}
+		if input.Source == "/" {
+			input.Source = rootOf(s)
+		}
+		if _, err := a.rawList(a.ctx, s, input.Source); err != nil {
+			return fmt.Errorf("源目录不可访问：%w", err)
+		}
+	}
+	return nil
+}
+
+func mountedAt(point string) bool {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false
+	}
+	unescape := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 4 && unescape.Replace(fields[4]) == point {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *mountManager) start(key string) (err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if process := m.active[key]; process != nil {
+		select {
+		case <-process.done:
+			if err := m.stopLocked(key); err != nil {
+				return err
+			}
+		default:
+			return errors.New("挂载正在运行，请先卸载")
+		}
+	}
+	defer func() {
+		if err != nil {
+			m.failures[key] = err.Error()
+		}
+	}()
+	var mount MountConfig
+	for _, item := range m.app.store.snapshot().Mounts {
+		if item.ID == key {
+			mount = item
+		}
+	}
+	if mount.ID == "" {
+		return errors.New("挂载不存在")
+	}
+	if runtime.GOOS != "linux" {
+		return errors.New("FUSE 挂载仅在 Linux 容器中运行")
+	}
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		return errors.New("缺少 /dev/fuse，请检查容器特权及设备映射")
+	}
+	binary, err := exec.LookPath("rclone")
+	if err != nil {
+		return errors.New("未安装 rclone 挂载引擎")
+	}
+	if mountedAt(mount.MountPoint) {
+		return errors.New("挂载点已被占用")
+	}
+	if err := m.app.validateMount(&mount); err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	token := id()
+	handler := &webdav.Handler{FileSystem: mountFS{app: m.app, config: mount}, LockSystem: webdav.NewMemLS()}
+	server := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.Method == "PUT" {
+			if r.ContentLength < 0 {
+				http.Error(w, "需要确定的文件长度", http.StatusLengthRequired)
+				return
+			}
+			body := &mountRequestBody{ReadCloser: r.Body}
+			r.Body = body
+			ctx := context.WithValue(r.Context(), mountPutFailure{}, body)
+			r = r.WithContext(context.WithValue(ctx, mountPutLength{}, r.ContentLength))
+		}
+		handler.ServeHTTP(w, r)
+	})}
+	go server.Serve(listener)
+	args := []string{"mount", ":webdav:", mount.MountPoint, "--config", "/dev/null",
+		"--uid", strconv.Itoa(mount.UID), "--gid", strconv.Itoa(mount.GID),
+		"--dir-perms", fmt.Sprintf("%04o", mount.Mode), "--file-perms", fmt.Sprintf("%04o", mount.Mode&0666),
+		"--allow-other", "--vfs-cache-mode", "off", "--dir-cache-time", "0s", "--log-level", "NOTICE"}
+	if mount.ReadOnly {
+		args = append(args, "--read-only")
+	}
+	cmd := exec.Command(binary, args...)
+	// The bridge secret stays out of process arguments, logs and persisted settings.
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(entry), "RCLONE_") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, "RCLONE_WEBDAV_URL=http://"+listener.Addr().String()+"/", "RCLONE_WEBDAV_BEARER_TOKEN="+token, "RCLONE_WEBDAV_VENDOR=other")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		server.Close()
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		server.Close()
+		return fmt.Errorf("启动挂载引擎失败：%w", err)
+	}
+	process := &mountProcess{cmd: cmd, server: server, done: make(chan struct{}), point: mount.MountPoint}
+	m.active[key] = process
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			m.app.store.event("warn", "storage", mount.Name+"："+strings.ReplaceAll(scanner.Text(), token, "[redacted]"))
+		}
+		_ = cmd.Wait()
+		server.Close()
+		close(process.done)
+		m.app.store.event("info", "storage", mount.Name+" 挂载进程已退出")
+	}()
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-process.done:
+			_ = m.stopLocked(key)
+			return errors.New("挂载引擎启动失败，请查看存储服务日志")
+		case <-timeout.C:
+			_ = m.stopLocked(key)
+			return errors.New("等待 FUSE 挂载超时，请查看存储服务日志")
+		case <-m.app.ctx.Done():
+			_ = m.stopLocked(key)
+			return m.app.ctx.Err()
+		case <-ticker.C:
+			if mountedAt(mount.MountPoint) {
+				delete(m.failures, key)
+				m.app.store.event("info", "storage", mount.Name+" 已挂载到 "+mount.MountPoint)
+				return nil
+			}
+		}
+	}
+}
+
+func (m *mountManager) stopLocked(key string) error {
+	process := m.active[key]
+	if process == nil {
+		return nil
+	}
+	if mountedAt(process.point) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := exec.CommandContext(ctx, "fusermount3", "-u", process.point).Run()
+		cancel()
+		if err != nil {
+			return errors.New("卸载失败，目录可能正被占用；关闭访问它的程序后重试")
+		}
+	}
+	_ = process.cmd.Process.Signal(os.Interrupt)
+	select {
+	case <-process.done:
+	case <-time.After(3 * time.Second):
+		_ = process.cmd.Process.Kill()
+		<-process.done
+	}
+	process.server.Close()
+	delete(m.active, key)
+	delete(m.failures, key)
+	m.app.store.event("info", "storage", "挂载已卸载："+process.point)
+	return nil
+}
+
+func (a *App) localDirectories(w http.ResponseWriter, r *http.Request) {
+	dir := r.URL.Query().Get("path")
+	if dir == "" {
+		dir = string(filepath.Separator)
+		if runtime.GOOS == "windows" {
+			dir = filepath.VolumeName(a.dataDir) + string(filepath.Separator)
+		}
+	}
+	if !filepath.IsAbs(dir) {
+		fail(w, 400, errors.New("目录须为绝对路径"))
+		return
+	}
+	dir = filepath.Clean(dir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		fail(w, 400, errors.New("目录不可访问"))
+		return
+	}
+	items := []map[string]string{}
+	for _, e := range entries {
+		if e.IsDir() && e.Type()&os.ModeSymlink == 0 {
+			items = append(items, map[string]string{"name": e.Name(), "path": filepath.Join(dir, e.Name())})
+		}
+	}
+	jsonResponse(w, 200, map[string]any{"path": dir, "parent": filepath.Dir(dir), "items": items})
+}
+
+func (a *App) mountAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		mounts := a.store.snapshot().Mounts
+		a.mounts.mu.Lock()
+		for i := range mounts {
+			mounts[i].Status, mounts[i].LastError = "stopped", a.mounts.failures[mounts[i].ID]
+			if process := a.mounts.active[mounts[i].ID]; process != nil {
+				select {
+				case <-process.done:
+					mounts[i].LastError = "挂载进程已退出，请查看日志"
+				default:
+					mounts[i].Status = "mounted"
+				}
+			}
+			if mounts[i].LastError != "" {
+				mounts[i].Status = "error"
+			}
+		}
+		a.mounts.mu.Unlock()
+		if mounts == nil {
+			mounts = []MountConfig{}
+		}
+		jsonResponse(w, 200, mounts)
+		return
+	}
+	key := r.PathValue("id")
+	a.mounts.mu.Lock()
+	defer a.mounts.mu.Unlock()
+	if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodDelete {
+		w.WriteHeader(405)
+		return
+	}
+	if r.Method != http.MethodPost {
+		found := false
+		for _, item := range a.store.snapshot().Mounts {
+			found = found || item.ID == key
+		}
+		if !found {
+			fail(w, 404, errors.New("挂载不存在"))
+			return
+		}
+		if a.mounts.active[key] != nil {
+			fail(w, 409, errors.New("请先卸载，再编辑或删除挂载配置"))
+			return
+		}
+	}
+	var input MountConfig
+	if r.Method != http.MethodDelete {
+		if !decode(w, r, &input) {
+			return
+		}
+		if r.Method == http.MethodPost {
+			key = id()
+		}
+		input.ID = key
+		input.Status, input.LastError = "", ""
+		if err := a.validateMount(&input); err != nil {
+			fail(w, 400, err)
+			return
+		}
+	}
+	err := a.store.update(func(st *State) error {
+		for i := range st.Mounts {
+			if st.Mounts[i].ID == key {
+				if r.Method == http.MethodDelete {
+					st.Mounts = append(st.Mounts[:i], st.Mounts[i+1:]...)
+				} else {
+					st.Mounts[i] = input
+				}
+				return nil
+			}
+		}
+		st.Mounts = append(st.Mounts, input)
+		return nil
+	})
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	delete(a.mounts.failures, key)
+	a.store.event("info", "storage", "保存挂载配置："+key)
+	jsonResponse(w, 200, map[string]any{"id": key, "ok": true})
+}
+
+func (a *App) mountAction(w http.ResponseWriter, r *http.Request) {
+	found := false
+	for _, mount := range a.store.snapshot().Mounts {
+		found = found || mount.ID == r.PathValue("id")
+	}
+	if !found {
+		fail(w, 404, errors.New("挂载不存在"))
+		return
+	}
+	var err error
+	switch r.PathValue("action") {
+	case "test":
+		for _, mount := range a.store.snapshot().Mounts {
+			if mount.ID != r.PathValue("id") {
+				continue
+			}
+			pools := a.store.snapshot().Storages
+			tested := 0
+			for _, pool := range pools {
+				if !pool.Enabled || (mount.StorageID != "" && pool.ID != mount.StorageID) {
+					continue
+				}
+				source := rootOf(pool)
+				if mount.StorageID != "" && mount.Source != "" {
+					source = mount.Source
+				}
+				if _, err = a.rawList(r.Context(), pool, source); err != nil {
+					break
+				}
+				tested++
+			}
+			if err == nil && tested == 0 {
+				err = errors.New("没有可访问的源存储池")
+			}
+			if err == nil {
+				_, err = os.Stat(mount.MountPoint)
+			}
+		}
+	case "start":
+		err = a.mounts.start(r.PathValue("id"))
+	case "stop":
+		a.mounts.mu.Lock()
+		err = a.mounts.stopLocked(r.PathValue("id"))
+		a.mounts.mu.Unlock()
+	default:
+		err = errors.New("不支持的挂载操作")
+	}
+	if err != nil {
+		a.store.event("error", "storage", "挂载操作失败："+err.Error())
+		fail(w, 400, err)
+		return
+	}
+	jsonResponse(w, 200, map[string]bool{"ok": true})
+}

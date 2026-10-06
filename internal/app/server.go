@@ -28,6 +28,7 @@ import (
 )
 
 type App struct {
+	mounts         *mountManager
 	links          *linkRuntime
 	versionMu      sync.Mutex
 	versionExpiry  time.Time
@@ -99,6 +100,7 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	a.casActive = map[string]int{}
 	a.tianyiSessions = map[string]tianyiSession{}
 	a.links = &linkRuntime{services: map[string]*linkService{}, stats: stats.NewWithPersistence(2000, filepath.Join(dataDir, "cache", "link", "playback.json"))}
+	a.mounts = &mountManager{app: a, active: map[string]*mountProcess{}, failures: map[string]string{}}
 	if err := store.initLogs(filepath.Join(dataDir, "log")); err != nil {
 		return nil, err
 	}
@@ -127,6 +129,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	a.wg.Add(1)
 	a.startLinks()
 	defer a.closeLinks()
+	a.mounts.startAutomatic()
+	defer a.mounts.close()
 	go a.scheduler()
 	server := &http.Server{Handler: a.Handler(env("AETHER_WEB_DIR", "web/dist")), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
@@ -190,6 +194,10 @@ func (a *App) Handler(webDir string) http.Handler {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 	})
 	mux.Handle("/api/state", a.protected(http.HandlerFunc(a.state)))
+	mux.Handle("/api/mounts", a.protected(http.HandlerFunc(a.mountAPI)))
+	mux.Handle("/api/mounts/{id}", a.protected(http.HandlerFunc(a.mountAPI)))
+	mux.Handle("POST /api/mounts/{id}/{action}", a.protected(http.HandlerFunc(a.mountAction)))
+	mux.Handle("GET /api/local-directories", a.protected(http.HandlerFunc(a.localDirectories)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		a.store.pruneLogs()
 		jsonResponse(w, 200, a.store.snapshot().Logs)

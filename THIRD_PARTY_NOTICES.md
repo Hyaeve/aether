@@ -67,3 +67,10 @@ endpoint flows inspected in the user-supplied local LitePan checkout:
 `drivers/115_Open/{transport,ops}.go`, and `drivers/Quark/{transport,ops}.go`.
 No LitePan service implementation or framework code is incorporated. Native
 provider authorization and transport remain Aether's existing drivers.
+
+# rclone
+
+Docker image installs the Alpine rclone package (MIT license) as a separate FUSE
+mount process. Aether communicates with it through a private loopback WebDAV
+bridge; no rclone source code is copied into this repository.
+Upstream: https://github.com/rclone/rclone
