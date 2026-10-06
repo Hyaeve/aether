@@ -9,10 +9,11 @@ import (
 )
 
 type DAVGrant struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	StorageID string `json:"storageId"`
-	Directory string `json:"directory"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	StorageID      string `json:"storageId"`
+	Directory      string `json:"directory"`
+	DirectoryLabel string `json:"directoryLabel,omitempty"`
 }
 
 type DAVUser struct {
@@ -90,6 +91,11 @@ func (a *App) davUsers(w http.ResponseWriter, r *http.Request) {
 		seen := map[string]bool{}
 		for i := range user.Grants {
 			g := &user.Grants[i]
+			g.DirectoryLabel = strings.TrimSpace(g.DirectoryLabel)
+			if len(g.DirectoryLabel) > 1024 {
+				fail(w, 400, errors.New("目录名称过长"))
+				return
+			}
 			g.Name = strings.TrimSpace(g.Name)
 			if !safeName(g.Name) || seen[strings.ToLower(g.Name)] {
 				fail(w, 400, errors.New("目录显示名称无效或重复"))

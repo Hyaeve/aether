@@ -55,6 +55,7 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.getByRole('button', { name: '添加存储池', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.locator('.driver-option .provider-icon').first()).toHaveCSS('width', '54px')
+  expect(await page.locator('.driver-option[data-provider="115"] .provider-logo').evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThan(44)
   for (const provider of ['mobile', 'tianyi', 'quark', 'openlist']) {
     await expect(page.locator(`.driver-option[data-provider="${provider}"] .provider-logo`)).toHaveCSS('width', '54px')
   }
@@ -473,7 +474,8 @@ test('WebDAV users and scoped directories', async ({ page }, testInfo) => {
   await page.locator('.source-accounts').getByRole('button', { name: /家庭影音库/ }).click()
   await page.getByRole('dialog', { name: '选择存储目录' }).getByRole('button', { name: 'Movies', exact: true }).click()
   await page.getByRole('button', { name: '选择当前目录', exact: true }).click()
-  await page.getByLabel('目录显示名称').fill('Movies')
+  await expect(page.getByLabel('目录显示名称')).toHaveCount(0)
+  await expect(page.locator('.dav-grant')).toContainText('Movies')
   await page.screenshot({ path: testInfo.outputPath('webdav-user-desktop.png'), fullPage: true })
   await page.getByRole('button', { name: '保存用户', exact: true }).click()
   await expect(page.locator('.dav-users')).toContainText('media-reader')

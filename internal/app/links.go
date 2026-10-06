@@ -243,7 +243,9 @@ func (a *App) reorderLink(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) mediaLinks(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		links := a.store.snapshot().Links
+		a.store.mu.RLock()
+		links := append([]MediaLink(nil), a.store.state.Links...)
+		a.store.mu.RUnlock()
 		if links == nil {
 			links = []MediaLink{}
 		}

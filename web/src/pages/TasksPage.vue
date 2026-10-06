@@ -73,7 +73,7 @@ async function toggle(t) {
   <Modal v-if="modal" :title="`${editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />{{ kind === 'cas' ? '需要本地、原生移动或天翼个人云存储池。' : '请先添加并启用一个存储池。' }}<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
       <div class="form-grid">
-        <label>任务名称 <span class="required">*</span><input v-model="form.name" required placeholder="例如：电影库每日同步" /></label>
+        <label>任务名称 <span class="required">*</span><input v-model="form.name" required /></label>
         <div v-if="kind === 'cas'" class="field"><label>绑定存储</label><RoundedSelect v-model="form.casBindingId" label="绑定存储" placeholder="选择移动或天翼存储" :options="bindingStorages.map(s => ({ value: s.id, label: s.name }))" /></div>
         <div v-if="kind === 'strm'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>

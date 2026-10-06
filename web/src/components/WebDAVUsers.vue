@@ -20,7 +20,11 @@ function edit(user) {
 function addGrant(value) {
   if (!form.grants.some(g => g.storageId === value.storageId && g.directory === value.source)) {
     const pool = state.storages.find(s => s.id === value.storageId)
-    form.grants.push({ storageId: value.storageId, directory: value.source, name: `${pool?.name || '目录'}-${form.grants.length + 1}` })
+    const label = value.sourceLabel === '根目录' ? pool?.name || '根目录' : value.sourceLabel || '已选目录'
+    const base = label.replace(/[\\/:*?"<>|]/g, '_')
+    let name = base, index = 2
+    while (form.grants.some(g => g.name.toLowerCase() === name.toLowerCase())) name = `${base} (${index++})`
+    form.grants.push({ storageId: value.storageId, directory: value.source, directoryLabel: label, name })
   }
   picker.value = false
 }
@@ -44,7 +48,7 @@ async function remove() {
     <div class="dav-user-grid"><article v-for="user in users" :key="user.id" class="dav-user-card">
       <header><Icon name="UserRound" :size="28" /><strong>{{ user.username }}</strong><span class="status" :class="user.enabled ? 'success' : 'muted'">{{ user.enabled ? '已启用' : '已停用' }}</span></header>
       <span class="dav-readonly">只读</span>
-      <div class="dav-paths"><div v-for="grant in user.grants" :key="grant.id" :title="`${grant.name} · ${grant.directory}`"><Icon name="Folder" :size="15" /><span>/{{ grant.name }}</span></div><span v-if="!user.grants.length" class="muted">未授权目录</span></div>
+      <div class="dav-paths"><div v-for="grant in user.grants" :key="grant.id"><Icon name="Folder" :size="15" /><span>{{ grant.directoryLabel || grant.name }}</span></div><span v-if="!user.grants.length" class="muted">未授权目录</span></div>
       <footer><button type="button" class="icon-btn" title="编辑用户" aria-label="编辑用户" @click="edit(user)"><Icon name="Pencil" /></button><button type="button" class="icon-btn" :disabled="busy" :title="user.enabled ? '停用用户' : '启用用户'" :aria-label="user.enabled ? '停用用户' : '启用用户'" @click="toggle(user)"><Icon :name="user.enabled ? 'Pause' : 'Play'" /></button><button type="button" class="icon-btn danger-text" title="删除用户" aria-label="删除用户" @click="removing = user"><Icon name="Trash2" /></button></footer>
     </article></div>
   </section>
@@ -52,7 +56,7 @@ async function remove() {
     <form @submit.prevent="save"><div class="modal-body">
       <div class="form-grid"><label>账号<input v-model="form.username" required maxlength="150" autocomplete="off" /></label><label>密码<input v-model="form.password" type="password" :required="!form.id" maxlength="72" autocomplete="new-password" :placeholder="form.id ? '留空保持原密码' : ''" /></label><label class="toggle-line full"><span>启用用户</span><input v-model="form.enabled" type="checkbox" class="switch" role="switch" /></label></div>
       <div class="section-label"><h3>授权目录</h3><button type="button" class="btn" @click="picker = true"><Icon name="FolderPlus" />添加目录</button></div>
-      <div v-for="(grant, index) in form.grants" :key="index" class="dav-grant"><label>目录显示名称<input v-model="grant.name" required maxlength="150" /></label><span>{{ state.storages.find(s => s.id === grant.storageId)?.name || '存储已删除' }}<small>{{ grant.directory }}</small></span><button type="button" class="icon-btn danger-text" title="移除授权目录" aria-label="移除授权目录" @click="form.grants.splice(index, 1)"><Icon name="Trash2" /></button></div>
+      <div v-for="(grant, index) in form.grants" :key="index" class="dav-grant"><Icon name="Folder" /><span>{{ grant.directoryLabel || grant.name }}<small>{{ state.storages.find(s => s.id === grant.storageId)?.name || '存储已删除' }}</small></span><button type="button" class="icon-btn danger-text" aria-label="移除授权目录" @click="form.grants.splice(index, 1)"><Icon name="Trash2" /></button></div>
       <p v-if="!form.grants.length" class="small-empty">未授权任何目录</p><p v-if="error" class="error-message" role="alert">{{ error }}</p>
     </div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="open = false">取消</button><button class="btn primary" :disabled="busy">{{ busy ? '保存中…' : '保存用户' }}</button></footer></form>
   </Modal>

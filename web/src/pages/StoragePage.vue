@@ -175,7 +175,7 @@ async function remove() {
       <div class="modal-body">
         <div class="selected-driver"><ProviderIcon :type="selected" small /><h3>{{ picked.name }}</h3></div>
         <div class="form-grid">
-          <label>存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" placeholder="例如：家庭影音库" /></label>
+          <label>存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" /></label>
           <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /></div>
           <label v-if="selected === 'mobile'" class="full">Authorization<SecretInput v-model="form.config.authorization" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="authorization" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
           <template v-if="selected === '115'"><label>Access Token <span class="required">*</span><SecretInput v-model="form.config.accessToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="accessToken" required autocomplete="off" /></label><label>Refresh Token<SecretInput v-model="form.config.refreshToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="refreshToken" autocomplete="off" /></label></template>

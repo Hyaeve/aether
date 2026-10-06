@@ -51,6 +51,9 @@ func TestMediaLinksLifecycle(t *testing.T) {
 	if strings.Contains(listed.Body.String(), "secret") {
 		t.Fatal("credential leaked")
 	}
+	if a.store.snapshot().Links[0].APIKey != "secret" {
+		t.Fatal("listing modified saved credentials")
+	}
 	address := "http://127.0.0.1:" + fmtPort(link.Port)
 	client := &http.Client{Timeout: 2 * time.Second}
 	res, err := client.Get(address)

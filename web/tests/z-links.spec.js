@@ -9,6 +9,8 @@ async function port() {
   return value
 }
 test('link configuration, modes, activation, playback and log preferences', async ({ page }, info) => {
+  let playbackRequests = 0
+  page.on('request', request => { if (request.url().endsWith('/api/link-playback')) playbackRequests++ })
   await page.goto('/')
   await page.getByLabel('账号', { exact: true }).fill('my-aether-owner')
   await page.getByLabel('密码', { exact: true }).fill('a1')
@@ -28,6 +30,7 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   await page.getByLabel('屏蔽 UA', { exact: true }).fill('blocked-test\nanother-client')
   await page.getByRole('button', { name: '保存以链', exact: true }).click()
   await expect(page.locator('.link-card')).toHaveCount(1)
+  expect(playbackRequests).toBe(0)
   await expect(page.locator('.link-identity')).toHaveCSS('padding-left', '6px')
   await page.getByRole('button', { name: '客厅 Emby跳转模式', exact: true }).click()
   await page.getByRole('option', { name: '公网跳转', exact: true }).click()
@@ -66,10 +69,12 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   expect(Math.abs(tabs.y + tabs.height / 2 - toolbar.y - toolbar.height / 2)).toBeLessThan(2)
   expect(toolbar.x).toBeGreaterThan(tabs.x + tabs.width)
   await expect(page.locator('.playback-event').first().locator('.playback-pill')).toHaveCount(4)
-  await expect(page.locator('.playback-pill').first()).toHaveCSS('border-radius', '999px')
+  await expect(page.locator('.playback-copy').first()).toHaveCSS('border-radius', '8px')
+  await expect(page.locator('.cache-state').first()).toHaveClass(/fresh/)
   await expect(page.locator('.playback-event td').first()).toHaveCSS('font-size', '14px')
   await expect(page.locator('.link-playback th')).toHaveText(['时间', '上游', 'UA', '结果', '目标', '客户端 IP', '缓存状态', '缓存有效期', '耗时'])
   await page.getByRole('button', { name: '筛选播放类型', exact: true }).click()
+  await expect(page.locator('.rounded-select-popup')).toHaveCSS('scrollbar-width', 'none')
   await page.getByRole('option', { name: '音频适配', exact: true }).click()
   await expect(page.locator('.link-playback tbody tr')).toHaveCount(1)
   await expect(page.locator('.link-playback tbody')).toContainText('proxy-book.wma')
@@ -95,6 +100,7 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   await page.getByLabel('搜索播放流水', { exact: true }).fill('book-1499')
   await expect(page.locator('.playback-event')).toHaveCount(1)
   await expect(page.locator('.playback-event')).toContainText('恢复命中')
+  await expect(page.locator('.cache-state')).toHaveClass(/restored/)
   await expect(page.locator('.playback-event')).toContainText('20 ms')
   await expect(page.locator('.playback-event td').first()).toHaveText(/^\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/)
   await page.evaluate(() => {

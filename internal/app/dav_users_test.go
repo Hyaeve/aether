@@ -20,7 +20,7 @@ func TestDAVUsersPermissions(t *testing.T) {
 	_ = a.store.update(func(st *State) error { st.Settings.WebDAVEnabled = true; return nil })
 	// Populate the administrator's root cache before a restricted local request.
 	_, _ = a.listFiles(context.Background(), s, "/", 30, false)
-	user := DAVUser{Username: "reader", Password: "secret", Enabled: true, Grants: []DAVGrant{{Name: "Movies", StorageID: s.ID, Directory: "/Movies"}}}
+	user := DAVUser{Username: "reader", Password: "secret", Enabled: true, Grants: []DAVGrant{{Name: "Movies", StorageID: s.ID, Directory: "/Movies", DirectoryLabel: "电影目录"}}}
 	if request(t, h, "POST", "/api/webdav/users", user, nil).Code != 401 {
 		t.Fatal("unprotected API")
 	}
@@ -32,6 +32,9 @@ func TestDAVUsersPermissions(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &created)
 	uid := created["id"]
 	w = request(t, h, "GET", "/api/webdav/users", nil, cookie)
+	if !strings.Contains(w.Body.String(), "电影目录") {
+		t.Fatal("directory label lost")
+	}
 	if strings.Contains(w.Body.String(), "secret") || strings.Contains(w.Body.String(), "$2") {
 		t.Fatal("password exposed")
 	}

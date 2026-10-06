@@ -562,3 +562,16 @@
 - 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：版本由 `0.1.8` 递增到 `0.1.9`，工作流继续只构建 Linux amd64 镜像。
 - 验证：`go test ./... -count=1`、`go vet ./...`、`npm run build`、12 项 Playwright 全量测试及 `git diff --check` 通过；已检查直链缓存和目录选择器截图。
 - 未完成项：本机无 Docker/Linux FUSE 与真实云盘环境，未进行生产容器挂载和真实账号联调；本次未修改用户 `config/data`、15151 服务或生成仓库根目录 exe。
+
+## 2026-10-07：挂载路径补全、WebDAV 目录展示与 v0.1.10 发布
+
+- 修改 `web/src/pages/MountsPage.vue`、`web/src/style.css`：挂载点框内以独立颜色显示自动补全的 `/AetherDrive`；仍保存父目录，避免重复追加。长路径缩减输入区域而保留补全部分可见，目录选择按钮和单层焦点边框保持。
+- 修改 `web/src/pages/LinksPage.vue`、`web/src/style.css`：UA、目标和客户端 IP 使用 8px 圆角框；缓存状态按首次获取、缓存命中、恢复命中区分日夜颜色，参考本地 AetherLink `LogsView.vue` 的分类。保留 52px 行高、最多 40 条渲染的虚拟列表及触底稳定行为。
+- 修改 `web/src/pages/LinksPage.vue`：以链列表与播放流水独立加载，管理页不再请求播放流水，缓存页刷新和定时轮询仅请求流水，并阻止轮询重叠。修改 `internal/app/links.go`：GET 列表仅在读锁内复制以链配置，避免 JSON 深拷贝整个状态，副本脱敏不修改原始密钥。
+- 修改 `web/src/components/WebDAVUsers.vue`、`internal/app/dav_users.go`：新授权自动以实际目录名命名，根目录使用存储名称，同名自动加序号；移除可编辑别名及 opaque 目录 ID 展示，新增 `directoryLabel` 持久化与长度限制。旧授权仍保留原 DAV 访问名称，缺少新名称元数据时显示旧名称，不擅自更改客户端路径。
+- 修改 `web/src/pages/StoragePage.vue`、`web/src/pages/TasksPage.vue`、`web/src/style.css`：移除存储/任务名称提示文本，115 选择图标主体从 70% 调至 82%；全部公共下拉选择器隐藏滚动条但仍支持滚轮和键盘。
+- 修改 `internal/app/dav_users_test.go`、`internal/app/links_test.go`：验证目录名称元数据回传及列表脱敏不改变保存密钥。修改 `web/tests/workspace.spec.js`、`web/tests/z-links.spec.js`、`web/tests/zzz-workspace-actions.spec.js`：新增图标尺寸、自动目录名称、无额外流水请求、圆角/缓存类型、下拉隐藏滚动条及挂载补全可见范围/颜色断言。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：同步版本 `0.1.10`；修改 `AGENTS.md` 记录所有变更。使用中文提交与标签推送，仍只构建 amd64 镜像。
+- 验证：首轮 Go 全量测试、vet、前端构建与 12 项 Playwright 通过；已检查 WebDAV 授权窗口及直链缓存截图。长挂载路径布局补强后的最终回归结果另补。
+- 限制：未在用户生产环境测量以链加载耗时，优化为已确认的多余请求和全状态复制；未做真实 Docker/FUSE 或云盘账号联调。未修改用户配置、原 15151 服务或创建根目录 exe。
+- 最终验证：补强后的 Go 全量测试、前端构建、12 项 Playwright（2.3 分钟）再次全部通过；差异格式检查通过，已检查挂载补全截图。推送结果以 Git 确认为准。

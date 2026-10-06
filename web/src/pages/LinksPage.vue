@@ -89,6 +89,7 @@ const outcomeLabel = e => ({ redirect: '302 跳转', proxy: '中继', transcode:
 const targetText = e => e.target || e.mediaPath || e.error || e.path || '—'
 const uaText = e => e.effectiveUserAgent && e.effectiveUserAgent !== e.userAgent ? `${e.userAgent || '空'} → ${e.effectiveUserAgent}` : e.userAgent || '空'
 const cacheText = e => e.cacheSource === 'restored' ? '恢复命中' : e.cacheSource === 'hit' || e.cacheHit ? '缓存命中' : '首次获取'
+const cacheClass = e => e.cacheSource === 'restored' ? 'restored' : e.cacheSource === 'hit' || e.cacheHit ? 'hit' : 'fresh'
 const ttl = e => {
   if (!(e.cacheTtlSeconds > 0)) return '不缓存'
   const minutes = Math.ceil(e.cacheTtlSeconds / 60)
@@ -103,9 +104,18 @@ const typeOf = type => types.find(t => t.id === type) || types[0]
 const linkName = id => links.value.find(l => l.id === id)?.name || id
 const endpoint = link => { const u = new URL(location.href); u.port = String(link.port); u.pathname = '/'; u.search = ''; u.hash = ''; u.protocol = 'http:'; return u.href }
 async function load() {
-  try { links.value = await api('/links'); events.value = (await api('/link-playback')).recentEvents || [] }
+  try { links.value = await api('/links') }
   catch (e) { notify(e.message, true) }
 }
+let playbackLoading = false
+async function loadPlayback() {
+  if (playbackLoading) return
+  playbackLoading = true
+  try { events.value = (await api('/link-playback')).recentEvents || [] }
+  catch (e) { notify(e.message, true) }
+  finally { playbackLoading = false }
+}
+watch(tab, value => { if (value === 'cache') loadPlayback() }, { immediate: true })
 function open(link) { closeMenu(); Object.assign(form, { id: '', name: '', type: '', address: '', port: '', apiKey: '', username: '', password: '', mode: 'always', enabled: true, blockedUA: '', mediaRoot: '', upstreamRoot: '' }, link || {}); error.value = ''; step.value = link ? 2 : 1; modal.value = true }
 async function save() {
   busy.value = true; error.value = ''
@@ -123,13 +133,13 @@ async function remove() {
   catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 let timer
-onMounted(() => { document.addEventListener('pointermove', pointerMove, { passive: false }); document.addEventListener('pointerup', pointerUp); document.addEventListener('pointercancel', pointerCancel); document.addEventListener('click', closeMenu); document.addEventListener('keydown', escapeMenu); load(); timer = setInterval(() => { if (tab.value === 'cache') load() }, 5000) })
+onMounted(() => { document.addEventListener('pointermove', pointerMove, { passive: false }); document.addEventListener('pointerup', pointerUp); document.addEventListener('pointercancel', pointerCancel); document.addEventListener('click', closeMenu); document.addEventListener('keydown', escapeMenu); load(); timer = setInterval(() => { if (tab.value === 'cache') loadPlayback() }, 5000) })
 onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); document.removeEventListener('pointerup', pointerUp); document.removeEventListener('pointercancel', pointerCancel); clearInterval(timer); clearTimeout(holdTimer); clearTimeout(releaseTimer); document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', escapeMenu) })
 </script>
 <template>
   <div class="link-heading">
     <nav class="content-tabs" aria-label="以太链接栏目"><RouterLink to="/links/manage" :class="{ active: tab === 'manage' }"><Icon name="Waypoints" :size="17" />以链管理</RouterLink><RouterLink to="/links/cache" :class="{ active: tab === 'cache' }"><Icon name="ListVideo" :size="17" />直链缓存</RouterLink></nav>
-    <div v-if="tab === 'cache'" class="playback-toolbar"><RoundedSelect v-model="outcome" label="筛选播放类型" :options="outcomes" /><div class="toolbar-right"><button class="icon-btn" aria-label="刷新播放流水" @click="load"><Icon name="RefreshCw" /></button><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div></div></div>
+    <div v-if="tab === 'cache'" class="playback-toolbar"><RoundedSelect v-model="outcome" label="筛选播放类型" :options="outcomes" /><div class="toolbar-right"><button class="icon-btn" aria-label="刷新播放流水" @click="loadPlayback"><Icon name="RefreshCw" /></button><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div></div></div>
   </div>
   <div v-if="tab === 'manage'" class="link-grid">
     <article v-for="link in links" :key="link.id" class="link-card" :data-id="link.id" tabindex="0" :aria-label="link.name" :class="{ 'drag-armed': armed === link.id, dragging: dragging === link.id, 'drop-target': dropTarget === link.id }" :draggable="false" @pointerdown="hold($event, link)" @click="cardClick($event, link)" @keydown="cardKey($event, link)" @dragstart.prevent @contextmenu.prevent.stop="context($event, link)">
@@ -141,7 +151,15 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
   <section v-else class="link-playback">
     <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:9%" /><col style="width:13%" /><col style="width:11%" /><col /><col style="width:14%" /><col style="width:10%" /><col style="width:10%" /><col style="width:7%" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>结果</th><th>目标</th><th>客户端 IP</th><th>缓存状态</th><th>缓存有效期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
-      <tr v-for="(event, i) in shown" :key="start + i" class="playback-event"><td>{{ clock(event.time) }}</td><td :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</td><td><button class="playback-copy playback-pill" :disabled="!event.userAgent" :data-tooltip="uaText(event)" @click="copyValue(event.userAgent)">{{ uaText(event) }}</button></td><td><span class="playback-result" :class="event.outcome">{{ outcomeLabel(event) }}</span></td><td><button class="playback-copy playback-pill" :disabled="!event.target" :data-tooltip="targetText(event)" @click="copyValue(event.target)">{{ targetText(event) }}</button></td><td><button class="playback-copy playback-pill" :disabled="!event.client" :data-tooltip="event.client" @click="copyValue(event.client)">{{ event.client || '未知' }}</button></td><td><span class="playback-pill" :data-tooltip="cacheText(event)">{{ cacheText(event) }}</span></td><td>{{ ttl(event) }}</td><td>{{ Math.round((event.durationMs || 0) / 1e6) }} ms</td></tr>
+      <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
+        <td>{{ clock(event.time) }}</td><td :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</td>
+        <td><button class="playback-copy playback-pill" :disabled="!event.userAgent" :data-tooltip="uaText(event)" @click="copyValue(event.userAgent)">{{ uaText(event) }}</button></td>
+        <td><span class="playback-result" :class="event.outcome">{{ outcomeLabel(event) }}</span></td>
+        <td><button class="playback-copy playback-pill" :disabled="!event.target" :data-tooltip="targetText(event)" @click="copyValue(event.target)">{{ targetText(event) }}</button></td>
+        <td><button class="playback-copy playback-pill" :disabled="!event.client" :data-tooltip="event.client" @click="copyValue(event.client)">{{ event.client || '未知' }}</button></td>
+        <td><span class="playback-pill cache-state" :class="cacheClass(event)" :data-tooltip="cacheText(event)">{{ cacheText(event) }}</span></td>
+        <td>{{ ttl(event) }}</td><td>{{ Math.round((event.durationMs || 0) / 1e6) }} ms</td>
+      </tr>
       <tr v-if="displayed.length > start + shown.length" class="playback-spacer" :style="{ height: `${(displayed.length - start - shown.length) * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
     </tbody></table><div v-if="!displayed.length" class="small-empty">暂无播放记录</div></div><footer class="playback-count">共 {{ displayed.length }} 条</footer>
   </section>
