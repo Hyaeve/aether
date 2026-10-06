@@ -166,6 +166,51 @@ func validateLink(link *MediaLink, links []MediaLink) error {
 	return nil
 }
 
+func (a *App) reorderLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var move struct {
+		ID     string `json:"id"`
+		Target string `json:"target"`
+	}
+	if !decode(w, r, &move) {
+		return
+	}
+	a.links.mu.Lock()
+	defer a.links.mu.Unlock()
+	err := a.store.update(func(st *State) error {
+		from, to := -1, -1
+		for i, link := range st.Links {
+			if link.ID == move.ID {
+				from = i
+			}
+			if link.ID == move.Target {
+				to = i
+			}
+		}
+		if from < 0 || to < 0 {
+			return errors.New("以链不存在，请刷新后重试")
+		}
+		item := st.Links[from]
+		if from < to {
+			copy(st.Links[from:to], st.Links[from+1:to+1])
+		}
+		if from > to {
+			copy(st.Links[to+1:from+1], st.Links[to:from])
+		}
+		st.Links[to] = item
+		return nil
+	})
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
+	a.store.event("info", "links", "调整以链排序")
+	jsonResponse(w, 200, map[string]bool{"ok": true})
+}
+
 func (a *App) mediaLinks(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		links := a.store.snapshot().Links

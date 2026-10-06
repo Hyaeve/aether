@@ -501,6 +501,7 @@ test('log filters, isolated refresh and virtual scrolling', async ({ page }, tes
   })
   await page.getByRole('link', { name: '系统日志', exact: true }).click()
   await expect(page.locator('.log-panel footer')).toHaveText('1500 条记录')
+  expect(await page.locator('.log-panel footer').evaluate(el => Math.abs(innerHeight - el.getBoundingClientRect().bottom))).toBeLessThanOrEqual(10)
   expect(await page.locator('.log-toolbar .search-field').evaluate(el => el.getBoundingClientRect().width)).toBeLessThanOrEqual(240)
   await page.getByRole('button', { name: '日志级别', exact: true }).click()
   await expect(page.getByRole('listbox')).toHaveCSS('border-radius', '12px')

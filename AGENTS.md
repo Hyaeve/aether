@@ -453,3 +453,17 @@
 - 验证过程：后端全量测试、go vet、前端构建通过；新增浏览器用例初次因登录限流失败，明确处理后12项通过（2.3分钟）。已查看1280×600登录与1366×768关于截图，修正关于选中栏目低对比；最终版本全量重跑结果后补。
 - 限制：OpenList/WebDAV写操作和跨云端池传输尚未实现，同类型不等于跨账号已支持；四云写协议无真实凭据联调，不宣称全部操作云端验证。云端异步操作及多文件操作失败可能部分完成，需刷新核对。新备份不导入旧明文ZIP；导入重启生效且覆盖同名配置，备份外JSON保留；普通错误回滚不等于断电事务保证，须保留原始备份。收藏与视图属于浏览器偏好，不在服务端备份内。未本地构建Docker，未修改用户config/data或原15151服务。
 - 最终验证：v0.1.3全量Go测试、go vet、前端构建、git diff --check通过；12项Playwright最终全部通过（2.0分钟），低高度截图及关于页/文件操作截图检查完成。预览使用独立`127.0.0.1:15153`，PID32676，程序、日志与隔离配置位于系统临时目录`aether-preview-v013`，健康检查ok；仓库未生成exe，原服务与用户数据不改动。按用户要求提交main及v0.1.3标签，推送结果以Git确认。
+
+## 2026-10-06：v0.1.4 栏目、星空、卡片与以链排序
+
+- 修改 `web/src/components/TaskTabs.vue`、`web/src/App.vue`：任务栏目增加语义图标，预留任务页复用 task-heading，固定栏目间距和位置。
+- 修改 `web/src/components/Icon.vue`：重绘等比例三瓣 DAV 云，新增竖向三点、播放流水及配置归档图标。修改 `web/src/components/LoginUniverse.vue`：月球上移至右上区域。
+- 修改 `web/src/pages/StoragePage.vue`：移除六点手柄及名称悬浮提示，竖三点居右居中，Cookie 独占整行；保留长按拖拽和启停行为。
+- 修改 `web/src/pages/LinksPage.vue`：四列紧凑卡片、点击编辑、横三点菜单、450ms 长按排序和 Alt 方向键排序；API Key/密码复用显隐输入框；播放流水增加处理类型过滤，筛选与刷新搜索工具栏融入列表，参考本地 AetherLink LogsView 的 outcome 分类。
+- 修改 `internal/app/server.go`、`internal/app/links.go`：新增受保护 POST /api/links/reorder，使用以链互斥锁和加密状态持久化，仅调整顺序不重启反代监听。新增 `internal/app/link_order_test.go`：鉴权、方法、前后排序、同项、无效 ID 不修改及重读磁盘验证。
+- 修改 `web/src/pages/ToolsPage.vue`：配置备份使用 FileArchive 图标，导入/导出左右分布。
+- 修改 `web/src/style.css`：栏目统一15px及等宽选中态；浅灰主区域、纯白卡片；收藏仅浅黄色实心星，目录浅选中态及弱边线；日志底部贴近视口；放大登录轨道并保留桌面响应式；关于星空延伸到透明顶栏和原位栏目后方。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/z-links.spec.js`、`web/tests/zzz-workspace-actions.spec.js`：日志底部位置、栏目切换坐标、四列布局、凭据显隐、流水过滤、长按以链排序及刷新持久化、透明关于顶栏；继续验证桌面/移动截图与画布动态像素。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：补丁版本递增至0.1.4。修改 `AGENTS.md` 记录本轮全部文件；提交和标签说明使用中文。
+- 验证：Go全量测试、go vet、前端构建通过。首轮浏览器11项通过，发现放大轨道导致900px高桌面溢出，调整宽高比后全量12项通过（1.9分钟）；检查登录、关于和以链桌面截图。差异格式检查通过。
+- 限制：未做真实媒体库、网盘或Docker联调，本轮不变更转码协议；拖拽沿用桌面原生拖拽，提供键盘排序替代，不宣称移动端触控拖拽已联调。未操作原15151和用户配置；隔离15153预览更新为临时目录中的 aether-v014.exe，PID33528，不生成根目录exe。按用户要求推送main及v0.1.4，实际结果以Git确认为准。

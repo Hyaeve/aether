@@ -820,3 +820,57 @@ select { border-radius: 12px; }
 .file-rename { max-width: 100%; height: 36px; padding: 5px 8px; }
 @media (max-width:760px) { .file-workspace.with-favorites { grid-template-columns: 140px minmax(0,1fr); }.file-toolbar > .rounded-select { width: 100%; }.file-favorites > * { min-width: 116px; } }
 @media (prefers-reduced-motion:reduce) { .file-workspace, .file-favorites { transition: none; } }
+
+/* Shared workspace rhythm and restrained selections. */
+.main-shell { background: var(--bg); }
+.content-tabs a, .content-tabs a.active, .settings-navigation a, .settings-navigation a.active { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; }
+.task-heading { min-height: 48px; }
+.task-heading .content-tabs { gap: 20px; }
+.task-heading .content-tabs a { min-height: 48px; }
+.storage-card .storage-menu-control { align-self: center; }
+.compact-modal label.storage-cookie { grid-column: 1 / -1; }
+.backup-actions { justify-content: space-between; }
+.dav-symbol > svg, .provider-icon .dav-symbol > svg { transform: none; width: 100%; height: 100%; }
+.dav-symbol > span { top: 48%; left: 16%; width: 68%; font-size: 6.5px; }
+.provider-icon .dav-symbol > span { font-size: 8px; }
+.login-page .orbital-system { max-width: 780px; width: min(100%, calc((100dvh - 290px) * 1.2)); aspect-ratio: 1.3; }
+.file-browser, .with-favorites .file-favorites { border-color: color-mix(in srgb, var(--border) 50%, transparent); }
+.favorites-heading .icon-btn[aria-pressed=true] { color: #e9c65b; background: transparent; box-shadow: none; }
+.file-favorites .active { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.page-content:has(> .log-panel) { height: calc(100dvh - 48px); padding-bottom: 8px; display: flex; flex-direction: column; }
+.log-panel { height: auto; flex: 1; min-height: 280px; background: var(--surface); }
+.link-grid { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; }
+.link-card { padding: 14px; gap: 10px; min-height: 120px; cursor: pointer; user-select: none; }
+.link-identity { min-width: 0; flex: 1; }
+.link-identity strong { max-width: 100%; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-toggle, .link-toggle img { width: 40px; height: 40px; }
+.link-card-controls { width: 108px; flex-shrink: 0; gap: 10px; justify-content: center; }
+.link-card-controls .rounded-select { width: 100%; min-width: 0; }
+.link-card-controls .rounded-select-trigger { padding-left: 8px; padding-right: 8px; }
+.link-port-actions { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 2px; }
+.link-port-actions a { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; color: var(--primary); }
+.link-port-actions .icon-btn { width: 28px; height: 28px; }
+.link-add { min-height: 120px; height: 100%; }
+.link-card.drag-armed { cursor: grabbing; box-shadow: inset 0 0 0 2px var(--primary); }
+.link-card.dragging { opacity: .5; }
+.link-card.drop-target { border-color: var(--primary); }
+.link-playback { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.playback-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; }
+.playback-toolbar > .rounded-select { width: 140px; }
+.playback-toolbar .search-field { width: 220px; }
+.link-playback .table-wrap { border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+.main-shell:has(.about-page) { background: #121827; }
+.main-shell:has(.about-page) .topbar { background: transparent; border-bottom-color: transparent; color: #e6e9ff; }
+.main-shell:has(.about-page) .topbar .icon-btn, .main-shell:has(.about-page) .account-button { color: #d6dcf3; }
+.settings-layout:has(.about-page) .settings-navigation { background: transparent; }
+.main-shell:has(.about-page) .page-content { max-width: none; }
+.settings-layout:has(.about-page) .about-page { overflow: visible; }
+.about-universe { top: -110px; }
+.about-universe .universe-decorative .orbital-system { top: 126px; height: max(230px,calc(100% - 330px)); }
+@media (max-width:1200px) { .link-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width:600px) {
+  .link-grid { grid-template-columns: minmax(0,1fr); }
+  .playback-toolbar { flex-wrap: wrap; }
+  .playback-toolbar .toolbar-right { flex: 1; }
+  .playback-toolbar .search-field { width: 100%; min-width: 100px; }
+}

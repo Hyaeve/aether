@@ -39,7 +39,7 @@ const tools = [
   { name: '识别规则', icon: 'ListFilter', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
   { name: 'TMDB 配置', icon: 'Film', detail: '配置影视元数据接口与语言偏好' },
   { name: '代理配置', icon: 'Network', detail: '管理外部服务请求使用的网络代理' },
-  { name: '配置备份', icon: 'ArchiveRestore', detail: '加密导入导出系统、存储池、以链与规则配置' }
+  { name: '配置备份', icon: 'FileArchive', detail: '加密导入导出系统、存储池、以链与规则配置' }
 ]
 </script>
 <template>
@@ -50,7 +50,7 @@ const tools = [
     </button>
   </div>
   <Modal v-if="selected" :title="selected.name" @close="selected = null">
-    <template v-if="selected.name === '配置备份'"><div class="modal-body"><p>备份包含账号、存储池、以链和规则配置，使用你设置的密码加密。导入后需重启容器，并使用备份中的账号登录。</p></div><footer class="modal-footer"><button class="btn" @click="start('import')"><Icon name="ArchiveRestore" />导入配置备份</button><button class="btn primary" @click="start('export')"><Icon name="Download" />导出配置备份</button></footer></template>
+    <template v-if="selected.name === '配置备份'"><div class="modal-body"><p>备份包含账号、存储池、以链和规则配置，使用你设置的密码加密。导入后需重启容器，并使用备份中的账号登录。</p></div><footer class="modal-footer backup-actions"><button class="btn" @click="start('import')"><Icon name="ArchiveRestore" />导入配置备份</button><button class="btn primary" @click="start('export')"><Icon name="Download" />导出配置备份</button></footer></template>
     <div v-else class="modal-body"><p>该插件尚未实现，当前不能启用或执行。</p><p v-if="selected.detail">{{ selected.detail }}</p><code v-if="selected.file">/config/organize/{{ selected.file }}</code></div>
   </Modal>
   <Modal v-if="flow" :title="flow === 'export' ? '加密导出' : '导入配置'" compact @close="!busy && (flow = '')">

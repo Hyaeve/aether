@@ -142,7 +142,7 @@ function paint(time) {
   ctx.clearRect(0, 0, width, height)
   if (moon) {
     const size = Math.min(92, width * .14)
-    ctx.save(); ctx.globalAlpha = .62; ctx.drawImage(moon, width * .78, height * .15, size, size); ctx.restore()
+    ctx.save(); ctx.globalAlpha = .62; ctx.drawImage(moon, width * .84, height * .08, size, size); ctx.restore()
   }
   if (galaxy) {
     ctx.save()

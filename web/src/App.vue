@@ -104,7 +104,7 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
       <main class="page-content" :key="currentPath">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files' || currentPath.startsWith('/files/')" />
-        <TaskTabs v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cache'].includes(currentPath)" />
+        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cache'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
         <FilesPage v-else-if="currentPath === '/files'" />
