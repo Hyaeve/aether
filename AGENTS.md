@@ -467,3 +467,16 @@
 - 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：补丁版本递增至0.1.4。修改 `AGENTS.md` 记录本轮全部文件；提交和标签说明使用中文。
 - 验证：Go全量测试、go vet、前端构建通过。首轮浏览器11项通过，发现放大轨道导致900px高桌面溢出，调整宽高比后全量12项通过（1.9分钟）；检查登录、关于和以链桌面截图。差异格式检查通过。
 - 限制：未做真实媒体库、网盘或Docker联调，本轮不变更转码协议；拖拽沿用桌面原生拖拽，提供键盘排序替代，不宣称移动端触控拖拽已联调。未操作原15151和用户配置；隔离15153预览更新为临时目录中的 aether-v014.exe，PID33528，不生成根目录exe。按用户要求推送main及v0.1.4，实际结果以Git确认为准。
+
+## 2026-10-06：v0.1.5 真实凭据显隐、以链路由和播放流水
+
+- 新增 `internal/app/secrets.go`，修改 `internal/app/server.go`：管理员 POST 单字段凭据读取接口 `/api/storages/{id}/secret`、`/api/links/{id}/secret`；白名单校验、no-store、沿用鉴权和同源写入检查。普通列表继续返回脱敏值，不记录凭据正文。新增 `internal/app/secrets_test.go`：Cookie/Token/Authorization/密码/API Key、鉴权、方法、非法字段、资源不存在、列表脱敏及日志不泄漏测试。
+- 修改 `web/src/components/SecretInput.vue`：点击显示时按需读取真实字段，加载禁用眼睛、错误提示、卸载或用户修改后忽略旧响应；新填入值直接显隐，不覆盖编辑。修改 `web/src/pages/StoragePage.vue`：所有秘密字段绑定读取路径，Cookie固定整行，天翼/WebDAV密码也使用统一控件。
+- 修改 `web/src/main.js`、`web/src/App.vue`、`web/src/pages/LinksPage.vue`：以链管理 `/links/manage`、直链缓存 `/links/cache`，旧 `/links` 重定向；以链凭据真实显隐，跳转模式排在凭据之后；长按450ms采用全局指针移动和落点排序，取消处理、保留Alt方向键替代，避免动态启用浏览器原生拖拽失效。
+- 修改 `web/src/pages/LinksPage.vue`：参考本地 AetherLink LogsView，播放流水展示时间、上游、UA、结果、目标、客户端IP、缓存状态、有效期、耗时九列；UA/目标可复制、完整内容悬浮查看、恢复命中区分、纳秒换算毫秒；固定52px行高虚拟列表、搜索筛选重置滚动、刷新收缩数据时回到有效位置。后端仍对目标地址敏感内容脱敏，复制不绕过脱敏。
+- 修改 `web/src/pages/FilesPage.vue`：根目录禁止收藏，过滤旧根目录收藏显示，移除底部项目数与缓存状态。修改 `web/src/style.css`：取消根据password/text类型改变表单列宽；文件视图撑高、关于页与其他设置使用相同栏目坐标、星空继续延伸顶栏；低高度桌面放大轨道，播放流水九列与滚动窗口样式。
+- 修改 `web/src/components/Icon.vue`：DAV改为偏心圆滑云形。修改 `web/src/components/LoginUniverse.vue`：加宽粒子星河分布，登录与关于同步。
+- 修改 `web/tests/z-links.spec.js`、`web/tests/zzz-workspace-actions.spec.js`：真实API Key/飞牛密码/夸克Cookie/115双Token/OpenList Token显隐与坐标不变、Cookie整行；真实鼠标长按移动排序及刷新持久化；以链路由刷新、九列字段、1500条虚拟滚动和搜索、根目录收藏禁用、关于栏目位置不变、桌面/移动截图。
+- 修改 `README.md`：记录显隐安全边界、地址与流水操作。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：补丁版本0.1.5；修改 `AGENTS.md` 逐文件记录。
+- 验证：Go全量测试、go vet、前端构建通过；首轮11项通过，新Cookie整行断言漏算眼睛按钮38px，改为校验完整输入控件后全量12项通过（1.3分钟）。已查看800×480登录、1366×768关于和播放流水截图；检查后进一步收紧流水列宽，最终回归结果后补。
+- 限制：无真实云盘/媒体库和Docker联调；桌面指针拖拽已验证，不宣称真实手机触摸拖拽验证完成。凭据只向已登录管理员按需返回，需HTTPS及保护会话；后端仅为可逆加密的存储/媒体库凭据提供显示，不返回管理员密码哈希或主密钥。未修改用户config/data或原15151服务。提交与标签说明使用中文，计划推送main与v0.1.5。

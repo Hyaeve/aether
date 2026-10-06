@@ -74,8 +74,8 @@ function buildGalaxy(random, scale) {
   for (let i = 0; i < count; i++) {
     const along = random()
     const spread = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
-    const x = width * (1.12 - along * 1.3) + spread * width * .12
-    const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .06
+    const x = width * (1.12 - along * 1.3) + spread * width * .18
+    const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .095
     // Dark lanes break up the star cloud, giving the band an irregular structure.
     if (Math.abs(spread + .24 * Math.sin(along * 26)) < .15) continue
     const core = Math.exp(-spread * spread * .7)

@@ -1,9 +1,27 @@
 <script setup>
-import { ref } from 'vue'
+import { onUnmounted, ref } from 'vue'
+import { api, notify } from '../lib'
 import Icon from './Icon.vue'
 defineOptions({ inheritAttrs: false })
-defineProps({ modelValue: String })
+const props = defineProps({ modelValue: String, secretPath: String, secretField: String })
 const emit = defineEmits(['update:modelValue'])
 const visible = ref(false)
+const loading = ref(false)
+let alive = true
+onUnmounted(() => { alive = false })
+async function toggle() {
+  if (visible.value) { visible.value = false; return }
+  if (props.modelValue === '********' && props.secretPath) {
+    loading.value = true
+    const previous = props.modelValue
+    try {
+      const result = await api(props.secretPath, 'POST', { field: props.secretField })
+      if (!alive || props.modelValue !== previous) return
+      emit('update:modelValue', result.value)
+    } catch (e) { if (alive) notify(e.message, true); return }
+    finally { loading.value = false }
+  }
+  if (alive) visible.value = true
+}
 </script>
-<template><span class="secret-input"><input v-bind="$attrs" :value="modelValue" :type="visible ? 'text' : 'password'" @input="emit('update:modelValue', $event.target.value)" /><button type="button" class="icon-btn" :aria-label="visible ? '隐藏内容' : '显示内容'" @click.prevent="visible = !visible"><Icon :name="visible ? 'Eye' : 'EyeOff'" :size="17" /></button></span></template>
+<template><span class="secret-input"><input v-bind="$attrs" :value="modelValue" :type="visible ? 'text' : 'password'" @input="emit('update:modelValue', $event.target.value)" /><button type="button" class="icon-btn" :disabled="loading" :aria-label="visible ? '隐藏内容' : '显示内容'" @click.prevent="toggle"><Icon :name="loading ? 'LoaderCircle' : visible ? 'Eye' : 'EyeOff'" :size="17" :class="{ spin: loading }" /></button></span></template>

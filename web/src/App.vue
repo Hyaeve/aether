@@ -112,7 +112,7 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : 'account'" />
-        <LinksPage v-else-if="currentPath === '/links'" />
+        <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />

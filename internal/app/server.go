@@ -203,6 +203,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/storages", a.protected(http.HandlerFunc(a.storages)))
 	mux.Handle("/api/links", a.protected(http.HandlerFunc(a.mediaLinks)))
 	mux.Handle("/api/links/reorder", a.protected(http.HandlerFunc(a.reorderLink)))
+	mux.Handle("/api/links/{id}/secret", a.protected(a.revealSecret("links")))
+	mux.Handle("/api/storages/{id}/secret", a.protected(a.revealSecret("storages")))
 	mux.Handle("/api/links/{id}", a.protected(http.HandlerFunc(a.mediaLinks)))
 	mux.Handle("/api/link-playback", a.protected(http.HandlerFunc(a.linkPlayback)))
 	mux.Handle("/api/config/backup", a.protected(http.HandlerFunc(a.configBackup)))
