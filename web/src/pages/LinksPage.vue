@@ -6,6 +6,7 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import SecretInput from '../components/SecretInput.vue'
+import { copyText } from '../clipboard'
 const types = [{ id: 'audiobookshelf', name: 'Audiobookshelf', icon: 'abs' }, { id: 'emby', name: 'Emby', icon: 'emby' }, { id: 'fnos', name: '飞牛影视', icon: 'fnmovie' }]
 const modes = [{ value: 'always', label: '始终跳转' }, { value: 'public', label: '公网跳转' }, { value: 'private', label: '内网跳转' }, { value: 'never', label: '始终中继' }]
 const route = useRoute()
@@ -21,8 +22,9 @@ const interactive = event => event.target.closest('button, a, input, .rounded-se
 function hold(event, link) {
   if (event.button !== 0 || sorting.value || interactive(event)) return
   clearTimeout(holdTimer); clearTimeout(releaseTimer)
+  const card = event.currentTarget
   pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, link: link.id }
-  holdTimer = setTimeout(() => { armed.value = link.id; suppressClick = true }, 450)
+  holdTimer = setTimeout(() => { armed.value = link.id; suppressClick = true; card?.setPointerCapture?.(event.pointerId) }, 450)
 }
 function pointerMove(event) {
   if (!pointer || event.pointerId !== pointer.id) return
@@ -88,7 +90,11 @@ const targetText = e => e.target || e.mediaPath || e.error || e.path || '—'
 const uaText = e => e.effectiveUserAgent && e.effectiveUserAgent !== e.userAgent ? `${e.userAgent || '空'} → ${e.effectiveUserAgent}` : e.userAgent || '空'
 const cacheText = e => e.cacheSource === 'restored' ? '恢复命中' : e.cacheSource === 'hit' || e.cacheHit ? '缓存命中' : '首次获取'
 const ttl = e => e.cacheTtlSeconds > 0 ? `${Math.ceil(e.cacheTtlSeconds / 60)} min` : '不缓存'
-async function copyValue(value) { if (!value) return; try { await navigator.clipboard.writeText(value); notify('已复制') } catch { notify('复制失败，请检查浏览器权限', true) } }
+async function copyValue(value) { if (!value) return; try { await copyText(value); notify('已复制') } catch { notify('复制失败，请检查浏览器权限', true) } }
+function clock(value) {
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '—' : `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${d.toLocaleTimeString('zh-CN', { hour12: false })}`
+}
 const typeOf = type => types.find(t => t.id === type) || types[0]
 const linkName = id => links.value.find(l => l.id === id)?.name || id
 const endpoint = link => { const u = new URL(location.href); u.port = String(link.port); u.pathname = '/'; u.search = ''; u.hash = ''; u.protocol = 'http:'; return u.href }
@@ -96,7 +102,7 @@ async function load() {
   try { links.value = await api('/links'); events.value = (await api('/link-playback')).recentEvents || [] }
   catch (e) { notify(e.message, true) }
 }
-function open(link) { closeMenu(); Object.assign(form, { id: '', name: '', type: '', address: '', port: '', apiKey: '', username: '', password: '', mode: 'always', enabled: true, blockedUA: '' }, link || {}); error.value = ''; step.value = link ? 2 : 1; modal.value = true }
+function open(link) { closeMenu(); Object.assign(form, { id: '', name: '', type: '', address: '', port: '', apiKey: '', username: '', password: '', mode: 'always', enabled: true, blockedUA: '', mediaRoot: '', upstreamRoot: '' }, link || {}); error.value = ''; step.value = link ? 2 : 1; modal.value = true }
 async function save() {
   busy.value = true; error.value = ''
   try { await api(form.id ? `/links/${form.id}` : '/links', form.id ? 'PUT' : 'POST', form); await load(); modal.value = false; notify('以链已保存') }
@@ -129,7 +135,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <div class="playback-toolbar"><RoundedSelect v-model="outcome" label="筛选播放类型" :options="outcomes" /><div class="toolbar-right"><button class="icon-btn" aria-label="刷新播放流水" @click="load"><Icon name="RefreshCw" /></button><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div></div></div>
     <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:13%" /><col style="width:10%" /><col style="width:13%" /><col style="width:11%" /><col style="width:18%" /><col style="width:11%" /><col style="width:8%" /><col style="width:9%" /><col style="width:7%" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>结果</th><th>目标</th><th>客户端 IP</th><th>缓存状态</th><th>缓存有效期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
-      <tr v-for="(event, i) in shown" :key="start + i" class="playback-event"><td>{{ date(event.time) }}</td><td :title="linkName(event.upstream)">{{ linkName(event.upstream) }}</td><td><button class="playback-copy" :disabled="!event.userAgent" :title="uaText(event)" @click="copyValue(event.userAgent)">{{ uaText(event) }}</button></td><td><span class="playback-result" :class="event.outcome">{{ outcomeLabel(event) }}</span></td><td><button class="playback-copy" :disabled="!event.target" :title="targetText(event)" @click="copyValue(event.target)">{{ targetText(event) }}</button></td><td :title="event.client">{{ event.client || '未知' }}</td><td>{{ cacheText(event) }}</td><td>{{ ttl(event) }}</td><td>{{ Math.round((event.durationMs || 0) / 1e6) }} ms</td></tr>
+      <tr v-for="(event, i) in shown" :key="start + i" class="playback-event"><td>{{ clock(event.time) }}</td><td :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</td><td><button class="playback-copy" :disabled="!event.userAgent" :data-tooltip="uaText(event)" @click="copyValue(event.userAgent)">{{ uaText(event) }}</button></td><td><span class="playback-result" :class="event.outcome">{{ outcomeLabel(event) }}</span></td><td><button class="playback-copy" :disabled="!event.target" :data-tooltip="targetText(event)" @click="copyValue(event.target)">{{ targetText(event) }}</button></td><td><button class="playback-copy" :disabled="!event.client" :data-tooltip="event.client" @click="copyValue(event.client)">{{ event.client || '未知' }}</button></td><td>{{ cacheText(event) }}</td><td>{{ ttl(event) }}</td><td>{{ Math.round((event.durationMs || 0) / 1e6) }} ms</td></tr>
       <tr v-if="displayed.length > start + shown.length" class="playback-spacer" :style="{ height: `${(displayed.length - start - shown.length) * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
     </tbody></table><div v-if="!displayed.length" class="small-empty">暂无播放记录</div></div><footer class="playback-count">共 {{ displayed.length }} 条</footer>
   </section>
@@ -137,13 +143,13 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
   <Modal v-if="modal" compact wide :title="form.id ? '编辑以太链接' : '添加以太链接'" @close="!busy && (modal = false)">
     <div v-if="step === 1" class="modal-body link-type-picker"><button v-for="type in types" :key="type.id" @click="form.type = type.id; step = 2"><img :src="`/media/${type.icon}.png`" alt="" /><strong>{{ type.name }}</strong></button></div>
     <form v-else @submit.prevent="save"><div class="modal-body"><div class="form-grid">
-      <label class="full">以链名称<input v-model="form.name" required maxlength="60" /></label>
-      <label class="full">服务地址<input v-model="form.address" type="url" required placeholder="http://192.168.1.10:8096" /></label>
+      <label>以链名称<input v-model="form.name" required maxlength="60" /></label>
+      <div class="field"><label>跳转模式</label><RoundedSelect v-model="form.mode" label="跳转模式" :options="modes" /></div>
+      <label>服务地址<input v-model="form.address" type="url" required placeholder="http://192.168.1.10:8096" /></label>
       <label>反代端口<input v-model.number="form.port" type="number" min="1024" max="65535" required /></label>
       <template v-if="form.type === 'fnos'"><label>账号<input v-model="form.username" required autocomplete="off" /></label><label>密码<SecretInput v-model="form.password" :secret-path="form.id ? `/links/${form.id}/secret` : ''" secret-field="password" required autocomplete="new-password" /></label></template>
       <label v-else class="full">API Key<SecretInput v-model="form.apiKey" :secret-path="form.id ? `/links/${form.id}/secret` : ''" secret-field="apiKey" required autocomplete="off" /></label>
-      <div class="field full"><label>跳转模式</label><RoundedSelect v-model="form.mode" label="跳转模式" :options="modes" /></div>
-    </div><details class="link-more"><summary>更多选项</summary><label>屏蔽 UA<textarea v-model="form.blockedUA" rows="5" placeholder="一行一个关键词" /></label></details><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button v-if="!form.id" type="button" class="btn" @click="step = 1">上一步</button><button class="btn primary" :disabled="busy">保存以链</button></footer></form>
+    </div><details class="link-more"><summary>更多选项</summary><div class="form-grid"><label>上游媒体目录<input v-model="form.upstreamRoot" placeholder="/audiobooks" /></label><label>Aether 媒体目录<input v-model="form.mediaRoot" placeholder="/audiobooks" /></label></div><label>屏蔽 UA<textarea v-model="form.blockedUA" rows="5" placeholder="一行一个关键词" /></label></details><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button v-if="!form.id" type="button" class="btn" @click="step = 1">上一步</button><button class="btn primary" :disabled="busy">保存以链</button></footer></form>
   </Modal>
   <Modal v-if="deleting" title="删除以链" @close="deleting = null"><div class="modal-body">确认删除「{{ deleting.name }}」？</div><footer class="modal-footer"><button class="btn" @click="deleting = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">确认删除</button></footer></Modal>
 </template>

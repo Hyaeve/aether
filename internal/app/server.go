@@ -756,6 +756,11 @@ func (a *App) validateTask(t *Task) error {
 			if !casStorage(s) && !(s.Type == "local" && t.CASOperation == "generate") {
 				return errors.New("CAS 生成支持本地、原生移动或天翼存储；还原仅支持原生移动或天翼")
 			}
+			binding, err := a.casBinding(*t, s)
+			if err != nil {
+				return err
+			}
+			t.CASBindingID = binding.ID
 		}
 		t.Target = strings.TrimSpace(t.Target)
 		if _, err := a.outputRelative(t.Target); err != nil {

@@ -16,7 +16,8 @@ func TestAudiobookshelfLink302(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	data := t.TempDir()
-	pointer := filepath.Join(data, "chapter.strm")
+	mediaRoot := t.TempDir()
+	pointer := filepath.Join(mediaRoot, "chapter.strm")
 	if err := os.WriteFile(pointer, []byte("https://cdn.example.test/chapter.m4b"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +27,7 @@ func TestAudiobookshelfLink302(t *testing.T) {
 			w.WriteHeader(401)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "book", "libraryFiles": []any{map[string]any{"ino": "file", "metadata": map[string]any{"path": pointer, "filename": "chapter.strm"}}}})
+		json.NewEncoder(w).Encode(map[string]any{"id": "book", "libraryFiles": []any{map[string]any{"ino": "file", "metadata": map[string]any{"path": "/audiobooks/chapter.strm", "filename": "chapter.strm"}}}})
 	}))
 	defer up.Close()
 	a, err := newWithDirectories(ctx, t.TempDir(), data, t.TempDir())
@@ -35,7 +36,7 @@ func TestAudiobookshelfLink302(t *testing.T) {
 	}
 	a.startLinks()
 	defer a.closeLinks()
-	link := MediaLink{ID: "abs-test", Name: "Audio", Type: "audiobookshelf", Address: up.URL, Port: freeLinkPort(t), APIKey: "service", Mode: "always", Enabled: true}
+	link := MediaLink{ID: "abs-test", Name: "Audio", Type: "audiobookshelf", Address: up.URL, Port: freeLinkPort(t), APIKey: "service", Mode: "always", Enabled: true, MediaRoot: mediaRoot, UpstreamRoot: "/audiobooks"}
 	service, err := a.buildLink(link)
 	if err != nil {
 		t.Fatal(err)

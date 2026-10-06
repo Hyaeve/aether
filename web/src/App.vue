@@ -15,6 +15,7 @@ import LogsPage from './pages/LogsPage.vue'
 import PlannedPage from './pages/PlannedPage.vue'
 import ToolsPage from './pages/ToolsPage.vue'
 import LinksPage from './pages/LinksPage.vue'
+import OverflowTooltip from './components/OverflowTooltip.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -75,6 +76,7 @@ onMounted(() => {
 onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', applyTheme); document.removeEventListener('click', closeMenus); document.removeEventListener('keydown', escapeMenus) })
 </script>
 <template>
+  <OverflowTooltip />
   <div v-if="!state.loaded" class="boot-screen"><img src="/aether.svg" alt="Aether" /><h2>Aether 以太</h2><p v-if="connectionError" class="error-message">{{ connectionError }}</p><button v-if="connectionError" class="btn" @click="bootstrap">重新连接</button><p v-else>正在连接…</p></div>
   <LoginPage v-else-if="!state.authenticated" />
   <div v-else class="app-shell">

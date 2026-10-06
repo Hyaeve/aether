@@ -32,7 +32,7 @@ var ErrNotStrm = errors.New("media is not a strm pointer")
 // AetherLink could not read it, almost always because the media directory is
 // not mounted into this container. The upstream can still serve the file itself,
 // so callers fall back to plain proxying instead of failing the playback.
-var ErrPointerUnavailable = errors.New("strm pointer file is not readable inside the AetherLink container")
+var ErrPointerUnavailable = errors.New("Aether 无法读取 STRM 指针文件，请检查媒体目录挂载、路径映射及读取权限")
 
 const (
 	audiobookshelfCacheTTL = 15 * time.Minute

@@ -294,7 +294,7 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 			// 上游自己能读，退回透传让播放继续，同时把原因记进日志与事件，
 			// 避免用户只看到「能播但没有 302」而查不出为什么。
 			event.Error = err.Error()
-			finish(stats.OutcomePassthrough, "读不到 strm 指针文件，本次退回透传；把上游的媒体目录也挂进 AetherLink 后即可 302")
+			finish(stats.OutcomePassthrough, "读不到 STRM 指针文件，本次退回透传；请将同一媒体目录挂入 Aether，并核对以链的媒体目录映射和读取权限")
 			s.proxy.ServeHTTP(writer, request)
 			return
 		}
@@ -482,12 +482,12 @@ func (s *Server) logOutcome(event stats.Event, note string) {
 		logx.Infof("[%s] 转码中继 %s -> %s（状态 %d，%dms）：%s；%s", event.Upstream, event.Path, event.Target, event.StatusCode, milliseconds, note, userAgentNote(event))
 	case stats.OutcomePassthrough:
 		if event.Error != "" {
-			logx.Warnf("[%s] 透传 %s（%dms）：%s；UA：%s；原因：%s", event.Upstream, event.Path, milliseconds, note, userAgentNote(event), event.Error)
+			logx.Warnf("[%s] 透传 %s（%dms）：%s；%s；原因：%s", event.Upstream, event.Path, milliseconds, note, userAgentNote(event), event.Error)
 			return
 		}
-		logx.Infof("[%s] 透传 %s（%dms）：%s；UA：%s", event.Upstream, event.Path, milliseconds, note, userAgentNote(event))
+		logx.Infof("[%s] 透传 %s（%dms）：%s；%s", event.Upstream, event.Path, milliseconds, note, userAgentNote(event))
 	default:
-		logx.Errorf("[%s] 失败 %s（%dms）：%s；UA：%s；原因：%s", event.Upstream, event.Path, milliseconds, note, userAgentNote(event), event.Error)
+		logx.Errorf("[%s] 失败 %s（%dms）：%s；%s；原因：%s", event.Upstream, event.Path, milliseconds, note, userAgentNote(event), event.Error)
 	}
 }
 

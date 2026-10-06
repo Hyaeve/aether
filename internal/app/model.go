@@ -26,6 +26,7 @@ type Storage struct {
 }
 
 type Task struct {
+	CASBindingID   string           `json:"casBindingId,omitempty"`
 	SourceLabel    string           `json:"sourceLabel,omitempty"`
 	SourceTrail    []DirectoryCrumb `json:"sourceTrail,omitempty"`
 	CASOperation   string           `json:"casOperation,omitempty"`

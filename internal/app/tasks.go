@@ -197,6 +197,14 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		}
 	}()
 	count := 0
+	var binding Storage
+	if t.Kind == "cas" {
+		var err error
+		binding, err = a.casBinding(t, s)
+		if err != nil {
+			return 0, err
+		}
+	}
 	generateCAS := t.Kind == "cas" && (t.CASOperation == "generate" || (t.CASOperation == "" && s.Type == "local"))
 	visited := map[string]bool{}
 	outputs := map[string]bool{}
@@ -289,6 +297,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return fmt.Errorf("%s: %w", f.Name, err)
 				}
 				info.RetentionHours = casRetentionHours(t.RetentionHours)
+				info, err = casForBinding(info, binding)
+				if err != nil {
+					return err
+				}
 				data, err := json.Marshal(info)
 				if err != nil {
 					return err

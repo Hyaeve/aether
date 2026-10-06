@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,17 +23,19 @@ import (
 )
 
 type MediaLink struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	Address   string `json:"address"`
-	Port      int    `json:"port"`
-	APIKey    string `json:"apiKey"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-	Mode      string `json:"mode"`
-	BlockedUA string `json:"blockedUA"`
-	Enabled   bool   `json:"enabled"`
+	MediaRoot    string `json:"mediaRoot,omitempty"`
+	UpstreamRoot string `json:"upstreamRoot,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Address      string `json:"address"`
+	Port         int    `json:"port"`
+	APIKey       string `json:"apiKey"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	Mode         string `json:"mode"`
+	BlockedUA    string `json:"blockedUA"`
+	Enabled      bool   `json:"enabled"`
 }
 
 type linkService struct {
@@ -51,7 +54,9 @@ func (a *App) startLinks() {
 	a.links.mu.Lock()
 	defer a.links.mu.Unlock()
 	a.links.active = true
-	logx.SetSink(func(level, message string) { a.store.event(level, "links", message) })
+	logx.SetSink(func(level, message string) {
+		a.store.event(level, "links", strings.ReplaceAll(message, "AetherLink", "Aether"))
+	})
 	a.links.audio = proxy.NewAudioCache(a.ctx, filepath.Join(a.dataDir, "cache", "link", "audio"))
 	for _, link := range a.store.snapshot().Links {
 		if !link.Enabled {
@@ -86,7 +91,8 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 	cfg.Redirect.BlockClientUserAgent = lc.Bool(strings.TrimSpace(link.BlockedUA) != "")
 	cfg.Redirect.BlockedUserAgents = strings.Split(link.BlockedUA, "\n")
 	cfg.Redirect.StreamTimeout = 2 * time.Hour
-	provider, err := upstream.New(lc.Upstream{Name: link.ID, Type: lc.UpstreamType(link.Type), BaseURL: link.Address, APIKey: link.APIKey, Username: link.Username, Password: link.Password, ListenPort: link.Port, StrmRoots: []string{a.dataDir, "/mnt"}})
+	cfg.Redirect.FallbackUserAgent = "Aether"
+	provider, err := upstream.New(a.linkUpstream(link))
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +112,16 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 }
 
 func validateLink(link *MediaLink, links []MediaLink) error {
+	link.MediaRoot = strings.TrimSpace(link.MediaRoot)
+	link.UpstreamRoot = strings.TrimSpace(link.UpstreamRoot)
+	if link.UpstreamRoot != "" && link.MediaRoot == "" {
+		return errors.New("填写上游媒体目录时，需同时填写 Aether 媒体目录")
+	}
+	for _, root := range []string{link.MediaRoot, link.UpstreamRoot} {
+		if root != "" && ((!filepath.IsAbs(root) && !path.IsAbs(root)) || path.Clean(root) == "/" || filepath.Clean(root) == string(filepath.Separator) || strings.ContainsRune(root, '\x00')) {
+			return errors.New("媒体目录须为非根目录的绝对路径")
+		}
+	}
 	link.Name = strings.TrimSpace(link.Name)
 	if link.Name == "" || len(link.Name) > 180 {
 		return errors.New("请输入以链名称")
@@ -164,6 +180,18 @@ func validateLink(link *MediaLink, links []MediaLink) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) linkUpstream(link MediaLink) lc.Upstream {
+	u := lc.Upstream{Name: link.ID, Type: lc.UpstreamType(link.Type), BaseURL: link.Address, APIKey: link.APIKey, Username: link.Username, Password: link.Password, ListenPort: link.Port,
+		StrmRoots: []string{a.dataDir, "/mnt", "/audiobooks", "/media", "/strm", "/NetDisk"}}
+	if link.MediaRoot != "" {
+		u.StrmRoots = append(u.StrmRoots, link.MediaRoot)
+		if link.UpstreamRoot != "" {
+			u.PathMappings = []lc.PathMapping{{From: link.UpstreamRoot, To: link.MediaRoot}}
+		}
+	}
+	return u
 }
 
 func (a *App) reorderLink(w http.ResponseWriter, r *http.Request) {
@@ -330,7 +358,7 @@ func (a *App) linkPlayback(w http.ResponseWriter, r *http.Request) {
 	for i := range snapshot.RecentEvents {
 		e := &snapshot.RecentEvents[i]
 		e.Target = logx.Redact(e.Target)
-		e.Error = logx.Redact(e.Error)
+		e.Error = strings.ReplaceAll(logx.Redact(e.Error), "AetherLink", "Aether")
 	}
 	jsonResponse(w, 200, snapshot)
 }

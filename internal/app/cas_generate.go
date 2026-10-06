@@ -12,6 +12,31 @@ import (
 	"strings"
 )
 
+func (a *App) casBinding(t Task, source Storage) (Storage, error) {
+	bindingID := t.CASBindingID
+	if bindingID == "" && casStorage(source) {
+		bindingID = source.ID
+	}
+	binding, err := a.store.storage(bindingID)
+	if err != nil || !binding.Enabled || !casStorage(binding) {
+		return Storage{}, errors.New("请选择已启用的移动或天翼存储作为 CAS 绑定账号")
+	}
+	if source.Type != "local" && source.Type != binding.Type {
+		return Storage{}, errors.New("源目录仅允许本地存储或与绑定账号同类型的云存储")
+	}
+	return binding, nil
+}
+
+func casForBinding(info CASInfo, binding Storage) (CASInfo, error) {
+	info.Provider = binding.Type
+	if binding.Type == "mobile" {
+		info.MD5 = ""
+	} else {
+		info.SHA256 = ""
+	}
+	return info, validateCASFor(binding, info)
+}
+
 func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, error) {
 	info := CASInfo{Provider: s.Type, Name: f.Name, Size: f.Size, SHA256: strings.ToLower(f.SHA256), MD5: strings.ToLower(f.MD5)}
 	if err := ctx.Err(); err != nil {

@@ -7,6 +7,8 @@ const props = defineProps({ modelValue: String, secretPath: String, secretField:
 const emit = defineEmits(['update:modelValue'])
 const visible = ref(false)
 const loading = ref(false)
+const touched = ref(false)
+function input(event) { touched.value = true; emit('update:modelValue', event.target.value) }
 let alive = true
 onUnmounted(() => { alive = false })
 async function toggle() {
@@ -24,4 +26,4 @@ async function toggle() {
   if (alive) visible.value = true
 }
 </script>
-<template><span class="secret-input"><input v-bind="$attrs" :value="modelValue" :type="visible ? 'text' : 'password'" @input="emit('update:modelValue', $event.target.value)" /><button type="button" class="icon-btn" :disabled="loading" :aria-label="visible ? '隐藏内容' : '显示内容'" @click.prevent="toggle"><Icon :name="loading ? 'LoaderCircle' : visible ? 'Eye' : 'EyeOff'" :size="17" :class="{ spin: loading }" /></button></span></template>
+<template><span class="secret-input"><input v-bind="$attrs" :value="!visible && modelValue && secretPath && !touched ? '********' : modelValue" :type="visible ? 'text' : 'password'" @focus="!visible && secretPath && !touched && $event.target.select()" @input="input" /><button type="button" class="icon-btn" :disabled="loading" :aria-label="visible ? '隐藏内容' : '显示内容'" @click.prevent="toggle"><Icon :name="loading ? 'LoaderCircle' : visible ? 'Eye' : 'EyeOff'" :size="17" :class="{ spin: loading }" /></button></span></template>

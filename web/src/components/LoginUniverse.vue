@@ -9,7 +9,7 @@ const universe = ref(), canvas = ref(), scene = ref()
 const props = defineProps({ decorative: Boolean })
 const reducedMotion = ref(false)
 const rings = [0.29, 0.36, 0.44]
-const ringByProvider = [0, 2, 1, 2, 1, 2, 0]
+const ringByProvider = [0, 2, 1, 2, 1, 2, 2]
 const satellites = []
 let observer, motionPreference, frame = 0, elapsed = 0, previous = 0
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx

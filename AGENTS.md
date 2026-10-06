@@ -480,3 +480,18 @@
 - 修改 `README.md`：记录显隐安全边界、地址与流水操作。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：补丁版本0.1.5；修改 `AGENTS.md` 逐文件记录。
 - 验证：Go全量测试、go vet、前端构建通过；首轮11项通过，新Cookie整行断言漏算眼睛按钮38px，改为校验完整输入控件后全量12项通过（1.3分钟）。已查看800×480登录、1366×768关于和播放流水截图；检查后进一步收紧流水列宽，最终回归结果后补。
 - 限制：无真实云盘/媒体库和Docker联调；桌面指针拖拽已验证，不宣称真实手机触摸拖拽验证完成。凭据只向已登录管理员按需返回，需HTTPS及保护会话；后端仅为可逆加密的存储/媒体库凭据提供显示，不返回管理员密码哈希或主密钥。未修改用户config/data或原15151服务。提交与标签说明使用中文，计划推送main与v0.1.5。
+
+## 2026-10-06：v0.1.6 CAS账号绑定、媒体映射与工作区完善
+
+- 修改 `internal/app/model.go`、`internal/app/server.go`、`internal/app/cas_generate.go`、`internal/app/tasks.go`：Task增加casBindingId，保存和执行时校验绑定为启用的原生移动/天翼；源仅本地或同类型云盘。移动输出provider=mobile/SHA256，天翼输出provider=tianyi/MD5，不写入凭据。旧云端未绑定任务按源账号兼容，旧本地须重新绑定。修改 `internal/app/cas_generate_test.go`：双类型真实本地输出、缺失账号和跨类型拒绝。
+- 修改 `internal/app/links.go`：以链增加上游/Aether媒体目录与路径映射，默认读取白名单补齐/audiobooks、/media、/strm、/NetDisk，保留/data运行目录和/mnt；配置校验跨平台绝对路径并拒绝根目录。fallback UA为Aether，日志桥接及流水错误中的AetherLink替换为Aether。新增 `internal/app/link_paths_test.go`：映射、白名单、根目录拒绝。修改 `internal/app/link_playback_test.go`：模拟ABS返回/audiobooks路径，真实STRM置于不同临时目录，经映射取得302。
+- 修改 `internal/linkcore/resolver/resolver.go`、`internal/linkcore/proxy/proxy.go`：读不到指针的提示改为检查Aether挂载/映射/权限，不保证挂载后必然302；消除透传日志重复UA前缀。
+- 修改 `web/src/pages/TasksPage.vue`：CAS绑定账号选择器、按类型限制源目录、切换绑定重置不兼容源、无绑定禁止保存；任务弹窗复用存储的compact规格。修改 `web/src/components/LoginUniverse.vue`：本机存储采用最外圈轨道。
+- 修改 `web/src/components/SecretInput.vue`：已保存且未修改的秘密字段统一八位遮罩，显示后再次隐藏长度不变；选中遮罩后输入替换，实际表单值保留，避免把遮罩保存成真实凭据。
+- 新增 `web/src/clipboard.js`：Clipboard API不可用或拒绝时使用临时textarea与execCommand兼容HTTP复制，失败不假报成功并恢复焦点。修改 `web/src/pages/LinksPage.vue`：UA/目标/客户端IP复制、月日时分秒、路径映射表单、名称/模式及地址/端口同行、长按指针捕获、创建时清空映射字段。修改 `web/src/pages/FilesPage.vue`：搜索输入与已提交关键词分离，Enter响应；进入目录清空搜索，复制复用兼容函数，文件名使用自定义全文提示。
+- 新增 `web/src/components/OverflowTooltip.vue`，修改 `web/src/App.vue`：全局圆角悬浮全文提示，监听列表截断单元格和显式data-tooltip，延迟显示、Escape/滚动关闭、卸载清理。修改 `web/src/pages/LogsPage.vue`：去掉原生title提示，复用统一提示。
+- 修改 `web/src/components/Icon.vue`、`web/src/pages/SettingsPage.vue`：日志管理使用独立FileClock图标。修改 `web/src/style.css`：统一40px任务控件和6px标签间距、隐藏任务弹窗滚动条、放大以链端口、拖拽落点高亮、搜索14px、柔和栏目光晕、夜间星光选中、关于页栏目分隔线隐藏；播放流水视口撑到底部、隐藏滚动条但保留滚动、缩小刷新按钮和圆角全文提示。
+- 修改 `web/tests/workspace.spec.js`、`web/tests/z-links.spec.js`、`web/tests/zz-cas.spec.js`、`web/tests/zzz-workspace-actions.spec.js`：CAS绑定筛选与真实输出、任务控件等高/隐藏滚动条、遮罩长度、HTTP复制回退三字段、全文提示圆角、文件搜索Enter、流水时间/底部、以链两列对齐、真实鼠标拖拽回归。
+- 修改 `README.md`：绑定兼容边界、挂载白名单、显式映射及HTTP复制说明。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：版本递增0.1.6。修改 `AGENTS.md` 记录全部文件。
+- 验证：最终Go全量测试、go vet、前端0.1.6构建、差异检查通过；12项Playwright全部通过（2.3分钟）。修正过程中发现Windows的POSIX路径校验、控件标签3px间距和绑定账号测试误认自定义名称，均修复后重跑。查看CAS表单与流水截图，套件同时覆盖登录画布非空/运动及桌面移动响应式。隔离15153预览更新为临时目录aether-v016.exe，PID29404，未生成仓库根exe。
+- 限制：用户实际容器挂载、读权限、真实移动/天翼秒传和媒体库未联调，不声称该用户播放已现场恢复；新增映射已模拟302验证。旧本地CAS需选择绑定账号；复制回退仍受浏览器策略限制，测试使用禁用Clipboard API的模拟验证，不宣称所有浏览器均可复制。真实手机触摸拖拽未联调。未改用户config/data及原15151。中文提交并推送main和v0.1.6，实际结果以Git输出为准。
