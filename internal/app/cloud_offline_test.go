@@ -5,108 +5,77 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
 	"aether/internal/linkcore/proxy"
+	"github.com/anacrolix/torrent/bencode"
+	"github.com/anacrolix/torrent/metainfo"
 )
 
-func TestCloudOfflineEndpointAndBT(t *testing.T) {
+const test115Cookie = "UID=123_A1; CID=cid; SEID=secret; KID=kid"
+
+func TestOffline115CookieProtocol(t *testing.T) {
 	a := testApp(t)
-	s := Storage{ID: "offline115", Type: "115", Enabled: true, Config: map[string]string{"accessToken": "secret"}}
+	s := Storage{ID: "offline115", Type: "115", Enabled: true, Config: map[string]string{"cookie": test115Cookie, "device": "web"}}
 	a.store.update(func(st *State) error { st.Storages = append(st.Storages, s); return nil })
 	h := a.Handler(t.TempDir())
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
 	old := apiClient
 	defer func() { apiClient = old }()
-	seedName, submitted := "", 0
+	submitted := 0
 	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
-		payload := `{"state":true,"data":{}}`
-		switch r.URL.Path {
-		case "/open/ufile/files":
-			if r.URL.Query().Get("cid") == "seed-folder" {
-				raw, _ := json.Marshal(map[string]any{"state": true, "data": []map[string]any{{"file_id": "seed", "file_name": seedName, "file_category": 1, "pick_code": "pick"}}})
-				payload = string(raw)
-			} else {
-				payload = `{"state":true,"data":[{"file_id":"seed-folder","file_name":"Aether种子","file_category":0}]}`
+		if r.Header.Get("Authorization") != "" || !strings.Contains(r.Header.Get("Cookie"), "SEID=secret") {
+			t.Fatal("115 must use cookie, not OAuth")
+		}
+		raw := `{"state":true,"cid":"12","count":0,"data":[]}`
+		if r.URL.Path != "/files" {
+			if r.URL.Host != "lixian.115.com" || r.URL.Path != "/lixianssp/" {
+				t.Fatal("unexpected native offline endpoint", r.URL)
 			}
-		case "/open/upload/init":
 			r.ParseForm()
-			seedName = r.Form.Get("file_name")
-			if r.Form.Get("target") != "U_1_seed-folder" {
-				t.Fatal("wrong seed destination", r.Form)
-			}
-			payload = `{"state":true,"data":{"status":2}}`
-		case "/open/offline/torrent":
-			r.ParseForm()
-			if r.Form.Get("pick_code") != "pick" || len(r.Form.Get("torrent_sha1")) != 40 {
-				t.Fatal("missing seed identifiers")
-			}
-			payload = `{"state":true,"data":{"info_hash":"hash","torrent_name":"Media.torrent","torrent_filelist":[{},{}]}}`
-		case "/open/offline/add_task_bt":
-			r.ParseForm()
-			if r.Form.Get("wanted") != "0,1" || r.Form.Get("wp_path_id") != "target" || r.Form.Get("save_path") != "Media" {
-				t.Fatal("wrong BT submission", r.Form)
+			if r.Form.Get("data") == "" {
+				t.Fatal("missing encrypted native payload")
 			}
 			submitted++
-		case "/open/offline/add_task_urls":
-			payload = `{"state":true,"data":[{"state":true,"url":"https://example.com/a","info_hash":"a"},{"state":false,"url":"https://example.com/b","message":"quota"}]}`
-		default:
-			t.Fatal("unexpected request", r.URL.Path)
+			// Successful encrypted responses require 115's private RSA key.
+			raw = `{"state":false,"errno":10008,"error":"quota"}`
 		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(payload))}, nil
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(raw)), Request: r}, nil
 	})}
 	if request(t, h, "POST", "/api/files/offline", nil, nil).Code != 401 {
 		t.Fatal("offline endpoint unprotected")
 	}
-	input := map[string]any{"storageId": s.ID, "parent": "target", "urls": []string{"https://example.com/a", "https://example.com/b"}}
+	input := map[string]any{"storageId": s.ID, "parent": "12", "urls": []string{"https://example.com/a", "https://example.com/b"}}
 	response := request(t, h, "POST", "/api/files/offline", input, cookie)
 	var results []offlineResult
-	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &results) != nil || len(results) != 2 || !results[0].Success || results[1].Success {
-		t.Fatal(response.Body.String())
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &results) != nil || len(results) != 2 || results[0].Success || results[1].Success || submitted != 2 {
+		t.Fatal(response.Body.String(), submitted)
 	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	writer.WriteField("storageId", s.ID)
-	writer.WriteField("parent", "target")
-	for _, name := range []string{"one.torrent", "two.torrent"} {
-		part, _ := writer.CreateFormFile("torrents", name)
-		part.Write([]byte("d4:infod4:name4:testee"))
+	input["urls"] = []string{"file:///etc/passwd"}
+	if request(t, h, "POST", "/api/files/offline", input, cookie).Code != 400 || submitted != 2 {
+		t.Fatal("invalid URL submitted")
 	}
-	writer.Close()
-	req := httptest.NewRequest("POST", "/api/files/offline", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.AddCookie(cookie)
-	record := httptest.NewRecorder()
-	h.ServeHTTP(record, req)
-	if record.Code != 200 || submitted != 2 || json.Unmarshal(record.Body.Bytes(), &results) != nil || len(results) != 2 || !results[0].Success || !results[1].Success {
-		t.Fatal(record.Code, record.Body.String(), submitted)
+	info := metainfo.Info{Name: "media.mp4", Length: 4, PieceLength: 4, Pieces: make([]byte, 20)}
+	rawInfo, _ := bencode.Marshal(info)
+	meta := metainfo.MetaInfo{InfoBytes: rawInfo}
+	var torrent bytes.Buffer
+	meta.Write(&torrent)
+	if err := a.submit115Torrent(context.Background(), s, "12", bytes.NewReader(torrent.Bytes())); err == nil || submitted != 3 {
+		t.Fatal("BT did not use native submission/rejection")
 	}
-}
-
-func TestOffline115URLProtocol(t *testing.T) {
-	original := apiClient
-	defer func() { apiClient = original }()
-	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Path != "/open/offline/add_task_urls" || r.Header.Get("Authorization") != "Bearer secret" {
-			t.Fatal("wrong offline request", r.URL.Path)
-		}
-		r.ParseForm()
-		if r.Form.Get("wp_path_id") != "12" || r.Form.Get("urls") != "magnet:?xt=urn:btih:test\nhttps://example.com/media" {
-			t.Fatal("wrong destination or batch", r.Form)
-		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"state":true,"data":[{"state":true,"url":"magnet:?xt=urn:btih:test","info_hash":"hash"}]}`))}, nil
-	})}
-	var result []map[string]any
-	s := Storage{Type: "115", Config: map[string]string{"accessToken": "secret"}}
-	// The same encoded values are sent by the batched endpoint.
-	err := offline115(context.Background(), s, "add_task_urls", url.Values{"wp_path_id": {"12"}, "urls": {"magnet:?xt=urn:btih:test\nhttps://example.com/media"}}, &result)
-	if err != nil || len(result) != 1 {
-		t.Fatal(result, err)
+	if err := a.submit115Torrent(context.Background(), s, "12", strings.NewReader("bad torrent")); err == nil || submitted != 3 {
+		t.Fatal("invalid torrent submitted")
+	}
+	private := true
+	info.Private = &private
+	meta.InfoBytes, _ = bencode.Marshal(info)
+	torrent.Reset()
+	meta.Write(&torrent)
+	if err := a.submit115Torrent(context.Background(), s, "12", &torrent); err == nil || submitted != 3 {
+		t.Fatal("private torrent must not be silently converted")
 	}
 }
 

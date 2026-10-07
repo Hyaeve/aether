@@ -146,7 +146,17 @@ function jump(index) {
   current.value = index < 0 ? '/' : index === history.value.length - 1 ? current.value : history.value[index + 1].id
   history.value = history.value.slice(0, index + 1); resetScroll(); load()
 }
-function favoriteJump(item) { if (renameID.value || uploadBusy.value) return; selection.value = []; current.value = item.id; history.value = item.history || []; resetScroll(); load() }
+function favoriteJump(item) {
+  if (renameID.value || uploadBusy.value) return
+  // Each crumb stores its parent ID. Older shared arrays may contain descendants.
+  const trail = item.history || []
+  const descendant = trail.findIndex(crumb => crumb.id === item.id)
+  const restored = (descendant < 0 ? trail : trail.slice(0, descendant)).map(crumb => ({ ...crumb }))
+  if (descendant >= 0) item.history = restored.map(crumb => ({ ...crumb }))
+  selection.value = []; anchor.value = ''; query.value = ''; searchInput.value = ''
+  current.value = item.id; history.value = restored
+  resetScroll(); load()
+}
 let requestId = 0
 async function load(refresh = false) {
   const id = ++requestId

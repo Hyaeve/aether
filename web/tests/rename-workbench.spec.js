@@ -99,7 +99,7 @@ test('115 offline supports multiple links, torrents and destination selection', 
   await page.getByRole('button', { name: '115 / 根目录', exact: true }).click()
   await page.locator('.source-directory').getByText('下载', { exact: true }).click()
   await page.getByRole('button', { name: '选择当前目录', exact: true }).click()
-  await page.getByRole('button', { name: '提交下载', exact: true }).click()
+  await page.getByRole('button', { name: '提交云下载', exact: true }).click()
   await expect.poll(() => requests.length).toBe(1)
   expect(JSON.parse(requests[0].body)).toMatchObject({ parent: '123', urls: ['https://example.com/one', 'magnet:?xt=urn:btih:test'] })
   await page.getByRole('button', { name: 'BT 下载', exact: true }).click()
@@ -107,7 +107,7 @@ test('115 offline supports multiple links, torrents and destination selection', 
     { name: 'one.torrent', mimeType: 'application/x-bittorrent', buffer: Buffer.from('test1') },
     { name: 'two.torrent', mimeType: 'application/x-bittorrent', buffer: Buffer.from('test2') }
   ])
-  await page.getByRole('button', { name: '提交下载', exact: true }).click()
+  await page.getByRole('button', { name: '提交云下载', exact: true }).click()
   await expect.poll(() => requests.length).toBe(2)
   expect(requests[1].type).toContain('multipart/form-data')
   expect(requests[1].body).toContain('one.torrent')

@@ -4,11 +4,13 @@ import { api, notify } from '../lib'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import TaskSourcePicker from './TaskSourcePicker.vue'
+import ProviderIcon from './ProviderIcon.vue'
 const props = defineProps({ storage: Object, parent: String, trail: Array })
 const emit = defineEmits(['close'])
 const mode = ref('url'), urls = ref(''), torrentFiles = ref([]), target = ref(props.parent || '/'), busy = ref(false), error = ref('')
 const picker = ref(false), fileInput = ref(null), targetLabel = ref(props.trail?.map(c => c.name).join(' / ') || '根目录'), results = ref([])
 const supported = computed(() => !!props.storage?.id)
+const native115 = computed(() => props.storage?.type === '115')
 function chooseFiles(event) { torrentFiles.value = [...event.target.files] }
 async function submit() {
   const list = urls.value.split(/\r?\n/).map(v => v.trim()).filter(Boolean)
@@ -33,16 +35,16 @@ async function submit() {
 }
 </script>
 <template>
-  <Modal title="离线下载" compact wide @close="!busy && emit('close')">
+  <Modal :title="native115 ? '115 云下载' : '内置离线下载'" compact wide @close="!busy && emit('close')">
     <form @submit.prevent="submit"><div class="modal-body offline-form">
-      <p v-if="storage.type !== '115'" class="muted">内置下载器 · 完成后上传到所选目录，执行结果见系统日志</p>
+      <div class="selected-driver"><ProviderIcon v-if="native115" type="115" small /><Icon v-else name="Download" /><h3>{{ native115 ? '115 云端任务' : '本机下载队列' }}</h3></div>
       <div class="segmented"><button type="button" :disabled="busy" :class="{ active: mode === 'url' }" @click="mode = 'url'">链接下载</button><button type="button" :disabled="busy" :class="{ active: mode === 'torrent' }" @click="mode = 'torrent'">BT 下载</button></div>
       <label v-if="mode === 'url'">下载链接<textarea v-model="urls" rows="7" placeholder="一行一个链接" :disabled="busy" /></label>
       <div v-else><input ref="fileInput" type="file" multiple accept=".torrent" hidden @change="chooseFiles" /><button class="offline-file-picker" type="button" :disabled="busy" @click="fileInput.click()"><Icon name="FolderOpen" />{{ torrentFiles.length ? `已选择 ${torrentFiles.length} 个种子文件` : '选择种子文件' }}</button></div>
-      <div class="field"><label>离线位置</label><button type="button" class="source-trigger" :disabled="busy" @click="picker = true"><span>{{ storage.name }} / {{ targetLabel }}</span><Icon name="FolderOpen" /></button></div>
+      <div class="field"><label>{{ native115 ? '云下载目录' : '上传到' }}</label><button type="button" class="source-trigger" :disabled="busy" @click="picker = true"><span>{{ storage.name }} / {{ targetLabel }}</span><Icon name="FolderOpen" /></button></div>
       <div v-if="results.length" class="offline-results"><p v-for="(item, i) in results" :key="i" :class="{ 'error-message': !item.success }">{{ item.name }}：{{ item.success ? '已提交' : item.message || '提交失败' }}</p></div>
       <p v-if="error" class="error-message">{{ error }}</p>
-    </div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="emit('close')">关闭</button><button class="btn primary" :disabled="busy || !supported">{{ busy ? '提交中…' : '提交下载' }}</button></footer></form>
+    </div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="emit('close')">关闭</button><button class="btn primary" :disabled="busy || !supported">{{ busy ? '提交中…' : native115 ? '提交云下载' : '加入下载队列' }}</button></footer></form>
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="[storage]" :storage="storage.id" :initial="target" :initial-label="targetLabel" @close="picker = false" @select="target = $event.source; targetLabel = $event.sourceLabel; picker = false" />
 </template>

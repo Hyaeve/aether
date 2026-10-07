@@ -92,7 +92,7 @@ func TestMountWebDAVWriteLifecycle(t *testing.T) {
 }
 
 func TestNativeUploadProtocols(t *testing.T) {
-	for _, kind := range []string{"mobile", "tianyi", "115", "quark"} {
+	for _, kind := range []string{"mobile", "tianyi", "quark"} {
 		t.Run(kind, func(t *testing.T) {
 			a := testApp(t)
 			data := "cloud upload content"
@@ -123,10 +123,6 @@ func TestNativeUploadProtocols(t *testing.T) {
 						}
 						uploaded = true
 						h.Set("ETag", `"part-etag"`)
-						if kind == "115" {
-							raw = `{"state":true}`
-							completed = true
-						}
 					} else if r.Method == "POST" {
 						raw = `{"state":true}`
 					}
@@ -175,15 +171,6 @@ func TestNativeUploadProtocols(t *testing.T) {
 						raw = `{"file":{"userFileId":"file"}}`
 					default:
 						t.Errorf("unexpected tianyi path %s", r.URL.Path)
-					}
-				case kind == "115":
-					switch r.URL.Path {
-					case "/open/upload/init":
-						raw = `{"state":true,"data":{"status":1,"bucket":"bucket","object":"file","callback":{"callback":"{\"callbackUrl\":\"https://callback.test\"}"}}}`
-					case "/open/upload/get_token":
-						raw = `{"state":true,"data":{"AccessKeyId":"key","AccessKeySecret":"secret","SecurityToken":"token","Endpoint":"https://oss.test"}}`
-					default:
-						t.Errorf("unexpected 115 path %s", r.URL.Path)
 					}
 				case kind == "quark":
 					switch r.URL.Path {

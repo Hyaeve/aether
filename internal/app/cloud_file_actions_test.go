@@ -18,7 +18,7 @@ func TestNativeCloudFileActions(t *testing.T) {
 	for _, kind := range []string{"mobile", "tianyi", "115", "quark"} {
 		t.Run(kind, func(t *testing.T) {
 			a := testApp(t)
-			s := Storage{ID: kind, Type: kind, Enabled: true, Config: map[string]string{"mode": "native", "username": "test", "password": "secret", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:13900000000:token")), "accessToken": "secret", "cookie": "secret"}}
+			s := Storage{ID: kind, Type: kind, Enabled: true, Config: map[string]string{"mode": "native", "username": "test", "password": "secret", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:13900000000:token")), "cookie": "UID=1_A1;CID=test;SEID=secret"}}
 			// Avoid external login; all protocol traffic remains in this transport.
 			if kind == "tianyi" {
 				// tianyiSessionFor computes the same identity before reusing a session.
@@ -37,8 +37,8 @@ func TestNativeCloudFileActions(t *testing.T) {
 					payload = `{"success":true,"data":{"items":[{"fileId":"123","name":"movie.mp4","type":"file","size":5}]}}`
 				case strings.Contains(r.URL.Path, "listFiles.action"):
 					payload = `{"res_code":0,"fileListAO":{"fileList":[{"id":"123","name":"movie.mp4","size":5}]}}`
-				case r.URL.Path == "/open/ufile/files":
-					payload = `{"state":true,"data":[{"file_id":"123","file_name":"movie.mp4","file_category":"1","size":5}]}`
+				case r.URL.Path == "/files":
+					payload = `{"state":true,"cid":"0","count":1,"data":[{"fid":"123","n":"movie.mp4","s":5}]}`
 				case strings.HasSuffix(r.URL.Path, "/file/sort"):
 					payload = `{"code":0,"status":200,"data":{"list":[{"fid":"123","file_name":"movie.mp4","file_type":1,"size":5}]}}`
 				default:
@@ -63,7 +63,7 @@ func TestNativeCloudFileActions(t *testing.T) {
 						// Mobile wraps the payload; check endpoint independently.
 					} else {
 						r.ParseForm()
-						if kind == "115" && strings.HasSuffix(r.URL.Path, "/update") && r.Form.Get("file_name") != "new.mp4" {
+						if kind == "115" && strings.HasSuffix(r.URL.Path, "/batch_rename") && r.Form.Get("files_new_name[123]") != "new.mp4" {
 							t.Error(r.Form)
 						}
 					}

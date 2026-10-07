@@ -8,13 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-// Independent download/upload pipeline. Aria2 handles HTTP, FTP and BitTorrent.
+// Downloads run in-process; completed files use the existing storage upload path.
 func (a *App) builtinOffline(w http.ResponseWriter, r *http.Request, s Storage, parent string, urls []string, torrent bool) {
 	if !a.offlineBatches.CompareAndSwap(0, 1) {
 		fail(w, 409, errors.New("已有内置下载批次执行中，请等待完成"))
@@ -26,19 +25,13 @@ func (a *App) builtinOffline(w http.ResponseWriter, r *http.Request, s Storage, 
 			a.offlineBatches.Store(0)
 		}
 	}()
-	binary, err := exec.LookPath("aria2c")
-	if err != nil {
-		fail(w, 400, errors.New("内置下载器不可用：运行环境需要 aria2c（Docker 镜像已包含）"))
-		return
-	}
 	if (!torrent && (len(urls) == 0 || len(urls) > 50)) || (torrent && (len(r.MultipartForm.File["torrents"]) == 0 || len(r.MultipartForm.File["torrents"]) > 20)) {
 		fail(w, 400, errors.New("每批支持 1–50 个链接或 1–20 个种子"))
 		return
 	}
 	for _, raw := range urls {
-		u, err := url.Parse(strings.TrimSpace(raw))
-		if err != nil || len(raw) > 8192 || strings.ContainsAny(raw, "\r\n\x00") || !map[string]bool{"http": true, "https": true, "ftp": true, "magnet": true}[u.Scheme] {
-			fail(w, 400, errors.New("内置下载支持 HTTP、HTTPS、FTP 和磁力链接，不支持 ED2K 下载"))
+		if err := validateBuiltinURL(raw); err != nil {
+			fail(w, 400, err)
 			return
 		}
 	}
@@ -119,7 +112,7 @@ func (a *App) builtinOffline(w http.ResponseWriter, r *http.Request, s Storage, 
 		defer a.offlineBatches.Store(0)
 		for _, j := range jobs {
 			ctx, cancel := context.WithTimeout(a.ctx, 24*time.Hour)
-			err := a.runBuiltinDownload(ctx, binary, s, parent, j.dir, j.input, j.torrent)
+			err := a.runBuiltinDownload(ctx, s, parent, j.dir, j.input, j.torrent)
 			cancel()
 			if err != nil {
 				// Do not log input URLs: they may contain credentials or signed queries.
@@ -133,21 +126,35 @@ func (a *App) builtinOffline(w http.ResponseWriter, r *http.Request, s Storage, 
 	jsonResponse(w, 200, results)
 }
 
-func (a *App) runBuiltinDownload(ctx context.Context, binary string, s Storage, parent, dir, input string, torrent bool) error {
+func (a *App) runBuiltinDownload(ctx context.Context, s Storage, parent, dir, input string, torrent bool) error {
 	output := filepath.Join(dir, "files")
 	if err := os.MkdirAll(output, 0700); err != nil {
 		return err
 	}
-	args := []string{"--no-conf=true", "--dir=" + output, "--seed-time=0", "--bt-stop-timeout=300", "--max-tries=3", "--connect-timeout=30", "--timeout=60", "--allow-overwrite=false", "--auto-file-renaming=false", "--follow-torrent=false", "--enable-rpc=false", "--console-log-level=error"}
-	if torrent {
-		args = append(args, "--torrent-file="+input)
+	var err error
+	if torrent || strings.HasPrefix(input, "magnet:") {
+		err = downloadBuiltinTorrent(ctx, output, input, torrent)
 	} else {
-		args = append(args, "--", input)
+		err = downloadBuiltinHTTP(ctx, output, input)
 	}
-	if err := exec.CommandContext(ctx, binary, args...).Run(); err != nil {
-		return fmt.Errorf("下载器未完成：%w", err)
+	if err != nil {
+		return err
 	}
 	return a.publishOfflineDirectory(ctx, s, parent, output)
+}
+
+func validateBuiltinURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || len(raw) > 8192 || strings.ContainsAny(raw, "\r\n\x00") {
+		return errors.New("下载链接无效")
+	}
+	if u.Scheme == "magnet" {
+		return validateBuiltinMagnet(raw)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return errors.New("内置下载支持 HTTP、HTTPS、磁力和 BT 种子，不支持 FTP 或 ED2K 下载")
+	}
+	return nil
 }
 
 func (a *App) publishOfflineDirectory(ctx context.Context, s Storage, parent, output string) error {

@@ -77,3 +77,9 @@ async function clear() {
   <WebDAVUsers v-if="section === 'webdav'" />
   <Modal v-if="clearConfirm" title="清空缓存" @close="clearConfirm = false"><div class="modal-body">确认清空所有目录缓存及磁盘快照？存储中的文件不会受影响。</div><footer class="modal-footer"><button class="btn" @click="clearConfirm = false">取消</button><button class="btn danger" :disabled="busy" @click="clear">清空缓存</button></footer></Modal>
 </template>
+
+<style scoped>
+#cache-settings-form :deep(.number-control input) { font-size: 16px; }
+#cache-settings-form :deep(.number-unit) { font-size: 14px; }
+.account-settings { background: var(--surface); padding: 20px; border: 1px solid var(--border); border-radius: 8px; }
+</style>

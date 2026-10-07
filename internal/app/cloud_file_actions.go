@@ -161,30 +161,21 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 		return nil
 	}
 	if s.Type == "115" {
-		endpoint := ""
-		form := url.Values{}
-		switch req.Action {
-		case "rename":
-			endpoint = "update"
-			form = url.Values{"file_id": {req.IDs[0]}, "file_name": {req.Name}}
-		case "move":
-			endpoint = "move"
-			form = url.Values{"file_ids": {strings.Join(req.IDs, ",")}, "to_cid": {dest}}
-		case "copy":
-			endpoint = "copy"
-			form = url.Values{"file_id": {strings.Join(req.IDs, ",")}, "pid": {dest}, "nodupli": {"1"}}
-		case "delete":
-			endpoint = "delete"
-			form = url.Values{"file_ids": {strings.Join(req.IDs, ",")}}
-		}
-		var result struct{ State bool }
-		if err := requestJSON(ctx, "POST", "https://proapi.115.com/open/ufile/"+endpoint, cloudHeaders(s), form, &result); err != nil {
+		c, err := client115(ctx, s)
+		if err != nil {
 			return err
 		}
-		if !result.State {
-			return errors.New("115拒绝文件操作")
+		switch req.Action {
+		case "rename":
+			return c.Rename(req.IDs[0], req.Name)
+		case "move":
+			return c.Move(dest, req.IDs...)
+		case "copy":
+			return c.Copy(dest, req.IDs...)
+		case "delete":
+			return c.Delete(req.IDs...)
 		}
-		return nil
+		return errors.New("无效的 115 文件操作")
 	}
 	endpoint := ""
 	body := map[string]any{}

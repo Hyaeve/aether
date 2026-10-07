@@ -29,7 +29,7 @@ export async function reload() {
   Object.assign(state, await api('/state'))
 }
 export const drivers = [
-  { id: '115', name: '115 网盘', subtitle: 'Open API', icon: '115', color: '#2389dc', kind: '云端存储', auth: '访问令牌', root: '0', tags: ['官方 API', '直连接入'] },
+  { id: '115', name: '115 网盘', subtitle: '115driver', icon: '115', color: '#2389dc', kind: '云端存储', auth: 'CK', root: '0', tags: ['Cookie', '直连接入'] },
   { id: 'mobile', name: '移动云盘', subtitle: 'China Mobile', icon: 'M', color: '#269cc0', kind: '云端存储', auth: '原生个人云', root: '/', tags: ['原生个人云', 'CAS'] },
   { id: 'tianyi', name: '天翼云盘', subtitle: 'China Telecom', icon: '天', color: '#db9234', kind: '云端存储', auth: '原生账号登录', root: '-11', tags: ['原生个人云', 'CAS'] },
   { id: 'quark', name: '夸克网盘', subtitle: 'Quark', icon: 'Q', color: '#277eaf', kind: '云端存储', auth: 'Cookie', root: '0', tags: ['Cookie', '本机代理'] },

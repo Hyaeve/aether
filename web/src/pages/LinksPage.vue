@@ -153,7 +153,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <button class="add-storage-tile link-add" @click="open()"><Icon name="Plus" :size="28" /><strong>添加以太链接</strong></button>
   </div>
   <section v-else class="link-playback">
-    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:126px" /><col style="width:100px" /><col style="width:8%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:94px" /><col style="width:80px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存有效期</th><th>耗时</th></tr></thead><tbody>
+    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:126px" /><col style="width:100px" /><col style="width:8%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:94px" /><col style="width:80px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
       <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
         <td>{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>

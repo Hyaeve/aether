@@ -77,7 +77,7 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   })).toBe(true)
   await expect(page.locator('.cache-state').first()).toHaveClass(/fresh/)
   await expect(page.locator('.playback-event td').first()).toHaveCSS('font-size', '14px')
-  await expect(page.locator('.link-playback th')).toHaveText(['时间', '上游', 'UA', '模式', '链接', '请求 IP', '缓存状态', '缓存有效期', '耗时'])
+  await expect(page.locator('.link-playback th')).toHaveText(['时间', '上游', 'UA', '模式', '链接', '请求 IP', '缓存状态', '缓存期', '耗时'])
   await page.getByRole('button', { name: '筛选播放类型', exact: true }).click()
   await expect(page.locator('.rounded-select-popup')).toHaveCSS('scrollbar-width', 'none')
   await page.getByRole('option', { name: '适配', exact: true }).click()

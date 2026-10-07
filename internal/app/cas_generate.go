@@ -31,6 +31,7 @@ func casForBinding(info CASInfo, binding Storage) (CASInfo, error) {
 	info.Provider = binding.Type
 	if binding.Type == "mobile" {
 		info.MD5 = ""
+		info.SliceMD5, info.SliceSize = "", 0
 	} else {
 		info.SHA256 = ""
 	}
@@ -73,7 +74,19 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 		return info, errors.New("仅支持普通文件")
 	}
 	info.Size = before.Size()
-	sha, md := sha256.New(), md5.New()
+	sha, md, slice, aggregate := sha256.New(), md5.New(), md5.New(), md5.New()
+	const sliceSize = int64(10 << 20)
+	var sliceBytes int64
+	sliceCount := 0
+	finishSlice := func() {
+		if sliceCount > 0 {
+			aggregate.Write([]byte("\n"))
+		}
+		aggregate.Write([]byte(strings.ToUpper(hex.EncodeToString(slice.Sum(nil)))))
+		sliceCount++
+		slice.Reset()
+		sliceBytes = 0
+	}
 	buffer := make([]byte, 1<<20)
 	var total int64
 	for {
@@ -84,6 +97,15 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 		if n > 0 {
 			sha.Write(buffer[:n])
 			md.Write(buffer[:n])
+			for chunk := buffer[:n]; len(chunk) > 0; {
+				take := min(int64(len(chunk)), sliceSize-sliceBytes)
+				slice.Write(chunk[:take])
+				sliceBytes += take
+				chunk = chunk[take:]
+				if sliceBytes == sliceSize {
+					finishSlice()
+				}
+			}
 			total += int64(n)
 		}
 		if err == io.EOF {
@@ -101,6 +123,13 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 		return info, errors.New("文件在计算哈希期间发生变化，请重新执行")
 	}
 	info.SHA256, info.MD5 = hex.EncodeToString(sha.Sum(nil)), hex.EncodeToString(md.Sum(nil))
+	if sliceBytes > 0 {
+		finishSlice()
+	}
+	info.SliceSize, info.SliceMD5 = sliceSize, strings.ToUpper(info.MD5)
+	if sliceCount > 1 {
+		info.SliceMD5 = strings.ToUpper(hex.EncodeToString(aggregate.Sum(nil)))
+	}
 	if err := ctx.Err(); err != nil {
 		return info, err
 	}

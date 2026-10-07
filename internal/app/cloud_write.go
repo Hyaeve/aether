@@ -343,14 +343,12 @@ func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) er
 		var out map[string]any
 		return a.tianyiRequest(ctx, s, "POST", tianyiAPI+"/createFolder.action", url.Values{"parentFolderId": {parent}, "folderName": {name}, "relativePath": {""}}, &out)
 	case "115":
-		var out struct{ State bool }
-		if err := requestJSON(ctx, "POST", "https://proapi.115.com/open/folder/add", cloudHeaders(s), url.Values{"pid": {parent}, "file_name": {name}}, &out); err != nil {
+		c, err := client115(ctx, s)
+		if err != nil {
 			return err
 		}
-		if !out.State {
-			return errors.New("115 拒绝创建目录")
-		}
-		return nil
+		_, err = c.Mkdir(parent, name)
+		return err
 	case "quark":
 		return quarkWriteJSON(ctx, s, "/file", map[string]any{"pdir_fid": parent, "file_name": name, "dir_path": "", "dir_init_lock": false}, nil)
 	}

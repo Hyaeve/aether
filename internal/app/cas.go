@@ -35,6 +35,8 @@ type CASInfo struct {
 	Size           int64  `json:"size"`
 	SHA256         string `json:"sha256"`
 	MD5            string `json:"md5,omitempty"`
+	SliceMD5       string `json:"slice_md5,omitempty"`
+	SliceSize      int64  `json:"slice_size,omitempty"`
 }
 
 type CASTemporary struct {
@@ -56,6 +58,12 @@ func validateCAS(info CASInfo) error {
 	md5, md5Err := hex.DecodeString(info.MD5)
 	if (err != nil || len(hash) != 32) && (md5Err != nil || len(md5) != 16) {
 		return errors.New("CAS 需要有效的 64 位 SHA256 或 32 位 MD5")
+	}
+	if info.SliceMD5 != "" || info.SliceSize != 0 {
+		slice, err := hex.DecodeString(info.SliceMD5)
+		if err != nil || len(slice) != 16 || info.SliceSize <= 0 || info.SliceSize > 1<<40 || md5Err != nil || len(md5) != 16 {
+			return errors.New("CAS 分片 MD5 或分片大小无效")
+		}
 	}
 	return nil
 }
@@ -90,11 +98,13 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	}
 	// Some CAS writers serialize the byte count as a decimal string.
 	var data struct {
-		Provider string          `json:"provider"`
-		Name     string          `json:"name"`
-		Size     json.RawMessage `json:"size"`
-		SHA256   string          `json:"sha256"`
-		MD5      string          `json:"md5"`
+		Provider  string          `json:"provider"`
+		Name      string          `json:"name"`
+		Size      json.RawMessage `json:"size"`
+		SHA256    string          `json:"sha256"`
+		MD5       string          `json:"md5"`
+		SliceMD5  string          `json:"slice_md5"`
+		SliceSize int64           `json:"slice_size"`
 	}
 	if json.Unmarshal(raw, &data) != nil {
 		return info, errors.New("CAS 内容不是合法 JSON")
@@ -117,7 +127,7 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	if !isVideo(name) {
 		name += path.Ext(data.Name)
 	}
-	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5)}
+	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5), SliceMD5: strings.ToUpper(data.SliceMD5), SliceSize: data.SliceSize}
 	return info, validateCAS(info)
 }
 

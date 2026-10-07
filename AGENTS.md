@@ -1,5 +1,18 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-07：115 CK 驱动、内置下载整合与 v0.2.4 发布
+
+- 新增 `internal/app/pan115.go`：使用 `115driver v1.3.5`，解析 UID/CID/SEID/KID、校验七种设备、绑定请求上下文与超时、禁止重定向、原生分页及逐项云下载；不调用会挤出其他设备的 LoginCheck。修改 `internal/app/drivers.go`、`cloud_file_actions.go`、`cloud_write.go`、`cloud_upload_115.go`、`server.go`：115 目录、直链、改名/移动/复制/回收、建目录、秒传及 OSS 上传改用 CK；OSS 强制 HTTPS 并支持取消。旧 Open 配置须重新扫码或填写 CK，保存后移除旧令牌。
+- 修改 `internal/app/authorization.go`：移除第三方 OAuth 请求，使用官方二维码、设备登录；五分钟加密会话绑定管理员/提供商/设备，凭据响应禁止缓存。新增 `internal/app/pan115_test.go`，修改 `cloud_file_actions_test.go`、`cloud_write_test.go`：Cookie 校验、真实 driver 请求路径、扫码回填、设备绑定、拒绝响应及取消测试；删除旧 Open 上传模拟，不能把其结果视为新驱动上传成功验证。
+- 修改 `internal/app/cloud_offline.go`、`cloud_offline_test.go`：115 通过加密 CK 协议提交原生云下载；公开 v1/混合种子转换为保留 hash/tracker 的磁力链接提交，私有及纯 v2 明确拒绝，不再上传种子到 Aether种子目录。上游成功加密响应无法在没有官方私钥时伪造，测试覆盖真实 driver 请求及拒绝，不宣称真实下载成功。
+- 修改 `internal/app/cas.go`、`cas_generate.go`、`tianyi.go`，新增 `cas_slice_test.go`：参考本地 OpenList 天翼协议，本地流式计算 10 MiB 分片 MD5 摘要，现有 CAS JSON 增加 slice_md5/slice_size；新天翼特征走分片秒传，旧 MD5 CAS 保持兼容，移动输出清除天翼字段。覆盖单片/整片/多片、序列化和模拟秒传参数；未复制 OpenList 源码，未实现 .cas.torrent 格式导入导出。
+- 修改 `web/src/components/OfflineDownload.vue`、`web/tests/rename-workbench.spec.js`：115 云下载与内置离线下载区分窗口标题、图标、目录标签和提交按钮。修改 `web/src/pages/StoragePage.vue`、`SettingsPage.vue`、`web/src/lib.js`：CK 单行独占一行、设备选择、扫码获取 CK、清理 OAuth UI；缓存数值字体16px，账号安全白色表面/夜间适配。修改 `web/tests/workspace.spec.js`、`zzz-workspace-actions.spec.js`，新增 `web/tests/storage-115-ck.spec.js`、`web/playwright.frontend.config.js`：对应授权/显隐/关闭轮询/主题测试。
+- 一并交付此前未推送变更：`internal/app/builtin_offline.go`、`builtin_offline_test.go`、`file_create_test.go`，新增 `builtin_http.go`、`builtin_torrent.go`、`builtin_download_test.go`，以 Go HTTP 与 anacrolix/torrent 进程内下载替代 aria2；HTTP 完整性、BT 分片完成后上传、路径边界与失败暂存。`web/src/pages/FilesPage.vue`、新增 `web/tests/favorites.spec.js` 修复收藏路径历史引用及旧污染轨迹；`web/src/pages/LinksPage.vue`、`TasksPage.vue`、`web/tests/z-links.spec.js` 将缓存有效期改缓存期。之前对应记录保留。
+- 修改 `go.mod`、`go.sum`：加入115driver、torrent及依赖。修改 `README.md`、`THIRD_PARTY_NOTICES.md`：CK迁移、两种下载器、种子限制、CAS边界、来源和MIT许可。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：版本统一0.2.4；Docker移除aria2，工作流仍仅 linux/amd64，没有新增架构。修改本 `AGENTS.md` 记录全部文件。
+- 验证：最终 `go test ./... -count=1`、`go vet ./...`、前端构建、26项全量Playwright、差异格式检查均通过；Linux amd64 CGO=0交叉构建成功，临时二进制已移除；查看桌面CK表单截图。测试使用隔离15159，未改用户配置或15151实例，未生成根目录exe。
+- 限制：没有真实115/天翼账号、公网磁力或Docker/FUSE联调；云端权益、CK失效和种子元数据可用性仍依赖上游。未对外宣称镜像构建完成。按用户要求中文提交和标签并推送，网络状态及实际推送结果以最终Git输出为准。
+- 发布复查：`internal/app/cloud_upload_115.go` 保留大于16MiB的OSS分片路径，失败尝试中止上游分片，并校验上传回调 state；`pan115_test.go` 增加小文件/分片精确字节计数、HTTPS与不携带CK、失败回调测试。GitHub fetch 两次网络失败后第三次成功，发布前 main 与 origin/main 一致。
+
 ## 2026-10-06：修复以链直接返回 STRM 中间地址
 
 - 修改 `internal/app/links.go`：`buildLink` 显式开启 `FollowUpstreamRedirects`，复用本地 AetherLink 的 HEAD 探测、Range GET 回退、有效 UA 传递和有界重定向跟随；此前沿用默认 false 导致中间地址直接返回。客户端网段分类及跳转模式逻辑不变。持久化缓存换用 `*-direct-v2.json`，避免恢复旧的未探测地址，不删除旧缓存或用户数据。
@@ -666,3 +679,44 @@
 - 验证：Go 全量测试、vet、前端构建通过；18 项 Playwright 回归通过，新增精确布局及播放虚拟化测试通过。首轮失败为旧默认值/旧图标/任务数量断言，新增测试发现选择器 min-width 覆盖宽度，修正后通过。已查看挂载卡片截图；发布前最终全套结果以下续记为准。
 - 限制：本机没有 Docker/aria2，真实网盘下载上传、BT 网络、FUSE 均未联调；下载队列不持久恢复，重启中断文件保留，暂未提供失败重试/自动清理及磁盘配额管理。ED2K 仅本地计算；已有内存会话需升级后重新登录一次才能持久化。未操作原 15151 服务、用户配置或生成根目录 exe。按请求中文提交并推送 main/v0.2.3，结果以 Git 返回为准。
 - 最终验证：完整 19 项 Playwright 测试通过（2.1 分钟），Go 全量测试、vet、前端构建及差异检查通过；查看重命名工作台、挂载详情、播放流水截图。远程 fetch 成功，发布前 main 与 origin/main 一致。测试服务已退出，不替换用户正在运行的实例。
+
+## 2026-10-07：统一缓存字段文案
+
+- 修改 `web/src/pages/LinksPage.vue`、`web/src/pages/TasksPage.vue`：将播放流水表头、任务表单及缓存字段的显示文案“缓存有效期”统一改为“缓存期”，不改变接口字段或缓存逻辑。
+- 修改 `web/tests/z-links.spec.js`：同步播放流水表头断言。
+- 验证：`npm run build` 通过；本轮未改后端，未递增版本。
+
+## 2026-10-07：修复收藏目录导航路径被子目录污染
+
+- 修改 `web/src/pages/FilesPage.vue`：`favoriteJump` 不再将收藏的 history 数组直接赋给当前导航，而是逐项复制，避免后续 `enter` 追加子目录时修改并持久化收藏路径。按收藏 ID 截断旧记录中被追加的后代轨迹，保持原收藏目标 ID；跳转时重置搜索和选中锚点。
+- 新增 `web/tests/favorites.spec.js`：使用云盘 opaque ID 验证收藏跳转、连续进入两层子目录、再次点击收藏、面包屑返回父目录、刷新后恢复以及旧污染记录修复。
+- 验证：前端构建通过；两项收藏回归与现有文件浏览回归共 3 项 Playwright 测试通过。未修改后端、用户配置或运行中的 15151 服务；保留上一轮“缓存期”改动，本轮未提交推送、未递增版本。
+
+## 2026-10-07：修复内置下载功能与 CI 旧断言冲突
+
+- 修改 `internal/app/file_create_test.go`：删除 `TestFileCreateUploadAndDownload` 中“本地离线下载必须返回 400”的旧断言。当前需求允许本地存储使用内置下载器；旧测试在无 aria2c 的 Windows 上因依赖缺失碰巧通过，在下载器可用时返回 200，不能据此禁用正确功能。
+- 修改 `internal/app/builtin_offline_test.go`：新增独立空 PATH 的缺失下载器测试，明确校验错误含 aria2c 且批次锁释放；新增真实 aria2 对回环 HTTP 服务下载、发布到所选本地目录、内容一致与成功暂存清理测试，不依赖公网下载。未安装 aria2c 时后者显式跳过。
+- 修改 `.github/workflows/docker-amd64.yml`：测试阶段明确安装 aria2，确保 Linux CI 执行下载集成测试；保留 race 和仅 linux/amd64 构建。
+- 验证：`go test ./... -count=1`、`go vet ./...` 通过。本机无 aria2c，真实下载集成测试跳过，需推送后由 CI 执行；未声称 GitHub 工作流已重新成功。本轮未提交推送、未递增版本，保留缓存期与收藏导航的未提交修改。
+
+## 2026-10-07：离线下载改为 Go 进程内实现
+
+- 修改 `internal/app/builtin_offline.go`：移除 aria2 查找与子进程执行，HTTP/HTTPS 和磁力、种子分派进程内引擎，保留现有批次限流、上传、取消、成功清理及失败暂存；115 原生流程不变。FTP/ED2K 仅可由 115 原生接口处理，内置下载明确拒绝。保留对旧 `.aria2` 未完成标记的保护。
+- 新增 `internal/app/builtin_http.go`：标准库 HTTP 客户端、连接/响应头超时、有界重定向、跨主机敏感头清除、响应文件名校验、100GiB 限制、长度检查、临时写入及无覆盖发布；错误不回显含凭据链接。
+- 新增 `internal/app/builtin_torrent.go`：`anacrolix/torrent` v1.61.0 磁力/BT 下载，10 分钟元数据等待、取消、禁上传/自动端口映射、分片校验完成后才交付；独立文件存储与内存完成表，不将内部元数据上传。存储打开前校验名称、逐段路径、100GiB 总量及 10000 文件上限。独立实现，未复制 LitePan 源码。
+- 修改 `go.mod`、`go.sum`：加入 torrent 及其依赖并 tidy。修改 `Dockerfile` 移除 aria2；撤回上一条尚未发布的 CI aria2 安装改动，工作流回到原 ffmpeg 安装，无最终差异。
+- 修改 `internal/app/builtin_offline_test.go`：移除外部下载器缺失测试及跳过逻辑，空 PATH 下真实回环 HTTP 下载上传、清理测试，新增不支持协议与批次锁释放验证。`internal/app/file_create_test.go` 保留上一条删除过时断言的修复。
+- 新增 `internal/app/builtin_download_test.go`：HTTP 重定向、响应名称、防越界、不覆盖、截断/状态错误清理、取消；本地 WebSeed 实际 BT 下载与精确内容校验、无额外上传文件、无效磁力/路径/大小验证。初次全量发现 BytesCompleted 包含未校验块，改用 Complete().On() 后 BT 重复 5 次通过。
+- 修改 `README.md`、`THIRD_PARTY_NOTICES.md`、`AGENTS.md`：说明技术路线、MPL-2.0 依赖、协议范围及边界。队列重启恢复、进度管理和失败重试仍未实现，不宣称已完整复刻 LitePan。
+- 验证：HTTP/BT 针对测试与无 CGO Linux amd64 交叉构建通过，临时二进制在系统临时目录构建后删除。真实网盘上传、公网磁力发现、Docker/FUSE 运行未联调；保留前两轮 UI 未提交改动，本轮未提交推送、未递增版本。最终全量测试结果以下续记。
+- 最终验证：`go test ./... -count=1`、`go vet ./...`、`git diff --check` 全部通过；本轮无前端代码改动，不重跑浏览器测试。未执行本机 race（现有环境无 CGO），Linux CI 保留 race 检查。
+
+## 2026-10-07：115 CK 扫码前端与设置样式（仅前端范围）
+
+- 修改 `web/src/pages/StoragePage.vue`：115 表单替换为独占一行的 CK 显隐输入、七种设备类型及左下角扫码获取 CK；删除 LitePan OAuth 地址、本地 OAuth 偏好读写、新窗口与 Access/Refresh Token 界面。编辑旧配置时移除表单中的旧令牌字段，保存采用 `config.cookie`、`config.device`。二维码 start 请求提交 device，预期响应 token/image/expiresIn；poll 提交 token/device，兼容 cookie 或 ck 及返回 device。保留夸克扫码流程，处理过期、取消、失败、空凭据和未知设备，关闭/卸载或切换设备后忽略旧响应。
+- 修改 `web/src/lib.js`：115 前端描述更新为 115driver、CK/Cookie，不再标注 Open API/访问令牌。
+- 修改 `web/src/pages/SettingsPage.vue`：局部样式将缓存设置数字输入字体调为 16px、单位 14px；账号安全窗口使用主题 surface，日间白底、夜间深色，保留 380px 最大宽度及统一控件尺寸。
+- 新增 `web/tests/storage-115-ck.spec.js`：五项模拟接口测试覆盖 cookie/ck 两种响应、设备传递与回填、无弹窗、全行输入显隐布局稳定、旧存储密钥读取与移除旧令牌、失效重试/空返回/关闭后的旧响应、缓存字体及账号窗口日夜主题；包含桌面和手机截图。
+- 新增 `web/playwright.frontend.config.js`：独立 Vite 静态预览测试配置，端口 15160，仅运行上述前端模拟测试，不依赖 Go 后端。修改 `web/tests/workspace.spec.js` 的旧 OAuth 断言为 CK 二维码；修改 `web/tests/zzz-workspace-actions.spec.js`，移除依赖真实旧 Token 后端建池的 115 项，该项改由新增模拟 CK 显隐测试覆盖，其他存储测试保留。
+- 验证：`npm run build`、`npx playwright test --config playwright.frontend.config.js` 五项通过，查看 115 桌面/手机及账号窗口截图。首次测试定位器与二维码弹窗同名冲突，改为 CK 输入精确无障碍标签后通过。最初默认 E2E 启动受工作区后端 go.sum 缺失阻塞，未修改依赖，改为独立前端配置；未重跑后端依赖的完整测试。
+- 边界：本轮未修改任何后端文件、Go 依赖、部署或版本文件；保留工作区其他已有/并行修改。扫码及保存仅验证前端约定和模拟接口，不宣称真实 115 登录或后端迁移完成。未提交、推送、递增版本或操作原 15151 服务及用户配置。修改本文件记录本轮全部文件。

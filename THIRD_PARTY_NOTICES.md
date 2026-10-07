@@ -84,10 +84,49 @@ mount process. Aether communicates with it through a private loopback WebDAV
 bridge; no rclone source code is copied into this repository.
 Upstream: https://github.com/rclone/rclone
 
-## aria2 and offline workflow
+## In-process offline downloads
 
-The Docker image installs Alpine's aria2 package as a separate download process
-(GPL-2.0-or-later). Upstream source: https://github.com/aria2/aria2 .
-`internal/app/builtin_offline.go` independently implements a download-then-upload
-workflow after inspecting the supplied LitePan `internal/offlinedownload`
-directory. No LitePan source implementation was copied.
+HTTP downloads use Go's standard library. BitTorrent downloads link
+`github.com/anacrolix/torrent` v1.61.0 (MPL-2.0), with its transitive dependencies
+under their respective licenses. Upstream: https://github.com/anacrolix/torrent .
+No upstream library source files are modified. aria2 is no longer included.
+`internal/app/builtin_{offline,http,torrent}.go` independently implement the
+download-then-upload workflow after inspecting the supplied LitePan
+`internal/offlinedownload` directory. No LitePan implementation was copied.
+
+## 115 Cookie driver and CAS protocol reference (2026-10-07)
+
+Aether links `github.com/SheltonZhu/115driver` v1.3.5, unmodified, for
+official QR Cookie login, files, uploads and native offline downloads.
+Upstream: https://github.com/SheltonZhu/115driver .
+Its author expresses opposition to use by AlistGo, while explicitly noting
+that the MIT license does not impose that restriction and that the opposition
+does not apply to community forks or other users respecting privacy.
+The former LitePan OAuth service and 115 Open API paths are no longer used.
+
+MIT License
+
+Copyright (c) 2022-2024 SheltonZhu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The supplied OpenList checkout's `drivers/189/torrent.go` and
+`pkg/torrent/torrent.go` were inspected for CAS hash fields and the Tianyi
+multi-upload protocol. Aether independently computes slice hashes and keeps
+its existing CAS JSON envelope; no OpenList source files were copied.

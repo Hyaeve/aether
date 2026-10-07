@@ -55,10 +55,6 @@ func TestFileCreateUploadAndDownload(t *testing.T) {
 	if err != nil || string(content) != "hello" {
 		t.Fatal(string(content), err)
 	}
-	w := request(t, h, "POST", "/api/files/offline", map[string]any{"storageId": s.ID, "parent": "/new", "urls": []string{"https://example.com/file"}}, cookie)
-	if w.Code != 400 {
-		t.Fatal("local storage must not pretend to support cloud offline download", w.Code)
-	}
 	var list []File
 	json.Unmarshal(request(t, h, "GET", "/api/files?storage="+s.ID+"&path=/new", nil, cookie).Body.Bytes(), &list)
 	for _, file := range list {

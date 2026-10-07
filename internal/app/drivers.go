@@ -71,7 +71,8 @@ func requestJSON(ctx context.Context, method, address string, headers http.Heade
 func cloudHeaders(s Storage) http.Header {
 	h := http.Header{"User-Agent": {"Mozilla/5.0 quark-cloud-drive/2.5.20"}, "Accept": {"application/json"}}
 	if s.Type == "115" {
-		h.Set("Authorization", "Bearer "+s.Config["accessToken"])
+		h.Set("Cookie", s.Config["cookie"])
+		h.Set("User-Agent", pan115UA)
 	}
 	if s.Type == "quark" {
 		h.Set("Cookie", s.Config["cookie"])
@@ -253,33 +254,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 			}
 		}
 	case "115":
-		for offset := 0; ; offset += 200 {
-			var res struct {
-				State bool                         `json:"state"`
-				Count int                          `json:"count"`
-				Data  []map[string]json.RawMessage `json:"data"`
-			}
-			u := "https://proapi.115.com/open/ufile/files?show_dir=1&limit=200&cid=" + url.QueryEscape(dir) + "&offset=" + strconv.Itoa(offset)
-			if err := a.waitAPI(ctx, s.ID); err != nil {
-				return nil, err
-			}
-			if err := requestJSON(ctx, "GET", u, cloudHeaders(s), nil, &res); err != nil {
-				return nil, err
-			}
-			if !res.State {
-				return nil, errors.New("115 Open 授权失效或请求被限流，请更新访问令牌")
-			}
-			for _, f := range res.Data {
-				item, err := file115(f)
-				if err != nil {
-					return nil, err
-				}
-				out = append(out, item)
-			}
-			if len(res.Data) < 200 || (res.Count > 0 && len(out) >= res.Count) {
-				break
-			}
-		}
+		return a.list115(ctx, s, dir)
 	default:
 		return nil, errors.New("不支持的存储类型")
 	}
@@ -456,25 +431,15 @@ func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Dow
 		if pick == "" {
 			return d, errors.New("缺少 pick_code，请刷新目录后重试")
 		}
-		var res struct {
-			State bool `json:"state"`
-			Data  map[string]struct {
-				URL struct {
-					URL string `json:"url"`
-				} `json:"url"`
-			} `json:"data"`
-		}
-		err := requestJSON(ctx, "POST", "https://proapi.115.com/open/ufile/downurl", cloudHeaders(s), url.Values{"pick_code": {pick}}, &res)
+		c, err := client115(ctx, s)
 		if err != nil {
 			return d, err
 		}
-		if !res.State {
-			return d, errors.New("115 获取下载链接失败")
+		info, err := c.DownloadWithUA(pick, pan115UA)
+		if err != nil {
+			return d, err
 		}
-		for _, f := range res.Data {
-			d.URL = f.URL.URL
-			break
-		}
+		d.URL, d.Headers = info.Url.Url, info.Header
 	default:
 		return d, errors.New("存储类型暂不支持下载")
 	}

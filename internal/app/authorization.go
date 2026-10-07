@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,16 +13,19 @@ import (
 	"strings"
 	"time"
 
+	driver "github.com/SheltonZhu/115driver/pkg/driver"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
 type authorizationSession struct {
-	Provider string            `json:"provider"`
-	Base     string            `json:"base,omitempty"`
-	Token    string            `json:"token"`
-	Cookies  map[string]string `json:"cookies"`
-	Expires  int64             `json:"expires"`
-	Owner    [32]byte          `json:"owner"`
+	Provider string                `json:"provider"`
+	Base     string                `json:"base,omitempty"`
+	Token    string                `json:"token"`
+	Cookies  map[string]string     `json:"cookies"`
+	Expires  int64                 `json:"expires"`
+	Owner    [32]byte              `json:"owner"`
+	Device   string                `json:"device,omitempty"`
+	QR115    *driver.QRCodeSession `json:"qr115,omitempty"`
 }
 
 type quarkAuthResponse struct {
@@ -158,7 +160,8 @@ func (a *App) pollAuthorization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Token string `json:"token"`
+		Token  string `json:"token"`
+		Device string `json:"device,omitempty"`
 	}
 	if !decode(w, r, &input) {
 		return
@@ -169,6 +172,10 @@ func (a *App) pollAuthorization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if session.Provider == "115" {
+		if input.Device != "" && input.Device != session.Device {
+			fail(w, 400, errors.New("设备类型已变化，请重新扫码"))
+			return
+		}
 		a.poll115Authorization(w, r, session)
 		return
 	}
@@ -207,94 +214,60 @@ func (a *App) pollAuthorization(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]string{"status": "success", "cookie": cookieHeader(session.Cookies)})
 }
 
-type oauthProxyResponse struct {
-	Success bool `json:"success"`
-	Data    struct {
-		SessionID string            `json:"session_id"`
-		URL       string            `json:"oauth_url"`
-		Status    string            `json:"status"`
-		Tokens    map[string]string `json:"token_data"`
-	} `json:"data"`
-}
-
-func oauthProxyRequest(r *http.Request, method, target string, payload any) (oauthProxyResponse, error) {
-	var result oauthProxyResponse
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return result, err
-	}
-	request, err := http.NewRequestWithContext(r.Context(), method, target, bytes.NewReader(body))
-	if err != nil {
-		return result, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "Aether/"+Version)
-	client := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	response, err := client.Do(request)
-	if err != nil {
-		return result, errors.New("无法连接 OAuth 代理，请检查地址或稍后重试")
-	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 || json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result) != nil || !result.Success {
-		return result, errors.New("OAuth 代理响应异常，请确认代理支持 115 Open 和 Aether 客户端")
-	}
-	return result, nil
-}
-
-func validOAuthURL(value string) bool {
-	u, err := url.Parse(value)
-	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.Fragment == "" && u.RawQuery == ""
-}
-
 func (a *App) start115Authorization(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Base string `json:"base"`
+		Device string `json:"device"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	input.Base = strings.TrimRight(strings.TrimSpace(input.Base), "/")
-	if !validOAuthURL(input.Base) {
-		fail(w, 400, errors.New("请输入可信任的 HTTPS OAuth 代理地址（不含查询参数）"))
+	if !valid115Device(input.Device) {
+		fail(w, 400, errors.New("请选择 CK 对应的设备类型"))
 		return
 	}
-	result, err := oauthProxyRequest(r, "POST", input.Base+"/api/oauth/start", map[string]any{
-		"driver_type": "115网盘Open", "callback_url": input.Base + "/callback-popup", "server_use": true,
-	})
+	qr, err := new115Client(r.Context()).QRCodeStart()
 	if err != nil {
-		fail(w, 502, err)
+		fail(w, 502, errors.New("无法获取 115 官方登录二维码，请重试"))
 		return
 	}
-	authorizationURL, err := url.Parse(result.Data.URL)
-	if err != nil || authorizationURL.Scheme != "https" || authorizationURL.Hostname() == "" || authorizationURL.User != nil || result.Data.SessionID == "" {
-		fail(w, 502, errors.New("OAuth 代理未返回有效的 HTTPS 授权地址或会话"))
+	image, err := qr.QRCode()
+	if err != nil || qr.UID == "" || qr.Sign == "" {
+		fail(w, 502, errors.New("115 返回了无效二维码"))
 		return
 	}
-	session := authorizationSession{Provider: "115", Base: input.Base, Token: result.Data.SessionID, Expires: time.Now().Add(5 * time.Minute).Unix(), Owner: authorizationOwner(r)}
+	session := authorizationSession{Provider: "115", Device: input.Device, QR115: qr, Expires: time.Now().Add(5 * time.Minute).Unix(), Owner: authorizationOwner(r)}
 	token, err := a.sealAuthorization(session)
 	if err != nil {
 		fail(w, 500, err)
 		return
 	}
-	jsonResponse(w, 200, map[string]any{"token": token, "url": authorizationURL.String(), "expiresIn": 300})
+	jsonResponse(w, 200, map[string]any{"token": token, "image": "data:image/png;base64," + base64.StdEncoding.EncodeToString(image), "expiresIn": 300})
 }
 
 func (a *App) poll115Authorization(w http.ResponseWriter, r *http.Request, session authorizationSession) {
-	result, err := oauthProxyRequest(r, "GET", session.Base+"/api/oauth/status/"+url.PathEscape(session.Token), nil)
-	if err != nil {
-		fail(w, 502, err)
+	if session.QR115 == nil || !valid115Device(session.Device) {
+		fail(w, 400, errors.New("请重新获取 115 二维码"))
 		return
 	}
-	switch result.Data.Status {
-	case "success":
-		access := strings.TrimSpace(result.Data.Tokens["access_token"])
-		if access == "" {
-			fail(w, 502, errors.New("OAuth 代理未返回 Access Token"))
+	c := new115Client(r.Context())
+	result, err := c.QRCodeStatus(session.QR115)
+	if err != nil {
+		fail(w, 502, errors.New("115 授权状态查询失败，请重试"))
+		return
+	}
+	switch {
+	case result.IsAllowed():
+		cr, err := c.QRCodeLoginWithApp(session.QR115, driver.LoginApp(session.Device))
+		if err != nil {
+			fail(w, 502, errors.New("115 未返回有效 CK，请重新扫码"))
 			return
 		}
-		_, _ = oauthProxyRequest(r, "POST", session.Base+"/api/oauth/confirm-received/"+url.PathEscape(session.Token), nil)
-		jsonResponse(w, 200, map[string]string{"status": "success", "accessToken": access, "refreshToken": strings.TrimSpace(result.Data.Tokens["refresh_token"])})
-	case "error", "expired":
+		if _, err := credential115(cr.Cookie()); err != nil {
+			fail(w, 502, err)
+			return
+		}
+		jsonResponse(w, 200, map[string]string{"status": "success", "cookie": cr.Cookie(), "device": session.Device})
+	case result.IsExpired(), result.IsCanceled():
 		jsonResponse(w, 200, map[string]string{"status": "expired"})
 	default:
 		jsonResponse(w, 200, map[string]string{"status": "waiting"})

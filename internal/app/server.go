@@ -497,7 +497,17 @@ func validateStorage(s *Storage) error {
 	case "local":
 		required = []string{"root"}
 	case "115":
-		required = []string{"accessToken"}
+		if s.Config["device"] == "" {
+			s.Config["device"] = "web"
+		}
+		if !valid115Device(s.Config["device"]) {
+			return errors.New("无效的 115 CK 设备类型")
+		}
+		if _, err := credential115(s.Config["cookie"]); err != nil {
+			return err
+		}
+		delete(s.Config, "accessToken")
+		delete(s.Config, "refreshToken")
 	case "quark":
 		required = []string{"cookie"}
 	case "tianyi":
