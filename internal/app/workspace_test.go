@@ -12,6 +12,9 @@ import (
 )
 
 func TestReleaseCheck(t *testing.T) {
+	originalVersion := Version
+	Version = "0.1.0"
+	t.Cleanup(func() { Version = originalVersion })
 	for _, tc := range []struct {
 		name, body, message string
 		status              int
