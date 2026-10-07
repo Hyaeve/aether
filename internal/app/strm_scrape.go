@@ -38,6 +38,7 @@ type scrapeItem struct {
 	Episode int    `json:"episode"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
+	Poster  string `json:"poster,omitempty"`
 }
 type scrapeProgress struct {
 	Running   bool   `json:"running"`
@@ -179,7 +180,7 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 		if len(items) >= 10000 {
 			return errors.New("单次刮削最多扫描 10000 个 STRM")
 		}
-		item := recognizeSTRM(entry.Name())
+		item := recognizeSTRMPath(name)
 		item.Path = name
 		if saved, ok := old[name]; ok {
 			item = saved
@@ -216,6 +217,60 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, cfg)
 		return
 	}
+	if action == "candidates" && r.Method == "POST" {
+		var in struct {
+			Query string `json:"query"`
+			Kind  string `json:"kind"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		if strings.TrimSpace(in.Query) == "" || len(in.Query) > 300 || (in.Kind != "movie" && in.Kind != "tv") {
+			fail(w, 400, errors.New("候选搜索参数无效"))
+			return
+		}
+		st := a.store.snapshotWithLogLimit(0)
+		cfg := pluginDefaults("tmdb", st.Plugins["tmdb"])
+		if !cfg.Enabled || cfg.APIKey == "" {
+			fail(w, 400, errors.New("请配置并启用 TMDB 插件"))
+			return
+		}
+		client, closeIdle, err := pluginClient(st.Plugins["proxy"])
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		defer closeIdle()
+		var result struct {
+			Results []tmdbMedia `json:"results"`
+		}
+		if err := tmdbGet(r.Context(), client, cfg, "search/"+in.Kind, url.Values{"query": {in.Query}}, &result); err != nil {
+			fail(w, 502, err)
+			return
+		}
+		type candidate struct {
+			ID       int    `json:"id"`
+			Title    string `json:"title"`
+			Name     string `json:"name"`
+			Year     string `json:"year"`
+			Overview string `json:"overview"`
+			Poster   string `json:"poster"`
+		}
+		out := make([]candidate, 0, len(result.Results))
+		for _, item := range result.Results {
+			year := item.Release
+			if year == "" {
+				year = item.AirDate
+			}
+			poster := item.Poster
+			if poster != "" && cfg.ImageURL != "" {
+				poster = strings.TrimRight(cfg.ImageURL, "/") + "/t/p/w342" + poster
+			}
+			out = append(out, candidate{ID: item.ID, Title: item.Title, Name: item.Name, Year: year, Overview: item.Overview, Poster: poster})
+		}
+		jsonResponse(w, 200, out)
+		return
+	}
 	a.scrapeMu.Lock()
 	defer a.scrapeMu.Unlock()
 	if action == "status" && r.Method == "GET" {
@@ -229,7 +284,12 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		jsonResponse(w, 200, a.loadScrapeIndex(task, root).Items)
+		items := a.loadScrapeIndex(task, root).Items
+		if r.URL.Query().Get("group") == "true" {
+			jsonResponse(w, 200, scrapeWorks(items))
+		} else {
+			jsonResponse(w, 200, items)
+		}
 		return
 	}
 	if r.Method != "POST" {
@@ -243,7 +303,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 		return
 	}
-	if action != "scan" && action != "run" && action != "match" {
+	if action != "scan" && action != "run" && action != "identify" && action != "match" {
 		w.WriteHeader(404)
 		return
 	}
@@ -256,6 +316,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		Path   string `json:"path"`
 		TMDB   int    `json:"tmdb"`
 		Kind   string `json:"kind"`
+		Group  bool   `json:"group"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -266,6 +327,16 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	index := a.loadScrapeIndex(in.TaskID, rootName)
+	selectedWork := ""
+	for _, item := range index.Items {
+		if item.Path == in.Path {
+			selectedWork = scrapeWorkKey(item)
+			break
+		}
+	}
+	selected := func(item scrapeItem) bool {
+		return in.Path == "" || item.Path == in.Path || (in.Group && selectedWork != "" && scrapeWorkKey(item) == selectedWork)
+	}
 	if action == "match" {
 		if in.TMDB < 1 || (in.Kind != "movie" && in.Kind != "tv") {
 			fail(w, 400, errors.New("请输入有效的 TMDB ID 和媒体类型"))
@@ -273,11 +344,12 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		}
 		found := false
 		for i := range index.Items {
-			if index.Items[i].Path == in.Path {
+			if in.Path != "" && selected(index.Items[i]) {
 				index.Items[i].TMDB = in.TMDB
 				index.Items[i].Kind = in.Kind
 				index.Items[i].Status = "pending"
 				index.Items[i].Message = ""
+				index.Items[i].Poster = ""
 				found = true
 			}
 		}
@@ -299,7 +371,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.store.snapshotWithLogLimit(0)
 	cfg, tmdb := a.scrapeConfig(), pluginDefaults("tmdb", st.Plugins["tmdb"])
-	if action == "run" && (!tmdb.Enabled || tmdb.APIKey == "") {
+	if (action == "run" || action == "identify") && (!tmdb.Enabled || tmdb.APIKey == "") {
 		root.Close()
 		fail(w, 400, errors.New("请配置并启用 TMDB 插件"))
 		return
@@ -320,29 +392,46 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			if in.Path != "" {
 				a.scrapeProgress.Total = 0
 				for _, item := range items {
-					if item.Path == in.Path {
+					if selected(item) {
 						a.scrapeProgress.Total++
 					}
 				}
 			}
 			a.scrapeMu.Unlock()
-			if action == "run" {
+			if action == "run" || action == "identify" {
 				client, closeIdle, clientErr := pluginClient(st.Plugins["proxy"])
 				if clientErr != nil {
 					runErr = clientErr
 				} else {
 					defer closeIdle()
+					identified := map[string]scrapeItem{}
 					for i := range index.Items {
 						if ctx.Err() != nil {
 							runErr = ctx.Err()
 							break
 						}
 						item := &index.Items[i]
-						if in.Path != "" && item.Path != in.Path {
+						if !selected(*item) {
 							continue
 						}
 						item.Message = ""
-						e := scrapeOne(ctx, root, client, tmdb, cfg, item)
+						var e error
+						if action == "identify" {
+							key := scrapeWorkKey(*item)
+							if known, ok := identified[key]; ok {
+								item.TMDB, item.Title, item.Year, item.Poster, item.Status, item.Message = known.TMDB, known.Title, known.Year, known.Poster, known.Status, known.Message
+							} else {
+								_, e = resolveScrapeMedia(ctx, client, tmdb, cfg, item)
+								if e == nil && item.TMDB > 0 && item.Status != "ok" {
+									item.Status = "pending"
+								}
+								if e == nil {
+									identified[key] = *item
+								}
+							}
+						} else {
+							e = scrapeOne(ctx, root, client, tmdb, cfg, item)
+						}
 						if e != nil {
 							item.Status = "error"
 							item.Message = e.Error()
@@ -371,6 +460,9 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		}
 		a.scrapeMu.Lock()
 		message := fmt.Sprintf("刮削结束：已处理 %d，失败 %d，待匹配 %d", a.scrapeProgress.Done, a.scrapeProgress.Failed, a.scrapeProgress.Unmatched)
+		if action == "identify" {
+			message = fmt.Sprintf("识别结束：%d 个文件，%d 个待匹配", a.scrapeProgress.Done, a.scrapeProgress.Unmatched)
+		}
 		if action == "scan" {
 			message = "索引已刷新"
 			a.scrapeProgress.Done = a.scrapeProgress.Total
@@ -449,13 +541,13 @@ type scrapeNFO struct {
 	Actors   []nfoActor `xml:"actor,omitempty"`
 }
 
-func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb PluginConfig, cfg scrapeSettings, item *scrapeItem) error {
+func resolveScrapeMedia(ctx context.Context, client *http.Client, tmdb PluginConfig, cfg scrapeSettings, item *scrapeItem) (tmdbMedia, error) {
 	if item.TMDB == 0 {
 		var result struct {
 			Results []tmdbMedia `json:"results"`
 		}
 		if err := tmdbGet(ctx, client, tmdb, "search/"+item.Kind, url.Values{"query": {item.Title}}, &result); err != nil {
-			return err
+			return tmdbMedia{}, err
 		}
 		matches := []tmdbMedia{}
 		for _, m := range result.Results {
@@ -474,7 +566,13 @@ func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb Plu
 				item.Status = "doubt"
 				item.Message = "存在多个同名匹配，请手动确认"
 			}
-			return nil
+			for _, candidate := range result.Results {
+				if candidate.Poster != "" {
+					item.Poster = strings.TrimRight(tmdb.ImageURL, "/") + "/t/p/w342" + candidate.Poster
+					break
+				}
+			}
+			return tmdbMedia{}, nil
 		}
 		item.TMDB = matches[0].ID
 	}
@@ -485,16 +583,19 @@ func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb Plu
 		q.Set("append_to_response", "credits")
 	}
 	if err := tmdbGet(ctx, client, tmdb, endpoint, q, &media); err != nil {
-		return err
+		return tmdbMedia{}, err
 	}
 	title := media.Title
 	if item.Kind == "tv" {
 		title = media.Name
 	}
 	if title == "" || media.ID != item.TMDB {
-		return errors.New("TMDB 详情无效")
+		return tmdbMedia{}, errors.New("TMDB 详情无效")
 	}
 	item.Title = title
+	if media.Poster != "" && tmdb.ImageURL != "" {
+		item.Poster = strings.TrimRight(tmdb.ImageURL, "/") + "/t/p/w342" + media.Poster
+	}
 	release := media.Release
 	if item.Kind == "tv" {
 		release = media.AirDate
@@ -502,6 +603,15 @@ func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb Plu
 	if len(release) >= 4 {
 		item.Year = release[:4]
 	}
+	return media, nil
+}
+
+func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb PluginConfig, cfg scrapeSettings, item *scrapeItem) error {
+	media, err := resolveScrapeMedia(ctx, client, tmdb, cfg, item)
+	if err != nil || media.ID == 0 {
+		return err
+	}
+	title := item.Title
 	nfo := scrapeNFO{XMLName: xml.Name{Local: "movie"}, Title: title, Original: media.OriginalTitle, Plot: media.Overview, TMDB: item.TMDB, Rating: media.Rating, Runtime: media.Runtime, Year: item.Year}
 	if cfg.Actors {
 		for i, actor := range media.Credits.Cast {

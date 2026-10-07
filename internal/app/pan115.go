@@ -88,7 +88,7 @@ func (a *App) list115(ctx context.Context, s Storage, dir string) ([]File, error
 		}
 		for _, raw := range page.Files {
 			f := (&driver.File{}).From(&raw)
-			out = append(out, File{ID: f.FileID, Name: f.Name, IsDir: f.IsDirectory, Size: f.Size, Modified: f.UpdateTime, PickCode: f.PickCode})
+			out = append(out, File{ID: f.FileID, Name: f.Name, IsDir: f.IsDirectory, Size: f.Size, Modified: f.UpdateTime, Created: f.CreateTime, PickCode: f.PickCode})
 		}
 		if offset+int64(len(page.Files)) >= int64(page.Count) {
 			return out, nil

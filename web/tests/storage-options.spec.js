@@ -23,8 +23,8 @@ test('provider forms have aligned modes without an enabled switch', async ({ pag
       expect(name.y).toBe(mode.y)
     }
     if (kind === 'openlist') {
-      await expect(dialog.getByLabel('透传 UA 给上游')).toBeChecked()
-      await expect(dialog.getByLabel('列目录时刷新上游')).not.toBeChecked()
+      await expect(dialog.getByRole('button', {name:'透传 UA 给上游',exact:true})).toHaveText('是')
+      await expect(dialog.getByRole('button', {name:'列目录时刷新上游',exact:true})).toHaveText('否')
       await expect(dialog.getByLabel('缓存时间', { exact: true })).toHaveCount(0)
     }
     if (kind === 'quark') {
@@ -40,12 +40,16 @@ test('provider forms have aligned modes without an enabled switch', async ({ pag
 test('single 115 directory details display CID', async ({ page }) => {
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { storages: [{ id: '115', type: '115', name: '115', enabled: true }], tasks: [], settings: {}, traffic: {}, cache: {} } }))
-  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '1234567890', name: 'Movies', isDir: true, sizeKnown: true, size: 0 }] }))
+  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '1234567890', name: 'Movies', isDir: true, sizeKnown: true, countsKnown:true, size: 0 }] }))
   await page.goto('/files')
   await page.locator('.file-row').click({ button: 'right' })
   await page.getByRole('button', { name: '查看详情', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('CID')
   await expect(page.getByRole('dialog')).toContainText('1234567890')
+  await expect(page.locator('.file-details dt')).toHaveText(['名称','类型','大小','包含','创建时间','修改时间','CID','位置'])
+  await page.evaluate(() => { Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value => {window.copiedCID=value}}}) })
+  await page.getByRole('button',{name:'复制 CID',exact:true}).click()
+  expect(await page.evaluate(() => window.copiedCID)).toBe('1234567890')
 })
 
 test('plugin masks load asynchronously and descriptions follow the pointer', async ({ page }, info) => {

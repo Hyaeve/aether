@@ -17,7 +17,7 @@ const metrics = computed(() => [
   <section class="cache-overview" aria-label="缓存命中统计">
     <div class="cache-chart">
       <svg viewBox="0 0 100 100" role="img" :aria-label="`缓存命中率 ${rate}%`"><circle class="cache-track" cx="50" cy="50" r="40" /><circle class="cache-hit" cx="50" cy="50" r="40" pathLength="100" :stroke-dasharray="`${rate} 100`" /></svg>
-      <span><strong>{{ total ? `${rate}%` : '—' }}</strong><small>缓存命中率</small></span>
+      <span><strong>{{ total ? `${rate}%` : '—' }}</strong><small>命中率</small></span>
     </div>
     <div class="cache-progress"><strong>当前缓存任务</strong><div v-if="!active.length"><small>暂无执行中的任务</small><progress class="idle" value="0" max="100" aria-label="暂无执行中的缓存任务" /></div><div v-for="task in active" :key="task.id"><span>{{ task.name }}</span><small>{{ task.message || `已扫描 ${task.processed || 0} 个目录` }}</small><progress aria-label="正在扫描目录" /></div></div>
     <dl class="cache-metrics"><div v-for="[label, value, icon] in metrics" :key="label"><Icon :name="icon" :size="18" /><span><dt>{{ label }}</dt><dd>{{ value }}</dd></span></div></dl>
@@ -25,7 +25,7 @@ const metrics = computed(() => [
 </template>
 <style scoped>
 .cache-overview { display: grid; grid-template-columns: minmax(140px, .55fr) minmax(180px, .85fr) minmax(350px, 1.3fr); gap: 24px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
-.cache-chart { width: 78px; height: 78px; position: relative; }
+.cache-chart { width: 104px; height: 104px; position: relative; justify-self: center; }
 .cache-chart svg { width: 100%; transform: rotate(-90deg); fill: none; stroke-width: 8; }
 .cache-track { stroke: color-mix(in srgb, var(--text) 9%, transparent); }
 .cache-hit { stroke: #8295d4; stroke-linecap: round; transition: stroke-dasharray .35s; }
@@ -35,6 +35,12 @@ const metrics = computed(() => [
 .cache-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px 14px; margin: 0; }
 .cache-metrics > div { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .cache-metrics svg { color: var(--primary); flex-shrink: 0; }
+.cache-metrics > div:nth-child(1) svg { color: #638cc6; }
+.cache-metrics > div:nth-child(2) svg { color: #a184bf; }
+.cache-metrics > div:nth-child(3) svg { color: #54a88b; }
+.cache-metrics > div:nth-child(4) svg { color: #c39453; }
+.cache-metrics > div:nth-child(5) svg { color: #c57e85; }
+.cache-metrics > div:nth-child(6) svg { color: #799ba3; }
 dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
 .cache-progress { min-width: 0; }
 .cache-progress strong { font-size: 14px; }
@@ -42,6 +48,6 @@ dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
 .cache-progress progress { width: 100%; height: 4px; accent-color: #8295d4; }
 .cache-progress progress.idle { appearance: none; border: 0; background: color-mix(in srgb,var(--muted) 20%,transparent); border-radius: 4px; }
 .idle::-webkit-progress-bar { background: color-mix(in srgb,var(--muted) 20%,transparent); border-radius: 4px; }
-@media(max-width: 1050px) { .cache-overview { grid-template-columns: 96px 1fr; gap: 18px; } .cache-metrics { grid-column: 1 / -1; } }
+@media(max-width: 1050px) { .cache-overview { grid-template-columns: 112px 1fr; gap: 18px; } .cache-metrics { grid-column: 1 / -1; } }
 @media(max-width: 480px) { .cache-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 </style>

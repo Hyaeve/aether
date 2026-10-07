@@ -19,11 +19,16 @@ const error = ref('')
 const form = reactive({})
 let timer
 let generation = 0
+const remaining = ref(0)
+let countdown
 
 const pools = computed(() => state.storages.filter(s => s.type === 'quark' && s.enabled && !bindings.value.some(b => b.id === s.id)))
 
 function stop() {
   clearTimeout(timer)
+  clearInterval(countdown)
+  remaining.value = 0
+  busy.value = false
   image.value = ''
   generation++
 }
@@ -107,6 +112,8 @@ async function qr() {
     if (run !== generation) return
     image.value = data.image
     const deadline = Date.now() + 300000
+    remaining.value = 300
+    countdown = setInterval(() => { remaining.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) }, 1000)
     async function poll() {
       if (run !== generation) return
       if (Date.now() >= deadline) {
@@ -135,7 +142,7 @@ async function qr() {
   } catch (e) {
     if (run === generation) error.value = e.message
   } finally {
-    busy.value = false
+    if (run === generation) busy.value = false
   }
 }
 
@@ -145,7 +152,7 @@ onUnmounted(stop)
 </script>
 
 <template>
-  <Modal title="夸克 STRM 接管 · 账号绑定" compact wide @close="$emit('close')">
+  <Modal v-if="!adding && !editing" title="夸克 STRM 接管 · 账号绑定" compact wide @close="$emit('close')">
     <div class="modal-body binding-workspace">
       <div v-for="binding in bindings" :key="binding.id" class="binding-row">
         <button class="binding-toggle" :aria-label="`${binding.enabled ? '停用' : '启用'}绑定 ${binding.name}`" :aria-pressed="binding.enabled" :disabled="busy || !binding.valid" @click="toggleBinding(binding)"><ProviderIcon type="quark" /></button>
@@ -163,8 +170,9 @@ onUnmounted(stop)
     <div class="modal-body">
       <RoundedSelect v-model="storage" label="绑定夸克存储" placeholder="选择夸克存储池" :options="pools.map(s => ({ value: s.id, label: s.name }))" />
       <label class="consent"><input v-model="consent" type="checkbox" />同意通过第三方 extscreen 服务换取 TV 凭据（授权码与刷新凭据）。</label>
-      <div class="qr-area"><img v-if="image" :src="image" alt="夸克 TV 授权二维码" /><p v-else class="muted">{{ busy ? '正在获取二维码…' : '选择存储并确认授权后扫码绑定' }}</p></div>
-      <p class="muted">请使用与所选存储相同的夸克账号扫码并确认登录。</p>
+      <div class="qr-area"><img v-if="image" :src="image" alt="夸克 TV 授权二维码" /><div v-else class="qr-placeholder"><Icon :name="busy ? 'LoaderCircle' : error ? 'CircleAlert' : 'ScanLine'" :class="{ spin: busy }" :size="28" /><p class="muted">{{ busy ? '正在获取二维码…' : error ? '二维码暂不可用' : '选择存储并确认授权后扫码绑定' }}</p></div></div>
+      <p class="qr-hint">请使用与所选存储相同的夸克账号扫码，并在手机端确认登录。</p>
+      <p v-if="image" class="qr-countdown" role="status">等待扫码 · {{ Math.floor(remaining / 60) }}:{{ String(remaining % 60).padStart(2, '0') }}</p>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
     </div>
     <footer class="modal-footer"><button class="btn primary" :disabled="busy || !storage || !consent" @click="qr">获取二维码</button></footer>
@@ -199,5 +207,9 @@ onUnmounted(stop)
 .consent input { width: 16px; height: 16px; flex-shrink: 0; }
 .qr-area { min-height: 230px; display: grid; place-items: center; }
 .qr-area img { width: 210px; height: 210px; }
+.qr-area img { background: white; padding: 8px; border-radius: 8px; }
+.qr-placeholder { display: grid; justify-items: center; gap: 12px; color: var(--muted); text-align: center; }
+.qr-hint, .qr-countdown { text-align: center; font-size: 13px; color: var(--muted); line-height: 1.6; }
+.qr-countdown { margin-top: 8px; color: var(--primary); }
 :deep(.rounded-select-trigger), :deep(.rounded-select-popup) { background: var(--input); color: var(--text); border-color: var(--border); }
 </style>

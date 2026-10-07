@@ -342,6 +342,7 @@ func (a *App) tianyiList(ctx context.Context, s Storage, dir string) ([]File, er
 		LastOpTime    fileTimestamp `json:"lastOpTime" xml:"lastOpTime"`
 		LastOpTimeStr fileTimestamp `json:"lastOpTimeStr" xml:"lastOpTimeStr"`
 		UpdateDate    fileTimestamp `json:"updateDate" xml:"updateDate"`
+		CreateDate    fileTimestamp `json:"createDate" xml:"createDate"`
 	}
 	for page := 1; page <= 10000; page++ {
 		var data struct {
@@ -377,7 +378,7 @@ func (a *App) tianyiList(ctx context.Context, s Storage, dir string) ([]File, er
 					continue
 				}
 				seen[string(f.ID)] = true
-				files = append(files, File{ID: string(f.ID), Name: f.Name, Size: f.Size, MD5: f.MD5, Modified: firstFileTime(f.LastOpTime, f.LastOpTimeStr, f.UpdateDate), IsDir: index == 0})
+				files = append(files, File{ID: string(f.ID), Name: f.Name, Size: f.Size, MD5: f.MD5, Modified: firstFileTime(f.LastOpTime, f.LastOpTimeStr, f.UpdateDate), Created: f.CreateDate.Time, IsDir: index == 0})
 				added++
 			}
 		}

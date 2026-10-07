@@ -41,7 +41,8 @@ test('local CAS generation and persisted named directory navigation', async ({ p
   await expect(page.getByLabel('还原文件保留时间', { exact: true })).toHaveValue('12')
   await page.screenshot({ path: testInfo.outputPath('local-cas-form.png'), fullPage: true })
   await page.getByRole('button', { name: '保存任务', exact: true }).click()
-  const row = page.getByRole('row').filter({ hasText: '本地 CAS 哈希' })
+  const row = page.locator('.task-row-card').filter({ hasText: '本地 CAS 哈希' })
+  await row.getByRole('button', {name:'任务操作 本地 CAS 哈希',exact:true}).click()
   await row.getByRole('button', { name: '立即执行', exact: true }).click()
   await expect.poll(async () => {
     const state = await (await page.request.get('/api/state')).json()
@@ -54,6 +55,7 @@ test('local CAS generation and persisted named directory navigation', async ({ p
   expect(info.md5).toBe(createHash('md5').update('test-video-content').digest('hex'))
   expect(info.playback_url).toContain('/stream/')
   await page.reload()
+  await row.getByRole('button', {name:'任务操作 本地 CAS 哈希',exact:true}).click()
   await row.getByRole('button', { name: '编辑任务', exact: true }).click()
   await expect(page.locator('.source-trigger')).toContainText('Movies')
   await page.getByRole('button', { name: '选择目录', exact: true }).click()

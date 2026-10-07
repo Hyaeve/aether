@@ -89,7 +89,7 @@ func TestDirectorySizeCachedAndInvalidated(t *testing.T) {
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
 	result := request(t, h, "POST", "/api/files/directory-size", map[string]string{"storageId": s.ID, "parent": "/", "id": "/folder"}, cookie)
 	var folder File
-	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &folder) != nil || folder.Size != 8 || !folder.SizeKnown {
+	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &folder) != nil || folder.Size != 8 || !folder.SizeKnown || folder.FolderCount != 1 || folder.FileCount != 2 {
 		t.Fatal(result.Body.String())
 	}
 	list := func() File {
@@ -107,8 +107,15 @@ func TestDirectorySizeCachedAndInvalidated(t *testing.T) {
 		t.Fatal("folder missing")
 		return File{}
 	}
-	if f := list(); !f.SizeKnown || f.Size != 8 {
+	if f := list(); !f.SizeKnown || f.Size != 8 || f.FolderCount != 1 || f.FileCount != 2 {
 		t.Fatal("directory size missing from listing", f)
+	}
+	legacy := folder
+	legacy.CountsKnown, legacy.FolderCount, legacy.FileCount = false, 0, 0
+	a.cache.put(directorySizeKey(s.ID, folder.ID), []File{legacy}, 30, a.store.snapshot().Settings)
+	result = request(t, h, "POST", "/api/files/directory-size", map[string]string{"storageId": s.ID, "parent": "/", "id": "/folder"}, cookie)
+	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &folder) != nil || !folder.CountsKnown || folder.FileCount != 2 {
+		t.Fatal("legacy size cache did not refresh counts", result.Body.String())
 	}
 	if err := a.cache.persist(a.dataDir); err != nil {
 		t.Fatal(err)

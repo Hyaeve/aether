@@ -8,7 +8,7 @@ test('toolbox selection, ordered rename rules, saved sets and folder size', asyn
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'rename-test', storages: [storage], tasks: [], settings: {}, cache: {}, traffic: {}, logs: [] } }))
   await page.route('**/api/files?**', r => r.fulfill({ json: files }))
   await page.route('**/api/files/directory-size', r => {
-    files[0] = { ...files[0], size: 4096, sizeKnown: true }
+    files[0] = { ...files[0], size: 4096, sizeKnown: true, countsKnown: true, folderCount: 1, fileCount: 2 }
     return r.fulfill({ json: files[0] })
   })
   await page.route('**/api/files/rename-rules', r => {

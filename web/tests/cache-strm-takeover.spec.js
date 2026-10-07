@@ -38,7 +38,7 @@ test('real cache overview and explicit OpenList STRM source', async ({ page }, t
   await page.getByRole('switch', { name: '编码路径' }).check()
   await page.getByLabel('任务名称').fill('OpenList 同步')
   await page.getByLabel('Cron 表达式').fill('0 2 * * *')
-  await expect(page.getByRole('switch', { name: '启用定时调度' })).toBeChecked()
+  await expect(page.getByRole('switch', { name: '启用定时调度' })).toHaveCount(0)
   let saved
   await page.route('**/api/tasks', r => { saved = r.request().postDataJSON(); return r.fulfill({ json: saved }) })
   await page.getByRole('button', { name: '保存任务', exact: true }).click()
@@ -74,6 +74,7 @@ test('Quark takeover binds once by QR and toggles from its icon', async ({ page 
   await expect(page.getByRole('button', { name: '获取二维码', exact: true })).toBeDisabled()
   await page.getByRole('checkbox', { name: /同意通过第三方/ }).check()
   await expect(page.getByAltText('夸克 TV 授权二维码')).toBeVisible()
+  await page.screenshot({path:testInfo.outputPath('quark-qr.png')})
   await expect(page.getByRole('dialog', { name: '选择绑定的存储', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '添加绑定', exact: true })).toBeDisabled()
   await expect(page.locator('.binding-row')).toContainText('同账号')

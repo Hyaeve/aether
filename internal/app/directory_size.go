@@ -40,13 +40,14 @@ func (a *App) directorySize(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := a.store.snapshotWithLogLimit(0).Settings
 	if cfg.CacheEnabled {
-		if cached, ok := a.cache.get(directorySizeKey(s.ID, found.ID)); ok && len(cached) == 1 {
+		if cached, ok := a.cache.get(directorySizeKey(s.ID, found.ID)); ok && len(cached) == 1 && cached[0].CountsKnown {
 			jsonResponse(w, 200, cached[0])
 			return
 		}
 	}
 	seen, count := map[string]bool{}, 0
 	var walk func(string, int) (int64, error)
+	folders, filesCount := 0, 0
 	walk = func(dir string, depth int) (int64, error) {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -74,10 +75,14 @@ func (a *App) directorySize(w http.ResponseWriter, r *http.Request) {
 			}
 			size := f.Size
 			if f.IsDir {
+				folders++
 				size, err = walk(f.ID, depth+1)
 				if err != nil {
 					return 0, err
 				}
+			}
+			if !f.IsDir {
+				filesCount++
 			}
 			if size < 0 || total > (1<<63-1)-size {
 				return 0, errors.New("大小统计溢出")
@@ -92,6 +97,8 @@ func (a *App) directorySize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found.SizeKnown = true
+	found.FolderCount, found.FileCount = folders, filesCount
+	found.CountsKnown = true
 	ttl := s.CacheTTL
 	if ttl <= 0 {
 		ttl = cfg.CacheTTL

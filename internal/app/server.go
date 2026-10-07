@@ -238,6 +238,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/rename", a.protected(http.HandlerFunc(a.renameWorkbench)))
 	mux.Handle("/api/files/rename-rules", a.protected(http.HandlerFunc(a.renameRuleSets)))
 	mux.Handle("POST /api/files/directory-size", a.protected(http.HandlerFunc(a.directorySize)))
+	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
@@ -833,6 +834,8 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 		if f.IsDir && cacheEnabled {
 			if cached, ok := a.cache.get(directorySizeKey(s.ID, f.ID)); ok && len(cached) == 1 {
 				f.Size, f.SizeKnown = cached[0].Size, true
+				f.FolderCount, f.FileCount = cached[0].FolderCount, cached[0].FileCount
+				f.CountsKnown = cached[0].CountsKnown
 			}
 		}
 		link := ""

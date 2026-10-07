@@ -377,11 +377,13 @@ tbody tr:hover { background: color-mix(in srgb,var(--bg) 65%,var(--surface)); }
 .notification-button { position: relative; }
 .notification-badge { position: absolute; top: -2px; right: -5px; min-width: 18px; height: 18px; padding: 1px 4px; font-size: 11px; line-height: 16px; color: white; background: #c94350; border-radius: 9px; }
 .notification-dropdown { position: absolute; top: 48px; right: 0; width: min(360px, calc(100vw - 32px)); max-height: 460px; overflow-y: auto; border: 1px solid var(--border); background: var(--surface); border-radius: 7px; box-shadow: var(--shadow); padding: 16px; }
-.notification-dropdown h2 { margin-bottom: 12px; }
-.notification-dropdown button { display: flex; gap: 12px; width: 100%; text-align: left; padding: 13px 4px; border: 0; border-top: 1px solid var(--border); background: transparent; }
+.notification-dropdown { width: min(320px, calc(100vw - 32px)); padding: 11px; }
+.notification-dropdown h2 { margin: 0 0 7px; font-size: 12px; font-weight: 600; }
+.notification-dropdown button { display: flex; gap: 9px; width: 100%; text-align: left; padding: 9px 3px; border: 0; border-top: 1px solid var(--border); background: transparent; font-size: 12px; }
 .notification-dropdown button:hover { background: var(--bg); }
 .notification-dropdown strong, .notification-dropdown small { display: block; overflow-wrap: anywhere; }
-.notification-dropdown small { margin-top: 5px; color: var(--muted); line-height: 1.5; }
+.notification-dropdown strong { font-size: 12px; font-weight: 600; }
+.notification-dropdown small { margin-top: 3px; color: var(--muted); line-height: 1.35; font-size: 11px; }
 .success-text { color: var(--green); }
 .page-content { padding: 26px 28px; }
 .page-head { margin-bottom: 22px; }
@@ -487,6 +489,22 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 }
 @media (hover: none) { .number-steppers { opacity: 1; pointer-events: auto; }.number-unit { opacity: 0; } }
 .table-wrap table { min-width: 780px; }
+.task-list { display: grid; gap: 10px; }
+.task-row-card { display: flex; align-items: center; min-height: 72px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.task-row-card:hover { border-color: color-mix(in srgb,var(--primary) 25%,var(--border)); }
+.task-provider-toggle { width: 42px; height: 42px; padding: 0; border: 0; background: transparent; flex: 0 0 auto; }
+.task-provider-toggle[aria-pressed=false] { opacity: .45; }
+.task-provider-toggle .provider-icon { width: 40px; height: 40px; }
+.task-row-copy { min-width: 0; flex: 1; margin-left: 12px; }
+.task-row-copy strong, .task-row-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-row-copy strong { font-size: 15px; }
+.task-row-copy small { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.task-row-menu { position: relative; }
+.task-menu { position: absolute; z-index: 20; top: calc(100% + 5px); right: 0; min-width: 132px; padding: 4px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); box-shadow: var(--shadow); }
+.task-menu button { display: flex; align-items: center; gap: 7px; width: 100%; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--text); font-size: 13px; text-align: left; }
+.task-menu button:hover { background: var(--primary-soft); }
+.task-menu button:disabled { opacity: .45; cursor: not-allowed; }
+.task-menu button.danger-text { color: var(--red); }
 .table-wrap .status { white-space: nowrap; }
 .plugin-symbol { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; color: var(--primary); background: var(--primary-soft); }
 .plugin-card > strong { font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
@@ -850,7 +868,7 @@ select { border-radius: 12px; }
 .file-browser .file-toolbar { margin: 0; gap: 10px; }
 .file-toolbar > .rounded-select { width: 145px; flex-shrink: 0; }
 .file-workspace, .file-workspace.with-favorites { grid-template-columns: 0 minmax(0,1fr); gap: 0; transition: grid-template-columns .24s ease; }
-.file-workspace.with-favorites { grid-template-columns: 155px minmax(0,1fr); }
+.file-workspace.with-favorites { grid-template-columns: 180px minmax(0,1fr); }
 .file-favorites { min-width: 0; overflow: hidden; padding: 12px 0; opacity: 0; transition: opacity .2s ease; }
 .with-favorites .file-favorites { opacity: 1; border-right: 1px solid var(--border); }
 .file-favorites > * { margin-left: 10px; margin-right: 8px; min-width: 132px; }
@@ -1137,7 +1155,7 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
 .file-create-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; padding: 5px; min-width: 150px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
 .file-create-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; color: var(--text); padding: 10px; border-radius: 6px; text-align: left; white-space: nowrap; font: inherit; }
 .file-create-menu button:hover { background: var(--primary-soft); }
-.file-browser .file-toolbar > .rounded-select { width: 103px; }
+.file-browser .file-toolbar > .rounded-select { width: 128px; }
 .page-content:has(> .file-browser) { height: calc(100dvh - 48px); min-height: 520px; }
 .file-browser { min-height: 0; overflow: visible; }
 .file-browser .file-toolbar { flex-shrink: 0; border-radius: 12px 12px 0 0; }
@@ -1195,3 +1213,10 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
   .task-heading .content-tabs { flex-wrap: wrap; }
   .task-heading .toolbar-right { flex-direction: column; }
 }
+.files-heading-actions .btn, .mount-heading > .btn, .task-heading .btn,
+.link-heading .btn, .scrape-toolbar .search-field, .files-heading-actions .search-field {
+  height: 36px; min-height: 36px; padding-top: 0; padding-bottom: 0;
+}
+.files-heading-actions .search-field input, .scrape-toolbar .search-field input { height: 34px; }
+.notification-dropdown strong, .notification-dropdown button { font-size: 14px; }
+.notification-dropdown small { font-size: 12px; }

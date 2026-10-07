@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	qrcode "github.com/skip2/go-qrcode"
 )
 
 // TV credentials are independent from the web Cookie and persist only in state.enc.
@@ -450,12 +447,12 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, err)
 			return
 		}
-		png, err := qrcode.Encode(result.QR, qrcode.Medium, 256)
+		image, err := quarkQRImage(result.QR)
 		if err != nil {
 			fail(w, 502, errors.New("二维码内容无效"))
 			return
 		}
-		jsonResponse(w, 200, map[string]string{"session": session, "image": "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)})
+		jsonResponse(w, 200, map[string]string{"session": session, "image": image})
 		return
 	}
 	if r.PathValue("action") != "poll" {

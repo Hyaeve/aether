@@ -1,5 +1,19 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-08：浏览偏好、目录下载、作品识别与 v0.2.8
+
+- 修改 `web/src/pages/FilesPage.vue`：当前浏览器按账号持久化存储池、排序字段和方向，校验已停用/不存在存储并优先 URL 选择；文件夹下载先确认再打开鉴权 ZIP；详情按大小、包含、创建/修改时间、CID、位置展示，115 单目录 CID 可点击复制。修改 `internal/app/drivers.go`、`pan115.go`、`tianyi.go` 加入上游真实创建时间，未提供则留空；修改 `directory_size.go` 与 `server.go` 将递归目录/文件数随大小缓存并在列表恢复。
+- 新增 `internal/app/archive.go`、`archive_test.go`：受管理员保护的目录 ZIP 流式下载，先核验父目录中的选择与完整清单，最多 100000 项、128 层、24 小时；保留空目录，拒绝循环/危险路径/重复名称，使用 os.Root 读取本地内容、不将用户 name 参数用于归档路径；下载错误中断连接不完成 ZIP，拒绝带凭据自动跟随上游重定向。不写入临时归档。修改 `rename_workbench_test.go` 覆盖统计计数及列表缓存。
+- 修改 `web/src/pages/StoragePage.vue`：OpenList 透传 UA/刷新上游改为是/否 RoundedSelect，接口仍为 true/false 字符串。修改 `TasksPage.vue`：简洁任务条、存储图标启停、三点执行/停止/编辑/删除，运行中禁止修改；移除界面重复调度开关但保留 Cron/缓存间隔功能。修改 `CacheOverview.vue`：104px 居中右移环图、仅“命中率”、六项独立颜色指标。
+- 修改 `web/src/style.css`：文件存储选择器加宽并同步收藏栏右缘，顶部工具/任务/挂载按钮与搜索统一36px，通知面板正文14px、标题12px，任务条及紧凑操作菜单样式；保持日夜主题。
+- 核对本地 LitePan `quarktv/client.go`、`service.go`、`QuarkTVBindModal.vue`：qr_data 实际为图片而非仅 URL。新增 `internal/app/quark_qr.go`、`quark_qr_test.go` 校验 PNG/JPEG Base64、尺寸与容量，原样显示二维码图片并兼容 HTTPS 链接生成；修改 `quark_takeover.go` 使用该解析，避免把整张图片二次二维码编码。修改 `web/src/components/QuarkTakeover.vue`：单层授权窗口、同账号提示、等待/错误状态、倒计时、过期请求不覆盖新状态，保留第三方换取凭据同意。
+- 修改 `internal/app/strm_scrape.go`、新增 `scrape_works.go`、`scrape_works_test.go`：参考 LitePan 工作流独立实现按作品聚合、跨 Season N/SNN 季目录分集归组、空集名借用父作品名；新增 identify 异步识别入口（只获取候选/海报，不写媒体文件）、受保护候选搜索、整组匹配和整组刮削，保留原始分集接口兼容；海报 URL 持久化于既有刮削索引。测试覆盖目录隔离/季集保留/整组匹配、TMDB 请求/鉴权/海报地址及识别不写 NFO。
+- 修改 `web/src/pages/ScrapePage.vue`：作品级虚拟海报墙、识别 STRM 库、候选海报选择、名称/类型搜索、手工 ID 与整组确认；隔离过期搜索响应、错误可见，修正虚拟高度与候选选择器最小宽度。未知海报保持占位、不伪造匹配。
+- 修改浏览器测试 `web/tests/file-download.spec.js`、`file-preferences.spec.js`、`storage-options.spec.js`、`strm-scrape.spec.js`、`cache-strm-takeover.spec.js`、`plugins-tianyi.spec.js`、`workspace.spec.js`、`zz-cas.spec.js`：目录确认与归档地址、偏好刷新/新标签、CID 顺序及复制、下拉框、图环、任务菜单、海报候选、1000作品虚拟化与移动布局。`README.md` 记录行为与边界；`VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json` 同步0.2.8。
+- 验证：首轮筛选浏览器回归19/27，主要为旧控件断言及缺少全套初始化；全量41/43，修正调度断言和收藏栏宽度后完整43/43通过。Go全量、前端构建通过。已查看日夜/手机海报墙、候选弹窗、夸克授权截图；末轮候选宽度与父目录识别补充后继续验证，最终结果续记。
+- 边界：真实网盘、夸克扫码/TV权益/TMDB、Docker/FUSE未联调；不能保证真实账户接管播放成功。ZIP是本机代理打包而不是302，部分上游跳转可能拒绝。识别不是LitePan全量复刻，复杂中文季集/别名、季海报、clearlogo、完结标记、重启续跑仍未实现。已有根目录exe与日志未动，15151及用户config/data未动；不提交密钥、依赖、测试产物。工作流仍仅linux/amd64，中文提交和v0.2.8标签推送结果以最终Git输出为准。
+- 最终验证：完整43/43后，候选布局补充针对9/9；目录统计增加countsKnown兼容旧快照，并修改 `web/tests/rename-workbench.spec.js` 夹具，最后针对6/6。最终Go全量、vet、前端0.2.8构建和diff检查通过。独立临时预览15154健康检查成功（PID29576，目录`%TEMP%/aether-preview-v028-be4e558899024f919dee841a547ae1f2`），原15151/15153未动；程序与日志只在临时目录，不纳入Git。真实服务联调边界不变。
+
 ## 2026-10-07：可读 STRM、核心刮削流程与 v0.2.7
 
 - 新增 `internal/app/strm_links.go`：115 生成 `/d/pickcode.ext?/原文件名`，只解析已生成且加密持久化于 `/data/strm-index` 的映射，拒绝跨存储冲突、未知 pickcode 和停用存储；夸克采用存储/文件/令牌/名称路径，使用独立 HMAC 绑定全部字段。修改 `internal/app/tasks.go` 生成入口，修改 `internal/app/server.go` 注册公开但有映射/签名校验的 GET/HEAD 路由，复用客户端 UA、下载策略及 TV 接管，代理输出附件名称，保留旧签名链接。链接格式更新需要全量生成；302 的最终下载行为由网盘和浏览器决定。

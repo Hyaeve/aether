@@ -18,15 +18,19 @@ import (
 )
 
 type File struct {
-	SizeKnown bool      `json:"sizeKnown,omitempty"`
-	SHA256    string    `json:"sha256,omitempty"`
-	MD5       string    `json:"md5,omitempty"`
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	IsDir     bool      `json:"isDir"`
-	Size      int64     `json:"size"`
-	Modified  time.Time `json:"modified"`
-	PickCode  string    `json:"pickCode,omitempty"`
+	SizeKnown   bool      `json:"sizeKnown,omitempty"`
+	SHA256      string    `json:"sha256,omitempty"`
+	MD5         string    `json:"md5,omitempty"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	IsDir       bool      `json:"isDir"`
+	Size        int64     `json:"size"`
+	Modified    time.Time `json:"modified"`
+	Created     time.Time `json:"created,omitempty"`
+	FolderCount int       `json:"folderCount,omitempty"`
+	FileCount   int       `json:"fileCount,omitempty"`
+	CountsKnown bool      `json:"countsKnown,omitempty"`
+	PickCode    string    `json:"pickCode,omitempty"`
 }
 
 type Download struct {
@@ -218,6 +222,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 						Size     int64     `json:"size"`
 						IsDir    bool      `json:"is_dir"`
 						Modified time.Time `json:"modified"`
+						Created  time.Time `json:"created"`
 					} `json:"content"`
 					Total int `json:"total"`
 				} `json:"data"`
@@ -231,7 +236,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 				return nil, fmt.Errorf("OpenList 接口错误 (%d)", res.Code)
 			}
 			for _, f := range res.Data.Content {
-				out = append(out, File{ID: path.Join("/", dir, f.Name), Name: f.Name, Size: f.Size, IsDir: f.IsDir, Modified: f.Modified})
+				out = append(out, File{ID: path.Join("/", dir, f.Name), Name: f.Name, Size: f.Size, IsDir: f.IsDir, Modified: f.Modified, Created: f.Created})
 			}
 			if len(res.Data.Content) < 200 || (res.Data.Total > 0 && len(out) >= res.Data.Total) {
 				break
@@ -255,6 +260,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 						Type    int           `json:"file_type"`
 						Size    int64         `json:"size"`
 						Updated fileTimestamp `json:"updated_at"`
+						Created fileTimestamp `json:"created_at"`
 					} `json:"list"`
 				} `json:"data"`
 			}
@@ -269,7 +275,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 				return nil, errors.New("夸克授权已失效或接口访问被拒绝")
 			}
 			for _, f := range res.Data.List {
-				out = append(out, File{ID: f.ID, Name: f.Name, IsDir: f.Dir || f.Type == 0, Size: f.Size, Modified: f.Updated.Time})
+				out = append(out, File{ID: f.ID, Name: f.Name, IsDir: f.Dir || f.Type == 0, Size: f.Size, Modified: f.Updated.Time, Created: f.Created.Time})
 			}
 			if len(res.Data.List) < 200 {
 				break
@@ -317,7 +323,8 @@ func file115(data map[string]json.RawMessage) (File, error) {
 		return File{}, errors.New("115 返回了无法识别的目录条目，请检查接口版本")
 	}
 	size, _ := strconv.ParseInt(scalarFields(data, "fs", "size_byte", "s", "size"), 10, 64)
-	return File{ID: fid, Name: name, IsDir: isDir, Size: size, Modified: parseFileTime(scalarFields(data, "user_utime", "upt", "te", "update_time")), PickCode: scalarFields(data, "pick_code", "pickcode", "pc", "code")}, nil
+	modified := parseFileTime(scalarFields(data, "user_utime", "upt", "te", "update_time"))
+	return File{ID: fid, Name: name, IsDir: isDir, Size: size, Modified: modified, Created: parseFileTime(scalarFields(data, "user_ptime", "ptime", "tp", "create_time")), PickCode: scalarFields(data, "pick_code", "pickcode", "pc", "code")}, nil
 }
 
 func davURL(s Storage, dir string) (string, error) {

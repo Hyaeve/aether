@@ -226,9 +226,9 @@ async function remove() {
           </template>
           <div v-if="selected === 'local'" class="field"><label for="storage-local-directory">本地目录</label><div class="directory-input"><input id="storage-local-directory" v-model="form.config.root" required /><button type="button" class="icon-btn" aria-label="选择本地目录" @click="directoryPicker = true"><Icon name="FolderOpen" /></button></div></div>
           <label v-else>{{ ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" /></label>
-          <label v-if="selected === 'openlist'" class="toggle-line"><span>透传 UA 给上游</span><input v-model="form.config.passUA" true-value="true" false-value="false" type="checkbox" role="switch" class="switch" /></label>
+          <div v-if="selected === 'openlist'" class="field"><label>透传 UA 给上游</label><RoundedSelect v-model="form.config.passUA" label="透传 UA 给上游" :options="[{value:'true',label:'是'}, {value:'false',label:'否'}]" /></div>
           <div v-else class="field"><label for="storage-cache">缓存时间</label><NumberInput id="storage-cache" v-model="form.cacheTTL" aria-label="缓存时间" unit="分钟" min="0" max="525600" /><small>0 跟随全局设置</small></div>
-          <label v-if="selected === 'openlist'" class="toggle-line"><span>列目录时刷新上游</span><input v-model="form.config.refreshList" true-value="true" false-value="false" type="checkbox" role="switch" class="switch" /></label>
+          <div v-if="selected === 'openlist'" class="field"><label>列目录时刷新上游</label><RoundedSelect v-model="form.config.refreshList" label="列目录时刷新上游" :options="[{value:'true',label:'是'}, {value:'false',label:'否'}]" /></div>
           <div v-if="selected === 'webdav'" class="field"><label for="dav-timeout">请求超时</label><NumberInput id="dav-timeout" :model-value="Number(form.config.timeoutSeconds || 60)" @update:model-value="form.config.timeoutSeconds = String($event)" unit="秒" min="1" max="600" /></div>
           <div v-if="['openlist', 'webdav'].includes(selected)" class="field"><label>下载模式</label><RoundedSelect v-model="form.config.downloadMode" label="下载模式" :options="downloadOptions" /></div>
         </div>

@@ -23,11 +23,8 @@ const mode = ref(savedMode === 'grid' ? 'grid' : 'list'), favoritesOpen = ref(!!
 watch(mode, value => {
   try { localStorage.setItem(viewPreferenceKey, value) } catch { /* Storage may be disabled by the browser. */ }
 }, { flush: 'sync' })
-watch([favoritesOpen, favorites], () => {
-  try { localStorage.setItem(preferenceKey, JSON.stringify({ open: favoritesOpen.value, favorites: favorites.value })) } catch {}
-}, { deep: true })
 const route = useRoute()
-const selected = ref(route.query.storage || state.storages.find(s => s.enabled)?.id || '')
+const selected = ref([route.query.storage, saved.storage].find(id => state.storages.some(s => s.enabled && s.id === id)) || state.storages.find(s => s.enabled)?.id || '')
 const current = ref('/'), history = ref([]), files = ref([]), busy = ref(false), error = ref(''), query = ref('')
 const searchInput = ref('')
 const viewport = ref(null), draft = ref(false), confirmRename = ref(false), details = ref(false), createMenu = ref(false)
@@ -42,7 +39,7 @@ async function showDetails() {
   details.value = true; closeMenu(); detailError.value = ''; detailBusy.value = true
   const storage = selected.value, parent = current.value, chosen = [...detailFiles.value]
   try {
-    for (const f of chosen.filter(f => f.isDir && !f.sizeKnown)) {
+    for (const f of chosen.filter(f => f.isDir && (!f.sizeKnown || !f.countsKnown))) {
       const result = await api('/files/directory-size', 'POST', { storageId: storage, parent, id: f.id })
       if (storage === selected.value && parent === current.value) Object.assign(f, result)
     }
@@ -50,7 +47,10 @@ async function showDetails() {
   finally { detailBusy.value = false }
 }
 const fileUpload = ref(null), folderUpload = ref(null), uploadBusy = ref(false), uploadProgress = ref(''), offline = ref(false)
-const sortKey = ref('name'), ascending = ref(true), selection = ref([]), anchor = ref(''), menu = ref(null), renameID = ref(''), newName = ref(''), operation = ref(''), deleting = ref(false)
+const sortKey = ref(['name', 'size', 'type', 'modified'].includes(saved.sortKey) ? saved.sortKey : 'name'), ascending = ref(saved.ascending !== false), selection = ref([]), anchor = ref(''), menu = ref(null), renameID = ref(''), newName = ref(''), operation = ref(''), deleting = ref(false), folderDownload = ref(null)
+watch([favoritesOpen, favorites, selected, sortKey, ascending], () => {
+  try { localStorage.setItem(preferenceKey, JSON.stringify({ open: favoritesOpen.value, favorites: favorites.value, storage: selected.value, sortKey: sortKey.value, ascending: ascending.value })) } catch {}
+}, { deep: true, flush: 'sync' })
 const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'type', label: '类型' }, { key: 'modified', label: '修改时间' }]
 const type = f => f.isDir ? '文件夹' : f.name.split('.').at(-1).toUpperCase()
 const fileSize = f => f.isDir && !f.sizeKnown ? '—' : bytes(f.size)
@@ -65,10 +65,15 @@ const { shown, top, bottom, columns: gridColumns, reset: resetScroll, reveal } =
 watch([query, sortKey, ascending, mode], resetScroll)
 const detailFiles = computed(() => files.value.filter(f => selection.value.includes(f.id)))
 const detailCID = computed(() => state.storages.find(s => s.id === selected.value)?.type === '115' && detailFiles.value.length === 1 && detailFiles.value[0].isDir ? detailFiles.value[0].id : '')
-const downloadable = computed(() => detailFiles.value.length === 1 && !detailFiles.value[0].isDir && !!detailFiles.value[0].url)
+const downloadable = computed(() => detailFiles.value.length === 1 && (detailFiles.value[0].isDir || !!detailFiles.value[0].url))
 function downloadFile() {
   if (!downloadable.value) return
   const file = detailFiles.value[0]
+  if (file.isDir) {
+    folderDownload.value = { storage: selected.value, parent: current.value, id: file.id, name: file.name }
+    closeMenu()
+    return
+  }
   const url = new URL(file.url, window.location.origin)
   url.searchParams.set('download', '1')
   const link = document.createElement('a')
@@ -80,6 +85,13 @@ function downloadFile() {
   link.click()
   link.remove()
   closeMenu()
+}
+function confirmFolderDownload() {
+  window.open(`/api/files/archive?${new URLSearchParams(folderDownload.value)}`, '_blank', 'noopener')
+  folderDownload.value = null
+}
+async function copyCID() {
+  try { await copyText(String(detailCID.value)); notify('CID 已复制') } catch { notify('复制失败', true) }
 }
 const targetPools = computed(() => state.storages.filter(s => s.enabled && s.type === state.storages.find(s => s.id === selected.value)?.type))
 function sort(key) { ascending.value = key === sortKey.value ? !ascending.value : true; sortKey.value = key }
@@ -240,8 +252,16 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
   <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body">将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</div><footer class="modal-footer"><button class="btn" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })">确认修改</button></footer></Modal>
-  <Modal v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目 · {{ bytes(detailFiles.reduce((n, f) => n + (f.isDir && !f.sizeKnown ? 0 : f.size || 0), 0)) }}</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-for="f in detailFiles" :key="f.id"><dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd><dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd><dt>修改时间</dt><dd>{{ !f.modified || f.modified.startsWith('0001') ? '未提供' : new Date(f.modified).toLocaleString('zh-CN') }}</dd><dt>位置</dt><dd>{{ state.storages.find(s => s.id === selected)?.name }} / {{ history.map(h => h.name).join(' / ') }}</dd><template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></Modal>
-  <Teleport v-if="details && detailCID" to=".file-details"><dl><dt>CID</dt><dd>{{ detailCID }}</dd></dl></Teleport>
+  <Modal v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目 · {{ bytes(detailFiles.reduce((n, f) => n + (f.isDir && !f.sizeKnown ? 0 : f.size || 0), 0)) }}</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-for="f in detailFiles" :key="f.id">
+    <dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd>
+    <dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd>
+    <template v-if="f.isDir"><dt>包含</dt><dd>{{ f.countsKnown ? `${f.folderCount || 0} 个文件夹，${f.fileCount || 0} 个文件` : detailBusy ? '正在统计…' : '未完成统计' }}</dd></template>
+    <dt>创建时间</dt><dd>{{ !f.created || f.created.startsWith('0001') ? '未提供' : new Date(f.created).toLocaleString('zh-CN') }}</dd>
+    <dt>修改时间</dt><dd>{{ !f.modified || f.modified.startsWith('0001') ? '未提供' : new Date(f.modified).toLocaleString('zh-CN') }}</dd>
+    <template v-if="detailCID"><dt>CID</dt><dd><button class="text-btn" aria-label="复制 CID" @click="copyCID">{{ detailCID }}<Icon name="Copy" :size="14" /></button></dd></template>
+    <dt>位置</dt><dd>{{ state.storages.find(s => s.id === selected)?.name }} / {{ history.map(h => h.name).join(' / ') }}</dd>
+    <template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></Modal>
+  <Modal v-if="folderDownload" title="下载文件夹" confirmation @close="folderDownload = null"><div class="modal-body">确认将「{{ folderDownload.name }}」打包为 ZIP 下载？打包将通过以太传输，目录较大时需要较长时间。</div><footer class="modal-footer"><button class="btn primary" @click="confirmFolderDownload">确认下载</button><button class="btn" @click="folderDownload = null">取消</button></footer></Modal>
   <OfflineDownload v-if="offline" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="offline = false" />
   </template>
 </template>

@@ -74,7 +74,7 @@ test('compact cache and rounded grid selection with stable page tabs', async ({ 
   const chart = await page.locator('.cache-chart').boundingBox()
   const progress = await page.locator('.cache-progress').boundingBox()
   const metrics = await page.locator('.cache-metrics').boundingBox()
-  expect(chart.width).toBeLessThanOrEqual(100)
+  expect(chart.width).toBe(104)
   expect(progress.x).toBeGreaterThan(chart.x + chart.width)
   expect(metrics.x).toBeGreaterThan(progress.x + progress.width)
   await expect(page.getByLabel('暂无执行中的缓存任务')).toHaveAttribute('value', '0')

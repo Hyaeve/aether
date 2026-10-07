@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { api, state, reload, notify, date, driverOf } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
@@ -25,7 +25,7 @@ async function cleanupCAS() {
   catch (e) { notify(e.message, true) }
   finally { busy.value = false }
 }
-const modal = ref(false), busy = ref(false), error = ref(''), editing = ref(''), more = ref(false), picker = ref(false), confirmDelete = ref(null)
+const modal = ref(false), busy = ref(false), error = ref(''), editing = ref(''), more = ref(false), picker = ref(false), confirmDelete = ref(null), menu = ref('')
 const form = reactive({})
 watch(() => form.casBindingId, () => {
   if (props.kind === 'cas' && !availableStorages.value.some(s => s.id === form.storageId)) {
@@ -34,8 +34,12 @@ watch(() => form.casBindingId, () => {
 })
 const tasks = computed(() => state.tasks.filter(t => t.kind === props.kind))
 const storage = id => state.storages.find(s => s.id === id)
-const labels = { idle: '等待执行', running: '执行中', success: '已完成', error: '执行失败', cancelled: '已停止', interrupted: '已中断' }
+function closeMenu(event) { if (!event.target.closest('.task-row-menu')) menu.value = '' }
+function escapeMenu(event) { if (event.key === 'Escape') menu.value = '' }
+onMounted(() => { document.addEventListener('click', closeMenu); document.addEventListener('keydown', escapeMenu) })
+onUnmounted(() => { document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', escapeMenu) })
 function open(t) {
+  menu.value = ''
   editing.value = t?.id || ''; error.value = ''; more.value = false
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, t ? JSON.parse(JSON.stringify(t)) : { name: '', kind: props.kind, storageId: '', source: '/', target: '', mode: 'incremental', encodePath: false, apiInterval: 200, cron: '', depth: 0, interval: 60, cacheTTL: 0, excludeDirs: '', excludeFiles: '', excludeTypes: '', enabled: true })
@@ -58,6 +62,7 @@ function selectSource(value) {
 }
 function sourceLabel(task) { return task.sourceLabel || (task.source === '/' ? '根目录' : '已选目录') }
 async function action(t, action) {
+  menu.value = ''
   try { await api(`/tasks/${t.id}/${action}`, 'POST'); await reload(); notify(action === 'run' ? '任务已启动' : '正在停止任务') } catch (e) { notify(e.message, true) }
 }
 async function remove() {
@@ -73,7 +78,11 @@ async function toggle(t) {
   <CacheOverview v-if="kind === 'cache'" :tasks="tasks" />
   <div v-else class="metric-strip three"><div><span class="metric-icon"><Icon name="ListTodo" /></span><span><small>全部任务</small><strong>{{ tasks.length }}<em>项</em></strong></span></div><div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>正在执行</small><strong>{{ tasks.filter(t => t.status === 'running').length }}<em>项</em></strong></span></div><div><span class="metric-icon amber"><Icon name="FileVideo" /></span><span><small>本次生成文件</small><strong>{{ tasks.reduce((n, t) => n + t.processed, 0) }}<em>条</em></strong></span></div></div>
   <div v-if="!tasks.length" class="empty-state"><span class="empty-icon"><Icon :name="kind !== 'cache' ? 'FileVideo' : 'Database'" :size="36" /></span><h3>还没有任务</h3><p>从一个存储目录开始。</p><button class="btn" @click="open()"><Icon name="Plus" />添加 {{ taskTitle }} 任务</button></div>
-  <div v-else class="table-wrap"><table><thead><tr><th>任务名称</th><th>存储 / 源目录</th><th>{{ kind !== 'cache' ? '生成方式' : '扫描层级' }}</th><th>状态</th><th>上次执行</th><th>调度</th><th class="right">操作</th></tr></thead><tbody><tr v-for="t in tasks" :key="t.id"><td><strong>{{ t.name }}</strong><small>{{ t.message }}</small></td><td><div class="inline"><ProviderIcon :type="storage(t.storageId)?.type" small /><span>{{ storage(t.storageId)?.name || '存储不可用' }}<small>{{ sourceLabel(t) }}</small></span></div></td><td>{{ kind !== 'cache' ? t.mode === 'full' ? '全量' : '增量' : t.depth || '全部' }}<small>{{ kind !== 'cache' ? t.target : `${t.interval} 分钟 / 次` }}</small></td><td><span class="status" :class="t.status === 'success' ? 'success' : t.status === 'error' ? 'danger' : 'pending'"><i />{{ labels[t.status] || t.status }}</span></td><td>{{ date(t.lastRun) }}<small v-if="!t.nextRun?.startsWith('0001')">下次 {{ date(t.nextRun) }}</small></td><td><input type="checkbox" class="switch" role="switch" :checked="t.enabled" :disabled="t.status === 'running'" aria-label="启用任务调度" @change="toggle(t)" /></td><td><div class="row-actions"><button class="icon-btn" :title="t.status === 'running' ? '停止' : '立即执行'" :aria-label="t.status === 'running' ? '停止' : '立即执行'" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.status === 'running' ? 'Square' : 'Play'" :size="17" /></button><button class="icon-btn" title="编辑任务" aria-label="编辑任务" :disabled="t.status === 'running'" @click="open(t)"><Icon name="Pencil" :size="16" /></button><button class="icon-btn danger-text" title="删除任务" aria-label="删除任务" :disabled="t.status === 'running'" @click="confirmDelete = t"><Icon name="Trash2" :size="16" /></button></div></td></tr></tbody></table></div>
+  <div v-else class="task-list"><article v-for="t in tasks" :key="t.id" class="task-row-card">
+    <button class="task-provider-toggle" :aria-label="`${t.enabled ? '停用' : '启用'}任务 ${t.name}`" :aria-pressed="t.enabled" :disabled="t.status === 'running'" @click="toggle(t)"><ProviderIcon :type="storage(t.storageId)?.type" /></button>
+    <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
+    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.status === 'running' ? 'Square' : 'Play'" />{{ t.status === 'running' ? '停止任务' : '立即执行' }}</button><button :disabled="t.status === 'running'" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button class="danger-text" :disabled="t.status === 'running'" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
+  </article></div>
   <Modal v-if="modal" :title="`${editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />{{ kind === 'cas' ? '需要本地、原生移动或天翼个人云存储池。' : '请先添加并启用一个存储池。' }}<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
       <div class="form-grid">
@@ -90,7 +99,6 @@ async function toggle(t) {
         <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" placeholder="0 2 * * *" /></label>
         <div v-else class="field"><label for="task-cache">缓存期</label><NumberInput id="task-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
         <label v-if="kind === 'strm' && storage(form.storageId)?.type === 'openlist'" class="toggle-line full"><span>编码路径</span><input v-model="form.encodePath" type="checkbox" role="switch" class="switch" /></label>
-        <label v-if="kind === 'cache' || form.cron?.trim()" class="toggle-line full"><span>启用定时调度</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
       </div>
       <template v-if="kind !== 'cache'"><button type="button" class="disclosure" :aria-expanded="more" @click="more = !more"><Icon :name="more ? 'ChevronDown' : 'ChevronRight'" :size="16" />更多选项</button><div v-if="more" class="form-grid more-options"><label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div></div></template>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">取消</button><button class="btn primary" :disabled="busy || !form.storageId || (kind === 'cas' && !form.casBindingId)"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>

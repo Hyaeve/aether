@@ -2,9 +2,14 @@ import { test, expect } from '@playwright/test'
 
 test('client view persists and toolbox animates in both directions', async ({ page, context }, info) => {
   await context.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
-  await context.route('**/api/state', r => r.fulfill({ json: { username: 'preferences', storages: [{ id: 'local', name: '文件库', type: 'local', enabled: true, config: {} }], tasks: [], settings: {}, traffic: {}, cache: {}, logs: [] } }))
+  await context.route('**/api/state', r => r.fulfill({ json: { username: 'preferences', storages: [{ id: 'local', name: '文件库', type: 'local', enabled: true, config: {} }, {id:'second',name:'第二存储',type:'local',enabled:true,config:{}}], tasks: [], settings: {}, traffic: {}, cache: {}, logs: [] } }))
   await context.route('**/api/files?**', r => r.fulfill({ json: [{ id: '/movie.mp4', name: 'movie.mp4', size: 42 }] }))
   await page.goto('/files')
+  await page.getByRole('button', {name:'选择存储池',exact:true}).click()
+  await page.getByRole('option', {name:'第二存储',exact:true}).click()
+  await page.getByRole('button', {name:'大小',exact:true}).click()
+  await page.getByRole('button', {name:'大小',exact:true}).click()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('aether-files:preferences')))).toMatchObject({storage:'second',sortKey:'size',ascending:false})
   await page.getByRole('button', { name: '当前列表视图，切换网格' }).click()
   expect(await page.evaluate(() => localStorage.getItem('aether-files-view'))).toBe('grid')
   await page.reload()
@@ -12,10 +17,14 @@ test('client view persists and toolbox animates in both directions', async ({ pa
   const tab = await context.newPage()
   await tab.goto('/files')
   await expect(tab.getByRole('button', { name: '当前网格视图，切换列表' })).toBeVisible()
+  await expect(tab.getByRole('button', {name:'选择存储池',exact:true})).toContainText('第二存储')
   await tab.close()
   await page.getByRole('button', { name: '当前网格视图，切换列表' }).click()
   await page.reload()
   await expect(page.getByRole('button', { name: '当前列表视图，切换网格' })).toBeVisible()
+  await expect(page.getByRole('columnheader', {name:'大小'})).toHaveAttribute('aria-sort','descending')
+  const heights = await page.locator('.files-heading-actions').evaluate(el => [el.querySelector('.search-field').offsetHeight, el.querySelector('.btn').offsetHeight])
+  expect(heights).toEqual([36,36])
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.evaluate(() => {
     window.menuClasses = []
