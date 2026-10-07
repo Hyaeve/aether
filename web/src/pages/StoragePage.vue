@@ -75,6 +75,7 @@ function open(storage) {
   error.value = ''; editing.value = storage?.id || ''; step.value = storage ? 2 : 1; selected.value = storage?.type || ''
   Object.assign(form, storage ? JSON.parse(JSON.stringify(storage)) : { name: '', type: '', enabled: true, cacheTTL: 0, config: {} })
   form.config.deleteMode ||= 'trash'
+  if (storage?.type === 'openlist') form.config.authMode ||= 'token'
   if (storage?.type === '115') {
     form.config.cookie ||= form.config.ck || ''
     form.config.device ||= 'web'
@@ -92,6 +93,12 @@ function open(storage) {
 }
 function next(type) {
   selected.value = type; form.type = type; form.config = { root: driverOf(type).root, deleteMode: 'trash', ...(type === 'mobile' ? { mode: 'native' } : {}), ...(type === '115' ? { device: 'web', cookie: '' } : {}) }; step.value = 2
+}
+function changeOpenlistMode(mode) {
+  if (mode !== (form.config.authMode || 'token')) {
+    form.config.password = ''; form.config.token = ''; form.config.username = ''
+  }
+  form.config.authMode = mode
 }
 function closeAuthorization() { authorization.value = false; clearTimeout(pollTimer); authGeneration.value++; authBusy.value = false; qr.value = null }
 watch(modal, value => { if (!value) closeAuthorization() })
@@ -143,6 +150,7 @@ async function requestAuthorization() {
 async function save() {
   error.value = ''; busy.value = true
   try {
+    if (state.storages.some(s => s.id !== editing.value && s.name.trim().toLowerCase() === form.name.trim().toLowerCase())) throw new Error('存储池名称已存在')
     await api(editing.value ? `/storages/${editing.value}` : '/storages', editing.value ? 'PUT' : 'POST', form)
     await reload(); modal.value = false; notify(editing.value ? '存储池已更新' : '存储池已添加')
   } catch (e) { error.value = e.message } finally { busy.value = false }
@@ -192,9 +200,10 @@ async function remove() {
           <label v-if="selected === 'quark'" class="full storage-cookie">Cookie <span class="required">*</span><SecretInput v-model="form.config.cookie" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" placeholder="粘贴夸克网页版的完整 Cookie" /></label>
           <template v-if="selected === 'tianyi'"><label>天翼账号<input v-model="form.config.username" required autocomplete="off" /></label><label>天翼密码<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" required autocomplete="new-password" /></label></template>
           <template v-if="['openlist', 'webdav'].includes(selected)">
-            <label class="full">{{ selected === 'webdav' ? 'WebDAV' : 'OpenList' }} 服务地址 <span class="required">*</span><input v-model="form.config.address" required type="url" placeholder="https://storage.example.com" /></label>
-            <label v-if="selected !== 'webdav'" class="full">API Token<SecretInput v-model="form.config.token" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="token" autocomplete="off" /></label>
-            <label v-if="selected === 'webdav'">用户名<input v-model="form.config.username" autocomplete="off" /></label><label :class="{ full: selected !== 'webdav' }">{{ selected === 'webdav' ? '密码' : '目录访问密码（可选）' }}<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" autocomplete="off" /></label>
+            <label :class="{ full: selected === 'webdav' }">服务地址 <span class="required">*</span><input v-model="form.config.address" required type="url" placeholder="https://storage.example.com" /></label>
+            <div v-if="selected === 'openlist'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'token'" @update:model-value="changeOpenlistMode" label="接入模式" :options="[{ value: 'token', label: 'API令牌' }, { value: 'account', label: '账号密码' }]" /></div>
+            <label v-if="selected === 'openlist' && form.config.authMode !== 'account'" class="full">API令牌<SecretInput v-model="form.config.token" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="token" autocomplete="off" /></label>
+            <template v-if="selected === 'webdav' || form.config.authMode === 'account'"><label>账号<input v-model="form.config.username" autocomplete="off" :required="selected === 'openlist'" /></label><label>密码<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" autocomplete="off" :required="selected === 'openlist'" /></label></template>
           </template>
           <div v-if="selected === 'local'" class="field"><label for="storage-local-directory">本地目录</label><div class="directory-input"><input id="storage-local-directory" v-model="form.config.root" required /><button type="button" class="icon-btn" aria-label="选择本地目录" @click="directoryPicker = true"><Icon name="FolderOpen" /></button></div></div>
           <label v-else>{{ ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" /></label>

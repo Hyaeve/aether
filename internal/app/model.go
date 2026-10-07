@@ -43,6 +43,7 @@ type MountConfig struct {
 }
 
 type Task struct {
+	EncodePath     bool             `json:"encodePath,omitempty"`
 	CASBindingID   string           `json:"casBindingId,omitempty"`
 	SourceLabel    string           `json:"sourceLabel,omitempty"`
 	SourceTrail    []DirectoryCrumb `json:"sourceTrail,omitempty"`
@@ -99,17 +100,18 @@ type LogEntry struct {
 }
 
 type State struct {
-	Mounts       []MountConfig  `json:"mounts,omitempty"`
-	Links        []MediaLink    `json:"links,omitempty"`
-	DAVUsers     []DAVUser      `json:"davUsers,omitempty"`
-	CASTemporary []CASTemporary `json:"casTemporary,omitempty"`
-	Storages     []Storage      `json:"storages"`
-	Tasks        []Task         `json:"tasks"`
-	Settings     Settings       `json:"settings"`
-	Username     string         `json:"username"`
-	Password     string         `json:"password"`
-	SignKey      string         `json:"signKey"`
-	Logs         []LogEntry     `json:"logs"`
+	QuarkTV      map[string]QuarkTVBinding `json:"quarkTV,omitempty"`
+	Mounts       []MountConfig             `json:"mounts,omitempty"`
+	Links        []MediaLink               `json:"links,omitempty"`
+	DAVUsers     []DAVUser                 `json:"davUsers,omitempty"`
+	CASTemporary []CASTemporary            `json:"casTemporary,omitempty"`
+	Storages     []Storage                 `json:"storages"`
+	Tasks        []Task                    `json:"tasks"`
+	Settings     Settings                  `json:"settings"`
+	Username     string                    `json:"username"`
+	Password     string                    `json:"password"`
+	SignKey      string                    `json:"signKey"`
+	Logs         []LogEntry                `json:"logs"`
 }
 
 type Store struct {

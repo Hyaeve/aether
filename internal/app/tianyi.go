@@ -30,8 +30,8 @@ const tianyiAppID = "9317140619"
 const tianyiReturn = "https://m.cloud.189.cn/zhuanti/2020/loginErrorPc/index.html"
 
 type tianyiSession struct {
-	Key         string `json:"sessionKey"`
-	Secret      string `json:"sessionSecret"`
+	Key         string `json:"sessionKey" xml:"sessionKey"`
+	Secret      string `json:"sessionSecret" xml:"sessionSecret"`
 	Credentials [32]byte
 	Expires     time.Time
 }
@@ -118,11 +118,13 @@ func tianyiDecode(raw []byte, out any) error {
 	var status struct {
 		XMLName   xml.Name
 		Code      string      `json:"code" xml:"code"`
-		ErrorCode string      `json:"errorCode"`
-		ResCode   json.Number `json:"res_code"`
+		ErrorCode string      `json:"errorCode" xml:"errorCode"`
+		ResCode   json.Number `json:"res_code" xml:"res_code"`
 	}
 	if strings.HasPrefix(strings.TrimSpace(string(raw)), "<") {
-		if xml.Unmarshal(raw, &status) != nil || status.XMLName.Local == "error" {
+		if xml.Unmarshal(raw, &status) != nil || status.XMLName.Local == "error" ||
+			(status.Code != "" && status.Code != "SUCCESS" && status.Code != "0") ||
+			status.ErrorCode != "" || (status.ResCode != "" && status.ResCode != "0") {
 			return errors.New("天翼拒绝请求，请检查账户、权限或会话")
 		}
 		return xml.Unmarshal(raw, out)
@@ -243,8 +245,12 @@ func (a *App) tianyiLogin(ctx context.Context, s Storage) (tianyiSession, error)
 	}
 	address := tianyiAPI + "/getSessionForPC.action?" + url.Values{
 		"redirectURL": {login.ToURL}, "clientType": {"TELEPC"}, "version": {"7.2.4.0"}, "channelId": {"web_cloud.189.cn"},
+		"returnType": {"JSON"},
 	}.Encode()
-	raw, _, err = tianyiHTTP(ctx, client, "POST", address, nil, nil)
+	sessionHeaders := http.Header{}
+	sessionHeaders.Set("Referer", "https://cloud.189.cn/")
+	sessionHeaders.Set("X-Request-ID", id())
+	raw, _, err = tianyiHTTP(ctx, client, "POST", address, nil, sessionHeaders)
 	if err != nil {
 		return empty, err
 	}

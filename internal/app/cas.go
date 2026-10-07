@@ -29,6 +29,7 @@ func (entry CASTemporary) expiresAt() time.Time {
 }
 
 type CASInfo struct {
+	PlaybackURL    string `json:"playback_url,omitempty"`
 	RetentionHours int    `json:"retentionHours,omitempty"`
 	Provider       string `json:"provider"`
 	Name           string `json:"name"`
@@ -98,13 +99,14 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	}
 	// Some CAS writers serialize the byte count as a decimal string.
 	var data struct {
-		Provider  string          `json:"provider"`
-		Name      string          `json:"name"`
-		Size      json.RawMessage `json:"size"`
-		SHA256    string          `json:"sha256"`
-		MD5       string          `json:"md5"`
-		SliceMD5  string          `json:"slice_md5"`
-		SliceSize int64           `json:"slice_size"`
+		Provider    string          `json:"provider"`
+		Name        string          `json:"name"`
+		Size        json.RawMessage `json:"size"`
+		SHA256      string          `json:"sha256"`
+		MD5         string          `json:"md5"`
+		SliceMD5    string          `json:"slice_md5"`
+		SliceSize   int64           `json:"slice_size"`
+		PlaybackURL string          `json:"playback_url"`
 	}
 	if json.Unmarshal(raw, &data) != nil {
 		return info, errors.New("CAS 内容不是合法 JSON")
@@ -127,7 +129,7 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	if !isVideo(name) {
 		name += path.Ext(data.Name)
 	}
-	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5), SliceMD5: strings.ToUpper(data.SliceMD5), SliceSize: data.SliceSize}
+	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5), SliceMD5: strings.ToUpper(data.SliceMD5), SliceSize: data.SliceSize, PlaybackURL: data.PlaybackURL}
 	return info, validateCAS(info)
 }
 
@@ -242,7 +244,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 	defer func() { <-a.casGate }()
 	retention := casRetentionHours(claim.RetentionHours)
 	for _, task := range a.store.snapshot().Tasks {
-		if claim.TaskID != "" && task.ID == claim.TaskID && task.Kind == "cas" && task.StorageID == s.ID {
+		if claim.TaskID != "" && task.ID == claim.TaskID && task.Kind == "cas" && (task.CASBindingID == s.ID || task.StorageID == s.ID) {
 			retention = casRetentionHours(task.RetentionHours)
 			break
 		}

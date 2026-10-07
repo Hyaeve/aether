@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import SecretInput from '../components/SecretInput.vue'
+import QuarkTakeover from '../components/QuarkTakeover.vue'
+import ProviderIcon from '../components/ProviderIcon.vue'
 import { notify } from '../lib'
 const busy = ref(false)
 const flow = ref(''), password = ref(''), backupFile = ref(null), importStep = ref(1)
@@ -46,10 +48,11 @@ const tools = [
   <section class="page-head"><h1>辅助工具</h1></section>
   <div class="plugin-grid">
     <button v-for="tool in tools" :key="tool.name" class="plugin-card" @click="selected = tool">
-      <span class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small class="plugin-description" :title="tool.detail">{{ tool.detail }}</small><span v-if="tool.name !== '配置备份'" class="status pending">待实现</span>
+      <span v-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></span><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small class="plugin-description" :title="tool.detail">{{ tool.detail }}</small><span v-if="!['配置备份', '夸克 STRM 接管'].includes(tool.name)" class="status pending">待实现</span>
     </button>
   </div>
-  <Modal v-if="selected" :title="selected.name" @close="selected = null">
+  <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" />
+  <Modal v-else-if="selected" :title="selected.name" @close="selected = null">
     <template v-if="selected.name === '配置备份'"><div class="modal-body"><p>备份包含账号、存储池、以链和规则配置，使用你设置的密码加密。导入后需重启容器，并使用备份中的账号登录。</p></div><footer class="modal-footer backup-actions"><button class="btn" @click="start('import')"><Icon name="ArchiveRestore" />导入配置备份</button><button class="btn primary" @click="start('export')"><Icon name="Download" />导出配置备份</button></footer></template>
     <div v-else class="modal-body"><p>该插件尚未实现，当前不能启用或执行。</p><p v-if="selected.detail">{{ selected.detail }}</p><code v-if="selected.file">/config/organize/{{ selected.file }}</code></div>
   </Modal>
@@ -60,3 +63,7 @@ const tools = [
     </form>
   </Modal>
 </template>
+<style scoped>
+.quark-takeover-symbol { position: relative; background: transparent; }
+.quark-takeover-symbol > svg { position: absolute; bottom: -2px; right: -4px; background: var(--surface); color: var(--primary); border-radius: 4px; }
+</style>

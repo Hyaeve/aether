@@ -116,7 +116,11 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 				raw = `{"result":-1}`
 			}
 		case "/getSessionForPC.action":
-			raw = `{"res_code":0,"sessionKey":"session","sessionSecret":"secret"}`
+			if r.URL.Query().Get("returnType") != "JSON" || r.Header.Get("X-Request-ID") == "" || r.Header.Get("Referer") != "https://cloud.189.cn/" {
+				t.Error("missing PC session exchange parameters")
+			}
+			// Some upstream responses still use XML despite the requested JSON.
+			raw = `<userSession><res_code>0</res_code><sessionKey>session</sessionKey><sessionSecret>secret</sessionSecret></userSession>`
 		case "/listFiles.action":
 			raw = fmt.Sprintf(`{"fileListAO":{"fileList":[{"id":10,"name":"Movie.mkv.cas","size":%d}],"folderList":[]}}`, len(cas))
 		case "/getFileDownloadUrl.action":
@@ -250,6 +254,31 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 	legacy := Storage{Name: "old", Type: "tianyi", Config: map[string]string{"address": "https://openlist.example"}}
 	if validateStorage(&legacy) == nil {
 		t.Fatal("gateway accepted")
+	}
+}
+
+func TestTianyiSessionResponseFormats(t *testing.T) {
+	for _, raw := range []string{
+		`{"res_code":0,"sessionKey":"key","sessionSecret":"secret"}`,
+		`<?xml version="1.0"?><userSession><res_code>0</res_code><sessionKey>key</sessionKey><sessionSecret>secret</sessionSecret></userSession>`,
+		`<userSession xmlns="https://api.cloud.189.cn"><sessionKey>key</sessionKey><sessionSecret>secret</sessionSecret></userSession>`,
+	} {
+		var session tianyiSession
+		if err := tianyiDecode([]byte(raw), &session); err != nil || session.Key != "key" || session.Secret != "secret" {
+			t.Fatalf("valid session lost: %+v %v", session, err)
+		}
+	}
+	for _, raw := range []string{
+		`<error><code>InvalidSessionKey</code></error>`,
+		`<userSession><res_code>1</res_code><sessionKey>key</sessionKey></userSession>`,
+		`<userSession><errorCode>InvalidSessionKey</errorCode></userSession>`,
+		`{"res_code":1,"sessionKey":"key","sessionSecret":"secret"}`,
+		`<html>not a session`,
+	} {
+		var session tianyiSession
+		if err := tianyiDecode([]byte(raw), &session); err == nil {
+			t.Fatal("invalid response accepted", raw)
+		}
 	}
 }
 

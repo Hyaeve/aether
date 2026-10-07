@@ -52,7 +52,11 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
 <template>
   <div class="mount-heading"><FileTabs /><button class="btn primary" @click="open()"><Icon name="Plus" />添加挂载</button></div>
   <div v-if="!mounts.length" class="empty-state"><span class="empty-icon"><Icon name="CloudDownload" :size="36" /></span><h3>还没有挂载</h3></div>
-  <div v-else class="mount-grid"><article v-for="mount in mounts" :key="mount.id" class="mount-card" tabindex="0" :aria-label="`${mount.name}，${statusName(mount)}`" @click="cardClick($event,mount)" @keydown.enter.self="open(mount)" @contextmenu.prevent.stop="context($event,mount)"><button class="mount-toggle" :disabled="busy" :aria-label="mount.status === 'mounted' ? '停用挂载' : '启用挂载'" :aria-pressed="mount.status === 'mounted'" @click.stop="action(mount, mount.status === 'mounted' ? 'stop' : 'start')"><ProviderIcon type="local" /></button><div class="mount-identity"><h3>{{ mount.name }}</h3><p>{{ mount.mountPoint.replace(/[\\/]$/, '') }}<strong class="mount-path-suffix">/AetherDrive</strong></p><p>{{ sourceName(mount) }}</p><small class="mount-permissions">UID {{ mount.uid }} · GID {{ mount.gid }} · {{ mount.mode.toString(8).padStart(4, '0') }}</small><p v-if="mount.lastError" class="error-message">{{ mount.lastError }}</p></div><button class="icon-btn" aria-label="挂载操作" @click.stop="context($event,mount)"><Icon name="EllipsisVertical" /></button></article></div>
+  <div v-else class="mount-grid"><article v-for="mount in mounts" :key="mount.id" class="mount-card" tabindex="0" :aria-label="`${mount.name}，${statusName(mount)}`" @click="cardClick($event,mount)" @keydown.enter.self="open(mount)">
+    <div class="mount-card-top" @contextmenu.prevent.stop="context($event,mount)"><button class="mount-toggle" :disabled="busy" :aria-label="mount.status === 'mounted' ? '停用挂载' : '启用挂载'" :aria-pressed="mount.status === 'mounted'" @click.stop="action(mount, mount.status === 'mounted' ? 'stop' : 'start')"><ProviderIcon type="local" /></button><div class="mount-identity"><h3>{{ mount.name }}</h3><p>{{ mount.mountPoint.replace(/[\\/]$/, '') }}<strong class="mount-path-suffix">/AetherDrive</strong></p></div><button class="icon-btn" aria-label="挂载操作" @click.stop="context($event,mount)"><Icon name="EllipsisVertical" /></button></div>
+    <dl class="mount-details" @contextmenu.prevent.stop="context($event,mount)"><div><dt>源目录</dt><dd>{{ sourceName(mount) }}</dd></div><div><dt>权限</dt><dd class="mount-permissions">UID {{ mount.uid }} · GID {{ mount.gid }} · {{ mount.mode.toString(8).padStart(4, '0') }}</dd></div></dl>
+    <p v-if="mount.lastError" class="error-message" @contextmenu.prevent.stop="context($event,mount)">{{ mount.lastError }}</p>
+  </article></div>
   <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop><button @click="open(menu.mount)"><Icon name="Pencil" />编辑挂载</button><button :disabled="busy" @click="action(menu.mount,'test')"><Icon name="Activity" />测试连接</button><button :disabled="busy" @click="action(menu.mount,menu.mount.status === 'mounted' ? 'stop' : 'start')"><Icon name="Power" />{{ menu.mount.status === 'mounted' ? '停用挂载' : '启用挂载' }}</button><button class="danger-text" @click="deleting = menu.mount; closeMenu()"><Icon name="Trash2" />删除挂载</button></div></Teleport>
   <Modal v-if="modal" :title="form.id ? '编辑挂载' : '添加挂载'" compact wide @close="!busy && (modal = false)"><form @submit.prevent="save"><div class="modal-body"><div class="form-grid">
     <label class="full">挂载名称<input v-model="form.name" required maxlength="60" /></label>
@@ -65,3 +69,12 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
   <LocalDirectoryPicker v-if="directoryPicker" :initial="form.mountPoint" @close="directoryPicker = false" @select="form.mountPoint = $event; directoryPicker = false" />
   <Modal v-if="deleting" title="删除挂载" @close="deleting = null"><div class="modal-body">删除「{{ deleting.name }}」的配置？不会删除目录或源文件。</div><footer class="modal-footer"><button class="btn" @click="deleting = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除挂载</button></footer></Modal>
 </template>
+<style scoped>
+.mount-grid .mount-card { display: block; }
+.mount-card-top { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.mount-details { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+.mount-details > div { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 10px; align-items: center; }
+.mount-details dt { color: var(--muted); font-size: 13px; }
+.mount-details dd { margin: 0; padding: 7px 9px; border-radius: 6px; background: var(--bg); font-size: 13px; overflow-wrap: anywhere; }
+.mount-details .mount-permissions { font-family: ui-monospace, monospace; }
+</style>

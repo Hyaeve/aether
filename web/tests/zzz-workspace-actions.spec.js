@@ -111,7 +111,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await page.keyboard.press('Escape')
   for (const config of [
     { name: '显隐夸克', type: 'quark', values: { cookie: 'real-cookie-123' }, labels: ['Cookie'], fields: ['cookie'] },
-    { name: '显隐OpenList', type: 'openlist', values: { address: 'http://127.0.0.1:15998', token: 'real-token-123' }, labels: ['API Token'], fields: ['token'] }
+    { name: '显隐OpenList', type: 'openlist', values: { address: 'http://127.0.0.1:15998', token: 'real-token-123' }, labels: ['API令牌'], fields: ['token'] }
   ]) {
     const response = await page.request.post('/api/storages', { data: { name: config.name, type: config.type, enabled: false, config: { root: '/', deleteMode: 'trash', ...config.values } } })
     expect(response.ok()).toBe(true)

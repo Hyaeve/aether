@@ -208,6 +208,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	generateCAS := t.Kind == "cas" && (t.CASOperation == "generate" || (t.CASOperation == "" && s.Type == "local"))
 	visited := map[string]bool{}
 	outputs := map[string]bool{}
+	lastProgress := time.Time{}
 	var walk func(string, string, int) error
 	walk = func(dir, rel string, depth int) error {
 		if err := ctx.Err(); err != nil {
@@ -220,15 +221,19 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			return errors.New("目录嵌套超过安全上限 128 层")
 		}
 		visited[dir] = true
-		if err := a.waitAPI(ctx, s.ID); err != nil {
-			return err
-		}
 		files, err := a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache")
 		if err != nil {
 			return err
 		}
 		if t.Kind == "cache" {
 			count++
+			if time.Since(lastProgress) >= time.Second && t.ID != "" {
+				lastProgress = time.Now()
+				a.taskUpdate(t.ID, func(task *Task) {
+					task.Processed = count
+					task.Message = fmt.Sprintf("已缓存 %d 个目录 · %s", count, path.Join(t.SourceLabel, rel))
+				})
+			}
 		}
 		for _, f := range files {
 			if err := ctx.Err(); err != nil {
@@ -279,6 +284,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			// Retain the source extension so movie.mp4 and movie.mkv never collide.
 			filename := path.Join(target, child+".strm")
+			if t.Kind == "strm" && s.Type == "openlist" {
+				filename = path.Join(target, strings.TrimSuffix(child, path.Ext(child))+".strm")
+			}
 			if t.Kind == "ed2k" {
 				filename = path.Join(target, child+".ed2k")
 			}
@@ -315,6 +323,8 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if err != nil {
 					return err
 				}
+				playbackInfo := info
+				info.PlaybackURL = a.signedStreamURL(streamClaim{Storage: binding.ID, File: f.ID, CAS: &playbackInfo, TaskID: t.ID, RetentionHours: casRetentionHours(t.RetentionHours), Redirect: true})
 				data, err := json.Marshal(info)
 				if err != nil {
 					return err
@@ -325,42 +335,63 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				count++
 				continue
 			}
-			if err := root.MkdirAll(path.Dir(filename), 0755); err != nil {
-				return err
-			}
-			flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-			if t.Mode == "incremental" {
-				flag = os.O_CREATE | os.O_WRONLY | os.O_EXCL
-			}
-			fh, err := root.OpenFile(filename, flag, 0644)
-			if os.IsExist(err) && t.Mode == "incremental" {
-				continue
-			}
-			if err != nil {
-				return err
-			}
 			claim := streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode, CAS: info}
 			if info != nil {
 				claim.TaskID, claim.RetentionHours = t.ID, casRetentionHours(t.RetentionHours)
 			}
 			link := a.signedStreamURL(claim)
-			_, err = fh.WriteString(link + "\n")
-			closeErr := fh.Close()
-			if err != nil {
-				return err
+			if t.Kind == "strm" && s.Type == "openlist" {
+				link, err = openlistSTRM(s, f.ID, t.EncodePath)
+				if err != nil {
+					return err
+				}
 			}
-			if closeErr != nil {
-				return closeErr
+			if err := writeCASOutput(root, filename, []byte(link+"\n"), t.Mode == "incremental"); err != nil {
+				return err
 			}
 			count++
 		}
 		return nil
 	}
-	err := walk(t.Source, "", 0)
+	sourceRel := ""
+	if t.Kind == "strm" && t.Source != "" && t.Source != "/" && t.Source != rootOf(s) {
+		sourceRel = t.SourceLabel
+		if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
+			sourceRel = path.Base(strings.TrimRight(t.Source, "/"))
+		}
+		if !safeName(sourceRel) {
+			return 0, errors.New("源目录名称缺失或无效，请重新选择源目录")
+		}
+	}
+	err := walk(t.Source, sourceRel, 0)
 	return count, err
 }
 
+func openlistSTRM(s Storage, fileID string, encode bool) (string, error) {
+	base, err := url.Parse(s.Config["address"])
+	if err != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") || base.User != nil {
+		return "", errors.New("OpenList 服务地址无效")
+	}
+	p := path.Join("/", s.Config["root"], fileID)
+	if strings.ContainsAny(p, "\r\n") {
+		return "", errors.New("OpenList 文件路径包含换行，无法生成 STRM")
+	}
+	if encode {
+		parts := strings.Split(p, "/")
+		for i := range parts {
+			parts[i] = url.PathEscape(parts[i])
+		}
+		p = strings.Join(parts, "/")
+	} else {
+		// Keep readable Unicode while protecting URL delimiters and literal '%'.
+		p = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(p)
+	}
+	base.RawQuery, base.Fragment = "", ""
+	return strings.TrimRight(base.String(), "/") + "/d" + p, nil
+}
+
 type streamClaim struct {
+	Redirect       bool     `json:"redirect,omitempty"`
 	Storage        string   `json:"s"`
 	File           string   `json:"f"`
 	Pick           string   `json:"p"`

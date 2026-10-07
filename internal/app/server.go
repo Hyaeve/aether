@@ -39,6 +39,8 @@ type App struct {
 	casActive      map[string]int
 	store          *Store
 	cache          *Cache
+	quarkTVMu      sync.Mutex
+	quarkTVCache   map[string]quarkTVLink
 	ctx            context.Context
 	logger         *log.Logger
 	outputDir      string
@@ -241,6 +243,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/tasks/{id}", a.protected(http.HandlerFunc(a.taskItem)))
 	mux.Handle("/api/tasks/{id}/{action}", a.protected(http.HandlerFunc(a.taskAction)))
 	mux.Handle("/api/settings", a.protected(http.HandlerFunc(a.settings)))
+	mux.Handle("/api/quark-takeover/{id}", a.protected(http.HandlerFunc(a.quarkTVSettings)))
+	mux.Handle("POST /api/quark-takeover/{id}/{action}", a.protected(http.HandlerFunc(a.quarkTVAuthorization)))
 	mux.Handle("/api/account", a.protected(http.HandlerFunc(a.account)))
 	mux.Handle("/api/webdav/users", a.protected(http.HandlerFunc(a.davUsers)))
 	mux.Handle("/api/webdav/users/{id}", a.protected(http.HandlerFunc(a.davUsers)))
@@ -524,6 +528,18 @@ func validateStorage(s *Storage) error {
 		delete(s.Config, "token")
 	case "openlist", "mobile", "webdav":
 		required = []string{"address"}
+		if s.Type == "openlist" {
+			if s.Config["authMode"] == "" {
+				s.Config["authMode"] = "token"
+			}
+			if s.Config["authMode"] != "token" && s.Config["authMode"] != "account" {
+				return errors.New("OpenList 接入模式无效")
+			}
+			if s.Config["authMode"] == "account" {
+				required = append(required, "username", "password")
+				delete(s.Config, "token")
+			}
+		}
 		u, err := url.Parse(s.Config["address"])
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 			return errors.New("请输入有效的 HTTP(S) 服务地址")
@@ -1058,6 +1074,13 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var d Download
+	if claim.CAS == nil && s.Type == "quark" {
+		if target := a.quarkTVTarget(r.Context(), s, claim.File, r.UserAgent()); target != "" {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Redirect(w, r, target, http.StatusFound)
+			return
+		}
+	}
 	if claim.CAS != nil {
 		var release func()
 		d, release, err = a.casDownload(r.Context(), s, claim)
@@ -1067,6 +1090,16 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		fail(w, 502, err)
+		return
+	}
+	if claim.CAS != nil && claim.Redirect {
+		target, parseErr := url.Parse(d.URL)
+		if parseErr != nil || target.Host == "" || target.User != nil || (target.Scheme != "http" && target.Scheme != "https") {
+			fail(w, 502, errors.New("CAS 返回的播放地址无效"))
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, d.URL, http.StatusFound)
 		return
 	}
 	cw := countWriter{w, &a.downloaded}

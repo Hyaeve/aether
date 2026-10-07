@@ -130,3 +130,11 @@ The supplied OpenList checkout's `drivers/189/torrent.go` and
 `pkg/torrent/torrent.go` were inspected for CAS hash fields and the Tianyi
 multi-upload protocol. Aether independently computes slice hashes and keeps
 its existing CAS JSON envelope; no OpenList source files were copied.
+
+The local LitePan `internal/quarktv` protocol and cache UI behavior, and
+OpenList `drivers/strm` URL/naming conventions were inspected for interoperability.
+Aether implements these behaviors independently using its own HTTP, encrypted
+state, cache and Vue components. No reference source files are incorporated.
+The TV service client identifiers and request signing constants are protocol
+parameters, not Aether user credentials. Aether does not include or silently
+use LitePan's third-party HTTP token broker.

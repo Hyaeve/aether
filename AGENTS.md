@@ -1,5 +1,55 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-07：客户端文件视图偏好、工具菜单动效与 v0.2.5 发布
+
+- 修改 `web/src/pages/FilesPage.vue`：列表/网格独立存入当前浏览器 localStorage `aether-files-view`，同步保存、读取旧账号偏好并迁移，保留账号收藏夹数据；浏览器禁用存储时不导致页面报错。工具菜单共用 RoundedSelect 的 `select-popup` 动画类，新增箭头旋转与菜单语义。
+- 修改 `web/src/style.css`：工具菜单以右上角为变换原点、箭头旋转与减少动态偏好；移除不再使用的独立菜单动画类。
+- 新增 `web/tests/file-preferences.spec.js`：切换后刷新、新标签页恢复、切回列表持久化、展开和收起动画类与截图。修改 `web/tests/file-browser.spec.js`：前轮取消预选源存储后，虚拟目录测试显式选择存储。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`：统一版本0.2.5。修改 `README.md` 记录客户端偏好；修改本文件记录本次全部文件。
+- 推送范围包含前轮尚未提交的天翼会话/通知、缓存/夸克接管、OpenList账号、CAS与挂载卡片改动，各文件详见对应记录；不含config/data、exe、日志、依赖或构建测试产物。按用户要求中文提交并推送main及v0.2.5标签，结果以Git确认与续记为准。
+- 验证：Go全量测试、vet、前端构建通过；完整33项Playwright正在执行。首次fetch发生连接重置，正在重试；无真实网盘/Docker/FUSE联调，不宣称完成。
+- 最终验证：33项Playwright全部通过；补旧偏好迁移后重新构建并单独重跑文件偏好测试通过。GitHub fetch两次分别连接重置和443超时，将创建中文提交及标签后尝试正常推送，不使用强制推送。
+
+## 2026-10-07：OpenList 账号接入、挂载卡片与双哈希 CAS 播放
+
+- 修改 `web/src/pages/StoragePage.vue`：重名前端校验，OpenList 服务地址/接入模式同行，默认 API令牌、可切换账号密码并清除旧模式输入，隐藏目录访问密码。修改 `internal/app/server.go` 校验接入模式与账号必填，沿用已有原子新增/编辑重名拒绝；新增 CAS 签名播放302分流。
+- 新增 `internal/app/openlist_auth.go`，修改 `internal/app/drivers.go`、`cloud_write.go`：账号登录、按存储和凭据摘要隔离的30分钟有界内存会话，列表/下载/写JSON登录失效重试一次，上传使用登录令牌但不自动重放；登录不跟随重定向，账号密码不作为目录密码发送。旧令牌池目录密码保留兼容，2FA明确要求令牌方式。
+- 修改 `web/src/pages/MountsPage.vue`：上方图标、名称与挂载点，底部源目录、权限两行占满卡片宽度；保留编辑与启停/右键菜单。
+- 修改 `internal/app/cas_generate.go`、`cas.go`、`tasks.go`：本地输出保留MD5、SHA256和分片摘要，新增playback_url携带已签名绑定存储/特征/保留时间；播放时沿用秒传临时目录、复用和清理，新链接返回302，旧代理链接不变；本地CAS关联任务通过CASBindingID更新保留时间。
+- 新增 `internal/app/cas_offline.go`，修改 `cloud_offline.go`、`web/src/components/OfflineDownload.vue`：移动/天翼支持每批1–20个CAS秒传到所选目录，批次先校验所有文件、同名不覆盖、不上传媒体兜底；成功文件不进临时清理，移动失败占位写入定向清理记录；窗口CAS/BT分开选择文件。
+- 修改 `internal/linkcore/strm/strm.go`、`resolver/resolver.go`、`upstream/emby.go`：识别上游报告的CAS路径/容器，有界读取Base64 JSON并提取播放地址，复用以链原有访问校验及直链解析。不能使未支持CAS扩展名的媒体库自动扫描入库，真实媒体库仍待联调。
+- 新增 `internal/app/openlist_cas_access_test.go`：登录会话/续期/不泄漏目录密码、重名创建/编辑拒绝、生成双哈希CAS→以链指针读取→秒传302→复用、永久导入不混入临时清理。修改 `cas_generate_test.go`、`cas_slice_test.go` 的单哈希历史断言。
+- 新增 `web/tests/openlist-cas-mount.spec.js`：接入模式、同行输入、重名拒绝与挂载底部行布局截图；修改 `web/tests/zz-cas.spec.js` 双哈希/播放地址断言，`zzz-workspace-actions.spec.js` 的API令牌标签。修改 `README.md` 与本文件记录行为及边界。
+- 验证中：前端构建、针对后端测试通过，首次端到端CAS夹具使用无效占位Authorization，修正为模拟协议格式后通过。12项浏览器中11项通过，系统日志末尾动态行高即时断言失败，本轮未修改日志实现，将单独重跑确认；最终全量结果续记。
+- 限制：没有真实OpenList/移动/天翼凭据或媒体库入库验证；媒体库不识别CAS扩展名时仍需其插件支持，本轮不另生成STRM。302后无法观察客户端播放结束，临时保留期从请求结束计算。目标根目录沿用既有约束。保留前轮未提交改动，本轮未要求推送、不提交或递增版本，不改15151或用户数据。
+- 补充修改 `web/tests/workspace.spec.js`：日志末尾滚动的行高断言改为轮询等待异步测量完成，仍严格要求行不重叠。单独运行该用例会因缺少前序管理员初始化失败，随后按完整初始化顺序重跑。新增CAS上传前端测试确认multipart字段与BT分离；查看挂载卡片截图确认全宽底部两行。最终 `go test ./... -count=1`、`go vet ./...` 与前端构建通过。
+- 收尾验证：13项浏览器中12项先通过；修改等待方式后，初始化/存储流程与日志两项重新运行均通过。`git diff --check` 通过。测试服务正常结束，没有替换原15151实例；前轮已确认独立后台预览启动受策略限制，本轮未重复尝试绕过。未推送。
+
+## 2026-10-07：挂载名称、缓存统计、STRM 规则与夸克播放接管
+
+- 修改 `internal/app/mount_fs.go`：聚合挂载使用存储名称，不再附加内部 ID；同名按稳定 ID 顺序分配数字后缀并避开已有名称。
+- 修改 `internal/app/cache.go`、`internal/app/drivers.go`：记录命中、未命中、LRU 淘汰与过期；等价目录请求合并，命中不等待 API 间隔；清空缓存增加代际标记，阻止旧请求回填；读取设置时不复制历史日志。延续 TTL/LRU、容量限制和快照，不缓存破坏性操作的权限判断。
+- 修改 `internal/app/tasks.go`：缓存扫描节流更新已扫描目录数；STRM 保留选择的源目录层级；OpenList 生成 `/d` 路径，支持可选逐段编码、替换媒体扩展名为 `.strm` 并检测重名；复用完整临时写入后发布。输出仍限定原有 STRM 根目录内，不扩张写入权限。
+- 修改 `internal/app/model.go`、`internal/app/server.go`：保存 encodePath、独立 QuarkTV 加密配置，增加受管理员保护的配置/扫码接口；仅签名 STRM 播放入口调用 TV 接管，不修改 download 或挂载读写。
+- 新增 `internal/app/quark_takeover.go`：独立 TV HTTP 签名、手动设备/凭据绑定、受信任 HTTPS broker 显式扫码同意、会话与存储绑定的授权封装、续期、UA 分流、画质选择、HLS 自适应回退、五分钟有界直链缓存、网页 Cookie 改变后停止复用。认证请求禁止跟随重定向，日志不含凭据，普通配置接口不返回令牌。
+- 新增 `web/src/components/CacheOverview.vue`、`QuarkTakeover.vue`，修改 `web/src/pages/TasksPage.vue`、`ToolsPage.vue`：真实缓存命中环图、容量与计数、执行任务进度；任务不预选存储；OpenList 编码开关默认关闭；仅填写 Cron 或缓存任务显示编辑中的调度开关；夸克插件配置、二维码、凭据显隐、同意选项及品牌图标修饰。
+- 新增 `internal/app/cache_strm_revision_test.go`、`quark_takeover_test.go`：名称冲突、缓存计数/清空代际/并发合并/命中免等待、源文件夹层级、URL 编码，TV 画质/UA/签名播放/缓存/凭据隐藏与加密恢复/同意要求/扫码续期等模拟回归。
+- 新增 `web/tests/cache-strm-takeover.spec.js`，修改 `web/tests/workspace.spec.js`：显式选源与实际 Movies 输出路径，日夜/手机缓存统计、OpenList 开关和夸克配置交互。首次浏览器测试发现 label 内选择器二次展开遮挡开关，已改成 field 容器；修复后结果续记。
+- 修改 `README.md`、`THIRD_PARTY_NOTICES.md`、本文件：记录行为、协议参考及限制。保留上一轮天翼与通知改动，其文件与验证已另行记录；本轮不提交推送、不递增版本、不操作原 15151 服务或用户数据。
+- 边界：本地哈希尚未缓存，整理引擎仍未实现；秒传必须云端确认。OpenList 受保护下载签名尚未支持；输出目标仍须位于现有 STRM 根目录。TV 与网页账号未做可靠身份自动比对，需使用同一账号；无真实网盘/Docker/FUSE 联调，不宣称完成真实授权与播放。缓存累计计数不持久化，内存值为估算。
+- 验证阶段：前端构建、Go 全量及 vet 通过；新增扫码续期测试与修复选择器后的浏览器测试正在重跑，最终结果以下续记。
+- 最终后端：`go test ./... -count=1`、`go vet ./...` 通过，包含扫码轮询/刷新模拟。前端构建及 12 项 Playwright 通过；查看缓存日间和夸克夜间截图后补局部选择器主题与确认行排版，再重跑针对测试。未使用真实云账号，未执行本机 CGO race 或 Docker/FUSE 验证。
+- 收尾：最后两项缓存/STRM/夸克浏览器回归及日夜颜色断言通过，`git diff --check` 通过。尝试以临时配置在 15152 启动独立后台预览被执行策略拒绝，未声称预览已启动；15159 测试服务器随 Playwright 退出。未重启15151，未生成仓库根目录 exe，未提交推送。
+
+## 2026-10-07：天翼会话格式兼容与星空主题消息气泡
+
+- 修改 `internal/app/tianyi.go`：对照本地 OpenList `drivers/189pc/utils.go` 的会话换取协议，补充 returnType=JSON、Referer 和规范化 X-Request-ID；会话 Key/Secret 增加 XML 字段标签，兼容上游仍返回 XML 的情况。XML 解码同步拒绝非零 res_code、错误 code/errorCode，不把错误响应视为成功。未复制参考项目源代码。
+- 修改 `internal/app/tianyi_test.go`：原生登录生命周期改用 XML 会话夹具，检查 JSON 请求参数及请求头；新增 JSON/XML/命名空间会话和错误响应测试。首次全量测试发现直接构造非规范大小写 Header 导致 Get 不匹配，改用 Header.Set 后全量通过。该缺陷可复现用户的空会话报错，但没有真实账户响应，不能确认其现场只有这一原因。
+- 修改 `web/src/style.css`：消息气泡改为浅蓝紫/夜间深空蓝紫渐变表面、细亮边、少量静态星点、清晰的成功/错误图标，柔和右侧滑入，保持关闭按钮、长文本换行、手机宽度及减少动态效果支持。
+- 修改 `web/tests/workspace.spec.js`：同步新气泡细边框断言。新增 `web/tests/toast-theme.spec.js`：日夜两主题成功/错误气泡、关闭、移动宽度及减少动态效果测试与截图。
+- 修改本 `AGENTS.md` 记录全部文件。验证：最终 Go 全量测试、go vet、前端构建、气泡专项 Playwright 与差异格式检查通过，查看夜间错误气泡截图；未重跑完整浏览器套件，未做真实天翼账号或 Docker 联调。
+- 本轮未要求发布：未递增版本、提交或推送；未修改用户配置、未重启15151服务、未生成根目录exe。
+
 ## 2026-10-07：115 CK 驱动、内置下载整合与 v0.2.4 发布
 
 - 新增 `internal/app/pan115.go`：使用 `115driver v1.3.5`，解析 UID/CID/SEID/KID、校验七种设备、绑定请求上下文与超时、禁止重定向、原生分页及逐项云下载；不调用会挤出其他设备的 LoginCheck。修改 `internal/app/drivers.go`、`cloud_file_actions.go`、`cloud_write.go`、`cloud_upload_115.go`、`server.go`：115 目录、直链、改名/移动/复制/回收、建目录、秒传及 OSS 上传改用 CK；OSS 强制 HTTPS 并支持取消。旧 Open 配置须重新扫码或填写 CK，保存后移除旧令牌。

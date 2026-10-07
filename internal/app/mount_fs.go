@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/net/webdav"
@@ -19,7 +21,7 @@ type mountFS struct {
 
 func mountStorageName(s Storage) string {
 	if safeName(s.Name) {
-		return s.Name + " [" + s.ID + "]"
+		return s.Name
 	}
 	return s.ID
 }
@@ -35,6 +37,38 @@ func (d mountFS) includesStorage(s Storage) bool {
 	return true
 }
 
+func (d mountFS) storageNames() map[string]string {
+	names, used := map[string]string{}, map[string]bool{}
+	storages := d.app.store.snapshot().Storages
+	sort.Slice(storages, func(i, j int) bool { return storages[i].ID < storages[j].ID })
+	// Reserve literal names before assigning duplicate suffixes.
+	for _, s := range storages {
+		if d.includesStorage(s) {
+			used[strings.ToLower(mountStorageName(s))] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, s := range storages {
+		if !d.includesStorage(s) {
+			continue
+		}
+		name := mountStorageName(s)
+		if seen[strings.ToLower(name)] {
+			for n := 2; ; n++ {
+				candidate := fmt.Sprintf("%s (%d)", name, n)
+				if !used[strings.ToLower(candidate)] {
+					name = candidate
+					break
+				}
+			}
+		}
+		seen[strings.ToLower(mountStorageName(s))] = true
+		used[strings.ToLower(name)] = true
+		names[s.ID] = name
+	}
+	return names
+}
+
 func (d mountFS) selectPath(name string) (Storage, string, string, error) {
 	rel, err := relative(name)
 	if err != nil {
@@ -46,8 +80,9 @@ func (d mountFS) selectPath(name string) (Storage, string, string, error) {
 			return Storage{}, "/", ".", nil
 		}
 		parts := strings.SplitN(rel, "/", 2)
+		names := d.storageNames()
 		for _, storage := range d.app.store.snapshot().Storages {
-			if d.includesStorage(storage) && mountStorageName(storage) == parts[0] {
+			if d.includesStorage(storage) && names[storage.ID] == parts[0] {
 				key, source = storage.ID, rootOf(storage)
 				break
 			}
@@ -128,9 +163,10 @@ func (d mountFS) OpenFile(ctx context.Context, name string, flag int, perm os.Fi
 			return nil, os.ErrPermission
 		}
 		file := &davFile{ctx: ctx, info: davInfo{File{Name: "/", IsDir: true}}}
+		names := d.storageNames()
 		for _, storage := range d.app.store.snapshot().Storages {
 			if d.includesStorage(storage) {
-				file.entries = append(file.entries, davInfo{File{Name: mountStorageName(storage), IsDir: true}})
+				file.entries = append(file.entries, davInfo{File{Name: names[storage.ID], IsDir: true}})
 			}
 		}
 		return file, nil

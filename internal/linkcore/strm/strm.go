@@ -2,6 +2,8 @@
 package strm
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,7 +46,7 @@ type Target struct {
 
 // IsStrmPath reports whether a path points at a .strm pointer file.
 func IsStrmPath(candidate string) bool {
-	return strings.EqualFold(filepath.Ext(candidate), ".strm")
+	return strings.EqualFold(filepath.Ext(candidate), ".strm") || strings.EqualFold(filepath.Ext(candidate), ".cas")
 }
 
 var errEmptyPointer = errors.New("strm file is empty")
@@ -69,9 +71,29 @@ func Read(strmPath string, mapper *pathmap.Mapper) (*Target, error) {
 	if info.IsDir() {
 		return nil, fmt.Errorf("%q is a directory", strmPath)
 	}
-	raw, err := io.ReadAll(io.LimitReader(file, maxPointerBytes))
+	limit := int64(maxPointerBytes)
+	if strings.EqualFold(filepath.Ext(strmPath), ".cas") {
+		limit = 1 << 20
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, errors.New("pointer file too large")
+	}
+	if strings.EqualFold(filepath.Ext(strmPath), ".cas") {
+		raw, err = base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw)))
+		if err != nil {
+			return nil, errors.New("invalid CAS encoding")
+		}
+		var envelope struct {
+			PlaybackURL string `json:"playback_url"`
+		}
+		if json.Unmarshal(raw, &envelope) != nil || envelope.PlaybackURL == "" {
+			return nil, errors.New("CAS has no Aether playback URL; regenerate it with a bound storage")
+		}
+		return ParseURL(envelope.PlaybackURL)
 	}
 	return Parse(string(raw), strmPath, mapper)
 }

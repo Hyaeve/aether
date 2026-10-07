@@ -421,7 +421,7 @@ func (r *Resolver) resolveUncached(ctx context.Context, provider upstream.Provid
 // isStrmMedia 判断上游报告的这个媒体是不是 .strm 指针。
 // 优先看扩展名；Emby 有些库会把扩展名藏在 Container 字段里。
 func isStrmMedia(target upstream.MediaTarget) bool {
-	return strm.IsStrmPath(target.Path) || strings.EqualFold(target.Container, "strm")
+	return strm.IsStrmPath(target.Path) || strings.EqualFold(target.Container, "strm") || strings.EqualFold(target.Container, "cas")
 }
 
 // followRedirects walks the redirect chain with HEAD (falling back to a ranged

@@ -15,8 +15,17 @@ import { useVirtualList } from '../virtual-list'
 const preferenceKey = `aether-files:${state.username}`
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch {}
-const mode = ref(saved.mode === 'grid' ? 'grid' : 'list'), favoritesOpen = ref(!!saved.open), favorites = ref(Array.isArray(saved.favorites) ? saved.favorites : [])
-watch([mode, favoritesOpen, favorites], () => localStorage.setItem(preferenceKey, JSON.stringify({ mode: mode.value, open: favoritesOpen.value, favorites: favorites.value })), { deep: true })
+const viewPreferenceKey = 'aether-files-view'
+let savedMode = saved.mode
+try { savedMode = localStorage.getItem(viewPreferenceKey) || savedMode } catch {}
+try { if (savedMode === 'grid' || savedMode === 'list') localStorage.setItem(viewPreferenceKey, savedMode) } catch {}
+const mode = ref(savedMode === 'grid' ? 'grid' : 'list'), favoritesOpen = ref(!!saved.open), favorites = ref(Array.isArray(saved.favorites) ? saved.favorites : [])
+watch(mode, value => {
+  try { localStorage.setItem(viewPreferenceKey, value) } catch { /* Storage may be disabled by the browser. */ }
+}, { flush: 'sync' })
+watch([favoritesOpen, favorites], () => {
+  try { localStorage.setItem(preferenceKey, JSON.stringify({ open: favoritesOpen.value, favorites: favorites.value })) } catch {}
+}, { deep: true })
 const route = useRoute()
 const selected = ref(route.query.storage || state.storages.find(s => s.enabled)?.id || '')
 const current = ref('/'), history = ref([]), files = ref([]), busy = ref(false), error = ref(''), query = ref('')
@@ -178,8 +187,8 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     <div class="search-field"><Icon name="Search" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="query = searchInput" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
-    <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" :aria-expanded="createMenu" @click="createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" /></button>
-      <Transition name="select-menu"><div v-if="createMenu" class="file-create-menu" role="menu"><button role="menuitem" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button role="menuitem" :disabled="!files.length" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
+    <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
+      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" role="menu"><button role="menuitem" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button role="menuitem" :disabled="!files.length" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
     </div>
   </div></div>
   <input ref="fileUpload" type="file" multiple hidden @change="upload" /><input ref="folderUpload" type="file" webkitdirectory multiple hidden @change="upload" />

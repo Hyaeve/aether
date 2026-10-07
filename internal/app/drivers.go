@@ -121,14 +121,37 @@ func (a *App) listFiles(ctx context.Context, s Storage, dir string, ttl int, fre
 	if dir == "" || dir == "/" {
 		dir = rootOf(s)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	key := s.ID + ":" + dir
-	cfg := a.store.snapshot().Settings
+	cfg := a.store.snapshotWithLogLimit(0).Settings
 	if !fresh && cfg.CacheEnabled {
 		if f, ok := a.cache.get(key); ok {
 			return f, nil
 		}
 	}
-	files, err := a.rawList(ctx, s, dir)
+	generation := a.cache.revision()
+	// Coalesce equivalent misses, but never join requests from before a clear.
+	callKey := fmt.Sprintf("%s:%d:%d:%t", key, generation, ttl, fresh)
+	call, leader := a.cache.begin(callKey)
+	if !leader {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-call.done:
+			return append([]File{}, call.files...), call.err
+		}
+	}
+	var files []File
+	var err error
+	defer func() { a.cache.finish(callKey, call, files, err) }()
+	if s.Type == "openlist" || s.Type == "webdav" {
+		if err = a.waitAPI(ctx, s.ID); err != nil {
+			return nil, err
+		}
+	}
+	files, err = a.rawList(ctx, s, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +161,7 @@ func (a *App) listFiles(ctx context.Context, s Storage, dir string, ttl int, fre
 	if ttl <= 0 {
 		ttl = cfg.CacheTTL
 	}
-	a.cache.put(key, files, ttl, cfg)
+	a.cache.putGeneration(key, files, ttl, cfg, &generation)
 	return files, nil
 }
 
@@ -199,9 +222,8 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 					Total int `json:"total"`
 				} `json:"data"`
 			}
-			h := http.Header{"Authorization": {s.Config["token"]}}
-			err := requestJSON(ctx, "POST", strings.TrimRight(s.Config["address"], "/")+"/api/fs/list", h,
-				map[string]any{"path": path.Join("/", s.Config["root"], dir), "password": s.Config["password"], "page": page, "per_page": 200, "refresh": false}, &res)
+			err := openlistJSON(ctx, s, "list",
+				map[string]any{"path": path.Join("/", s.Config["root"], dir), "password": openlistDirectoryPassword(s), "page": page, "per_page": 200, "refresh": false}, &res)
 			if err != nil {
 				return nil, err
 			}
@@ -403,8 +425,8 @@ func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Dow
 				URL string `json:"raw_url"`
 			} `json:"data"`
 		}
-		err := requestJSON(ctx, "POST", strings.TrimRight(s.Config["address"], "/")+"/api/fs/get", http.Header{"Authorization": {s.Config["token"]}},
-			map[string]any{"path": path.Join("/", s.Config["root"], fileID), "password": s.Config["password"]}, &res)
+		err := openlistJSON(ctx, s, "get",
+			map[string]any{"path": path.Join("/", s.Config["root"], fileID), "password": openlistDirectoryPassword(s)}, &res)
 		if err != nil {
 			return d, err
 		}

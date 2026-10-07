@@ -17,11 +17,42 @@ type cacheEntry struct {
 }
 
 type Cache struct {
-	mu           sync.Mutex
-	items        map[string]*list.Element
-	order        *list.List
-	bytes        int
-	hits, misses uint64
+	mu                 sync.Mutex
+	items              map[string]*list.Element
+	order              *list.List
+	bytes              int
+	hits, misses       uint64
+	evictions, expired uint64
+	generation         uint64
+	calls              map[string]*cacheCall
+}
+
+type cacheCall struct {
+	done  chan struct{}
+	files []File
+	err   error
+}
+
+func (c *Cache) begin(key string) (*cacheCall, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if call := c.calls[key]; call != nil {
+		return call, false
+	}
+	if c.calls == nil {
+		c.calls = map[string]*cacheCall{}
+	}
+	call := &cacheCall{done: make(chan struct{})}
+	c.calls[key] = call
+	return call, true
+}
+
+func (c *Cache) finish(key string, call *cacheCall, files []File, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	call.files, call.err = append([]File{}, files...), err
+	delete(c.calls, key)
+	close(call.done)
 }
 
 func NewCache() *Cache { return &Cache{items: map[string]*list.Element{}, order: list.New()} }
@@ -37,6 +68,7 @@ func (c *Cache) get(key string) ([]File, bool) {
 			return append([]File{}, e.Files...), true
 		}
 		c.remove(el)
+		c.expired++
 	}
 	c.misses++
 	return nil, false
@@ -50,6 +82,16 @@ func (c *Cache) remove(el *list.Element) {
 }
 
 func (c *Cache) put(key string, files []File, ttl int, cfg Settings) {
+	c.putGeneration(key, files, ttl, cfg, nil)
+}
+
+func (c *Cache) revision() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.generation
+}
+
+func (c *Cache) putGeneration(key string, files []File, ttl int, cfg Settings, generation *uint64) {
 	if !cfg.CacheEnabled {
 		return
 	}
@@ -57,6 +99,9 @@ func (c *Cache) put(key string, files []File, ttl int, cfg Settings) {
 	e := cacheEntry{key, append([]File{}, files...), time.Now().Add(time.Duration(ttl) * time.Minute), len(data) + len(key) + 128}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if generation != nil && *generation != c.generation {
+		return
+	}
 	if el, ok := c.items[key]; ok {
 		c.remove(el)
 	}
@@ -71,6 +116,7 @@ func (c *Cache) put(key string, files []File, ttl int, cfg Settings) {
 func (c *Cache) trim(cfg Settings) {
 	for c.order.Len() > 0 && (c.order.Len() > cfg.CacheMaxItems || c.bytes > cfg.CacheMemoryMB*1024*1024) {
 		c.remove(c.order.Back())
+		c.evictions++
 	}
 }
 
@@ -80,6 +126,7 @@ func (c *Cache) clear() {
 	c.items = map[string]*list.Element{}
 	c.order.Init()
 	c.bytes = 0
+	c.generation++
 }
 
 func (c *Cache) stats() map[string]any {
@@ -89,10 +136,11 @@ func (c *Cache) stats() map[string]any {
 		prev := el.Prev()
 		if time.Now().After(el.Value.(cacheEntry).Expires) {
 			c.remove(el)
+			c.expired++
 		}
 		el = prev
 	}
-	return map[string]any{"entries": c.order.Len(), "bytes": c.bytes, "hits": c.hits, "misses": c.misses}
+	return map[string]any{"entries": c.order.Len(), "bytes": c.bytes, "hits": c.hits, "misses": c.misses, "evictions": c.evictions, "expired": c.expired}
 }
 
 func (c *Cache) persist(dir string) error {

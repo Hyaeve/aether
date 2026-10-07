@@ -53,6 +53,10 @@ func (a *App) cloudOffline(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("离线目录不可访问"))
 		return
 	}
+	if torrent && r.FormValue("mode") == "cas" {
+		a.importCAS(w, r, ctx, s, input.Parent)
+		return
+	}
 	if s.Type != "115" {
 		a.builtinOffline(w, r, s, input.Parent, input.URLs, torrent)
 		return

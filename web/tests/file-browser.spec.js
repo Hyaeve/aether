@@ -111,6 +111,7 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
   entries = entries.map(f => ({ ...f, isDir: true }))
   await page.getByRole('button', { name: '添加任务', exact: true }).click()
   await page.getByRole('button', { name: '选择目录', exact: true }).click()
+  await page.getByRole('dialog', { name: '选择存储目录' }).getByRole('button', { name: /文件测试/ }).click()
   await expect(page.locator('.source-directory').first()).toBeVisible()
   expect(await page.locator('.source-directory').count()).toBeLessThan(50)
   await page.locator('.source-list .virtual-directory-list').evaluate(el => { el.scrollTop = el.scrollHeight })

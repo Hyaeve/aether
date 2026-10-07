@@ -367,6 +367,8 @@ func isEmbyStrmPlaybackSource(source map[string]any) bool {
 	container := strings.TrimSpace(embyString(source, "Container"))
 	protocol := strings.TrimSpace(embyString(source, "Protocol"))
 	return strings.EqualFold(container, "strm") ||
+		strings.EqualFold(container, "cas") ||
+		strings.HasSuffix(strings.ToLower(location), ".cas") ||
 		strings.HasSuffix(strings.ToLower(location), ".strm") ||
 		(strings.EqualFold(protocol, "Http") && isHTTPURL(location))
 }

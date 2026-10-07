@@ -41,7 +41,8 @@ func TestLocalCASGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	sha := sha256.Sum256(data)
-	if info.SHA256 != hex.EncodeToString(sha[:]) || info.MD5 != "" || info.Provider != "mobile" || info.Size != int64(len(data)) {
+	mdOriginal := md5.Sum(data)
+	if info.SHA256 != hex.EncodeToString(sha[:]) || info.MD5 != hex.EncodeToString(mdOriginal[:]) || info.Provider != "mobile" || info.Size != int64(len(data)) || info.PlaybackURL == "" {
 		t.Fatalf("%+v", info)
 	}
 	if count, err := a.executeTask(context.Background(), task, s); count != 0 || err != nil {
@@ -65,7 +66,8 @@ func TestLocalCASGeneration(t *testing.T) {
 	tianyiOutput, _ := os.ReadFile(output)
 	tianyiInfo, err := decodeCAS(tianyiOutput, "Test.MP4.cas")
 	md := md5.Sum([]byte("updated"))
-	if err != nil || tianyiInfo.Provider != "tianyi" || tianyiInfo.SHA256 != "" || tianyiInfo.MD5 != hex.EncodeToString(md[:]) {
+	shaUpdated := sha256.Sum256([]byte("updated"))
+	if err != nil || tianyiInfo.Provider != "tianyi" || tianyiInfo.SHA256 != hex.EncodeToString(shaUpdated[:]) || tianyiInfo.MD5 != hex.EncodeToString(md[:]) {
 		t.Fatalf("%+v %v", tianyiInfo, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

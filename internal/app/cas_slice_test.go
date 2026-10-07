@@ -45,8 +45,8 @@ func TestLocalCASSliceHashesAndCompatibility(t *testing.T) {
 			t.Fatal(decoded, err)
 		}
 		mobile, err := casForBinding(info, Storage{Type: "mobile", Config: map[string]string{"mode": "native"}})
-		if err != nil || mobile.SliceMD5 != "" || mobile.SliceSize != 0 {
-			t.Fatal("mobile must not retain tianyi metadata", mobile, err)
+		if err != nil || mobile.SliceMD5 != expected || mobile.SliceSize != info.SliceSize || mobile.MD5 != info.MD5 || mobile.SHA256 != info.SHA256 {
+			t.Fatal("binding must retain portable hashes", mobile, err)
 		}
 	}
 }

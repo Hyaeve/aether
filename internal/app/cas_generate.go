@@ -29,12 +29,6 @@ func (a *App) casBinding(t Task, source Storage) (Storage, error) {
 
 func casForBinding(info CASInfo, binding Storage) (CASInfo, error) {
 	info.Provider = binding.Type
-	if binding.Type == "mobile" {
-		info.MD5 = ""
-		info.SliceMD5, info.SliceSize = "", 0
-	} else {
-		info.SHA256 = ""
-	}
 	return info, validateCASFor(binding, info)
 }
 

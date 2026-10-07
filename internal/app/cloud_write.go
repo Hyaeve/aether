@@ -287,7 +287,13 @@ func (a *App) uploadCloud(ctx context.Context, s Storage, parent, name, local st
 		_, _, err = writeHTTP(ctx, "PUT", address, req.Header, file, info.Size())
 		return err
 	case "openlist":
-		h := http.Header{"Authorization": {s.Config["token"]}, "File-Path": {url.PathEscape(path.Join("/", s.Config["root"], parent, name))}, "As-Task": {"false"}, "Content-Type": {"application/octet-stream"}}
+		h, err := openlistHeaders(ctx, s)
+		if err != nil {
+			return err
+		}
+		h.Set("File-Path", url.PathEscape(path.Join("/", s.Config["root"], parent, name)))
+		h.Set("As-Task", "false")
+		h.Set("Content-Type", "application/octet-stream")
 		raw, _, err := writeHTTP(ctx, "PUT", strings.TrimRight(s.Config["address"], "/")+"/api/fs/put", h, file, info.Size())
 		if err != nil {
 			return err
@@ -357,7 +363,7 @@ func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) er
 
 func openlistWriteJSON(ctx context.Context, s Storage, action string, body any) error {
 	var response struct{ Code int }
-	err := requestJSON(ctx, "POST", strings.TrimRight(s.Config["address"], "/")+"/api/fs/"+action, http.Header{"Authorization": {s.Config["token"]}}, body, &response)
+	err := openlistJSON(ctx, s, action, body, &response)
 	if err != nil {
 		return err
 	}
