@@ -8,7 +8,7 @@ const props = defineProps({ storage: Object, parent: String, trail: Array })
 const emit = defineEmits(['close'])
 const mode = ref('url'), urls = ref(''), torrentFiles = ref([]), target = ref(props.parent || '/'), busy = ref(false), error = ref('')
 const picker = ref(false), fileInput = ref(null), targetLabel = ref(props.trail?.map(c => c.name).join(' / ') || '根目录'), results = ref([])
-const supported = computed(() => ['115', 'quark'].includes(props.storage?.type))
+const supported = computed(() => !!props.storage?.id)
 function chooseFiles(event) { torrentFiles.value = [...event.target.files] }
 async function submit() {
   const list = urls.value.split(/\r?\n/).map(v => v.trim()).filter(Boolean)
@@ -33,17 +33,16 @@ async function submit() {
 }
 </script>
 <template>
-  <Modal title="离线下载" compact @close="!busy && emit('close')">
+  <Modal title="离线下载" compact wide @close="!busy && emit('close')">
     <form @submit.prevent="submit"><div class="modal-body offline-form">
-      <p v-if="!supported" class="muted">仅 115 和夸克存储池支持离线下载。</p>
-      <p v-if="storage.type === 'quark'" class="error-message">夸克原生离线下载尚未接入，暂不能提交任务。</p>
+      <p v-if="storage.type !== '115'" class="muted">内置下载器 · 完成后上传到所选目录，执行结果见系统日志</p>
       <div class="segmented"><button type="button" :disabled="busy" :class="{ active: mode === 'url' }" @click="mode = 'url'">链接下载</button><button type="button" :disabled="busy" :class="{ active: mode === 'torrent' }" @click="mode = 'torrent'">BT 下载</button></div>
       <label v-if="mode === 'url'">下载链接<textarea v-model="urls" rows="7" placeholder="一行一个链接" :disabled="busy" /></label>
       <div v-else><input ref="fileInput" type="file" multiple accept=".torrent" hidden @change="chooseFiles" /><button class="offline-file-picker" type="button" :disabled="busy" @click="fileInput.click()"><Icon name="FolderOpen" />{{ torrentFiles.length ? `已选择 ${torrentFiles.length} 个种子文件` : '选择种子文件' }}</button></div>
       <div class="field"><label>离线位置</label><button type="button" class="source-trigger" :disabled="busy" @click="picker = true"><span>{{ storage.name }} / {{ targetLabel }}</span><Icon name="FolderOpen" /></button></div>
       <div v-if="results.length" class="offline-results"><p v-for="(item, i) in results" :key="i" :class="{ 'error-message': !item.success }">{{ item.name }}：{{ item.success ? '已提交' : item.message || '提交失败' }}</p></div>
       <p v-if="error" class="error-message">{{ error }}</p>
-    </div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="emit('close')">关闭</button><button class="btn primary" :disabled="busy || !supported || storage.type === 'quark'">{{ busy ? '提交中…' : '提交下载' }}</button></footer></form>
+    </div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="emit('close')">关闭</button><button class="btn primary" :disabled="busy || !supported">{{ busy ? '提交中…' : '提交下载' }}</button></footer></form>
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="[storage]" :storage="storage.id" :initial="target" :initial-label="targetLabel" @close="picker = false" @select="target = $event.source; targetLabel = $event.sourceLabel; picker = false" />
 </template>

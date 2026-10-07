@@ -647,3 +647,22 @@
 - 回归修正：首轮 18 项浏览器测试通过 17 项，存储卡片图标受内联文字基线影响轻微偏离中心；`web/src/style.css` 将图标按钮固定为 48px 居中 flex，不改卡片尺寸。新增规则测试首次断言漏算 `Folder` 内的 `old` 匹配，修正预期后通过。
 - 发布：中文提交并推送 main/v0.2.2，之前 v0.2.1 本地纠正标签一并补推；旧错误编号标签保留。远端连接曾重置，最终结果以 Git 输出为准。
 - 隔离预览：尝试在系统临时目录构建并隐藏启动 15154 预览，但命令被环境策略整体拒绝，未确认新预览已启动；未绕过策略，未修改原 15151 服务。浏览器验证使用临时配置及 15159 测试服务，测试结束已退出。
+
+## 2026-10-07：持久登录、下载上传流程和工作区细节，发布 v0.2.3
+
+- 新增 `internal/app/sessions.go`，修改 `internal/app/server.go`、`internal/app/model.go`：默认会话 15 天，SHA256 令牌摘要通过现有 AES-GCM 密钥保存到独立 `sessions.enc`，绑定账号密码哈希、启动恢复、登出持久撤销、改密撤销、过期拒绝；保存失败返回错误，不把会话纳入配置导出。保留已有自定义天数，不自动改用户设置。
+- 新增 `internal/app/ed2k.go`，修改 `internal/app/tasks.go`、`server.go`：本地文件分块 MD4 计算 ED2K，普通文件/路径边界/取消/读前后变化检查，输出 `.ed2k`，复用调度、排除、全量及增量；当前不支持云盘 ED2K 获取或下载。
+- 新增 `internal/app/builtin_offline.go`，修改 `internal/app/cloud_offline.go`、`Dockerfile`：115 保持原生提交，其余存储通过独立 aria2 进程下载到 `/data/cache/offline` 后复用上传接口。链接/多种子有界校验，一次一个批次，逐项最长 24 小时、不做种、不覆盖，成功清理、失败保留并记录日志；绑定应用退出取消。Docker 增加 aria2，仍仅 amd64。独立实现下载上传流程，未复制 LitePan 代码。
+- 修改 `internal/linkcore/stats/stats.go`：写入串行锁与读快照锁分离，磁盘同步不再阻塞播放流水读取；保留同步落盘与重启恢复。
+- 新增 `internal/app/sessions_ed2k_test.go`、`internal/app/builtin_offline_test.go`，修改 `internal/app/preferences_test.go`：覆盖登录重启恢复、多设备登出、改密撤销、加密/到期、ED2K 已知哈希及增量、下载结果本地上传/取消/冲突/空目录及未完成文件拒绝。
+- 修改 `web/src/App.vue`、`components/TaskTabs.vue`、`pages/TasksPage.vue`、`pages/SettingsPage.vue`：CAS 后加入 ED2K 任务；缓存设置隐藏任务栏目，返回左侧、清除及保存同排右侧；账号默认天数 15。
+- 修改 `web/src/components/RenameWorkbench.vue`：单项展开规则，新规则展开、旧规则收起，移除上下移动按钮，添加按钮等宽；初始原新名称一致预览，空规则不提交，保留顺序执行及规则集功能。
+- 修改 `web/src/components/Modal.vue`、`OfflineDownload.vue`、`ProviderIcon.vue`、`pages/FilesPage.vue`：紧凑删除确认、无模糊暗蒙版、确认左取消右；工具菜单动效及全存储离线入口、宽离线窗口、图标类型样式钩子。确认目录刷新现有 `refresh=true` 确实绕过缓存并回填。
+- 修改 `web/src/pages/StoragePage.vue`、`LinksPage.vue`：长按阈值 450ms 改为 230ms；播放流水 shallowRef 与无搜索直返避免全量响应式和文本拼接，沿用虚拟列表，收窄 UA、扩充上游及耗时列。
+- 修改 `web/src/pages/MountsPage.vue`、`web/src/style.css`：卡片显示实际 `/AetherDrive`、源目录、UID/GID/权限，较高卡片及黄色大图标；本机图标黑色并缩至 39px。选择器与收藏栏右边界对齐、路径字体统一、工作台较小字体和细淡主题滚动条、关于页菜单深色可读、上游字级调整。
+- 修改 `web/src/components/LoginUniverse.vue`：不同北斗/仙后星座连线、缓慢漂移且具凹坑的多边形陨石，共享登录及关于背景。
+- 新增 `web/tests/workspace-polish.spec.js`，修改 `web/tests/file-browser.spec.js`、`rename-workbench.spec.js`、`storage-icons.spec.js`、`workspace.spec.js`：初始改名对照及手风琴、离线启用、图标尺寸、六项任务/缓存设置无栏目、15 天默认；精确边界对齐、ED2K 入口、挂载详情、暗蒙版、2000 行播放虚拟化回归。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json` 同步 0.2.3；修改 `README.md`、`THIRD_PARTY_NOTICES.md`、`AGENTS.md` 记录功能、aria2 来源和边界。
+- 验证：Go 全量测试、vet、前端构建通过；18 项 Playwright 回归通过，新增精确布局及播放虚拟化测试通过。首轮失败为旧默认值/旧图标/任务数量断言，新增测试发现选择器 min-width 覆盖宽度，修正后通过。已查看挂载卡片截图；发布前最终全套结果以下续记为准。
+- 限制：本机没有 Docker/aria2，真实网盘下载上传、BT 网络、FUSE 均未联调；下载队列不持久恢复，重启中断文件保留，暂未提供失败重试/自动清理及磁盘配额管理。ED2K 仅本地计算；已有内存会话需升级后重新登录一次才能持久化。未操作原 15151 服务、用户配置或生成根目录 exe。按请求中文提交并推送 main/v0.2.3，结果以 Git 返回为准。
+- 最终验证：完整 19 项 Playwright 测试通过（2.1 分钟），Go 全量测试、vet、前端构建及差异检查通过；查看重命名工作台、挂载详情、播放流水截图。远程 fetch 成功，发布前 main 与 origin/main 一致。测试服务已退出，不替换用户正在运行的实例。

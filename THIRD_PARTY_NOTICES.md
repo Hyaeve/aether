@@ -83,3 +83,11 @@ Docker image installs the Alpine rclone package (MIT license) as a separate FUSE
 mount process. Aether communicates with it through a private loopback WebDAV
 bridge; no rclone source code is copied into this repository.
 Upstream: https://github.com/rclone/rclone
+
+## aria2 and offline workflow
+
+The Docker image installs Alpine's aria2 package as a separate download process
+(GPL-2.0-or-later). Upstream source: https://github.com/aria2/aria2 .
+`internal/app/builtin_offline.go` independently implements a download-then-upload
+workflow after inspecting the supplied LitePan `internal/offlinedownload`
+directory. No LitePan source implementation was copied.

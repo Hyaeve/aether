@@ -19,7 +19,7 @@ let holdTimer, suppressClick = false
 function hold(event, s) {
   if (event.button !== 0 || event.target.closest('button')) return
   clearTimeout(holdTimer)
-  holdTimer = setTimeout(() => { armed.value = s.id; suppressClick = true }, 450)
+  holdTimer = setTimeout(() => { armed.value = s.id; suppressClick = true }, 230)
 }
 function release() { clearTimeout(holdTimer); setTimeout(() => { armed.value = ''; suppressClick = false }, 100) }
 function cardClick(event, s) { if (!suppressClick && !event.target.closest('button')) open(s) }

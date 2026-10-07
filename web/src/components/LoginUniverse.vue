@@ -171,8 +171,8 @@ function paint(time) {
   if (!reducedMotion.value) paintMeteor(time)
   // Faint constellation links stay away from the central brand and form.
   for (const points of [
-    [[.1, .2], [.18, .16], [.26, .22], [.31, .18]],
-    [[.73, .72], [.82, .76], [.86, .69], [.93, .73]]
+    [[.07, .17], [.12, .15], [.17, .18], [.21, .23], [.29, .24], [.3, .17], [.23, .16], [.21, .23]],
+    [[.72, .72], [.77, .79], [.82, .7], [.87, .77], [.92, .68]]
   ]) {
     ctx.strokeStyle = 'rgba(151,170,214,.13)'
     ctx.lineWidth = .7
@@ -186,6 +186,27 @@ function paint(time) {
       ctx.fillStyle = 'rgba(189,204,239,.65)'
       ctx.beginPath(); ctx.arc(x * width, y * height, 1.2, 0, Math.PI * 2); ctx.fill()
     }
+  }
+  // Faceted, cratered rocks drift slowly outside the central orbital group.
+  for (let i = 0; i < 2; i++) {
+    ctx.save()
+    ctx.translate(width * (.09 + i * .77) + Math.sin(time * .035 + i) * 9, height * (.65 - i * .29))
+    ctx.rotate(time * .012 + i)
+    ctx.beginPath()
+    for (let n = 0; n < 9; n++) {
+      const angle = n / 9 * Math.PI * 2
+      const radius = 10 + Math.sin(n * 5 + i) * 2
+      const x = Math.cos(angle) * radius, y = Math.sin(angle) * radius
+      if (!n) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+    }
+    ctx.closePath()
+    const rock = ctx.createLinearGradient(-9, -10, 10, 12)
+    rock.addColorStop(0, '#7e8195'); rock.addColorStop(.5, '#393f53'); rock.addColorStop(1, '#111627')
+    ctx.fillStyle = rock; ctx.fill()
+    for (const [x,y,r] of [[-3,-3,3],[4,2,2],[-2,5,1.5]]) {
+      ctx.fillStyle = '#151b2c88'; ctx.beginPath(); ctx.ellipse(x,y,r,r*.7,.4,0,Math.PI*2); ctx.fill()
+    }
+    ctx.restore()
   }
 }
 

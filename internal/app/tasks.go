@@ -184,7 +184,7 @@ func (a *App) outputRelative(target string) (string, error) {
 func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	var root *os.Root
 	target := ""
-	if t.Kind == "strm" || t.Kind == "cas" {
+	if t.Kind == "strm" || t.Kind == "cas" || t.Kind == "ed2k" {
 		var err error
 		target, err = a.outputRelative(t.Target)
 		if err != nil {
@@ -264,7 +264,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 				info = &parsed
 				child = path.Join(rel, parsed.Name)
-			} else if (t.Kind != "strm" && !generateCAS) || !isVideo(f.Name) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
+			} else if (t.Kind != "strm" && t.Kind != "ed2k" && !generateCAS) || (t.Kind != "ed2k" && !isVideo(f.Name)) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
 				continue
 			}
 			// Create the output root only when a matching file actually needs writing.
@@ -279,6 +279,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			// Retain the source extension so movie.mp4 and movie.mkv never collide.
 			filename := path.Join(target, child+".strm")
+			if t.Kind == "ed2k" {
+				filename = path.Join(target, child+".ed2k")
+			}
 			if generateCAS {
 				filename = path.Join(target, child+".cas")
 			}
@@ -290,6 +293,17 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if _, err := root.Stat(filename); err == nil {
 					continue
 				}
+			}
+			if t.Kind == "ed2k" {
+				data, err := a.generateED2K(ctx, s, f)
+				if err != nil {
+					return err
+				}
+				if err := writeCASOutput(root, filename, data, t.Mode == "incremental"); err != nil {
+					return err
+				}
+				count++
+				continue
 			}
 			if generateCAS {
 				info, err := a.generateCASInfo(ctx, s, f)

@@ -69,6 +69,7 @@ type Snapshot struct {
 // Collector is a concurrency-safe stats sink.
 type Collector struct {
 	mu              sync.RWMutex
+	persistMu       sync.Mutex
 	startedAt       time.Time
 	counts          map[Outcome]uint64
 	byKind          map[string]uint64
@@ -119,8 +120,9 @@ func (c *Collector) Record(event Event) {
 	if event.Time.IsZero() {
 		event.Time = time.Now()
 	}
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	c.recordCountsLocked(event)
 
@@ -128,7 +130,14 @@ func (c *Collector) Record(event Event) {
 	if len(c.events) > c.maxEvents {
 		c.events = append([]Event(nil), c.events[len(c.events)-c.maxEvents:]...)
 	}
-	c.persistLocked()
+	data, err := json.Marshal(persistedSnapshot{
+		Events: c.events, Counts: c.counts, ByKind: c.byKind, ByUpstream: c.byUpstream,
+		CacheHits: c.cacheHits, CacheMiss: c.cacheMiss, Total: c.total,
+	})
+	c.mu.Unlock()
+	if err == nil {
+		c.persist(data)
+	}
 }
 
 func (c *Collector) recordCountsLocked(event Event) {
@@ -187,20 +196,8 @@ func (c *Collector) load() {
 	c.events = append(c.events, persisted.Events...)
 }
 
-func (c *Collector) persistLocked() {
+func (c *Collector) persist(data []byte) {
 	if c.persistencePath == "" {
-		return
-	}
-	data, err := json.Marshal(persistedSnapshot{
-		Events:     c.events,
-		Counts:     c.counts,
-		ByKind:     c.byKind,
-		ByUpstream: c.byUpstream,
-		CacheHits:  c.cacheHits,
-		CacheMiss:  c.cacheMiss,
-		Total:      c.total,
-	})
-	if err != nil {
 		return
 	}
 	directory := filepath.Dir(c.persistencePath)

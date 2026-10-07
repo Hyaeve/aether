@@ -14,7 +14,7 @@ func TestAccountSessionPolicy(t *testing.T) {
 	h := a.Handler(t.TempDir())
 	w := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
 	cookie := w.Result().Cookies()[0]
-	if cookie.MaxAge != 7*86400 {
+	if cookie.MaxAge != 15*86400 {
 		t.Fatal("default expiry", cookie.MaxAge)
 	}
 	if request(t, h, "PUT", "/api/account", credentials{Username: "new", Password: "y", SessionDays: 14}, nil).Code != 401 {
@@ -30,7 +30,7 @@ func TestAccountSessionPolicy(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	fresh := w.Result().Cookies()[0]
-	if fresh.MaxAge != 14*86400 || time.Until(a.sessions[fresh.Value]) < 13*24*time.Hour {
+	if fresh.MaxAge != 14*86400 || time.Until(a.sessions[sessionKey(fresh.Value)]) < 13*24*time.Hour {
 		t.Fatal("custom expiry not applied")
 	}
 	if request(t, h, "GET", "/api/state", nil, cookie).Code != 401 {

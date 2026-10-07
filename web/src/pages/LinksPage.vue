@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, notify, date } from '../lib'
 import Icon from '../components/Icon.vue'
@@ -11,7 +11,7 @@ const types = [{ id: 'audiobookshelf', name: 'Audiobookshelf', icon: 'abs' }, { 
 const modes = [{ value: 'always', label: '始终跳转' }, { value: 'public', label: '公网跳转' }, { value: 'private', label: '内网跳转' }, { value: 'never', label: '始终中继' }]
 const route = useRoute()
 const tab = computed(() => route.path.endsWith('/cache') ? 'cache' : 'manage')
-const links = ref([]), modal = ref(false), step = ref(1), busy = ref(false), error = ref(''), events = ref([]), query = ref(''), deleting = ref(null)
+const links = ref([]), modal = ref(false), step = ref(1), busy = ref(false), error = ref(''), events = shallowRef([]), query = ref(''), deleting = ref(null)
 const form = reactive({})
 const menu = ref(null)
 const outcome = ref('all')
@@ -24,7 +24,7 @@ function hold(event, link) {
   clearTimeout(holdTimer); clearTimeout(releaseTimer)
   const card = event.currentTarget
   pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, link: link.id }
-  holdTimer = setTimeout(() => { armed.value = link.id; suppressClick = true; card?.setPointerCapture?.(event.pointerId) }, 450)
+  holdTimer = setTimeout(() => { armed.value = link.id; suppressClick = true; card?.setPointerCapture?.(event.pointerId) }, 230)
 }
 function pointerMove(event) {
   if (!pointer || event.pointerId !== pointer.id) return
@@ -74,7 +74,11 @@ async function testLink(link) {
   closeMenu()
   try { await api(`/links/${link.id}/test`, 'POST'); notify('以链连接成功') } catch (e) { notify(e.message, true) }
 }
-const displayed = computed(() => events.value.filter(e => (outcome.value === 'all' || e.outcome === outcome.value) && `${linkName(e.upstream)} ${e.mediaPath} ${e.path} ${e.target} ${e.client} ${e.userAgent} ${e.effectiveUserAgent} ${e.error}`.toLowerCase().includes(query.value.toLowerCase())))
+const displayed = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q && outcome.value === 'all') return events.value
+  return events.value.filter(e => (outcome.value === 'all' || e.outcome === outcome.value) && (!q || `${linkName(e.upstream)} ${e.mediaPath} ${e.path} ${e.target} ${e.client} ${e.userAgent} ${e.effectiveUserAgent} ${e.error}`.toLowerCase().includes(q)))
+})
 const scrollTop = ref(0), playbackScroller = ref(null)
 const start = computed(() => Math.max(0, Math.floor(scrollTop.value / 52) - 5))
 const shown = computed(() => displayed.value.slice(start.value, start.value + 40))
@@ -149,7 +153,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <button class="add-storage-tile link-add" @click="open()"><Icon name="Plus" :size="28" /><strong>添加以太链接</strong></button>
   </div>
   <section v-else class="link-playback">
-    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:126px" /><col style="width:8%" /><col style="width:9%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:94px" /><col style="width:64px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存有效期</th><th>耗时</th></tr></thead><tbody>
+    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:126px" /><col style="width:100px" /><col style="width:8%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:94px" /><col style="width:80px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存有效期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
       <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
         <td>{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>

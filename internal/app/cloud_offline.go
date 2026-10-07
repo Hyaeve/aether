@@ -66,15 +66,15 @@ func (a *App) cloudOffline(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	if s.Type != "115" {
-		fail(w, 400, errors.New("当前仅接入 115 Open 原生离线下载，夸克原生离线协议尚未接入"))
-		return
-	}
 	if input.Parent == "" || input.Parent == "/" {
 		input.Parent = rootOf(s)
 	}
 	if _, err := a.rawList(ctx, s, input.Parent); err != nil {
 		fail(w, 400, errors.New("离线目录不可访问"))
+		return
+	}
+	if s.Type != "115" {
+		a.builtinOffline(w, r, s, input.Parent, input.URLs, torrent)
 		return
 	}
 	results := []offlineResult{}

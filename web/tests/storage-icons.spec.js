@@ -13,8 +13,8 @@ test('saved storage cards use comparable local and WebDAV icon sizes', async ({ 
     for (const type of ['local', 'webdav']) {
       const card = page.locator('.storage-card').filter({ has: page.getByRole('heading', { name: type, exact: true }) })
       const icon = card.locator('.provider-icon svg')
-      await expect(icon).toHaveCSS('width', '44px')
-      await expect(icon).toHaveCSS('height', '44px')
+      await expect(icon).toHaveCSS('width', type === 'local' ? '39px' : '44px')
+      await expect(icon).toHaveCSS('height', type === 'local' ? '39px' : '44px')
       await expect(card).toHaveCSS('height', '84px')
       expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
     }

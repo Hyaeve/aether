@@ -56,6 +56,7 @@ type App struct {
 	loginAttempts  map[string][]time.Time
 	downloaded     atomic.Int64
 	uploaded       atomic.Int64
+	offlineBatches atomic.Int32
 	started        time.Time
 	dav            *webdav.Handler
 }
@@ -97,6 +98,9 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
 		gates: map[string]time.Time{}, intervals: map[string]int{}, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, started: time.Now()}
 	a.casGate = make(chan struct{}, 1)
+	if err := a.restoreSessions(); err != nil {
+		return nil, fmt.Errorf("restore sessions: %w", err)
+	}
 	a.casActive = map[string]int{}
 	a.tianyiSessions = map[string]tianyiSession{}
 	a.links = &linkRuntime{services: map[string]*linkService{}, stats: stats.NewWithPersistence(2000, filepath.Join(dataDir, "cache", "link", "playback.json"))}
@@ -187,7 +191,12 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie("aether_session"); err == nil {
 			a.sessionMu.Lock()
-			delete(a.sessions, c.Value)
+			delete(a.sessions, sessionKey(c.Value))
+			if err := a.saveSessions(); err != nil {
+				a.sessionMu.Unlock()
+				fail(w, 500, err)
+				return
+			}
 			a.sessionMu.Unlock()
 		}
 		http.SetCookie(w, &http.Cookie{Name: "aether_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
@@ -313,9 +322,9 @@ func (a *App) authenticated(r *http.Request) bool {
 	}
 	a.sessionMu.Lock()
 	defer a.sessionMu.Unlock()
-	exp, ok := a.sessions[c.Value]
+	exp, ok := a.sessions[sessionKey(c.Value)]
 	if ok && time.Now().After(exp) {
-		delete(a.sessions, c.Value)
+		delete(a.sessions, sessionKey(c.Value))
 		return false
 	}
 	return ok
@@ -331,11 +340,11 @@ func (a *App) protected(next http.Handler) http.Handler {
 	})
 }
 
-func (a *App) setSession(w http.ResponseWriter, r *http.Request) {
+func (a *App) setSession(w http.ResponseWriter, r *http.Request) error {
 	token := id()
 	days := a.store.snapshot().Settings.SessionDays
 	if days < 1 || days > 365 {
-		days = 7
+		days = 15
 	}
 	a.sessionMu.Lock()
 	for k, v := range a.sessions {
@@ -343,15 +352,16 @@ func (a *App) setSession(w http.ResponseWriter, r *http.Request) {
 			delete(a.sessions, k)
 		}
 	}
-	if len(a.sessions) >= 100 {
-		for k := range a.sessions {
-			delete(a.sessions, k)
-			break
-		}
+	a.sessions[sessionKey(token)] = time.Now().Add(time.Duration(days) * 24 * time.Hour)
+	if err := a.saveSessions(); err != nil {
+		delete(a.sessions, sessionKey(token))
+		a.sessionMu.Unlock()
+		a.logger.Printf("persist session: %v", err)
+		return err
 	}
-	a.sessions[token] = time.Now().Add(time.Duration(days) * 24 * time.Hour)
 	a.sessionMu.Unlock()
 	http.SetCookie(w, &http.Cookie{Name: "aether_session", Value: token, Path: "/", MaxAge: days * 86400, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
+	return nil
 }
 
 func (a *App) allowLogin(r *http.Request) bool {
@@ -415,7 +425,10 @@ func (a *App) setup(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, err)
 		return
 	}
-	a.setSession(w, r)
+	if err := a.setSession(w, r); err != nil {
+		fail(w, 500, errors.New("保存登录会话失败，请检查配置目录权限"))
+		return
+	}
 	a.store.log("info", "管理员账号已创建")
 	jsonResponse(w, 201, map[string]bool{"ok": true})
 }
@@ -434,7 +447,10 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, errors.New("账号或密码错误"))
 		return
 	}
-	a.setSession(w, r)
+	if err := a.setSession(w, r); err != nil {
+		fail(w, 500, errors.New("保存登录会话失败，请检查配置目录权限"))
+		return
+	}
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }
 
@@ -757,7 +773,13 @@ func (a *App) validateTask(t *Task) error {
 		return errors.New("缓存时间无效")
 	}
 	switch t.Kind {
-	case "strm", "cas":
+	case "strm", "cas", "ed2k":
+		if t.Kind == "ed2k" {
+			s, _ := a.store.storage(t.StorageID)
+			if s.Type != "local" {
+				return errors.New("ED2K 任务仅支持本地存储")
+			}
+		}
 		if t.Kind == "cas" {
 			if t.RetentionHours == 0 {
 				t.RetentionHours = 12
@@ -950,7 +972,7 @@ func (a *App) account(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Username = strings.TrimSpace(c.Username)
 	if c.SessionDays == 0 {
-		c.SessionDays = 7
+		c.SessionDays = 15
 	}
 	if c.SessionDays < 1 || c.SessionDays > 365 {
 		fail(w, 400, errors.New("会话有效期必须为 1–365 天"))
@@ -982,7 +1004,10 @@ func (a *App) account(w http.ResponseWriter, r *http.Request) {
 	a.sessionMu.Lock()
 	a.sessions = map[string]time.Time{}
 	a.sessionMu.Unlock()
-	a.setSession(w, r)
+	if err := a.setSession(w, r); err != nil {
+		fail(w, 500, errors.New("保存登录会话失败，请重新登录"))
+		return
+	}
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }
 

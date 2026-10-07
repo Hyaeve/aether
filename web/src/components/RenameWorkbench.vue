@@ -7,34 +7,38 @@ import { useVirtualList } from '../virtual-list'
 const props = defineProps({ storage: String, source: String, files: Array })
 const emit = defineEmits(['close', 'changed'])
 const rules = ref([{ kind: 'replace', find: '', replace: '', caseSensitive: false, firstOnly: false }])
+const expanded = ref(0)
+const originals = () => props.files.map(f => ({ id: f.id, name: f.name, newName: f.name, isDir: f.isDir }))
 const sets = ref([]), chosen = ref(''), setName = ref(''), items = ref([]), error = ref(''), busy = ref(false), loading = ref(false), saveBusy = ref(false)
 const viewport = ref(null)
 const { shown, top, bottom, reset } = useVirtualList(items, viewport, { rowHeight: 92 })
 let timer, generation = 0, disposed = false
-const payload = () => ({ storageId: props.storage, source: props.source, ids: props.files.map(f => f.id), rules: rules.value })
+items.value = originals()
+const payload = () => ({ storageId: props.storage, source: props.source, ids: props.files.map(f => f.id), rules: rules.value.filter(r => r.find) })
 const changes = computed(() => items.value.filter(f => f.name !== f.newName && !f.error).length)
 const invalid = computed(() => loading.value || !items.value.length || items.value.some(f => f.error) || !!error.value || !changes.value)
 async function preview() {
   const id = ++generation
+  if (!payload().rules.length) { items.value = originals(); loading.value = false; error.value = ''; return }
   loading.value = true; error.value = ''
   try { const result = await api('/files/rename-preview', 'POST', payload()); if (!disposed && id === generation) { items.value = result; reset() } }
   catch (e) { if (!disposed && id === generation) { error.value = e.message; items.value = [] } }
   finally { if (!disposed && id === generation) loading.value = false }
 }
 watch(rules, () => {
-  clearTimeout(timer); generation++; loading.value = true; items.value = []
+  clearTimeout(timer); generation++; loading.value = true
   timer = setTimeout(preview, 250)
 }, { deep: true })
-function addRule() { rules.value.push({ kind: 'replace', find: '', replace: '', caseSensitive: false, firstOnly: false }) }
-function move(index, delta) { const item = rules.value.splice(index, 1)[0]; rules.value.splice(index + delta, 0, item) }
+function addRule() { rules.value.push({ kind: 'replace', find: '', replace: '', caseSensitive: false, firstOnly: false }); expanded.value = rules.value.length - 1 }
+function removeRule(index) { rules.value.splice(index, 1); expanded.value = Math.min(index, rules.value.length - 1) }
 function applySet(value) {
   chosen.value = value
   const set = sets.value.find(s => s.id === value)
-  if (set) rules.value = JSON.parse(JSON.stringify(set.rules))
+  if (set) { rules.value = JSON.parse(JSON.stringify(set.rules)); expanded.value = 0 }
 }
 async function saveSet() {
   saveBusy.value = true
-  try { sets.value = await api('/files/rename-rules', 'POST', { name: setName.value, rules: rules.value }); chosen.value = sets.value.at(-1).id; setName.value = ''; notify('规则集已保存') }
+  try { sets.value = await api('/files/rename-rules', 'POST', { name: setName.value, rules: payload().rules }); chosen.value = sets.value.at(-1).id; setName.value = ''; notify('规则集已保存') }
   catch (e) { notify(e.message, true) } finally { saveBusy.value = false }
 }
 async function deleteSet() {
@@ -68,19 +72,21 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
           <article v-for="item in shown" :key="item.id" class="rename-preview-row">
             <div><Icon :name="item.isDir ? 'Folder' : 'FileVideo'" /><span :data-tooltip="item.name">{{ item.name }}</span></div>
             <Icon name="ArrowRight" />
-            <div :class="{ 'error-message': item.error, 'rename-changed': item.name !== item.newName }"><span :data-tooltip="item.error || item.newName">{{ item.error || item.newName }}</span></div>
+            <div class="rename-changed" :class="{ 'error-message': item.error }"><span :data-tooltip="item.error || item.newName">{{ item.error || item.newName }}</span></div>
           </article><div :style="{ height: `${bottom}px` }" />
         </div><p v-if="error && items.length" class="error-message">{{ error }}</p>
       </section>
       <aside class="rename-rules"><div class="rename-set-picker"><RoundedSelect :model-value="chosen" label="选择规则集" :options="[{ value: '', label: '选择规则集' }, ...sets.map(s => ({ value: s.id, label: s.name }))]" :disabled="busy" @update:model-value="applySet" /><button class="icon-btn" aria-label="删除规则集" :disabled="!chosen || busy || saveBusy" @click="deleteSet"><Icon name="Trash2" /></button></div>
         <fieldset :disabled="busy">
           <article v-for="(rule, index) in rules" :key="index" class="rename-rule">
-            <header><strong>规则 {{ index + 1 }}</strong><button class="icon-btn" aria-label="上移规则" :disabled="!index" @click="move(index,-1)"><Icon name="ArrowUp" /></button><button class="icon-btn" aria-label="下移规则" :disabled="index === rules.length - 1" @click="move(index,1)"><Icon name="ArrowDown" /></button><button class="icon-btn" aria-label="删除规则" :disabled="rules.length === 1" @click="rules.splice(index,1)"><Icon name="Trash2" /></button></header>
+            <header><button class="text-btn rename-rule-toggle" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" />规则 {{ index + 1 }}</button><button class="icon-btn" aria-label="删除规则" :disabled="rules.length === 1" @click="removeRule(index)"><Icon name="Trash2" /></button></header>
+            <template v-if="expanded === index">
             <RoundedSelect v-model="rule.kind" label="规则类型" :options="[{ value: 'replace', label: '查找替换' }]" />
             <label>查找内容<input v-model="rule.find" maxlength="255" /></label><label>替换为<input v-model="rule.replace" maxlength="255" /></label>
             <label class="rename-check"><input v-model="rule.caseSensitive" type="checkbox" />区分大小写</label><label class="rename-check"><input v-model="rule.firstOnly" type="checkbox" />仅替换第一个</label>
+            </template>
           </article>
-          <button class="btn" :disabled="rules.length >= 30" @click="addRule"><Icon name="Plus" />添加规则</button>
+          <button class="btn rename-add-rule" :disabled="rules.length >= 30" @click="addRule"><Icon name="Plus" />添加规则</button>
         </fieldset>
         <form class="rename-save" @submit.prevent="saveSet"><input v-model="setName" aria-label="规则集名称" placeholder="规则集名称" required :disabled="busy || saveBusy" /><button class="btn" :disabled="busy || saveBusy || !setName.trim() || loading || !!error"><Icon name="Save" />保存规则集</button></form>
       </aside>

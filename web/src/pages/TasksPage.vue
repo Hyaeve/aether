@@ -9,9 +9,9 @@ import TaskTabs from '../components/TaskTabs.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import NumberInput from '../components/NumberInput.vue'
 const props = defineProps({ kind: { default: 'strm' } })
-const taskTitle = computed(() => props.kind === 'cas' ? 'CAS' : props.kind === 'strm' ? 'STRM' : '缓存')
+const taskTitle = computed(() => props.kind === 'cas' ? 'CAS' : props.kind === 'strm' ? 'STRM' : props.kind === 'ed2k' ? 'ED2K' : '缓存')
 const bindingStorages = computed(() => state.storages.filter(s => s.enabled && ['mobile', 'tianyi'].includes(s.type) && s.config.mode === 'native'))
-const availableStorages = computed(() => state.storages.filter(s => s.enabled && (props.kind !== 'cas' || s.type === 'local' || (s.type === storage(form.casBindingId)?.type && bindingStorages.value.some(b => b.id === s.id)))))
+const availableStorages = computed(() => state.storages.filter(s => s.enabled && (props.kind !== 'ed2k' || s.type === 'local') && (props.kind !== 'cas' || s.type === 'local' || (s.type === storage(form.casBindingId)?.type && bindingStorages.value.some(b => b.id === s.id)))))
 const casStatus = ref(null), casPanel = ref(false)
 async function showCAS() {
   try { casStatus.value = await api('/cas/status'); casPanel.value = true } catch (e) { notify(e.message, true) }
@@ -75,7 +75,7 @@ async function toggle(t) {
       <div class="form-grid">
         <label>任务名称 <span class="required">*</span><input v-model="form.name" required /></label>
         <div v-if="kind === 'cas'" class="field"><label>绑定存储</label><RoundedSelect v-model="form.casBindingId" label="绑定存储" placeholder="选择移动或天翼存储" :options="bindingStorages.map(s => ({ value: s.id, label: s.name }))" /></div>
-        <div v-if="kind === 'strm'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
+        <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" :disabled="kind === 'cas' && !form.casBindingId" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '选择存储池及源目录' }}</span><Icon name="FolderOpen" /></button></div>
         <label v-if="kind !== 'cache'">生成目录<input v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /></label>

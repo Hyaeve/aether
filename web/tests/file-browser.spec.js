@@ -74,7 +74,7 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
   expect(uploads.slice(1).every(name => name.startsWith('Movies/'))).toBe(true)
   await expect(page.locator('.upload-progress')).toHaveCount(0)
   await page.getByRole('button', { name: '工具', exact: true }).click()
-  await expect(page.getByRole('menuitem', { name: '离线下载' })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: '离线下载' })).toBeEnabled()
   await page.getByRole('button', { name: '工具', exact: true }).click()
   await page.getByRole('button', { name: 'Movies', exact: true }).dblclick()
   for (let i = 0; i < 9; i++) {

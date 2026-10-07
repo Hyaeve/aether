@@ -155,7 +155,7 @@ func NewStore(dir string) (*Store, error) {
 	s := &Store{dir: dir, aead: aead}
 	s.state = State{
 		Storages: []Storage{}, Tasks: []Task{}, Logs: []LogEntry{}, SignKey: id(),
-		Settings: Settings{LogDays: 15, LogMaxEntries: 20000, SessionDays: 7, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: defaultPublicURL()},
+		Settings: Settings{LogDays: 15, LogMaxEntries: 20000, SessionDays: 15, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: defaultPublicURL()},
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "state.enc"))
 	if err == nil {
