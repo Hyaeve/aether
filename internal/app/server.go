@@ -244,6 +244,11 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/tasks/{id}/{action}", a.protected(http.HandlerFunc(a.taskAction)))
 	mux.Handle("/api/settings", a.protected(http.HandlerFunc(a.settings)))
 	mux.Handle("/api/quark-takeover/{id}", a.protected(http.HandlerFunc(a.quarkTVSettings)))
+	mux.Handle("/api/quark-takeover", a.protected(http.HandlerFunc(a.quarkTVOverview)))
+	mux.Handle("/api/plugins/{kind}", a.protected(http.HandlerFunc(a.pluginConfig)))
+	mux.Handle("POST /api/plugins/{kind}/secret", a.protected(http.HandlerFunc(a.pluginSecret)))
+	mux.Handle("POST /api/plugins/{kind}/{action}", a.protected(http.HandlerFunc(a.pluginAction)))
+	mux.HandleFunc("POST /api/emby/webhook", a.embyWebhook)
 	mux.Handle("POST /api/quark-takeover/{id}/{action}", a.protected(http.HandlerFunc(a.quarkTVAuthorization)))
 	mux.Handle("/api/account", a.protected(http.HandlerFunc(a.account)))
 	mux.Handle("/api/webdav/users", a.protected(http.HandlerFunc(a.davUsers)))
@@ -471,7 +476,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
+	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "links": redactedMediaLinks(st.Links), "libraryNotices": st.LibraryNotices, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
 		"cache": a.cache.stats(), "traffic": map[string]any{"uploaded": a.uploaded.Load(), "downloaded": a.downloaded.Load()}, "uptime": int(time.Since(a.started).Seconds()), "strmRoot": a.outputDir})
 }
 
@@ -516,6 +521,23 @@ func validateStorage(s *Storage) error {
 		required = []string{"cookie"}
 	case "tianyi":
 		required = []string{"username", "password"}
+		if s.Config["authMode"] == "" {
+			s.Config["authMode"] = "account"
+		}
+		if s.Config["authMode"] != "account" && s.Config["authMode"] != "token" {
+			return errors.New("天翼接入模式无效")
+		}
+		if s.Config["authMode"] == "token" {
+			required = nil
+			if s.Config["accessToken"] == "" && s.Config["refreshToken"] == "" {
+				return errors.New("请填写天翼访问令牌或刷新令牌")
+			}
+			delete(s.Config, "username")
+			delete(s.Config, "password")
+		} else {
+			delete(s.Config, "accessToken")
+			delete(s.Config, "refreshToken")
+		}
 		s.Config["username"] = strings.TrimSpace(s.Config["username"])
 		s.Config["mode"] = "native"
 		if s.Config["root"] == "" || s.Config["root"] == "/" {
@@ -663,6 +685,13 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 						return errors.New("该存储池仍有 CAS 临时文件，请等待过期清理后再删除、停用或切换接入方式")
 					}
 					if nativeTianyi(s) || incoming.Config["authorization"] != "********" {
+						if s.Type == "tianyi" && s.Config["authMode"] == "token" {
+							for _, field := range []string{"accessToken", "refreshToken"} {
+								if incoming.Config[field] != "********" && incoming.Config[field] != s.Config[field] {
+									return errors.New("CAS 临时文件清理前不能更换天翼令牌，请先清理临时文件")
+								}
+							}
+						}
 						oldAccount, _ := casAccount(s)
 						newAccount, err := casAccount(incoming)
 						if err != nil || oldAccount != newAccount {

@@ -1,5 +1,39 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-07：自定义生成目录、内嵌 go-fuse 与 v0.2.6
+
+- 修改 `internal/app/tasks.go`：绝对生成目录不再受默认STRM目录约束，新增outputLocation区分真实输出根与相对子路径；留空仍默认/data/strm，相对路径仍位于默认目录内，拒绝相对越界，按需创建并以os.Root约束输出子路径。新增 `internal/app/task_output_test.go` 覆盖STRM/CAS/ED2K外部输出、默认路径、懒创建及子路径符号链接保护；修改 `internal/app/app_test.go` 纠正旧的外部路径拒绝断言。
+- 修改 `web/src/pages/TasksPage.vue`：生成目录输入框内增加文件夹按钮，复用LocalDirectoryPicker选择容器目录，适用于STRM/CAS/ED2K。新增 `web/tests/task-output.spec.js` 覆盖选择回填/按钮边界/截图；修改 `web/tests/workspace.spec.js`、`web/tests/zz-cas.spec.js` 精确匹配输入框，避免新增按钮的无障碍名称造成多匹配。
+- 修改 `internal/app/mounts.go`：删除rclone进程、私有HTTP监听及WebDAV桥，管理进程内FUSE服务器生命周期；保留自动挂载、占用与空目录检查、正常卸载和退出延迟卸载。新增 `internal/app/mount_fuse_linux.go`：内嵌hanwen/go-fuse/v2节点、目录读取/查询、读取/随机写入、创建/删除/改名、截断、Flush/fsync及句柄释放；只读、UID/GID/权限、单写句柄互斥、非空目录拒删。连续读取复用上游响应，不逐块重建HTTP请求。新增 `internal/app/mount_fuse_other.go` 保留非Linux明确报错。
+- 修改 `internal/app/cloud_write.go`：抽取配置身份校验及发布逻辑，FUSE暂存文件保持打开并在Flush/fsync同步发布；失败暂存保留、不报告上传成功。修改 `internal/app/mount_fs.go` 更新共享操作说明。新增 `internal/app/mount_fuse_linux_test.go`：无内核挂载的真实inode回调测试，覆盖本机读写/属性/只读/忙保护/非空目录及模拟WebDAV随机写入、多次Flush、已有文件局部修改；本机仅交叉编译，Linux CI的go test将执行这些测试。
+- 修改 `go.mod`、`go.sum` 引入go-fuse v2.11.0，tidy同步现有aliyun实际直接依赖；修改 `Dockerfile` 移除rclone系统包，保留fuse3卸载辅助。修改 `THIRD_PARTY_NOTICES.md` 收录Go-FUSE BSD许可及LitePan仅作为架构参考说明。修改 `README.md` 说明自由输出目录、挂载引擎/暂存与限制。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json` 统一0.2.6；本次按用户要求包含前两轮未提交的夸克绑定/插件/天翼/布局改动，其全部文件详见前两条记录。修改本文件记录变更。发布版本按用户最新约定：末位逢10进1，中位逢100进1。
+- 验证中：Windows Go全量测试、vet、前端构建及Linux amd64无CGO构建通过；第一次浏览器35/38通过，三个旧测试匹配冲突已修复，正在全量重跑。已查看生成目录表单截图。本机无WSL/Linux/Docker，不宣称真实FUSE挂载、真实云端写入联调通过；覆盖改名、chown/chmod、写入中改名等返回不支持或忙。未修改15151服务或用户数据，构建产物在系统临时目录。GitHub fetch两次连接失败，待正常推送确认。
+- 最终验证：38项Playwright全部通过，Windows Go全量及vet通过，Linux amd64主程序/测试二进制交叉编译与Linux vet通过；Linux限定inode测试仅编译未在本机执行，实际运行交由现有Linux CI，未声称内核挂载已验证。已检查暂存范围排除配置/密钥/数据/依赖/构建产物，按中文提交与v0.2.6标签正常推送，结果以远端确认及最终答复为准。
+
+## 2026-10-07：元数据插件、天翼 Token 接入与缓存/网格布局
+
+- 新增 `internal/app/plugins.go`：TMDB 配置/测试/搜索、OpenAI兼容Chat Completions配置/测试/手动文件名识别、HTTP(S)/SOCKS代理实际转发、受鉴权的密钥显隐；出站超时/有界响应/禁止凭据重定向/错误不回显上游敏感正文。Emby入库Webhook采用随机令牌、JSON大小限制、事件过滤、通知去重/50条保留和日志。代理只用于TMDB/AI，不冒称全局网盘代理。
+- 修改 `internal/app/model.go`、`internal/app/server.go`：插件配置/入库通知进入加密State，注册插件与Webhook路由，状态只返回通知不返回插件密钥；天翼接入模式校验、Token模式CAS临时文件期间拒绝更换凭据。修改 `internal/app/logs.go` 将Webhook归入links模块。
+- 新增 `internal/app/tianyi_token.go`：参考本地OpenList 189CloudPC实现访问令牌会话、刷新令牌轮换持久化、官方二维码流程；扫码会话用现有AES-GCM封装并绑定管理员会话、有效期与提供商，固定可信官方主机；扫码clientType使用参考项目的1。修改 `internal/app/authorization.go` 分派天翼start/poll。
+- 修改 `internal/app/tianyi.go`：Token原生存储判定与会话凭据摘要、目录JSON/XML显式字段、兼容fileListAO和XML fileList封装、缺失目录结构拒绝；所有签名接口请求returnType=JSON。修改 `internal/app/file_time.go`：XML时间读取。修改 `internal/app/cloud_write_test.go`：预填测试会话统一使用新凭据摘要，保留上传实际协议断言。
+- 修改 `web/src/pages/StoragePage.vue`：天翼账号/Token切换、访问/刷新令牌单行显隐、左下角扫码、成功回填并清除旧账号；保留115二维码无障碍标签。新增 `web/src/components/PluginSettings.vue`：四插件独立表单、连接测试、TMDB搜索、AI识别、Webhook配置说明/复制及错误反馈。
+- 修改 `web/src/pages/ToolsPage.vue`：接入四插件并新增Emby图标启停、配置备份仍最后；修改 `web/src/App.vue`、`web/src/lib.js`：入库通知并入铃铛、未读记录与正确跳转。修改 `web/src/components/CacheOverview.vue`：96px环图、居中执行任务/灰色空闲条、右侧六项图标统计及响应布局。修改 `web/src/style.css`：网格圆角选中、取消鼠标焦点内框而保留键盘焦点、栏目固定48px/15px及按钮对齐。
+- 新增 `internal/app/plugins_revision_test.go`：真实本地HTTP元数据/模型请求、代理转发、密钥保护/持久化、Webhook鉴权/去重/开关、XML目录/刷新Token、扫码返回令牌。新增 `web/tests/plugins-tianyi.spec.js`：插件操作、截图、布局/网格、天翼扫码与Token表单。修改 `web/tests/cache-strm-takeover.spec.js` 补插件状态mock；修改 `web/tests/workspace.spec.js` 插件数量12项断言。修改 `README.md` 与本文件说明功能及限制。
+- 验证中：前端构建、vet、5项定向Playwright通过；后端初次回归发现旧上传夹具摘要未含令牌，修复后app全量通过。37项浏览器36项通过，剩余是插件数量旧断言，已修正后重跑。真实TMDB/OpenAI/天翼/Emby/Docker未联调，AI自动整理与图片下载未实现；不覆盖organize规则JSON，密钥随加密配置保存。保留前轮未提交改动，本轮未要求推送，不递增版本、不改15151服务或用户数据。
+- 最终验证：`go test ./... -count=1`、`go vet ./...`、前端构建及完整37项Playwright全部通过；已查看缓存空闲布局、网格选中和夜间插件表单截图。隔离浏览器测试服务已退出，未操作15151实例；真实外部服务联调限制仍如上。
+
+## 2026-10-07：夸克多存储扫码绑定、以链加载与布局调整
+
+- 修改 `internal/app/quark_takeover.go`：新增总览/整体启停、解除绑定；扫码与手动凭据落库前独立请求 TV 用户资料及网页账号资料，参考 LitePan 昵称比对，缺失/不符拒绝；重复绑定与成功会话重放拒绝，扫码落库再次检查存储身份。保留旧设备信息和加密凭据，编辑配置不更新凭据归属摘要，Cookie 变化后必须重新绑定；支持分号 UA 分隔。新增 HTTPS extscreen 默认换取服务，前端明确授权同意，不跟随认证重定向。
+- 修改 `internal/app/model.go`、`internal/app/server.go`：持久化整体开关（旧配置保持既有行为），增加总览鉴权路由，初始化状态返回脱敏以链卡片。修改 `internal/app/links.go`：共用只操作副本的凭据脱敏函数。
+- 修改 `web/src/components/QuarkTakeover.vue`：绑定列表、添加绑定/选存储/扫码、独立绑定设置与解除；过滤已绑定存储，切换存储及关闭窗口停止轮询并忽略过时响应，不再要求手工填写 TV Token。修改 `web/src/pages/ToolsPage.vue`：品牌图标填满容器、图标整体启停、LitePan 风格副标题及兼容性说明，保留卡片键盘入口。
+- 修改 `web/src/lib.js`、`web/src/pages/LinksPage.vue`：会话内脱敏卡片缓存和请求合并，初始状态预载，路由返回即时展示并后台刷新，退出清空；AudioBookShelf 名称、上游/UA 列宽增加、缩短缓存期/耗时列。修改 `web/src/style.css`：以链图标右移、时间内边距、末列间距和收藏夹按钮/标题对齐。
+- 修改 `internal/app/quark_takeover_test.go`：昵称匹配/缺失/不符、双存储绑定、重复/重放拒绝、整体停用与持久化、解除互不影响、初始化以链凭据脱敏。修改 `web/tests/cache-strm-takeover.spec.js`：扫码同意、多状态 UI 与图标启停；新增 `web/tests/link-cache-layout.spec.js`：延迟列表请求时预载卡片、布局/命名/收藏夹对齐截图；修改 `web/tests/z-links.spec.js` 图标右移断言。
+- 修改 `README.md`：解释“适配”为 M4B/WMA 转 AAC-LC M4A 或 AAC 重封装；记录绑定流程、第三方与昵称比对限制、卡片缓存。修改本文件记录全部变化。
+- 验证：Go 全量测试、vet、前端构建及四项定向 Playwright 已通过，已查看日夜卡片/流水截图；后续全量回归结果续记。仅以空 JSON 检查第三方 HTTPS token 接口可达，未发送用户凭据。昵称可重名，不宣称严格 UID 唯一身份校验；真实扫码、会员权益及播放未联调。未改15151服务、未生成根目录exe、未修改用户数据；本轮未要求推送，不提交、不升级版本。
+- 最终验证：34项完整浏览器回归中33项通过，收藏夹按钮左移导致存储选择框右缘偏移6px；调整选择框宽度补偿后重新构建，原失败用例及新增流水/收藏对齐用例均通过。新增初始化凭据脱敏测试及夸克全部针对测试通过，Go全量与vet通过；未宣称真实网盘扫码联调。测试服务已结束，保留用户原15151实例。
+
 ## 2026-10-07：客户端文件视图偏好、工具菜单动效与 v0.2.5 发布
 
 - 修改 `web/src/pages/FilesPage.vue`：列表/网格独立存入当前浏览器 localStorage `aether-files-view`，同步保存、读取旧账号偏好并迁移，保留账号收藏夹数据；浏览器禁用存储时不导致页面报错。工具菜单共用 RoundedSelect 的 `select-popup` 动画类，新增箭头旋转与菜单语义。

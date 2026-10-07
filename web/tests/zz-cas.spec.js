@@ -32,7 +32,7 @@ test('local CAS generation and persisted named directory navigation', async ({ p
   expect(selectBox.height).toBe(inputBox.height)
   await expect(page.getByRole('dialog')).toHaveCSS('scrollbar-width', 'none')
   await expect(page.getByRole('button', { name: 'CAS 操作', exact: true })).toHaveCount(0)
-  await page.getByLabel('生成目录').fill('local-cas')
+  await page.getByLabel('生成目录', { exact: true }).fill('local-cas')
   await page.getByRole('button', { name: '选择目录', exact: true }).click()
   await page.locator('.source-accounts').getByRole('button', { name: /家庭影音库/ }).click()
   await page.getByRole('dialog', { name: '选择存储目录' }).getByRole('button', { name: 'Movies', exact: true }).click()

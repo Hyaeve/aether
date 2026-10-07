@@ -1,17 +1,17 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, notify, date } from '../lib'
+import { api, notify, date, state, loadLinks } from '../lib'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import SecretInput from '../components/SecretInput.vue'
 import { copyText } from '../clipboard'
-const types = [{ id: 'audiobookshelf', name: 'Audiobookshelf', icon: 'abs' }, { id: 'emby', name: 'Emby', icon: 'emby' }, { id: 'fnos', name: '飞牛影视', icon: 'fnmovie' }]
+const types = [{ id: 'audiobookshelf', name: 'AudioBookShelf', icon: 'abs' }, { id: 'emby', name: 'Emby', icon: 'emby' }, { id: 'fnos', name: '飞牛影视', icon: 'fnmovie' }]
 const modes = [{ value: 'always', label: '始终跳转' }, { value: 'public', label: '公网跳转' }, { value: 'private', label: '内网跳转' }, { value: 'never', label: '始终中继' }]
 const route = useRoute()
 const tab = computed(() => route.path.endsWith('/cache') ? 'cache' : 'manage')
-const links = ref([]), modal = ref(false), step = ref(1), busy = ref(false), error = ref(''), events = shallowRef([]), query = ref(''), deleting = ref(null)
+const links = computed(() => state.links), modal = ref(false), step = ref(1), busy = ref(false), error = ref(''), events = shallowRef([]), query = ref(''), deleting = ref(null)
 const form = reactive({})
 const menu = ref(null)
 const outcome = ref('all')
@@ -108,7 +108,7 @@ const typeOf = type => types.find(t => t.id === type) || types[0]
 const linkName = id => links.value.find(l => l.id === id)?.name || id
 const endpoint = link => { const u = new URL(location.href); u.port = String(link.port); u.pathname = '/'; u.search = ''; u.hash = ''; u.protocol = 'http:'; return u.href }
 async function load() {
-  try { links.value = await api('/links') }
+  try { await loadLinks() }
   catch (e) { notify(e.message, true) }
 }
 let playbackLoading = false
@@ -153,7 +153,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <button class="add-storage-tile link-add" @click="open()"><Icon name="Plus" :size="28" /><strong>添加以太链接</strong></button>
   </div>
   <section v-else class="link-playback">
-    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:126px" /><col style="width:100px" /><col style="width:8%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:94px" /><col style="width:80px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
+    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:112px" /><col style="width:10%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:78px" /><col style="width:72px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
       <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
         <td>{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>

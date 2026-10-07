@@ -12,8 +12,8 @@ import (
 	"golang.org/x/net/webdav"
 )
 
-// The private DAV bridge reuses cloud readers without exposing the public DAV
-// service or its users. Local writes are confined by os.Root to the chosen subtree.
+// FUSE and DAV share storage operations without a network bridge.
+// Local writes are confined by os.Root to the chosen subtree.
 type mountFS struct {
 	app    *App
 	config MountConfig

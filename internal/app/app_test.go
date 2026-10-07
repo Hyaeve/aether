@@ -272,8 +272,8 @@ func TestTaskValidation(t *testing.T) {
 	}
 	task.Cron = ""
 	task.Target = filepath.Join(t.TempDir(), "external")
-	if err := a.validateTask(&task); err == nil {
-		t.Fatal("external target accepted")
+	if err := a.validateTask(&task); err != nil {
+		t.Fatal("external target rejected", err)
 	}
 	if !excludedType("film.MP4", "mkv;mp4") || excludedType("film.mp4", "mp") {
 		t.Fatal("extension matching incorrect")

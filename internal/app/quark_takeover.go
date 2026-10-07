@@ -34,6 +34,7 @@ type QuarkTVBinding struct {
 	Broker       string    `json:"broker"`
 	Expires      time.Time `json:"expires"`
 	CookieHash   string    `json:"cookieHash"`
+	Nickname     string    `json:"nickname"`
 }
 
 type quarkTVLink struct {
@@ -44,6 +45,98 @@ type quarkTVLink struct {
 const quarkTVClient = "d3194e61504e493eb6222857bccfed94"
 const quarkTVSign = "kw2dvtd7p4t3pjl2d9ed9yc8yej8kw2d"
 const quarkTVBase = "https://open-api-drive.quark.cn"
+const quarkTVBroker = "https://api.extscreen.com/quarkdrive"
+
+func quarkTVEnabled(st State) bool {
+	return st.QuarkTVEnabled == nil || *st.QuarkTVEnabled
+}
+
+func (a *App) quarkTVOverview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	switch r.Method {
+	case "GET":
+		st := a.store.snapshotWithLogLimit(0)
+		bindings := []map[string]any{}
+		for _, s := range st.Storages {
+			b := st.QuarkTV[s.ID]
+			if s.Type == "quark" && b.AccessToken != "" {
+				bindings = append(bindings, map[string]any{"id": s.ID, "name": s.Name, "nickname": b.Nickname, "enabled": b.Enabled, "valid": b.CookieHash == quarkCookieHash(s)})
+			}
+		}
+		jsonResponse(w, 200, map[string]any{"enabled": quarkTVEnabled(st) && len(bindings) > 0, "bindings": bindings, "broker": quarkTVBroker})
+	case "PUT":
+		var input struct {
+			Enabled bool `json:"enabled"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		err := a.store.update(func(st *State) error {
+			if input.Enabled {
+				bound := false
+				for _, s := range st.Storages {
+					b := st.QuarkTV[s.ID]
+					bound = bound || (s.Type == "quark" && s.Enabled && b.Enabled && b.AccessToken != "" && b.CookieHash == quarkCookieHash(s))
+				}
+				if !bound {
+					return errors.New("请先添加有效的夸克存储绑定")
+				}
+			}
+			st.QuarkTVEnabled = &input.Enabled
+			return nil
+		})
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		jsonResponse(w, 200, map[string]bool{"ok": true})
+	default:
+		w.WriteHeader(405)
+	}
+}
+
+// Web and TV use different UID namespaces; match the account nickname as LitePan does.
+// This rejects mismatches, but equal non-unique nicknames are not proof of identity.
+func verifyQuarkTVAccount(ctx context.Context, s Storage, b *QuarkTVBinding) error {
+	var tv struct {
+		Errno int `json:"errno"`
+		Data  struct {
+			Nickname string `json:"nickname"`
+			NickName string `json:"nick_name"`
+			Nick     string `json:"nick"`
+		} `json:"data"`
+		Nickname string `json:"nickname"`
+	}
+	if err := quarkTVRequest(ctx, *b, "/user", url.Values{"method": {"user_info"}}, &tv); err != nil {
+		return err
+	}
+	var web struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Nickname string `json:"nickname"`
+		} `json:"data"`
+	}
+	headers := http.Header{"Cookie": {s.Config["cookie"]}, "Referer": {"https://pan.quark.cn/"}, "User-Agent": {"Mozilla/5.0"}, "Accept": {"application/json"}}
+	if err := quarkTVJSON(ctx, "GET", "https://pan.quark.cn/account/info?platform=pc&fr=pc", headers, nil, &web); err != nil {
+		return err
+	}
+	nickname := ""
+	for _, value := range []string{tv.Data.Nickname, tv.Data.NickName, tv.Data.Nick, tv.Nickname} {
+		if strings.TrimSpace(value) != "" {
+			nickname = value
+			break
+		}
+	}
+	nickname = strings.TrimSpace(nickname)
+	if tv.Errno != 0 || !web.Success || nickname == "" || strings.TrimSpace(web.Data.Nickname) == "" {
+		return errors.New("无法获取账号昵称用于校验，请重新扫码")
+	}
+	if nickname != strings.TrimSpace(web.Data.Nickname) {
+		return errors.New("扫码账号与所选夸克存储账号不一致，请使用同一账号扫码")
+	}
+	b.Nickname = nickname
+	return nil
+}
 
 func quarkCookieHash(s Storage) string {
 	sum := sha256.Sum256([]byte(s.Config["cookie"]))
@@ -180,16 +273,31 @@ func quarkTVDefaults(b QuarkTVBinding) QuarkTVBinding {
 }
 
 func (a *App) quarkTVSettings(w http.ResponseWriter, r *http.Request) {
-	s, err := a.store.storage(r.PathValue("id"))
-	if err != nil || s.Type != "quark" {
-		fail(w, 400, errors.New("请选择已启用的夸克存储池"))
+	var s Storage
+	for _, candidate := range a.store.snapshotWithLogLimit(0).Storages {
+		if candidate.ID == r.PathValue("id") {
+			s = candidate
+			break
+		}
+	}
+	if s.Type != "quark" {
+		fail(w, 400, errors.New("请选择夸克存储池"))
 		return
 	}
+	var err error
 	a.quarkTVMu.Lock()
 	defer a.quarkTVMu.Unlock()
 	old := quarkTVDefaults(a.store.snapshotWithLogLimit(0).QuarkTV[s.ID])
 	w.Header().Set("Cache-Control", "no-store")
 	switch r.Method {
+	case "DELETE":
+		err = a.store.update(func(st *State) error { delete(st.QuarkTV, s.ID); return nil })
+		if err != nil {
+			fail(w, 500, errors.New("解除绑定失败"))
+			return
+		}
+		a.quarkTVCache = nil
+		jsonResponse(w, 200, map[string]bool{"ok": true})
 	case "GET":
 		old.AccessToken, old.RefreshToken = "", ""
 		jsonResponse(w, 200, map[string]any{"config": old, "authorized": a.store.snapshotWithLogLimit(0).QuarkTV[s.ID].AccessToken != ""})
@@ -212,13 +320,24 @@ func (a *App) quarkTVSettings(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		if b.AccessToken == "" && old.CookieHash == quarkCookieHash(s) {
+		if b.AccessToken == "" && old.AccessToken != "" {
 			b.AccessToken, b.RefreshToken, b.Expires = old.AccessToken, old.RefreshToken, old.Expires
 			b.Device = old.Device
-		} else {
+			b.Nickname = old.Nickname
+			b.Broker = old.Broker
+			b.CookieHash = old.CookieHash
+		} else if b.AccessToken != "" {
+			if old.AccessToken != "" {
+				fail(w, 409, errors.New("该存储已绑定，请勿重复绑定"))
+				return
+			}
+			if err := verifyQuarkTVAccount(r.Context(), s, &b); err != nil {
+				fail(w, 400, err)
+				return
+			}
 			b.Expires = time.Time{}
+			b.CookieHash = quarkCookieHash(s)
 		}
-		b.CookieHash = quarkCookieHash(s)
 		if b.Enabled && b.AccessToken == "" {
 			fail(w, 400, errors.New("请先绑定 TV 凭据"))
 			return
@@ -263,6 +382,10 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 	if r.PathValue("action") == "qr" {
 		if !input.Consent || input.Broker == "" {
 			fail(w, 400, errors.New("请确认将授权码及刷新凭据发送至指定换取服务"))
+			return
+		}
+		if b.AccessToken != "" {
+			fail(w, 409, errors.New("该存储已绑定，请勿重复绑定"))
 			return
 		}
 		if err := validateQuarkBroker(input.Broker); err != nil {
@@ -316,6 +439,10 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("授权会话已失效，请重新扫码"))
 		return
 	}
+	if b.AccessToken != "" {
+		fail(w, 409, errors.New("该存储已绑定，请勿重复绑定"))
+		return
+	}
 	var result struct {
 		Code  string `json:"code"`
 		Errno int    `json:"errno"`
@@ -337,8 +464,24 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, err)
 		return
 	}
+	if err = verifyQuarkTVAccount(r.Context(), s, &b); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	b.Enabled = true
 	b.CookieHash = quarkCookieHash(s)
-	if err = a.store.update(func(st *State) error { st.QuarkTV[s.ID] = b; return nil }); err != nil {
+	if err = a.store.update(func(st *State) error {
+		for _, current := range st.Storages {
+			if current.ID == s.ID && current.Enabled && current.Type == "quark" && quarkCookieHash(current) == b.CookieHash {
+				if st.QuarkTV[s.ID].AccessToken != "" {
+					return errors.New("该存储已绑定")
+				}
+				st.QuarkTV[s.ID] = b
+				return nil
+			}
+		}
+		return errors.New("存储已变更，请重新扫码")
+	}); err != nil {
 		fail(w, 500, errors.New("保存 TV 凭据失败"))
 		return
 	}
@@ -404,7 +547,7 @@ func quarkTVBypass(b QuarkTVBinding, ua string) bool {
 		return false
 	}
 	match := false
-	for _, keyword := range strings.Split(b.UA, "\n") {
+	for _, keyword := range strings.FieldsFunc(b.UA, func(r rune) bool { return r == '\n' || r == ';' }) {
 		keyword = strings.TrimSpace(keyword)
 		if keyword != "" && strings.Contains(strings.ToLower(ua), strings.ToLower(keyword)) {
 			match = true
@@ -420,7 +563,11 @@ func quarkTVBypass(b QuarkTVBinding, ua string) bool {
 func (a *App) quarkTVTarget(ctx context.Context, s Storage, file, ua string) string {
 	a.quarkTVMu.Lock()
 	defer a.quarkTVMu.Unlock()
-	b := a.store.snapshotWithLogLimit(0).QuarkTV[s.ID]
+	st := a.store.snapshotWithLogLimit(0)
+	if !quarkTVEnabled(st) {
+		return ""
+	}
+	b := st.QuarkTV[s.ID]
 	if !b.Enabled || b.CookieHash != quarkCookieHash(s) || b.AccessToken == "" || quarkTVBypass(b, ua) {
 		return ""
 	}

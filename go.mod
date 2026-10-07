@@ -4,8 +4,10 @@ go 1.26.0
 
 require (
 	github.com/SheltonZhu/115driver v1.3.5
+	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/anacrolix/torrent v1.61.0
 	github.com/go-resty/resty/v2 v2.17.2
+	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	golang.org/x/crypto v0.49.0
@@ -18,7 +20,6 @@ require (
 	github.com/RoaringBitmap/roaring v1.2.3 // indirect
 	github.com/aead/ecdh v0.2.0 // indirect
 	github.com/alecthomas/atomic v0.1.0-alpha2 // indirect
-	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible // indirect
 	github.com/anacrolix/btree v0.0.0-20251201064447-d86c3fa41bd8 // indirect
 	github.com/anacrolix/chansync v0.7.0 // indirect
 	github.com/anacrolix/dht/v2 v2.23.0 // indirect

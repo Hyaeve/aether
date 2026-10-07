@@ -118,6 +118,10 @@ func quarkAuthGet(r *http.Request, target string, cookies map[string]string) ([]
 
 func (a *App) startAuthorization(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if r.PathValue("provider") == "tianyi" {
+		a.tianyiQRStart(w, r)
+		return
+	}
 	if r.PathValue("provider") == "115" {
 		a.start115Authorization(w, r)
 		return
@@ -154,6 +158,11 @@ func (a *App) startAuthorization(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) pollAuthorization(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("provider") == "tianyi" {
+		w.Header().Set("Cache-Control", "no-store")
+		a.tianyiQRPoll(w, r)
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	if r.PathValue("provider") != "quark" && r.PathValue("provider") != "115" {
 		fail(w, 400, errors.New("此存储类型不支持扫码授权"))

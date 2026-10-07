@@ -74,20 +74,7 @@ func (f *cloudWriteFile) Close() error {
 		err = errors.New("上传内容不完整")
 	}
 	if err == nil {
-		f.app.runMu.Lock()
-		defer f.app.runMu.Unlock()
-		current, e := f.app.store.storage(f.storage.ID)
-		if e != nil {
-			err = e
-		} else {
-			oldConfig, _ := json.Marshal(f.storage.Config)
-			newConfig, _ := json.Marshal(current.Config)
-			if string(oldConfig) != string(newConfig) {
-				err = errors.New("存储配置已变化，写入已停止")
-			} else {
-				err = f.app.publishCloudFile(f.ctx, current, f.parent, f.name, f.File.Name())
-			}
-		}
+		err = f.publish(f.ctx)
 	}
 	f.app.cache.clear()
 	if err != nil {
@@ -98,6 +85,21 @@ func (f *cloudWriteFile) Close() error {
 	f.app.uploaded.Add(info.Size())
 	f.app.store.event("info", "storage", f.storage.Name+" 写入文件："+f.name)
 	return nil
+}
+
+func (f *cloudWriteFile) publish(ctx context.Context) error {
+	f.app.runMu.Lock()
+	defer f.app.runMu.Unlock()
+	current, err := f.app.store.storage(f.storage.ID)
+	if err != nil {
+		return err
+	}
+	oldConfig, _ := json.Marshal(f.storage.Config)
+	newConfig, _ := json.Marshal(current.Config)
+	if string(oldConfig) != string(newConfig) {
+		return errors.New("存储配置已变化，写入已停止")
+	}
+	return f.app.publishCloudFile(ctx, current, f.parent, f.name, f.File.Name())
 }
 
 func (d mountFS) cloudParent(ctx context.Context, s Storage, source, rel string) (string, error) {

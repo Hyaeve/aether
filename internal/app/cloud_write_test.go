@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/hmac"
 	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -103,7 +102,7 @@ func TestNativeUploadProtocols(t *testing.T) {
 			defer file.Close()
 			file.WriteString(data)
 			s := Storage{ID: kind, Type: kind, Enabled: true, Config: map[string]string{"mode": "native", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:account:secret")), "username": "account", "password": "password", "accessToken": "access", "cookie": "cookie"}}
-			a.tianyiSessions[s.ID] = tianyiSession{Key: "session", Secret: "0123456789abcdef", Credentials: sha256.Sum256([]byte(s.Config["username"] + "\x00" + s.Config["password"])), Expires: time.Now().Add(time.Hour)}
+			a.tianyiSessions[s.ID] = tianyiSession{Key: "session", Secret: "0123456789abcdef", Credentials: tianyiCredentials(s), Expires: time.Now().Add(time.Hour)}
 			original := apiClient
 			defer func() { apiClient = original }()
 			uploaded, completed := false, false

@@ -76,6 +76,7 @@ function open(storage) {
   Object.assign(form, storage ? JSON.parse(JSON.stringify(storage)) : { name: '', type: '', enabled: true, cacheTTL: 0, config: {} })
   form.config.deleteMode ||= 'trash'
   if (storage?.type === 'openlist') form.config.authMode ||= 'token'
+  if (storage?.type === 'tianyi') form.config.authMode ||= form.config.accessToken || form.config.refreshToken ? 'token' : 'account'
   if (storage?.type === '115') {
     form.config.cookie ||= form.config.ck || ''
     form.config.device ||= 'web'
@@ -131,6 +132,12 @@ async function requestAuthorization() {
         if (generation !== authGeneration.value) return
         if (result.status === 'expired') { authError.value = '二维码已失效，请重新获取'; return }
         if (['cancelled', 'canceled', 'denied'].includes(result.status)) { authError.value = '扫码授权已取消，请重新获取'; return }
+        if (provider === 'tianyi' && result.status === 'success') {
+          if (!result.accessToken && !result.refreshToken) throw new Error('授权未返回有效令牌')
+          form.config.authMode = 'token'; form.config.accessToken = result.accessToken || ''; form.config.refreshToken = result.refreshToken || ''
+          form.config.username = ''; form.config.password = ''
+          closeAuthorization(); notify('天翼令牌已填入，请保存存储池'); return
+        }
         const cookie = result.cookie || result.ck
         if (result.status === 'success' || (!result.status && cookie)) {
           if (typeof cookie !== 'string' || !cookie.trim()) throw new Error('授权未返回有效 CK，请重新获取')
@@ -198,7 +205,11 @@ async function remove() {
             <div class="field full"><label>设备类型</label><RoundedSelect v-model="form.config.device" label="设备类型" :options="devices115" /></div>
           </template>
           <label v-if="selected === 'quark'" class="full storage-cookie">Cookie <span class="required">*</span><SecretInput v-model="form.config.cookie" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" placeholder="粘贴夸克网页版的完整 Cookie" /></label>
-          <template v-if="selected === 'tianyi'"><label>天翼账号<input v-model="form.config.username" required autocomplete="off" /></label><label>天翼密码<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" required autocomplete="new-password" /></label></template>
+          <template v-if="selected === 'tianyi'">
+            <div class="field full"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'account'" @update:model-value="form.config.authMode = $event" label="天翼接入模式" :options="[{ value: 'account', label: '账号密码' }, { value: 'token', label: 'Token 令牌' }]" /></div>
+            <template v-if="form.config.authMode !== 'token'"><label>天翼账号<input v-model="form.config.username" required autocomplete="off" /></label><label>天翼密码<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" required autocomplete="new-password" /></label></template>
+            <template v-else><label class="full">访问令牌<SecretInput v-model="form.config.accessToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="accessToken" autocomplete="off" /></label><label class="full">刷新令牌<SecretInput v-model="form.config.refreshToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="refreshToken" autocomplete="off" /></label></template>
+          </template>
           <template v-if="['openlist', 'webdav'].includes(selected)">
             <label :class="{ full: selected === 'webdav' }">服务地址 <span class="required">*</span><input v-model="form.config.address" required type="url" placeholder="https://storage.example.com" /></label>
             <div v-if="selected === 'openlist'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'token'" @update:model-value="changeOpenlistMode" label="接入模式" :options="[{ value: 'token', label: 'API令牌' }, { value: 'account', label: '账号密码' }]" /></div>
@@ -212,15 +223,15 @@ async function remove() {
         </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       </div>
-      <footer class="modal-footer"><button v-if="['115', 'quark'].includes(selected)" type="button" class="btn auth-button" :disabled="busy" @click="startAuthorization"><Icon name="ShieldCheck" />{{ selected === '115' ? '扫码获取 CK' : '扫码获取授权' }}</button><button v-if="!editing" type="button" class="btn" :disabled="busy" @click="step = 1"><Icon name="ArrowLeft" />上一步</button><button class="btn primary" :disabled="busy"><Icon name="Check" />{{ busy ? '保存中…' : '保存存储池' }}</button></footer>
+      <footer class="modal-footer"><button v-if="['115', 'quark', 'tianyi'].includes(selected)" type="button" class="btn auth-button" :disabled="busy" @click="startAuthorization"><Icon name="ShieldCheck" />{{ selected === '115' ? '扫码获取 CK' : selected === 'tianyi' ? '扫码获取 Token' : '扫码获取授权' }}</button><button v-if="!editing" type="button" class="btn" :disabled="busy" @click="step = 1"><Icon name="ArrowLeft" />上一步</button><button class="btn primary" :disabled="busy"><Icon name="Check" />{{ busy ? '保存中…' : '保存存储池' }}</button></footer>
     </form>
   </Modal>
   <LocalDirectoryPicker v-if="directoryPicker" :initial="form.config.root" @close="directoryPicker = false" @select="form.config.root = $event; directoryPicker = false" />
-  <Modal v-if="authorization" :title="selected === '115' ? '115 扫码获取 CK' : '夸克扫码授权'" @close="closeAuthorization">
+  <Modal v-if="authorization" :title="selected === '115' ? '115 扫码获取 CK' : selected === 'tianyi' ? '天翼扫码获取 Token' : '夸克扫码授权'" @close="closeAuthorization">
     <div class="modal-body qr-authorization">
       <p v-if="authBusy" role="status">正在获取二维码…</p>
-      <img v-if="qr && !authError" :src="qr.image" :alt="selected === '115' ? '115 授权二维码' : '夸克授权二维码'" />
-      <p v-if="qr && !authError" role="status">{{ selected === '115' ? '请使用 115 App 扫码确认' : '请使用夸克网盘 App 扫码确认' }}</p>
+      <img v-if="qr && !authError" :src="qr.image" :alt="selected === '115' ? '115 授权二维码' : selected === 'tianyi' ? '天翼授权二维码' : '夸克授权二维码'" />
+      <p v-if="qr && !authError" role="status">请使用{{ picked.name }} App 扫码确认</p>
       <p v-if="authError" class="error-message" role="alert">{{ authError }}</p>
       <button v-if="authError" class="btn" :disabled="authBusy" @click="startAuthorization"><Icon name="RefreshCw" />重新获取</button>
     </div>

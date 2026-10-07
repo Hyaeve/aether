@@ -247,18 +247,7 @@ func (a *App) mediaLinks(w http.ResponseWriter, r *http.Request) {
 		a.store.mu.RLock()
 		links := append([]MediaLink(nil), a.store.state.Links...)
 		a.store.mu.RUnlock()
-		if links == nil {
-			links = []MediaLink{}
-		}
-		for i := range links {
-			if links[i].APIKey != "" {
-				links[i].APIKey = "********"
-			}
-			if links[i].Password != "" {
-				links[i].Password = "********"
-			}
-		}
-		jsonResponse(w, 200, links)
+		jsonResponse(w, 200, redactedMediaLinks(links))
 		return
 	}
 	if r.Method != "POST" && r.Method != "PUT" && r.Method != "DELETE" {
@@ -352,6 +341,19 @@ func (a *App) mediaLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	a.store.event("info", "links", "以链配置已更新")
 	jsonResponse(w, 200, map[string]string{"id": incoming.ID})
+}
+
+func redactedMediaLinks(links []MediaLink) []MediaLink {
+	result := append([]MediaLink{}, links...)
+	for i := range result {
+		if result[i].APIKey != "" {
+			result[i].APIKey = "********"
+		}
+		if result[i].Password != "" {
+			result[i].Password = "********"
+		}
+	}
+	return result
 }
 
 func (a *App) linkPlayback(w http.ResponseWriter, r *http.Request) {

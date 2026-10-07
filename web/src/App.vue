@@ -45,7 +45,10 @@ const planned = computed(() => ({
   '/tasks/organize': { title: '目录整理', icon: 'FolderTree', items: ['目录整理任务', '整理规则与预览'] },
   '/tasks/scrape': { title: 'STRM 刮削', icon: 'ScanSearch', items: ['媒体识别', 'TMDB 元数据', 'NFO 与封面'] }
 }[currentPath.value]))
-const taskNotices = computed(() => state.tasks.filter(t => ['success', 'error', 'cancelled', 'interrupted'].includes(t.status) && t.lastRun && !t.lastRun.startsWith('0001')).map(t => ({ ...t, key: `${t.id}:${t.lastRun}:${t.status}` })).sort((a, b) => new Date(b.lastRun) - new Date(a.lastRun)).slice(0, 30))
+const taskNotices = computed(() => [
+  ...state.tasks.filter(t => ['success', 'error', 'cancelled', 'interrupted'].includes(t.status) && t.lastRun && !t.lastRun.startsWith('0001')).map(t => ({ ...t, key: `${t.id}:${t.lastRun}:${t.status}` })),
+  ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}`, name: `Emby 入库 · ${n.name}`, lastRun: n.time, status: 'success', kind: 'emby' }))
+].sort((a, b) => new Date(b.lastRun) - new Date(a.lastRun)).slice(0, 50))
 const readKeys = ref([])
 watch(() => state.username, user => {
   try { const saved = JSON.parse(localStorage.getItem(`aether-read:${user}`) || '[]'); readKeys.value = Array.isArray(saved) ? saved : [] } catch { readKeys.value = [] }
@@ -56,6 +59,10 @@ function markRead() {
   localStorage.setItem(`aether-read:${state.username}`, JSON.stringify(readKeys.value))
 }
 function openNotifications() { notificationMenu.value = !notificationMenu.value; accountMenu.value = false; if (notificationMenu.value) markRead() }
+function openNotice(t) {
+  router.push(t.kind === 'emby' ? '/tools' : `/tasks/${['cas', 'cache'].includes(t.kind) ? t.kind : 'strm'}`)
+  closeMenus()
+}
 watch(taskNotices, () => { if (notificationMenu.value) markRead() })
 let timer
 async function bootstrap() {
@@ -96,7 +103,7 @@ onUnmounted(() => { clearInterval(timer); media.removeEventListener('change', ap
           <button class="icon-btn theme-toggle" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
           <div class="notification-control" @click.stop>
             <button class="icon-btn notification-button" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
-            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><h2>最近任务</h2><p v-if="!taskNotices.length" class="small-empty">暂无已结束任务</p><button v-for="t in taskNotices" :key="t.key" @click="router.push(`/tasks/${['cas', 'cache'].includes(t.kind) ? t.kind : 'strm'}`); closeMenus()"><Icon :name="t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断' }} · {{ date(t.lastRun) }}</small></span></button></section>
+            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><h2>最近通知</h2><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><Icon :name="t.kind === 'emby' ? 'Film' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.kind === 'emby' ? '已入库' : t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断' }} · {{ date(t.lastRun) }}</small></span></button></section>
           </div>
           <div class="account-control" @click.stop>
             <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>

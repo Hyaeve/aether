@@ -100,18 +100,21 @@ type LogEntry struct {
 }
 
 type State struct {
-	QuarkTV      map[string]QuarkTVBinding `json:"quarkTV,omitempty"`
-	Mounts       []MountConfig             `json:"mounts,omitempty"`
-	Links        []MediaLink               `json:"links,omitempty"`
-	DAVUsers     []DAVUser                 `json:"davUsers,omitempty"`
-	CASTemporary []CASTemporary            `json:"casTemporary,omitempty"`
-	Storages     []Storage                 `json:"storages"`
-	Tasks        []Task                    `json:"tasks"`
-	Settings     Settings                  `json:"settings"`
-	Username     string                    `json:"username"`
-	Password     string                    `json:"password"`
-	SignKey      string                    `json:"signKey"`
-	Logs         []LogEntry                `json:"logs"`
+	Plugins        map[string]PluginConfig   `json:"plugins,omitempty"`
+	LibraryNotices []LibraryNotice           `json:"libraryNotices,omitempty"`
+	QuarkTV        map[string]QuarkTVBinding `json:"quarkTV,omitempty"`
+	QuarkTVEnabled *bool                     `json:"quarkTVEnabled,omitempty"`
+	Mounts         []MountConfig             `json:"mounts,omitempty"`
+	Links          []MediaLink               `json:"links,omitempty"`
+	DAVUsers       []DAVUser                 `json:"davUsers,omitempty"`
+	CASTemporary   []CASTemporary            `json:"casTemporary,omitempty"`
+	Storages       []Storage                 `json:"storages"`
+	Tasks          []Task                    `json:"tasks"`
+	Settings       Settings                  `json:"settings"`
+	Username       string                    `json:"username"`
+	Password       string                    `json:"password"`
+	SignKey        string                    `json:"signKey"`
+	Logs           []LogEntry                `json:"logs"`
 }
 
 type Store struct {

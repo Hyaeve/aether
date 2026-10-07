@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 async function workspace(page) {
+  await page.route('**/api/plugins/emby', r => r.fulfill({ json: { enabled: false, token: '' } }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: {
     username: 'cache-test', storages: [
@@ -45,29 +46,39 @@ test('real cache overview and explicit OpenList STRM source', async ({ page }, t
   expect(saved).toMatchObject({ storageId: 'olist', source: '/B', sourceLabel: 'B', encodePath: true })
 })
 
-test('Quark takeover is configurable with explicit broker consent', async ({ page }, testInfo) => {
+test('Quark takeover binds once by QR and toggles from its icon', async ({ page }, testInfo) => {
   await workspace(page)
-  await page.route('**/api/quark-takeover/quark', r => r.fulfill({ json: r.request().method() === 'GET' ? { authorized: false, config: { enabled: false, mode: 'adaptive', quality: '4k', device: 'test-device', uaListMode: 'proxy_list', broker: '', accessToken: '', refreshToken: '' } } : { ok: true } }))
+  let bindings = [], enabled = true
+  await page.route('**/api/quark-takeover', r => {
+    if (r.request().method() === 'PUT') enabled = r.request().postDataJSON().enabled
+    return r.fulfill({ json: { enabled, bindings, broker: 'https://broker.example' } })
+  })
+  await page.route('**/api/quark-takeover/quark/qr', r => r.fulfill({ json: { session: 'scan', image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=' } }))
+  await page.route('**/api/quark-takeover/quark/poll', r => {
+    bindings = [{ id: 'quark', name: 'Quark', nickname: '同账号', enabled: true, valid: true }]
+    return r.fulfill({ json: { authorized: true } })
+  })
   await page.goto('/tools')
-  const card = page.getByRole('button', { name: /夸克 STRM 接管/ })
+  const card = page.getByRole('button', { name: '夸克 STRM 接管', exact: true })
   await expect(card).not.toContainText('待实现')
+  await expect(card).toContainText('夸克网盘 · TV 版 302 直链')
   await expect(card.locator('img')).toHaveAttribute('src', '/providers/quark.png')
-  await card.click()
-  await page.getByRole('button', { name: '绑定夸克存储', exact: true }).click()
-  await page.getByRole('option', { name: 'Quark', exact: true }).click()
-  await expect(page.getByRole('button', { name: '扫码绑定' })).toBeDisabled()
-  await page.getByLabel('TV Access Token', { exact: true }).fill('manual-access-token')
-  await page.getByRole('switch', { name: '启用接管', exact: true }).check()
-  await page.getByRole('button', { name: '保存设置', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('夸克 STRM 接管已保存')
-  await expect(page.getByLabel('TV Access Token', { exact: true })).toHaveValue('')
-  await page.getByLabel('HTTPS 凭据换取服务').fill('https://broker.example')
-  await expect(page.getByRole('button', { name: '扫码绑定' })).toBeDisabled()
-  await page.getByRole('checkbox', { name: /我信任该服务/ }).check()
-  await expect(page.getByRole('button', { name: '扫码绑定' })).toBeEnabled()
   for (const theme of ['light', 'dark']) {
     await page.evaluate(t => document.documentElement.dataset.theme = t, theme)
-    await expect(page.getByRole('button', { name: '绑定夸克存储', exact: true })).toHaveCSS('background-color', theme === 'dark' ? 'rgb(36, 40, 50)' : 'rgb(255, 255, 255)')
-    await page.screenshot({ path: testInfo.outputPath(`quark-${theme}.png`) })
+    await page.screenshot({ path: testInfo.outputPath(`quark-card-${theme}.png`) })
   }
+  await card.getByText('夸克 STRM 接管', { exact: true }).click()
+  await page.getByRole('button', { name: '添加绑定', exact: true }).click()
+  await page.getByRole('button', { name: '绑定夸克存储', exact: true }).click()
+  await page.getByRole('option', { name: 'Quark', exact: true }).click()
+  await expect(page.getByRole('button', { name: '获取二维码', exact: true })).toBeDisabled()
+  await page.getByRole('checkbox', { name: /同意通过第三方/ }).check()
+  await expect(page.getByAltText('夸克 TV 授权二维码')).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '选择绑定的存储', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '添加绑定', exact: true })).toBeDisabled()
+  await expect(page.locator('.binding-row')).toContainText('同账号')
+  await page.screenshot({ path: testInfo.outputPath('quark-bound.png') })
+  await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '停用夸克 STRM 接管', exact: true }).click()
+  await expect(page.getByRole('button', { name: '启用夸克 STRM 接管', exact: true })).toHaveAttribute('aria-pressed', 'false')
 })

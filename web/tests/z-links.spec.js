@@ -31,7 +31,7 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   await page.getByRole('button', { name: '保存以链', exact: true }).click()
   await expect(page.locator('.link-card')).toHaveCount(1)
   expect(playbackRequests).toBe(0)
-  await expect(page.locator('.link-identity')).toHaveCSS('padding-left', '6px')
+  await expect(page.locator('.link-identity')).toHaveCSS('padding-left', '10px')
   await page.getByRole('button', { name: '客厅 Emby跳转模式', exact: true }).click()
   await page.getByRole('option', { name: '公网跳转', exact: true }).click()
   await expect(page.getByRole('button', { name: '客厅 Emby跳转模式', exact: true })).toHaveText('公网跳转')

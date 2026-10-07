@@ -96,6 +96,15 @@ func TestQuarkTVSignedPlaybackCacheAndSecretIsolation(t *testing.T) {
 }
 
 func TestQuarkTVManualCredentialAndQRConsent(t *testing.T) {
+	original := apiClient
+	defer func() { apiClient = original }()
+	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+		body := `{"data":{"nickname":"owner"}}`
+		if r.URL.Host == "pan.quark.cn" {
+			body = `{"success":true,"data":{"nickname":"owner"}}`
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
 	a := testApp(t)
 	s := Storage{ID: "q", Type: "quark", Enabled: true, Config: map[string]string{"cookie": "ck"}}
 	a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil })
@@ -137,6 +146,13 @@ func TestQuarkTVQRBindingAndRefresh(t *testing.T) {
 	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
 		body := ""
 		switch r.URL.Host + r.URL.Path {
+		case "open-api-drive.quark.cn/user":
+			body = `{"data":{"nickname":"owner"}}`
+		case "pan.quark.cn/account/info":
+			if r.Header.Get("Cookie") != "ck" || r.URL.Query().Get("access_token") != "" {
+				t.Fatal("account credential isolation")
+			}
+			body = `{"success":true,"data":{"nickname":"owner"}}`
 		case "open-api-drive.quark.cn/oauth/authorize":
 			body = `{"qr_data":"https://quark.example/authorize","query_token":"private-query"}`
 		case "open-api-drive.quark.cn/oauth/code":
@@ -210,5 +226,108 @@ func TestQuarkTVQRBindingAndRefresh(t *testing.T) {
 	w = request(t, h, "POST", "/api/quark-takeover/q/poll", map[string]string{"session": "invalid"}, cookie)
 	if w.Code != 400 {
 		t.Fatal("invalid authorization accepted")
+	}
+}
+
+func TestQuarkTVBindingIdentityDuplicatesAndGlobalSwitch(t *testing.T) {
+	a := testApp(t)
+	storages := []Storage{
+		{ID: "q1", Name: "One", Type: "quark", Enabled: true, Config: map[string]string{"cookie": "ck-one"}},
+		{ID: "q2", Name: "Two", Type: "quark", Enabled: true, Config: map[string]string{"cookie": "ck-two"}},
+	}
+	a.store.update(func(st *State) error { st.Storages = storages; return nil })
+	h := a.Handler(t.TempDir())
+	setup := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
+	cookie := setup.Result().Cookies()[0]
+	original := apiClient
+	defer func() { apiClient = original }()
+	nickname := "wrong"
+	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+		body := ""
+		switch r.URL.Host + r.URL.Path {
+		case "open-api-drive.quark.cn/oauth/authorize":
+			body = `{"qr_data":"https://quark.example/qr","query_token":"query"}`
+		case "open-api-drive.quark.cn/oauth/code":
+			body = `{"code":"code"}`
+		case "broker.example/token":
+			body = `{"code":200,"data":{"access_token":"secret","refresh_token":"refresh","expires_in":3600}}`
+		case "open-api-drive.quark.cn/user":
+			b, _ := json.Marshal(map[string]any{"data": map[string]string{"nickname": nickname}})
+			body = string(b)
+		case "pan.quark.cn/account/info":
+			body = `{"success":true,"data":{"nickname":"owner"}}`
+		default:
+			t.Fatalf("unexpected credential destination %s%s", r.URL.Host, r.URL.Path)
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	for _, s := range storages {
+		w := request(t, h, "POST", "/api/quark-takeover/"+s.ID+"/qr", map[string]any{"broker": "https://broker.example", "consent": true}, cookie)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var qr map[string]string
+		json.Unmarshal(w.Body.Bytes(), &qr)
+		for _, name := range []string{"wrong", "", "owner"} {
+			nickname = name
+			w = request(t, h, "POST", "/api/quark-takeover/"+s.ID+"/poll", map[string]string{"session": qr["session"]}, cookie)
+			if name != "owner" {
+				if w.Code != 400 || a.store.snapshot().QuarkTV[s.ID].AccessToken != "" {
+					t.Fatal("invalid identity persisted", w.Code)
+				}
+			} else if w.Code != 200 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		}
+		w = request(t, h, "POST", "/api/quark-takeover/"+s.ID+"/qr", map[string]any{"broker": "https://broker.example", "consent": true}, cookie)
+		if w.Code != 409 {
+			t.Fatal("duplicate binding accepted", w.Code)
+		}
+		w = request(t, h, "POST", "/api/quark-takeover/"+s.ID+"/poll", map[string]string{"session": qr["session"]}, cookie)
+		if w.Code != 409 {
+			t.Fatal("authorization replay accepted", w.Code)
+		}
+	}
+	w := request(t, h, "GET", "/api/quark-takeover", nil, cookie)
+	var overview struct {
+		Bindings []map[string]any `json:"bindings"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &overview)
+	if w.Code != 200 || len(overview.Bindings) != 2 || strings.Contains(w.Body.String(), "secret") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = request(t, h, "PUT", "/api/quark-takeover", map[string]bool{"enabled": false}, cookie)
+	if w.Code != 200 || a.quarkTVTarget(context.Background(), storages[0], "file", "") != "" {
+		t.Fatal("global disable ineffective")
+	}
+	reopened, err := NewStore(a.store.dir)
+	if err != nil || quarkTVEnabled(reopened.snapshot()) {
+		t.Fatal("global disable not persistent", err)
+	}
+	w = request(t, h, "DELETE", "/api/quark-takeover/q1", nil, cookie)
+	if w.Code != 200 || a.store.snapshot().QuarkTV["q2"].AccessToken == "" {
+		t.Fatal("unbind touched another storage")
+	}
+	w = request(t, h, "GET", "/api/quark-takeover", nil, nil)
+	if w.Code != 401 {
+		t.Fatal("unprotected overview")
+	}
+}
+
+func TestMediaLinksStateIsRedacted(t *testing.T) {
+	a := testApp(t)
+	link := MediaLink{ID: "media", Name: "Audio", APIKey: "private-api-key", Password: "private-password"}
+	a.store.update(func(st *State) error { st.Links = []MediaLink{link}; return nil })
+	h := a.Handler(t.TempDir())
+	setup := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
+	cookie := setup.Result().Cookies()[0]
+	for _, endpoint := range []string{"/api/state", "/api/links"} {
+		w := request(t, h, "GET", endpoint, nil, cookie)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"media"`) || strings.Contains(w.Body.String(), link.APIKey) || strings.Contains(w.Body.String(), link.Password) {
+			t.Fatal("state preload leaked credentials", endpoint, w.Body.String())
+		}
+	}
+	if a.store.snapshot().Links[0].APIKey != link.APIKey {
+		t.Fatal("redaction mutated stored credentials")
 	}
 }

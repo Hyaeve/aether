@@ -1,9 +1,25 @@
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 
 export const state = reactive({
   loaded: false, initialized: false, authenticated: false, storages: [], tasks: [],
-  settings: {}, logs: [], cache: {}, traffic: {}, username: '', strmRoot: '', uptime: 0
+  settings: {}, logs: [], links: [], libraryNotices: [], cache: {}, traffic: {}, username: '', strmRoot: '', uptime: 0
 })
+let linksRequest, linksGeneration = 0
+watch(() => state.authenticated, authenticated => {
+  linksGeneration++
+  linksRequest = null
+  state.links = []
+}, { flush: 'sync' })
+// Memory-only, redacted cards survive route changes, never logout or another session.
+export function loadLinks() {
+  if (linksRequest) return linksRequest
+  const generation = linksGeneration
+  const request = api('/links').then(links => {
+    if (generation === linksGeneration && state.authenticated) state.links = links
+  }).finally(() => { if (linksRequest === request) linksRequest = null })
+  linksRequest = request
+  return request
+}
 export const notices = reactive([])
 export function notify(message, error = false) {
   const id = Date.now() + Math.random()

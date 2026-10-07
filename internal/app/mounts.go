@@ -1,29 +1,27 @@
 package app
 
 import (
-	"bufio"
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/webdav"
 )
 
+type fuseMountServer interface {
+	Unmount() error
+	Wait()
+}
+
 type mountProcess struct {
-	cmd    *exec.Cmd
-	server *http.Server
+	server fuseMountServer
 	done   chan struct{}
 	point  string
 }
@@ -58,10 +56,9 @@ func (m *mountManager) close() {
 			if detachErr != nil {
 				m.app.store.event("error", "storage", "退出时延迟卸载失败："+process.point)
 			}
-			_ = process.cmd.Process.Kill()
-			<-process.done
-			process.server.Close()
-			delete(m.active, key)
+			if detachErr == nil {
+				delete(m.active, key)
+			}
 		}
 	}
 }
@@ -223,10 +220,6 @@ func (m *mountManager) start(key string) (err error) {
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		return errors.New("缺少 /dev/fuse，请检查容器特权及设备映射")
 	}
-	binary, err := exec.LookPath("rclone")
-	if err != nil {
-		return errors.New("未安装 rclone 挂载引擎")
-	}
 	point := mountTarget(mount)
 	if mountedAt(point) {
 		return errors.New("挂载点已被占用")
@@ -237,63 +230,14 @@ func (m *mountManager) start(key string) (err error) {
 	if err := prepareMountTarget(mount, true); err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	server, err := startNativeFuse(m.app, mount)
 	if err != nil {
-		return err
-	}
-	token := id()
-	handler := &webdav.Handler{FileSystem: mountFS{app: m.app, config: mount}, LockSystem: webdav.NewMemLS()}
-	server := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		if r.Method == "PUT" {
-			if r.ContentLength < 0 {
-				http.Error(w, "需要确定的文件长度", http.StatusLengthRequired)
-				return
-			}
-			body := &mountRequestBody{ReadCloser: r.Body}
-			r.Body = body
-			ctx := context.WithValue(r.Context(), mountPutFailure{}, body)
-			r = r.WithContext(context.WithValue(ctx, mountPutLength{}, r.ContentLength))
-		}
-		handler.ServeHTTP(w, r)
-	})}
-	go server.Serve(listener)
-	args := []string{"mount", ":webdav:", point, "--config", "/dev/null",
-		"--uid", strconv.Itoa(mount.UID), "--gid", strconv.Itoa(mount.GID),
-		"--dir-perms", fmt.Sprintf("%04o", mount.Mode), "--file-perms", fmt.Sprintf("%04o", mount.Mode&0666),
-		"--allow-other", "--vfs-cache-mode", "off", "--dir-cache-time", "0s", "--log-level", "NOTICE"}
-	if mount.ReadOnly {
-		args = append(args, "--read-only")
-	}
-	cmd := exec.Command(binary, args...)
-	// The bridge secret stays out of process arguments, logs and persisted settings.
-	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(strings.ToUpper(entry), "RCLONE_") {
-			cmd.Env = append(cmd.Env, entry)
-		}
-	}
-	cmd.Env = append(cmd.Env, "RCLONE_WEBDAV_URL=http://"+listener.Addr().String()+"/", "RCLONE_WEBDAV_BEARER_TOKEN="+token, "RCLONE_WEBDAV_VENDOR=other")
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		server.Close()
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		server.Close()
 		return fmt.Errorf("启动挂载引擎失败：%w", err)
 	}
-	process := &mountProcess{cmd: cmd, server: server, done: make(chan struct{}), point: point}
+	process := &mountProcess{server: server, done: make(chan struct{}), point: point}
 	m.active[key] = process
 	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			m.app.store.event("warn", "storage", mount.Name+"："+strings.ReplaceAll(scanner.Text(), token, "[redacted]"))
-		}
-		_ = cmd.Wait()
-		server.Close()
+		server.Wait()
 		close(process.done)
 		m.app.store.event("info", "storage", mount.Name+" 挂载进程已退出")
 	}()
@@ -328,21 +272,16 @@ func (m *mountManager) stopLocked(key string) error {
 		return nil
 	}
 	if mountedAt(process.point) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err := exec.CommandContext(ctx, "fusermount3", "-u", process.point).Run()
-		cancel()
+		err := process.server.Unmount()
 		if err != nil {
 			return errors.New("卸载失败，目录可能正被占用；关闭访问它的程序后重试")
 		}
 	}
-	_ = process.cmd.Process.Signal(os.Interrupt)
 	select {
 	case <-process.done:
 	case <-time.After(3 * time.Second):
-		_ = process.cmd.Process.Kill()
-		<-process.done
+		return errors.New("等待 FUSE 卸载超时，请稍后重试")
 	}
-	process.server.Close()
 	delete(m.active, key)
 	delete(m.failures, key)
 	m.app.store.event("info", "storage", "挂载已卸载："+process.point)

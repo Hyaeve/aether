@@ -167,26 +167,30 @@ func (a *App) startTask(taskID string) error {
 }
 
 func (a *App) outputRelative(target string) (string, error) {
-	root, err := filepath.Abs(a.outputDir)
+	if filepath.IsAbs(target) {
+		return filepath.Clean(target), nil
+	}
+	return relative(target)
+}
+
+func (a *App) outputLocation(target string) (string, string, error) {
+	rel, err := a.outputRelative(target)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if !filepath.IsAbs(target) {
-		return relative(target)
+	if filepath.IsAbs(rel) {
+		return rel, ".", nil
 	}
-	rel, err := filepath.Rel(root, target)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return "", errors.New("生成目录必须位于 STRM 根目录 " + root + " 内")
-	}
-	return relative(rel)
+	return a.outputDir, rel, nil
 }
 
 func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	var root *os.Root
 	target := ""
+	outputDir := a.outputDir
 	if t.Kind == "strm" || t.Kind == "cas" || t.Kind == "ed2k" {
 		var err error
-		target, err = a.outputRelative(t.Target)
+		outputDir, target, err = a.outputLocation(t.Target)
 		if err != nil {
 			return 0, err
 		}
@@ -274,10 +278,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			// Create the output root only when a matching file actually needs writing.
 			if root == nil {
-				if err := os.MkdirAll(a.outputDir, 0755); err != nil {
+				if err := os.MkdirAll(outputDir, 0755); err != nil {
 					return err
 				}
-				root, err = os.OpenRoot(a.outputDir)
+				root, err = os.OpenRoot(outputDir)
 				if err != nil {
 					return err
 				}

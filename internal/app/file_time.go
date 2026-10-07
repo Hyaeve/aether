@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"strconv"
 	"strings"
 	"time"
@@ -9,6 +10,15 @@ import (
 
 // Providers mix Unix seconds/milliseconds with formatted local timestamps.
 type fileTimestamp struct{ time.Time }
+
+func (t *fileTimestamp) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var value string
+	if err := d.DecodeElement(&value, &start); err != nil {
+		return err
+	}
+	t.Time = parseFileTime(value)
+	return nil
+}
 
 func (t *fileTimestamp) UnmarshalJSON(data []byte) error {
 	var value string

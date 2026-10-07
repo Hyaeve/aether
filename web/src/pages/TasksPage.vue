@@ -9,6 +9,8 @@ import TaskTabs from '../components/TaskTabs.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import NumberInput from '../components/NumberInput.vue'
 import CacheOverview from '../components/CacheOverview.vue'
+import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
+const targetPicker = ref(false)
 const props = defineProps({ kind: { default: 'strm' } })
 const taskTitle = computed(() => props.kind === 'cas' ? 'CAS' : props.kind === 'strm' ? 'STRM' : props.kind === 'ed2k' ? 'ED2K' : '缓存')
 const bindingStorages = computed(() => state.storages.filter(s => s.enabled && ['mobile', 'tianyi'].includes(s.type) && s.config.mode === 'native'))
@@ -80,7 +82,7 @@ async function toggle(t) {
         <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" :disabled="kind === 'cas' && !form.casBindingId" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '选择存储池及源目录' }}</span><Icon name="FolderOpen" /></button></div>
-        <label v-if="kind !== 'cache'">生成目录<input v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /></label>
+        <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
         <div v-else class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /></div>
         <div v-if="kind === 'cas'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
@@ -94,6 +96,7 @@ async function toggle(t) {
       <p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">取消</button><button class="btn primary" :disabled="busy || !form.storageId || (kind === 'cas' && !form.casBindingId)"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="availableStorages" :storage="form.storageId" :initial="form.source" :initial-label="form.sourceLabel" :initial-trail="form.sourceTrail" @select="selectSource" @close="picker = false" />
+  <LocalDirectoryPicker v-if="targetPicker" :initial="form.target" @close="targetPicker = false" @select="form.target = $event; targetPicker = false" />
   <Modal v-if="casPanel" title="CAS 临时文件" wide @close="casPanel = false"><div class="modal-body"><p>按任务保留时间清理，默认 {{ casStatus.defaultRetentionHours }} 小时；播放中的文件不清理。仅处理以太记录的临时文件，遵循存储池删除模式。</p><p v-if="!casStatus.items.length" class="small-empty">暂无临时文件</p><div v-for="item in casStatus.items" :key="item.storageId + item.name" class="settings-row"><span>{{ item.name }}<small>保留 {{ item.retentionHours }} 小时 · 到期 {{ date(item.expiresAt) }}</small></span><span>{{ item.active ? '播放中' : '等待过期' }}</span></div></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="showCAS"><Icon name="RefreshCw" />刷新</button><button class="btn primary" :disabled="busy" @click="cleanupCAS"><Icon name="Trash2" />清理过期项</button></footer></Modal>
   <Modal v-if="confirmDelete" title="删除任务" @close="confirmDelete = null"><div class="modal-body">确认删除「{{ confirmDelete.name }}」？已生成的文件不会删除。</div><footer class="modal-footer"><button class="btn" @click="confirmDelete = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除任务</button></footer></Modal>
 </template>

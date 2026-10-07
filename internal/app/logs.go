@@ -131,7 +131,7 @@ func logModule(path string) string {
 		return "storage"
 	case strings.HasPrefix(path, "/api/tasks"), strings.HasPrefix(path, "/api/cas"):
 		return "tasks"
-	case strings.HasPrefix(path, "/api/links"), path == "/api/link-playback":
+	case strings.HasPrefix(path, "/api/links"), path == "/api/link-playback", path == "/api/emby/webhook":
 		return "links"
 	default:
 		return "system"

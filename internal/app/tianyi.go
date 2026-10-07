@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -30,20 +29,25 @@ const tianyiAppID = "9317140619"
 const tianyiReturn = "https://m.cloud.189.cn/zhuanti/2020/loginErrorPc/index.html"
 
 type tianyiSession struct {
-	Key         string `json:"sessionKey" xml:"sessionKey"`
-	Secret      string `json:"sessionSecret" xml:"sessionSecret"`
-	Credentials [32]byte
-	Expires     time.Time
+	Key          string `json:"sessionKey" xml:"sessionKey"`
+	Secret       string `json:"sessionSecret" xml:"sessionSecret"`
+	AccessToken  string `json:"accessToken" xml:"accessToken"`
+	RefreshToken string `json:"refreshToken" xml:"refreshToken"`
+	Credentials  [32]byte
+	Expires      time.Time
 }
 
 func nativeTianyi(s Storage) bool {
-	return s.Type == "tianyi" && s.Config["username"] != "" && s.Config["password"] != ""
+	return s.Type == "tianyi" && ((s.Config["username"] != "" && s.Config["password"] != "") || s.Config["accessToken"] != "" || s.Config["refreshToken"] != "")
 }
 
 func casStorage(s Storage) bool { return nativeMobile(s) || nativeTianyi(s) }
 
 func casAccount(s Storage) (string, error) {
 	if nativeTianyi(s) {
+		if s.Config["authMode"] == "token" || s.Config["username"] == "" {
+			return "189:token:" + s.ID, nil
+		}
 		return "189:" + s.Config["username"], nil
 	}
 	account, _, err := mobileAccount(s)
@@ -144,6 +148,9 @@ func (a *App) tianyiLogin(ctx context.Context, s Storage) (tianyiSession, error)
 		return empty, errors.New("天翼存储需配置账户和密码；旧网关池请重新配置")
 	}
 	client := tianyiClient()
+	if s.Config["accessToken"] != "" || s.Config["refreshToken"] != "" {
+		return a.tianyiTokenSession(ctx, s, client)
+	}
 	raw, final, err := tianyiHTTP(ctx, client, "GET", "https://cloud.189.cn/api/portal/unifyLoginForPC.action",
 		url.Values{"appId": {tianyiAppID}, "clientType": {"10020"}, "returnURL": {tianyiReturn}, "timeStamp": {strconv.FormatInt(time.Now().UnixMilli(), 10)}}, nil)
 	if err != nil {
@@ -267,7 +274,7 @@ func (a *App) tianyiLogin(ctx context.Context, s Storage) (tianyiSession, error)
 func (a *App) tianyiSessionFor(ctx context.Context, s Storage) (tianyiSession, error) {
 	a.tianyiMu.Lock()
 	defer a.tianyiMu.Unlock()
-	digest := sha256.Sum256([]byte(s.Config["username"] + "\x00" + s.Config["password"]))
+	digest := tianyiCredentials(s)
 	cached := a.tianyiSessions[s.ID]
 	if cached.Credentials == digest && time.Now().Before(cached.Expires) {
 		return cached, nil
@@ -301,6 +308,7 @@ func (a *App) tianyiRequest(ctx context.Context, s Storage, method, address stri
 	q.Set("clientType", "TELEPC")
 	q.Set("version", "7.2.4.0")
 	q.Set("channelId", "web_cloud.189.cn")
+	q.Set("returnType", "JSON")
 	u.RawQuery = q.Encode()
 	client := tianyiClient()
 	// Session-bearing requests must not forward signatures through redirects.
@@ -327,17 +335,24 @@ func (a *App) tianyiList(ctx context.Context, s Storage, dir string) ([]File, er
 	files := []File{}
 	seen := map[string]bool{}
 	type item struct {
-		MD5           string `json:"md5"`
-		ID            json.Number
-		Name          string
-		Size          int64
-		LastOpTime    fileTimestamp `json:"lastOpTime"`
-		LastOpTimeStr fileTimestamp `json:"lastOpTimeStr"`
-		UpdateDate    fileTimestamp `json:"updateDate"`
+		MD5           string        `json:"md5" xml:"md5"`
+		ID            json.Number   `json:"id" xml:"id"`
+		Name          string        `json:"name" xml:"name"`
+		Size          int64         `json:"size" xml:"size"`
+		LastOpTime    fileTimestamp `json:"lastOpTime" xml:"lastOpTime"`
+		LastOpTimeStr fileTimestamp `json:"lastOpTimeStr" xml:"lastOpTimeStr"`
+		UpdateDate    fileTimestamp `json:"updateDate" xml:"updateDate"`
 	}
 	for page := 1; page <= 10000; page++ {
 		var data struct {
-			FileListAO struct{ FileList, FolderList []item }
+			FileListAO *struct {
+				FileList   []item `json:"fileList" xml:"fileList>file"`
+				FolderList []item `json:"folderList" xml:"folderList>folder"`
+			} `json:"fileListAO" xml:"fileListAO"`
+			XMLList *struct {
+				FileList   []item `xml:"file"`
+				FolderList []item `xml:"folder"`
+			} `json:"-" xml:"fileList"`
 		}
 		err := a.tianyiRequest(ctx, s, "GET", tianyiAPI+"/listFiles.action", url.Values{
 			"folderId": {dir}, "fileType": {"0"}, "mediaAttr": {"0"}, "iconOption": {"5"}, "pageNum": {strconv.Itoa(page)},
@@ -345,6 +360,15 @@ func (a *App) tianyiList(ctx context.Context, s Storage, dir string) ([]File, er
 		}, &data)
 		if err != nil {
 			return nil, err
+		}
+		if data.FileListAO == nil && data.XMLList != nil {
+			data.FileListAO = &struct {
+				FileList   []item `json:"fileList" xml:"fileList>file"`
+				FolderList []item `json:"folderList" xml:"folderList>folder"`
+			}{FileList: data.XMLList.FileList, FolderList: data.XMLList.FolderList}
+		}
+		if data.FileListAO == nil {
+			return nil, errors.New("天翼目录响应缺少 fileListAO，请检查登录状态或根目录 ID")
 		}
 		added := 0
 		for index, group := range [][]item{data.FileListAO.FolderList, data.FileListAO.FileList} {
