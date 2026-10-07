@@ -9,17 +9,19 @@ import PluginSettings from '../components/PluginSettings.vue'
 import { api, notify } from '../lib'
 const busy = ref(false)
 const takeover = ref({ enabled: false, bindings: [] })
-const emby = ref({ enabled: false })
-async function toggleEmby() {
+const pluginStates = ref({})
+async function togglePlugin(tool) {
   busy.value = true
   try {
-    const current = await api('/plugins/emby')
-    await api('/plugins/emby', 'PUT', { ...current, enabled: !current.enabled })
-    emby.value = await api('/plugins/emby')
-    notify(emby.value.enabled ? '已启用 Emby 入库通知' : '已停用 Emby 入库通知')
+    const current = await api(`/plugins/${tool.kind}`)
+    await api(`/plugins/${tool.kind}`, 'PUT', { ...current, enabled: !current.enabled })
+    pluginStates.value[tool.kind] = !current.enabled
+    notify(`${current.enabled ? '已停用' : '已启用'} ${tool.name}`)
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-onMounted(async () => { try { emby.value = await api('/plugins/emby') } catch (e) { notify(e.message, true) } })
+onMounted(() => Promise.all(['emby', 'tmdb', 'ai', 'proxy'].map(async kind => {
+  try { pluginStates.value[kind] = (await api(`/plugins/${kind}`)).enabled } catch (e) { notify(e.message, true) }
+})))
 async function loadTakeover() {
   try { takeover.value = await api('/quark-takeover') } catch (e) { notify(e.message, true) }
 }
@@ -75,11 +77,11 @@ const tools = [
   <section class="page-head"><h1>辅助工具</h1></section>
   <div class="plugin-grid">
     <article v-for="tool in tools" :key="tool.name" class="plugin-card" role="button" tabindex="0" :aria-label="tool.name" @click="selected = tool" @keydown.enter.self="selected = tool" @keydown.space.prevent.self="selected = tool">
-      <button v-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind === 'emby'" class="plugin-symbol plugin-toggle" :aria-label="`${emby.enabled ? '停用' : '启用'}Emby 入库通知`" :aria-pressed="emby.enabled" :disabled="busy" @click.stop="toggleEmby"><Icon name="Bell" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small v-if="tool.subtitle" class="plugin-subtitle">{{ tool.subtitle }}</small><small class="plugin-description" :title="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管'].includes(tool.name)" class="status pending">待实现</span>
+      <button v-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small v-if="tool.subtitle" class="plugin-subtitle">{{ tool.subtitle }}</small><small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管'].includes(tool.name)" class="status pending">待实现</span>
     </article>
   </div>
   <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" @changed="takeover = $event" />
-  <PluginSettings v-else-if="selected?.kind" :key="selected.kind" :kind="selected.kind" :title="selected.name" @close="selected = null" @changed="$event.kind === 'emby' && (emby.enabled = $event.enabled)" />
+  <PluginSettings v-else-if="selected?.kind" :key="selected.kind" :kind="selected.kind" :title="selected.name" @close="selected = null" @changed="pluginStates[$event.kind] = $event.enabled" />
   <Modal v-else-if="selected" :title="selected.name" @close="selected = null">
     <template v-if="selected.name === '配置备份'"><div class="modal-body"><p>备份包含账号、存储池、以链和规则配置，使用你设置的密码加密。导入后需重启容器，并使用备份中的账号登录。</p></div><footer class="modal-footer backup-actions"><button class="btn" @click="start('import')"><Icon name="ArchiveRestore" />导入配置备份</button><button class="btn primary" @click="start('export')"><Icon name="Download" />导出配置备份</button></footer></template>
     <div v-else class="modal-body"><p>该插件尚未实现，当前不能启用或执行。</p><p v-if="selected.detail">{{ selected.detail }}</p><code v-if="selected.file">/config/organize/{{ selected.file }}</code></div>
@@ -102,6 +104,7 @@ const tools = [
 .quark-takeover-symbol { grid-row: 1 / 3; }
 .plugin-card:has(.quark-takeover-symbol) .plugin-subtitle { grid-column: 2; margin: 0; }
 .plugin-card:has(.quark-takeover-symbol) .plugin-description { grid-column: 1 / -1; margin-top: 10px; }
-.plugin-card:has(.quark-takeover-symbol) .plugin-description { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.plugin-card { height: 156px; align-content: center; overflow: hidden; }
+.plugin-card:has(.quark-takeover-symbol) .plugin-description { white-space: nowrap; display: block; }
 .quark-takeover-symbol > svg { position: absolute; bottom: -2px; right: -4px; background: var(--surface); color: var(--primary); border-radius: 4px; }
 </style>

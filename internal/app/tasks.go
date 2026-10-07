@@ -344,6 +344,12 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				claim.TaskID, claim.RetentionHours = t.ID, casRetentionHours(t.RetentionHours)
 			}
 			link := a.signedStreamURL(claim)
+			if t.Kind == "strm" && (s.Type == "115" || s.Type == "quark") {
+				link, err = a.publicSTRMURL(s, f)
+				if err != nil {
+					return err
+				}
+			}
 			if t.Kind == "strm" && s.Type == "openlist" {
 				link, err = openlistSTRM(s, f.ID, t.EncodePath)
 				if err != nil {

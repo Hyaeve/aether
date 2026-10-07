@@ -273,7 +273,7 @@ tbody tr:hover { background: color-mix(in srgb,var(--bg) 65%,var(--surface)); }
 .toast::before { content: ""; position: absolute; inset: 0 20px auto; height: 1px; background: linear-gradient(90deg, transparent, #8d9bd4, transparent); pointer-events: none; }
 .toast::after { content: ""; position: absolute; z-index: -1; width: 2px; height: 2px; top: 9px; right: 46px; background: #9daed5; box-shadow: -17px 8px #a2b8d980, -45px -3px #a2b8d970, 14px 26px #a2b8d980; pointer-events: none; }
 .toast.error { --notice-accent: #af465e; --notice-symbol-bg: #f7e5ed; }
-.toast .toast-symbol { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border: 1px solid color-mix(in srgb, var(--notice-accent) 24%, transparent); border-radius: 50%; color: var(--notice-accent); background: var(--notice-symbol-bg); }
+.toast .toast-symbol { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border: 1px solid color-mix(in srgb, var(--notice-accent) 24%, transparent); border-radius: 50%; color: var(--notice-accent); background: var(--notice-symbol-bg); }
 .toast > span:not(.toast-symbol) { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.65; }
 .toast .icon-btn { flex-shrink: 0; color: #697797; background: transparent; border-color: transparent; }
 .toast .icon-btn:hover { color: #36487c; background: #dfe5f6; }
@@ -367,7 +367,7 @@ tbody tr:hover { background: color-mix(in srgb,var(--bg) 65%,var(--surface)); }
 .sidebar nav { padding: 6px 12px 20px; }
 .nav-group a { font-size: 16px; min-height: 48px; padding: 12px 16px; gap: 14px; margin-bottom: 4px; }
 .nav-group a.active { background: var(--sidebar-active); }
-.breadcrumbs { font-size: 15px; }
+.breadcrumbs { font-size: 14px; }
 .traffic-stat, .traffic-stat b { font-size: 12px; }
 .topbar-actions { gap: 14px; }
 .topbar .icon-btn, .account-button { width: 38px; height: 38px; }
@@ -462,6 +462,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .qr-authorization img { width: 256px; height: 256px; max-width: 100%; object-fit: contain; }
 .oauth-authorization { display: flex; flex-direction: column; gap: 14px; }
 .toast-stack { top: 28px; }
+.toast { min-height: 42px; padding: 6px 8px 6px 12px; gap: 9px; }
+.toast .icon-btn { width: 28px; height: 28px; min-height: 28px; }
+.overflow-tooltip { pointer-events: none; }
 @media (max-width: 1100px) { .plugin-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }.settings-layout.has-navigation { grid-template-columns: 145px minmax(0,1fr); gap: 18px; } }
 @media (max-width: 760px) {
   .sidebar { width: 252px; }.main-shell { margin-left: 0; padding-top: 60px; }.topbar { left: 0; }
@@ -545,7 +548,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .main-shell { margin-left: 236px; padding-top: 48px; background: var(--surface); border-radius: 0; min-height: 100dvh; }
 .topbar { left: 236px; height: 48px; border-radius: 0; padding: 0 24px; }
 .page-content { padding-top: 24px; }
-.account-dropdown { right: -12px; }
+.account-dropdown { right: -18px; }
 .account-dropdown button { font-size: 14px; }
 .page-content > .page-head > h1, .page-content > .page-head > div:first-child:not(.toolbar-right) { display: none; }
 .page-head:has(> h1:only-child), .page-head:has(> div:only-child) { display: none; }
@@ -612,7 +615,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .nav-group button.active { position: relative; background: radial-gradient(ellipse at 40% 50%,#c3d2ff40, #b3caff12 68%,transparent 100%); box-shadow: none; border-radius: 14px; }
 .nav-group button.active::after { content: ''; position: absolute; right: 13px; top: 13px; width: 2px; height: 2px; border-radius: 50%; background: #e0eaff; box-shadow: -7px 13px #d2deff88, 4px 20px #c1cfff66, -15px -5px #c1cfff66; pointer-events: none; }
 .account-dropdown { min-width: 0; width: max-content; padding: 5px; }
-.account-dropdown button { gap: 8px; padding: 9px 10px; }
+.account-dropdown button { gap: 7px; padding: 8px 7px; }
 .account-dropdown svg { width: 18px; height: 18px; }
 .content-tabs a, .settings-navigation a { font-size: 17px; border-bottom-width: 2px; }
 .content-tabs a.active, .settings-navigation a.active { font-weight: 650; border-bottom-color: var(--primary); background: radial-gradient(ellipse at 50% 80%,var(--primary-soft),transparent 75%); border-radius: 10px 10px 0 0; }
@@ -891,9 +894,9 @@ select { border-radius: 12px; }
 .link-identity { min-width: 0; flex: 1; padding-left: 10px; }
 .link-identity strong { max-width: 100%; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-toggle, .link-toggle img { width: 40px; height: 40px; }
-.link-card-controls { width: 108px; flex-shrink: 0; gap: 10px; justify-content: center; }
+.link-card-controls { width: 120px; flex-shrink: 0; gap: 10px; justify-content: center; }
 .link-card-controls .rounded-select { width: 100%; min-width: 0; }
-.link-card-controls .rounded-select-trigger { padding-left: 8px; padding-right: 8px; }
+.link-card-controls .rounded-select-trigger { padding-left: 7px; padding-right: 7px; gap: 5px; }
 .link-port-actions { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 2px; }
 .link-port-actions a { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; color: var(--primary); }
 .link-port-actions .icon-btn { width: 28px; height: 28px; }

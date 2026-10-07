@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -28,6 +29,10 @@ import (
 )
 
 type App struct {
+	scrapeMu       sync.Mutex
+	scrapeCancel   context.CancelFunc
+	scrapeProgress scrapeProgress
+	strmIndexMu    sync.Mutex
 	mounts         *mountManager
 	links          *linkRuntime
 	versionMu      sync.Mutex
@@ -240,6 +245,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
 	mux.Handle("/api/files", a.protected(http.HandlerFunc(a.files)))
 	mux.Handle("/api/tasks", a.protected(http.HandlerFunc(a.tasks)))
+	mux.Handle("/api/strm-scrape/{action}", a.protected(http.HandlerFunc(a.strmScrape)))
 	mux.Handle("/api/tasks/{id}", a.protected(http.HandlerFunc(a.taskItem)))
 	mux.Handle("/api/tasks/{id}/{action}", a.protected(http.HandlerFunc(a.taskAction)))
 	mux.Handle("/api/settings", a.protected(http.HandlerFunc(a.settings)))
@@ -266,6 +272,8 @@ func (a *App) Handler(webDir string) http.Handler {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 	})))
 	mux.HandleFunc("/stream/{token}", a.stream)
+	mux.HandleFunc("/d/{key}", a.playSTRMReference)
+	mux.HandleFunc("/api/strm/play/{storage}/{file}/t/{signature}/n/{name}", a.playSTRMReference)
 	mux.HandleFunc("/dav", a.serveDAV)
 	mux.HandleFunc("/dav/", a.serveDAV)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -496,6 +504,32 @@ func validateStorage(s *Storage) error {
 	}
 	if s.Config["deleteMode"] != "trash" && s.Config["deleteMode"] != "permanent" {
 		return errors.New("无效的删除模式")
+	}
+	if s.Type != "local" {
+		if s.Type == "quark" {
+			s.Config["downloadMode"] = "proxy"
+		} else if s.Config["downloadMode"] == "" {
+			s.Config["downloadMode"] = "redirect"
+		}
+		if s.Config["downloadMode"] != "redirect" && s.Config["downloadMode"] != "proxy" {
+			return errors.New("无效的下载模式")
+		}
+	}
+	if s.Type == "openlist" {
+		if s.Config["passUA"] == "" {
+			s.Config["passUA"] = "true"
+		}
+		for _, field := range []string{"passUA", "refreshList"} {
+			if s.Config[field] != "" && s.Config[field] != "true" && s.Config[field] != "false" {
+				return errors.New("OpenList 开关值无效")
+			}
+		}
+	}
+	if s.Type == "webdav" && s.Config["timeoutSeconds"] != "" {
+		seconds, err := strconv.Atoi(s.Config["timeoutSeconds"])
+		if err != nil || seconds < 1 || seconds > 600 {
+			return errors.New("WebDAV 请求超时须为 1–600 秒")
+		}
 	}
 	if nativeMobile(*s) {
 		_, _, err := mobileAccount(*s)
@@ -1103,7 +1137,7 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var d Download
-	if claim.CAS == nil && s.Type == "quark" {
+	if claim.CAS == nil && s.Type == "quark" && r.URL.Query().Get("download") != "1" {
 		if target := a.quarkTVTarget(r.Context(), s, claim.File, r.UserAgent()); target != "" {
 			w.Header().Set("Cache-Control", "no-store")
 			http.Redirect(w, r, target, http.StatusFound)
@@ -1115,20 +1149,14 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		d, release, err = a.casDownload(r.Context(), s, claim)
 		defer release()
 	} else {
-		d, err = a.download(r.Context(), s, claim.File, claim.Pick)
+		d, err = a.downloadWithUA(r.Context(), s, claim.File, claim.Pick, r.UserAgent())
 	}
 	if err != nil {
 		fail(w, 502, err)
 		return
 	}
-	if claim.CAS != nil && claim.Redirect {
-		target, parseErr := url.Parse(d.URL)
-		if parseErr != nil || target.Host == "" || target.User != nil || (target.Scheme != "http" && target.Scheme != "https") {
-			fail(w, 502, errors.New("CAS 返回的播放地址无效"))
-			return
-		}
-		w.Header().Set("Cache-Control", "no-store")
-		http.Redirect(w, r, d.URL, http.StatusFound)
+	if claim.CAS != nil && claim.Redirect || claim.CAS == nil && storageRedirect(s) {
+		redirectDownload(w, r, d.URL)
 		return
 	}
 	cw := countWriter{w, &a.downloaded}
@@ -1166,11 +1194,31 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 	}, ModifyResponse: func(res *http.Response) error {
 		res.Header.Del("Set-Cookie")
 		res.Header.Del("WWW-Authenticate")
+		if name := r.PathValue("downloadName"); name != "" {
+			res.Header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+		}
 		return nil
 	}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, e error) {
 		fail(w, 502, errors.New("上游媒体读取失败"))
 	}}
+	if s.Type == "webdav" {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.ResponseHeaderTimeout = davTimeout(s)
+		proxy.Transport = transport
+		defer transport.CloseIdleConnections()
+	}
 	proxy.ServeHTTP(cw, r)
+}
+
+func redirectDownload(w http.ResponseWriter, r *http.Request, address string) {
+	target, err := url.Parse(address)
+	if err != nil || target.Host == "" || target.User != nil || (target.Scheme != "http" && target.Scheme != "https") {
+		fail(w, 502, errors.New("返回的下载地址无效"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, address, http.StatusFound)
 }
 
 func (a *App) serveDAV(w http.ResponseWriter, r *http.Request) {

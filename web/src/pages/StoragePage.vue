@@ -70,11 +70,16 @@ const form = reactive({ name: '', type: '', enabled: true, cacheTTL: 0, config: 
 const visible = computed(() => state.storages.filter(s => !query.value || s.name.toLowerCase().includes(query.value.toLowerCase())))
 const online = computed(() => state.storages.filter(s => s.status === 'connected' && s.enabled).length)
 const picked = computed(() => driverOf(selected.value))
+const cloudTypes = ['115', 'quark', 'mobile', 'tianyi']
+const downloadOptions = computed(() => selected.value === 'quark' ? [{ value: 'proxy', label: '本机代理' }] : [{ value: 'redirect', label: '302 重定向' }, { value: 'proxy', label: '本机代理' }])
 function open(storage) {
   closeMenu()
   error.value = ''; editing.value = storage?.id || ''; step.value = storage ? 2 : 1; selected.value = storage?.type || ''
   Object.assign(form, storage ? JSON.parse(JSON.stringify(storage)) : { name: '', type: '', enabled: true, cacheTTL: 0, config: {} })
   form.config.deleteMode ||= 'trash'
+  form.config.downloadMode = storage?.type === 'quark' ? 'proxy' : form.config.downloadMode || 'redirect'
+  form.config.passUA ||= 'true'
+  form.config.refreshList ||= 'false'
   if (storage?.type === 'openlist') form.config.authMode ||= 'token'
   if (storage?.type === 'tianyi') form.config.authMode ||= form.config.accessToken || form.config.refreshToken ? 'token' : 'account'
   if (storage?.type === '115') {
@@ -93,7 +98,7 @@ function open(storage) {
   modal.value = true
 }
 function next(type) {
-  selected.value = type; form.type = type; form.config = { root: driverOf(type).root, deleteMode: 'trash', ...(type === 'mobile' ? { mode: 'native' } : {}), ...(type === '115' ? { device: 'web', cookie: '' } : {}) }; step.value = 2
+  selected.value = type; form.type = type; form.config = { root: driverOf(type).root, deleteMode: 'trash', downloadMode: type === 'quark' ? 'proxy' : 'redirect', passUA: 'true', refreshList: 'false', ...(type === 'mobile' ? { mode: 'native' } : {}), ...(type === '115' ? { device: 'web', cookie: '' } : {}) }; step.value = 2
 }
 function changeOpenlistMode(mode) {
   if (mode !== (form.config.authMode || 'token')) {
@@ -197,18 +202,21 @@ async function remove() {
       <div class="modal-body">
         <div class="selected-driver"><ProviderIcon :type="selected" small /><h3>{{ picked.name }}</h3></div>
         <div class="form-grid">
-          <label>存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" /></label>
-          <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /></div>
+          <label :class="{ full: !['115', 'tianyi'].includes(selected) }">存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" /></label>
+          <div v-if="selected === '115'" class="field"><label>设备类型</label><RoundedSelect v-model="form.config.device" label="设备类型" :options="devices115" /></div>
+          <div v-if="selected === 'tianyi'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'account'" @update:model-value="form.config.authMode = $event" label="天翼接入模式" :options="[{ value: 'account', label: '账号密码' }, { value: 'token', label: 'Token 令牌' }]" /></div>
           <label v-if="selected === 'mobile'" class="full">Authorization<SecretInput v-model="form.config.authorization" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="authorization" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
           <template v-if="selected === '115'">
             <label class="full storage-cookie">CK <span class="required">*</span><SecretInput v-model="form.config.cookie" aria-label="CK" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" /></label>
-            <div class="field full"><label>设备类型</label><RoundedSelect v-model="form.config.device" label="设备类型" :options="devices115" /></div>
           </template>
-          <label v-if="selected === 'quark'" class="full storage-cookie">Cookie <span class="required">*</span><SecretInput v-model="form.config.cookie" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" placeholder="粘贴夸克网页版的完整 Cookie" /></label>
+          <label v-if="selected === 'quark'" class="full storage-cookie">CK <span class="required">*</span><SecretInput v-model="form.config.cookie" aria-label="CK" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" /></label>
           <template v-if="selected === 'tianyi'">
-            <div class="field full"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'account'" @update:model-value="form.config.authMode = $event" label="天翼接入模式" :options="[{ value: 'account', label: '账号密码' }, { value: 'token', label: 'Token 令牌' }]" /></div>
             <template v-if="form.config.authMode !== 'token'"><label>天翼账号<input v-model="form.config.username" required autocomplete="off" /></label><label>天翼密码<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" required autocomplete="new-password" /></label></template>
-            <template v-else><label class="full">访问令牌<SecretInput v-model="form.config.accessToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="accessToken" autocomplete="off" /></label><label class="full">刷新令牌<SecretInput v-model="form.config.refreshToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="refreshToken" autocomplete="off" /></label></template>
+            <template v-else><label>访问令牌<SecretInput v-model="form.config.accessToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="accessToken" autocomplete="off" /></label><label>刷新令牌<SecretInput v-model="form.config.refreshToken" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="refreshToken" autocomplete="off" /></label></template>
+          </template>
+          <template v-if="cloudTypes.includes(selected)">
+            <div class="field"><label>下载模式</label><RoundedSelect v-model="form.config.downloadMode" label="下载模式" :options="downloadOptions" /></div>
+            <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /></div>
           </template>
           <template v-if="['openlist', 'webdav'].includes(selected)">
             <label :class="{ full: selected === 'webdav' }">服务地址 <span class="required">*</span><input v-model="form.config.address" required type="url" placeholder="https://storage.example.com" /></label>
@@ -218,8 +226,11 @@ async function remove() {
           </template>
           <div v-if="selected === 'local'" class="field"><label for="storage-local-directory">本地目录</label><div class="directory-input"><input id="storage-local-directory" v-model="form.config.root" required /><button type="button" class="icon-btn" aria-label="选择本地目录" @click="directoryPicker = true"><Icon name="FolderOpen" /></button></div></div>
           <label v-else>{{ ['115', 'quark', 'tianyi'].includes(selected) ? '根目录 ID' : '根目录路径' }}<input v-model="form.config.root" /></label>
-          <div class="field"><label for="storage-cache">缓存时间</label><NumberInput id="storage-cache" v-model="form.cacheTTL" aria-label="缓存时间" unit="分钟" min="0" max="525600" /><small>0 跟随全局设置</small></div>
-          <label class="toggle-line full"><span>启用此存储池</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
+          <label v-if="selected === 'openlist'" class="toggle-line"><span>透传 UA 给上游</span><input v-model="form.config.passUA" true-value="true" false-value="false" type="checkbox" role="switch" class="switch" /></label>
+          <div v-else class="field"><label for="storage-cache">缓存时间</label><NumberInput id="storage-cache" v-model="form.cacheTTL" aria-label="缓存时间" unit="分钟" min="0" max="525600" /><small>0 跟随全局设置</small></div>
+          <label v-if="selected === 'openlist'" class="toggle-line"><span>列目录时刷新上游</span><input v-model="form.config.refreshList" true-value="true" false-value="false" type="checkbox" role="switch" class="switch" /></label>
+          <div v-if="selected === 'webdav'" class="field"><label for="dav-timeout">请求超时</label><NumberInput id="dav-timeout" :model-value="Number(form.config.timeoutSeconds || 60)" @update:model-value="form.config.timeoutSeconds = String($event)" unit="秒" min="1" max="600" /></div>
+          <div v-if="['openlist', 'webdav'].includes(selected)" class="field"><label>下载模式</label><RoundedSelect v-model="form.config.downloadMode" label="下载模式" :options="downloadOptions" /></div>
         </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       </div>

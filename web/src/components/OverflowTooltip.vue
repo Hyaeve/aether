@@ -2,6 +2,15 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 const text = ref(''), left = ref(0), top = ref(0)
 let target, timer
+let pointerX = 0, pointerY = 0
+function move(event) {
+  pointerX = event.clientX; pointerY = event.clientY
+  if (text.value) position()
+}
+function position() {
+  left.value = Math.max(8, Math.min(pointerX + 14, innerWidth - Math.min(460, innerWidth - 16) - 8))
+  top.value = Math.max(8, Math.min(pointerY + 18, innerHeight - 190))
+}
 function hide() { clearTimeout(timer); text.value = ''; target = null }
 function show(event) {
   const el = event.target.closest('[data-tooltip], .file-view th, .file-view td, .file-name strong, .file-grid-name strong, .log-message, .log-module, .playback-scroller td, .playback-scroller th, .playback-copy')
@@ -10,16 +19,16 @@ function show(event) {
   const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight
   if (!value || !clipped) return
   hide(); target = el
+  const r = el.getBoundingClientRect()
+  pointerX = event.clientX ?? r.left; pointerY = event.clientY ?? r.bottom
   timer = setTimeout(() => {
-    const r = el.getBoundingClientRect()
     text.value = value
-    left.value = Math.max(8, Math.min(r.left, innerWidth - Math.min(460, innerWidth - 16) - 8))
-    top.value = Math.max(8, Math.min(r.bottom + 8, innerHeight - 190))
+    position()
   }, 350)
 }
 function out(event) { if (target && !target.contains(event.relatedTarget)) hide() }
 function key(event) { if (event.key === 'Escape') hide() }
-onMounted(() => { document.addEventListener('mouseover', show); document.addEventListener('mouseout', out); document.addEventListener('focusin', show); document.addEventListener('focusout', hide); document.addEventListener('keydown', key); window.addEventListener('scroll', hide, true) })
-onUnmounted(() => { hide(); document.removeEventListener('mouseover', show); document.removeEventListener('mouseout', out); document.removeEventListener('focusin', show); document.removeEventListener('focusout', hide); document.removeEventListener('keydown', key); window.removeEventListener('scroll', hide, true) })
+onMounted(() => { document.addEventListener('mousemove', move); document.addEventListener('mouseover', show); document.addEventListener('mouseout', out); document.addEventListener('focusin', show); document.addEventListener('focusout', hide); document.addEventListener('keydown', key); window.addEventListener('scroll', hide, true) })
+onUnmounted(() => { hide(); document.removeEventListener('mousemove', move); document.removeEventListener('mouseover', show); document.removeEventListener('mouseout', out); document.removeEventListener('focusin', show); document.removeEventListener('focusout', hide); document.removeEventListener('keydown', key); window.removeEventListener('scroll', hide, true) })
 </script>
 <template><Teleport to="body"><div v-if="text" role="tooltip" class="overflow-tooltip" :style="{ left: `${left}px`, top: `${top}px` }">{{ text }}</div></Teleport></template>

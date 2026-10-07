@@ -223,7 +223,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 				} `json:"data"`
 			}
 			err := openlistJSON(ctx, s, "list",
-				map[string]any{"path": path.Join("/", s.Config["root"], dir), "password": openlistDirectoryPassword(s), "page": page, "per_page": 200, "refresh": false}, &res)
+				map[string]any{"path": path.Join("/", s.Config["root"], dir), "password": openlistDirectoryPassword(s), "page": page, "per_page": 200, "refresh": s.Config["refreshList"] == "true"}, &res)
 			if err != nil {
 				return nil, err
 			}
@@ -334,6 +334,8 @@ func davURL(s Storage, dir string) (string, error) {
 }
 
 func davList(ctx context.Context, s Storage, dir string) ([]File, error) {
+	ctx, cancel := context.WithTimeout(ctx, davTimeout(s))
+	defer cancel()
 	address, err := davURL(s, dir)
 	if err != nil {
 		return nil, err
@@ -345,7 +347,10 @@ func davList(ctx context.Context, s Storage, dir string) ([]File, error) {
 	req.SetBasicAuth(s.Config["username"], s.Config["password"])
 	req.Header.Set("Depth", "1")
 	req.Header.Set("Content-Type", "application/xml")
-	res, err := apiClient.Do(req)
+	client := *apiClient
+	client.Timeout = davTimeout(s)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, errors.New("WebDAV 连接失败")
 	}
@@ -394,6 +399,11 @@ func davList(ctx context.Context, s Storage, dir string) ([]File, error) {
 }
 
 func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Download, error) {
+	return a.downloadWithUA(ctx, s, fileID, pick, pan115UA)
+}
+
+func (a *App) downloadWithUA(ctx context.Context, s Storage, fileID, pick, userAgent string) (Download, error) {
+	ctx = context.WithValue(ctx, downloadUAKey{}, userAgent)
 	if s.Type == "tianyi" {
 		return a.tianyiLink(ctx, s, fileID)
 	}
@@ -434,6 +444,9 @@ func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Dow
 			return d, fmt.Errorf("OpenList 下载接口错误 (%d)", res.Code)
 		}
 		d.URL = res.Data.URL
+		if s.Config["passUA"] != "false" {
+			d.Headers.Set("User-Agent", userAgent)
+		}
 	case "quark":
 		var res struct {
 			Code int `json:"code"`
@@ -457,7 +470,7 @@ func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Dow
 		if err != nil {
 			return d, err
 		}
-		info, err := c.DownloadWithUA(pick, pan115UA)
+		info, err := c.DownloadWithUA(pick, userAgent)
 		if err != nil {
 			return d, err
 		}

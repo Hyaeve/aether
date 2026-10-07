@@ -44,8 +44,8 @@ func pluginDefaults(kind string, p PluginConfig) PluginConfig {
 			p.Language = "zh-CN"
 		}
 	}
-	if kind == "ai" && p.APIURL == "" {
-		p.APIURL = "https://api.openai.com/v1"
+	if kind == "emby" && p.Token == "" {
+		p.Token = "aether"
 	}
 	return p
 }
@@ -67,7 +67,7 @@ func validatePlugin(kind string, p PluginConfig) error {
 			return errors.New("不支持的语言")
 		}
 	case "ai":
-		if !httpURL(p.APIURL) {
+		if (p.APIURL != "" || p.Enabled) && !httpURL(p.APIURL) {
 			return errors.New("请输入有效的 OpenAI 兼容 API 地址")
 		}
 		if p.Enabled && strings.TrimSpace(p.Model) == "" {
@@ -83,8 +83,8 @@ func validatePlugin(kind string, p PluginConfig) error {
 			return errors.New("请输入代理地址")
 		}
 	case "emby":
-		if p.Enabled && (len(p.Token) < 16 || len(p.Token) > 256) {
-			return errors.New("通知令牌需为 16–256 个字符")
+		if len(p.Token) == 0 || len(p.Token) > 256 || strings.TrimSpace(p.Token) != p.Token {
+			return errors.New("通知令牌需为 1–256 个字符且不含首尾空格")
 		}
 	}
 	if len(p.APIKey) > 8192 || len(p.Model) > 256 || len(p.APIURL) > 2048 || len(p.Address) > 2048 {
@@ -105,10 +105,6 @@ func (a *App) pluginConfig(w http.ResponseWriter, r *http.Request) {
 		if old.APIKey != "" {
 			old.APIKey = "********"
 		}
-		// Proxy URLs can contain credentials; reveal only through the explicit secret endpoint.
-		if old.Address != "" {
-			old.Address = "********"
-		}
 		jsonResponse(w, 200, old)
 		return
 	}
@@ -126,9 +122,6 @@ func (a *App) pluginConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Address == "********" {
 		p.Address = old.Address
-	}
-	if kind == "emby" && p.Token == "" {
-		p.Token = id()
 	}
 	if err := validatePlugin(kind, p); err != nil {
 		fail(w, 400, err)

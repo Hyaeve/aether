@@ -105,12 +105,12 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await card.locator('h3').click()
   await expect(page.getByRole('dialog', { name: '编辑存储池' })).toBeVisible()
   expect(await page.getByRole('dialog').evaluate(el => {
-    const input = el.querySelector('input:not([type=checkbox])'), select = el.querySelector('.rounded-select-trigger')
-    return input.getBoundingClientRect().height === select.getBoundingClientRect().height
+    const input = el.querySelector('input:not([type=checkbox])'), directory = el.querySelector('.directory-input')
+    return input.getBoundingClientRect().height === directory.getBoundingClientRect().height
   })).toBe(true)
   await page.keyboard.press('Escape')
   for (const config of [
-    { name: '显隐夸克', type: 'quark', values: { cookie: 'real-cookie-123' }, labels: ['Cookie'], fields: ['cookie'] },
+    { name: '显隐夸克', type: 'quark', values: { cookie: 'real-cookie-123' }, labels: ['CK'], fields: ['cookie'] },
     { name: '显隐OpenList', type: 'openlist', values: { address: 'http://127.0.0.1:15998', token: 'real-token-123' }, labels: ['API令牌'], fields: ['token'] }
   ]) {
     const response = await page.request.post('/api/storages', { data: { name: config.name, type: config.type, enabled: false, config: { root: '/', deleteMode: 'trash', ...config.values } } })
@@ -198,7 +198,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await page.getByRole('button',{name:'renamed.txt',exact:true}).click()
   await page.getByRole('button',{name:'two.txt',exact:true}).click({modifiers:['Shift']})
   await page.getByRole('button',{name:'two.txt',exact:true}).click({button:'right'})
-  await expect(page.locator('.context-menu button')).toHaveText(['移动到','复制到','删除','查看详情'])
+  await expect(page.locator('.context-menu button')).toHaveText(['下载','移动到','复制到','删除','查看详情'])
   await page.getByRole('button',{name:'复制到',exact:true}).click()
   await page.getByRole('button',{name:'选择当前目录',exact:true}).click()
   await expect(page.locator('.toast').filter({hasText:'文件操作完成'})).toBeVisible()

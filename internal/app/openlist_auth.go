@@ -22,6 +22,8 @@ type openlistSession struct {
 	until time.Time
 }
 
+type downloadUAKey struct{}
+
 func openlistSessionKey(s Storage) [32]byte {
 	return sha256.Sum256([]byte(s.ID + "\x00" + s.Config["address"] + "\x00" + s.Config["username"] + "\x00" + s.Config["password"]))
 }
@@ -82,6 +84,11 @@ func openlistJSON(ctx context.Context, s Storage, endpoint string, body, out any
 		headers, err := openlistHeaders(ctx, s)
 		if err != nil {
 			return err
+		}
+		if endpoint == "get" && s.Config["passUA"] != "false" {
+			if ua, ok := ctx.Value(downloadUAKey{}).(string); ok {
+				headers.Set("User-Agent", ua)
+			}
 		}
 		var raw json.RawMessage
 		if err = requestJSON(ctx, "POST", strings.TrimRight(s.Config["address"], "/")+"/api/fs/"+endpoint, headers, body, &raw); err != nil {

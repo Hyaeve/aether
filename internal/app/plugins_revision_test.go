@@ -115,8 +115,8 @@ func TestEmbyWebhookAuthenticationAndNotifications(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	token := a.store.snapshot().Plugins["emby"].Token
-	if len(token) < 16 {
-		t.Fatal("insecure token")
+	if token != "aether" {
+		t.Fatal("unexpected default token")
 	}
 	body := map[string]any{"Event": "library.new", "Item": map[string]string{"Id": "1", "Name": "测试影片"}}
 	send := func(token string) *httptest.ResponseRecorder {
@@ -127,7 +127,7 @@ func TestEmbyWebhookAuthenticationAndNotifications(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
-	w = request(t, h, "POST", "/api/emby/webhook?token=aether", body, nil)
+	w = request(t, h, "POST", "/api/emby/webhook?token=incorrect", body, nil)
 	if w.Code != 403 {
 		t.Fatal("bad token accepted")
 	}

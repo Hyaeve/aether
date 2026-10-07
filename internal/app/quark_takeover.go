@@ -46,6 +46,17 @@ const quarkTVClient = "d3194e61504e493eb6222857bccfed94"
 const quarkTVSign = "kw2dvtd7p4t3pjl2d9ed9yc8yej8kw2d"
 const quarkTVBase = "https://open-api-drive.quark.cn"
 const quarkTVBroker = "https://api.extscreen.com/quarkdrive"
+const quarkTVUA = "Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1"
+
+type quarkTVHTTPError struct {
+	Status       int
+	Errno        int
+	TokenInvalid bool
+}
+
+func (e *quarkTVHTTPError) Error() string {
+	return fmt.Sprintf("夸克 TV 服务返回 HTTP %d（错误码 %d）", e.Status, e.Errno)
+}
 
 func quarkTVEnabled(st State) bool {
 	return st.QuarkTVEnabled == nil || *st.QuarkTVEnabled
@@ -176,10 +187,25 @@ func quarkTVJSON(ctx context.Context, method, address string, headers http.Heade
 		return errors.New("夸克 TV 服务连接失败")
 	}
 	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("夸克 TV 服务返回 HTTP %d", res.StatusCode)
+	data, readErr := io.ReadAll(io.LimitReader(res.Body, (8<<20)+1))
+	if readErr != nil || len(data) > 8<<20 {
+		return errors.New("夸克 TV 响应无效")
 	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(out); err != nil {
+	// HTTP 400 may carry the token-expired or QR-pending code. Decode it before
+	// returning an HTTP error so callers can refresh credentials or keep polling.
+	decodeErr := json.Unmarshal(data, out)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var env struct {
+			Errno     int    `json:"errno"`
+			Status    int    `json:"status"`
+			ErrorInfo string `json:"error_info"`
+		}
+		_ = json.Unmarshal(data, &env)
+		message := strings.ToLower(env.ErrorInfo)
+		invalid := env.Errno == 10001 || env.Errno == 11001 || (env.Status == -1 && (strings.Contains(message, "access token") || strings.Contains(message, "access_token") || strings.Contains(message, "token无效") || strings.Contains(message, "token 无效")))
+		return &quarkTVHTTPError{res.StatusCode, env.Errno, invalid}
+	}
+	if decodeErr != nil {
 		return errors.New("夸克 TV 响应无效")
 	}
 	return nil
@@ -192,10 +218,12 @@ func quarkTVRequest(ctx context.Context, b QuarkTVBinding, endpoint string, extr
 		q[k] = v
 	}
 	tm := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	requestID := md5.Sum([]byte(b.Device + tm))
+	q.Set("req_id", hex.EncodeToString(requestID[:]))
 	sum := sha256.Sum256([]byte("GET&" + endpoint + "&" + tm + "&" + quarkTVSign))
 	headers := http.Header{}
 	headers.Set("Accept", "application/json")
-	headers.Set("User-Agent", "Mozilla/5.0 (Linux; Android 13; M2004J7AC) AppleWebKit/533.1 Mobile Safari/533.1")
+	headers.Set("User-Agent", quarkTVUA)
 	headers.Set("x-pan-tm", tm)
 	headers.Set("x-pan-token", hex.EncodeToString(sum[:]))
 	headers.Set("x-pan-client-id", quarkTVClient)
@@ -238,7 +266,7 @@ func exchangeQuarkTV(ctx context.Context, b *QuarkTVBinding, secret string, refr
 			Errno   int    `json:"errno"`
 		} `json:"data"`
 	}
-	if err := quarkTVJSON(ctx, "POST", strings.TrimRight(b.Broker, "/")+"/token", http.Header{}, body, &result); err != nil {
+	if err := quarkTVJSON(ctx, "POST", strings.TrimRight(b.Broker, "/")+"/token", http.Header{"User-Agent": {quarkTVUA}, "Accept": {"application/json, text/plain, */*"}}, body, &result); err != nil {
 		return err
 	}
 	if result.Code != 200 || result.Data.Errno != 0 || result.Data.Access == "" {
@@ -267,7 +295,8 @@ func quarkTVDefaults(b QuarkTVBinding) QuarkTVBinding {
 		b.UAListMode = "proxy_list"
 	}
 	if b.Device == "" {
-		b.Device = id()
+		device := md5.Sum([]byte(id()))
+		b.Device = hex.EncodeToString(device[:])
 	}
 	return b
 }
@@ -448,6 +477,10 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 		Errno int    `json:"errno"`
 	}
 	err = quarkTVRequest(r.Context(), b, "/oauth/code", url.Values{"client_id": {quarkTVClient}, "scope": {"netdisk"}, "query_token": {session.Token}}, &result)
+	if result.Errno == 11003 {
+		jsonResponse(w, 200, map[string]bool{"pending": true})
+		return
+	}
 	if err != nil {
 		fail(w, 502, err)
 		return
@@ -490,20 +523,20 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 }
 
 func quarkQualityRank(quality string) int {
-	switch strings.ToLower(quality) {
-	case "low":
+	switch strings.ToLower(strings.TrimSpace(quality)) {
+	case "low", "360p", "360":
 		return 1
-	case "normal":
+	case "normal", "480p", "480":
 		return 2
-	case "high":
+	case "high", "720p", "720":
 		return 3
-	case "super":
+	case "super", "1080p", "1080", "fhd":
 		return 4
-	case "2k":
+	case "2k", "qhd", "1440p", "1440":
 		return 5
-	case "4k":
+	case "4k", "uhd", "2160p", "2160":
 		return 6
-	case "dolby_vision", "dovi":
+	case "dolby_vision", "dolby-vision", "dovi":
 		return 7
 	}
 	return 0
@@ -520,14 +553,14 @@ func quarkTVChoose(b QuarkTVBinding, videos []quarkVideo) string {
 	best, target := -2000, ""
 	for _, video := range videos {
 		rank := quarkQualityRank(video.Resolution)
-		if video.Accessible == 0 || rank == 0 || rank > quarkQualityRank(b.Quality) || (rank == 7 && !b.AllowDolby) {
+		if video.Accessible == 0 || rank == 0 || (rank > quarkQualityRank(b.Quality) && !(rank == 7 && b.AllowDolby)) || (rank == 7 && !b.AllowDolby) {
 			continue
 		}
 		u, err := url.Parse(video.URL)
 		if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || strings.ContainsAny(video.URL, "\r\n") {
 			continue
 		}
-		hls := strings.EqualFold(video.Format, "hls") || strings.EqualFold(video.Format, "m3u8") || strings.HasSuffix(strings.ToLower(u.Path), ".m3u8")
+		hls := strings.EqualFold(strings.TrimSpace(video.Format), "hls") || strings.EqualFold(strings.TrimSpace(video.Format), "m3u8") || strings.HasSuffix(strings.ToLower(u.Path), ".m3u8")
 		if hls && b.Mode == "adaptive" {
 			continue
 		}
@@ -585,27 +618,32 @@ func (a *App) quarkTVTarget(ctx context.Context, s Storage, file, ua string) str
 		}
 	}
 	var result struct {
-		Errno  int `json:"errno"`
-		Status int `json:"status"`
-		Data   struct {
+		Errno     int    `json:"errno"`
+		Status    int    `json:"status"`
+		ErrorInfo string `json:"error_info"`
+		Data      struct {
 			Videos []quarkVideo `json:"video_info"`
 		} `json:"data"`
 	}
 	err := quarkTVRequest(ctx, b, "/file", url.Values{"method": {"streaming"}, "group_by": {"source"}, "fid": {file}, "resolution": {"low,normal,high,super,2k,4k"}, "support": {"dolby_vision"}}, &result)
-	if (result.Errno == 10001 || result.Errno == 11001) && b.RefreshToken != "" && b.Broker != "" {
+	var httpErr *quarkTVHTTPError
+	tokenMessage := strings.ToLower(result.ErrorInfo)
+	invalid := result.Errno == 10001 || result.Errno == 11001 || (errors.As(err, &httpErr) && httpErr.TokenInvalid) || (result.Status == -1 && (strings.Contains(tokenMessage, "access token") || strings.Contains(tokenMessage, "access_token") || strings.Contains(tokenMessage, "token无效") || strings.Contains(tokenMessage, "token 无效")))
+	if invalid && b.RefreshToken != "" && b.Broker != "" {
 		if refreshErr := exchangeQuarkTV(ctx, &b, b.RefreshToken, true); refreshErr == nil {
 			if saveErr := a.store.update(func(st *State) error { st.QuarkTV[s.ID] = b; return nil }); saveErr == nil {
-				result.Errno, result.Status, result.Data.Videos = 0, 0, nil
+				result.Errno, result.Status, result.Data.Videos, result.ErrorInfo = 0, 0, nil, ""
 				err = quarkTVRequest(ctx, b, "/file", url.Values{"method": {"streaming"}, "group_by": {"source"}, "fid": {file}, "resolution": {"low,normal,high,super,2k,4k"}, "support": {"dolby_vision"}}, &result)
 			}
 		}
 	}
 	if err != nil || result.Errno != 0 || result.Status >= 400 {
-		a.store.event("warn", "links", "夸克 TV 播放地址获取失败，回退普通播放")
+		a.store.event("warn", "links", fmt.Sprintf("夸克 TV 播放地址获取失败（状态 %d，错误码 %d），回退本机代理", result.Status, result.Errno))
 		return ""
 	}
 	target := quarkTVChoose(b, result.Data.Videos)
 	if target == "" {
+		a.store.event("info", "links", "夸克 TV 未选中兼容档位（检查画质、HLS 智能回退与会员权限），回退本机代理")
 		return ""
 	}
 	if a.quarkTVCache == nil {

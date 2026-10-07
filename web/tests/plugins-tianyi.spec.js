@@ -7,7 +7,7 @@ async function mock(page) {
   await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '/TOBE', name: 'TOBE', isDir: true }] }))
   const configs = {
     tmdb: { enabled: false, apiURL: 'https://api.themoviedb.org', imageURL: 'https://image.tmdb.org', language: 'zh-CN', apiKey: '' },
-    ai: { enabled: false, apiURL: 'https://api.openai.com/v1', model: '', apiKey: '' },
+    ai: { enabled: false, apiURL: '', model: '', apiKey: '' },
     proxy: { enabled: false, address: '' }, emby: { enabled: false, token: 'random-test-token-123456' }
   }
   await page.route('**/api/plugins/**', r => {
@@ -24,9 +24,10 @@ async function mock(page) {
 test('TMDB AI proxy and Emby plugins have working forms and actions', async ({ page }, info) => {
   const configs = await mock(page)
   await page.goto('/tools')
+  await page.getByRole('button', { name: '启用TMDB 配置', exact: true }).click()
   await page.getByRole('button', { name: 'TMDB 配置', exact: true }).click()
   await expect(page.getByLabel('API 域名', { exact: true })).toHaveValue('https://api.themoviedb.org')
-  await page.getByRole('switch').check()
+  await expect(page.getByRole('dialog').getByRole('switch')).toHaveCount(0)
   await page.getByLabel('API 密钥', { exact: true }).fill('tmdb-secret')
   await page.getByRole('button', { name: '英文', exact: true }).click()
   await page.getByRole('button', { name: '保存配置', exact: true }).click()
@@ -39,14 +40,17 @@ test('TMDB AI proxy and Emby plugins have working forms and actions', async ({ p
   }
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'AI 辅助识别', exact: true }).click()
-  await page.getByRole('switch').check()
+  await expect(page.getByLabel('API 地址', { exact: true })).toHaveValue('')
+  await page.getByLabel('API 地址', { exact: true }).fill('https://model.example/v1')
   await page.getByLabel('模型名称', { exact: true }).fill('my-model')
   await page.getByLabel('API Key', { exact: true }).fill('ai-key')
   await page.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect.poll(() => configs.ai.model).toBe('my-model')
-  await page.getByLabel('待识别文件名', { exact: true }).fill('Arrival.2016.1080p.mkv')
-  await page.getByRole('button', { name: '识别', exact: true }).click()
-  await expect(page.locator('.plugin-result')).toContainText('降临')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '启用AI 辅助识别', exact: true }).click()
+  await page.getByRole('button', { name: 'AI 辅助识别', exact: true }).click()
+  await expect(page.getByLabel('待识别文件名', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '测试连接', exact: true }).click()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '代理配置', exact: true }).click()
   await page.getByLabel('代理地址', { exact: true }).fill('http://127.0.0.1:7890')

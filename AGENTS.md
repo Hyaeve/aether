@@ -1,5 +1,44 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-07：可读 STRM、核心刮削流程与 v0.2.7
+
+- 新增 `internal/app/strm_links.go`：115 生成 `/d/pickcode.ext?/原文件名`，只解析已生成且加密持久化于 `/data/strm-index` 的映射，拒绝跨存储冲突、未知 pickcode 和停用存储；夸克采用存储/文件/令牌/名称路径，使用独立 HMAC 绑定全部字段。修改 `internal/app/tasks.go` 生成入口，修改 `internal/app/server.go` 注册公开但有映射/签名校验的 GET/HEAD 路由，复用客户端 UA、下载策略及 TV 接管，代理输出附件名称，保留旧签名链接。链接格式更新需要全量生成；302 的最终下载行为由网盘和浏览器决定。
+- 新增 `internal/app/strm_links_test.go`：精确 115 URL、加密映射、重启恢复、冲突、未知映射/禁用存储、浏览器 UA 和夸克签名篡改测试。修改 `internal/app/quark_takeover_test.go`：新夸克可读链接 GET/HEAD 命中 TV 302 且复用缓存。
+- 新增 `internal/app/strm_scrape.go`：参考 LitePan 工作流独立实现任务输出目录扫描、排除、识别年份/季集/TMDB ID、唯一匹配与歧义处理、手动匹配、电影/电视剧 NFO、海报/分集预览、可选背景图和演员、仅补缺/覆盖、取消、进度和失败统计。配置存 `/config/organize/strm-scrape.json`，索引存 `/data/cache/scrape`；最多 10000 项，跳过符号链接，os.Root 限制写入，原子发布。服务器增加互斥运行状态与受保护接口。
+- 新增 `internal/app/strm_scrape_test.go`：本地模拟 TMDB、XML 转义、补缺/覆盖、歧义、取消、越界、API 鉴权、索引和手动匹配持久化。新建 `web/src/pages/ScrapePage.vue`，修改 `web/src/App.vue` 替换占位页：任务选择、状态/关键词筛选、虚拟列表、执行/停止、刷新索引、手动 ID 匹配及设置。
+- 修改 `web/src/components/FileTabs.vue` 将文件栏目图标缩至 19px；修改 `web/src/components/CacheOverview.vue` 压缩统计区、缩小环图并将任务与指标右移。修改 `web/src/components/Icon.vue`、`RoundedSelect.vue`、`web/src/pages/LinksPage.vue` 增加外跳、地球、房屋、折返四种模式图标。修改 `web/src/style.css`：面包屑与菜单统一 14px，菜单收窄右移。
+- 修改 `internal/app/plugins.go`：AI 地址不再自动填入，未启用时允许空配置。修改 `web/src/components/PluginSettings.vue` 移除手动识别输入与无用结果状态；修改 `web/src/components/QuarkTakeover.vue` 移除启用开关，单账号在绑定图标点击启停，整体仍由插件卡片图标控制。
+- 新增 `web/tests/strm-scrape.spec.js`：任务栏目位置稳定、扫描、1000 项虚拟列表、匹配、设置、日夜截图。修改 `web/tests/plugins-tianyi.spec.js` 校验 AI 空地址与无识别输入；修改 `web/tests/link-cache-layout.spec.js` 覆盖模式图标。
+- 修改 `README.md` 说明链接格式、旧链接兼容、映射保存和刮削范围。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json` 同步 0.2.7；按末位逢十、中位逢百规则递增。修改本文件记录全部变化，包含前两轮尚未提交的文件，详见下方两条记录；上一轮最终 42 项浏览器回归已全部通过。
+- 验证：Go 全量测试、vet、前端构建通过；本轮初次 43 项浏览器全部通过，新增模式图标断言后的全量 42/43，通过项包含刮削与插件，失败为 Lucide CSS 类名假设，修正定位器后单项重跑通过。最终后端针对刮削/可读链接/TV 播放测试通过。查看刮削日间截图及相关布局截图。未生成根目录 exe、未操作用户数据和 15151 服务。
+- 边界：核心刮削并非 LitePan 全量复刻，未实现作品级海报墙、完结标记、season.nfo/季海报、clearlogo、AI 匹配、定时刮削与重启续跑；索引在执行结束后更新。真实 115/夸克/TMDB、Docker 和 FUSE 未联调，不宣称真实账号播放已成功。GitHub 直连失败，使用已存在的本机 mihomo 代理成功 fetch，未修改全局 Git 设置；提交推送结果以 Git 输出为准。
+- 收尾：`web/src/style.css` 将以链模式控件增至 120px 并缩小内部间隔，容纳图标和完整四字模式；图标测试新增无截断断言，截图已检查。Go 最终全量与 vet 通过；浏览器再次全量 43 项通过后，宽度微调单项通过，额外独跑以链全流程因依赖 workspace 初始化账号失败，按完整顺序再次验证，最终结果续记。
+- 隔离预览：`127.0.0.1:15152` 健康检查成功，进程 30344；程序、日志和独立配置位于系统临时目录 `aether-preview-v027-3ba61f2a82fc44ab8404f6186facaba4`，不使用仓库用户配置。预览供用户检查，未停止或覆盖用户服务。
+- 最终验证：最后一次完整浏览器 43/43 通过（3.5 分钟）；Go 全量、vet、前端构建及差异检查通过。刮削测试的跨 HTTP goroutine 夹具开关改为 atomic.Bool 后针对测试再通过；本机未运行 race，Linux CI 保留 race。按用户要求中文提交 main 并推送 v0.2.7，不将配置/数据/依赖/截图/二进制纳入发布。
+
+## 2026-10-07：存储下载策略、夸克接管修复与插件交互
+
+- 新增 `internal/app/download_mode.go`：按存储配置选择浏览器/STRM 的 302 或本机代理，夸克普通下载固定代理；WebDAV 请求超时缺省 60 秒。修改 `internal/app/server.go` 校验下载模式、OpenList 开关与 WebDAV 超时，播放/下载传入客户端 UA，Quark TV 仅接管播放，不接管文件下载；WebDAV 代理只限制响应头等待，不截断长时间媒体传输。保留上一轮安全下载入口。
+- 修改 `internal/app/drivers.go`、`internal/app/openlist_auth.go`：OpenList 列目录传入 refresh，获取下载地址与代理读取按 passUA 透传客户端 UA；WebDAV 列目录超时并禁止携带鉴权自动跟随重定向。非云盘删除模式只从界面移除，旧后端配置保留兼容。
+- 修改 `internal/app/quark_takeover.go`：参考本地 LitePan 的请求协议，req_id 与签名使用同一时间戳，补齐 TV UA 与设备 ID 格式；HTTP 400 先解码业务码，扫码等待不误报失败，令牌过期刷新后重试；兼容画质别名与杜比选择，回退日志不输出凭据。修改 `internal/app/quark_takeover_test.go` 覆盖 HTTP 400 扫码等待/过期刷新与请求签名一致性。
+- 修改 `internal/app/plugins.go`、`internal/app/plugins_revision_test.go`：Emby 新配置默认令牌 aether，允许自定义并保留已有令牌；已鉴权的代理配置接口返回可编辑地址，密钥继续脱敏并提供长度元数据。新增 `internal/app/download_mode_test.go` 覆盖模式缺省/校验、OpenList refresh/UA、302 与代理响应及凭据隔离。
+- 修改 `web/src/pages/StoragePage.vue`：按七种类型重排名称、设备/接入模式、凭据与下载/删除模式；移除启用开关，仅四种原生云盘显示删除模式，夸克只能本机代理；OpenList 用透传 UA、刷新上游替代缓存时间，WebDAV 增加超时配置。
+- 修改 `web/src/pages/FilesPage.vue`：单个 115 文件夹详情显示 CID，保留上一轮下载菜单。修改 `web/src/pages/LinksPage.vue`：缓存期列扩至 96px，由弹性链接列让出空间。
+- 修改 `web/src/components/PluginSettings.vue`：移除弹窗启用开关与 TMDB 搜索，代理地址明文，测试按钮左下；等待配置加载后才显示表单，防止晚到响应覆盖输入。修改 `web/src/components/SecretInput.vue`：异步配置到达后加载真实长度，保存后重置显隐状态，失效请求不覆盖新值。
+- 修改 `web/src/pages/ToolsPage.vue`：TMDB/AI/代理/Emby 卡片图标启停；夸克接管与其他卡片统一高度，描述省略并使用完整文本浮层。修改 `web/src/components/OverflowTooltip.vue`：仅溢出文本显示、跟随指针且限制视口边界。修改 `web/src/style.css`：收矮消息气泡与图标，提示浮层不拦截鼠标。
+- 新增 `web/tests/storage-options.spec.js`：七种表单布局、CID、异步密钥长度、统一卡片高度及浮层跟随。修改 `web/tests/cache-strm-takeover.spec.js`、`web/tests/link-cache-layout.spec.js`、`web/tests/plugins-tianyi.spec.js`、`web/tests/workspace.spec.js`、`web/tests/zzz-workspace-actions.spec.js` 同步插件启停、列宽、存储表单与下载菜单断言；保留上一轮新增的 `internal/app/file_download_test.go`、`web/tests/file-download.spec.js`。
+- 修改 `README.md` 与本文件：说明下载策略、WebDAV 302 无法携带 Basic Auth 的边界、OpenList 本地缓存与上游刷新区别、插件启停、默认令牌和夸克修复；公网部署应更改 aether 默认令牌。
+- 验证：Go 全量测试、go vet、前端构建通过；浏览器全量首次 41/42 通过，唯一失败为靠右浮层的横向防溢出限制与测试假设冲突，改测纵向跟随后重跑，最终结果续记。已修复此前旧界面断言及插件异步加载竞态。
+- 限制：未使用真实夸克/115 等账号联调，未验证 Docker/FUSE；夸克权限、HLS 智能回退或上游账号限制仍可能导致代理回退，不能保证真实账号接管成功。未实现 WebDAV 跳过 TLS 校验配置；未改用户数据、15151 服务、版本或部署，未提交推送，未生成根目录 exe。
+
+## 2026-10-07：115 浏览器下载与 302 直链
+
+- 修改 `internal/app/drivers.go`：抽取带客户端 User-Agent 的下载入口，115 通过 `115driver` 使用浏览器 UA 获取下载直链；原播放流程继续使用固定播放器 UA。
+- 修改 `internal/app/server.go`：流媒体签名地址支持 `download=1`，115 下载请求获取上游直链后直接返回安全校验后的 302，并设置 no-store 与 no-referrer；拒绝非 HTTP(S)、带用户信息或无效目标地址。
+- 修改 `web/src/pages/FilesPage.vue`：文件右键菜单第一项增加“下载”，仅单选文件且已有播放签名时启用，携带 `download=1` 打开浏览器下载；目录、多选和无链接项目禁用。
+- 新增 `internal/app/file_download_test.go`：覆盖客户端 UA 传递、签名校验和安全 302 目标校验。新增 `web/tests/file-download.spec.js`：覆盖列表/网格右键菜单顺序、文件启用、目录禁用和下载地址参数。
+- 验证：115 下载相关 Go 测试、前端构建和新增 Playwright 测试通过；已执行 `git diff --check`。未使用真实 115 账号联调，真实上游可能因额外 Cookie、IP 或权益限制拒绝直链；本轮未递增版本、未提交或推送，未操作15151服务和用户数据。
+
 ## 2026-10-07：自定义生成目录、内嵌 go-fuse 与 v0.2.6
 
 - 修改 `internal/app/tasks.go`：绝对生成目录不再受默认STRM目录约束，新增outputLocation区分真实输出根与相对子路径；留空仍默认/data/strm，相对路径仍位于默认目录内，拒绝相对越界，按需创建并以os.Root约束输出子路径。新增 `internal/app/task_output_test.go` 覆盖STRM/CAS/ED2K外部输出、默认路径、懒创建及子路径符号链接保护；修改 `internal/app/app_test.go` 纠正旧的外部路径拒绝断言。

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -70,6 +72,16 @@ func TestQuarkTVSignedPlaybackCacheAndSecretIsolation(t *testing.T) {
 		w = request(t, h, "GET", a.streamURL(s.ID, "file-1", ""), nil, nil)
 		if w.Code != 302 || w.Header().Get("Location") != "https://cdn.example/movie.mp4" {
 			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	readable, err := a.publicSTRMURL(s, File{ID: "file-1", Name: "movie.mp4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{"GET", "HEAD"} {
+		w = request(t, h, method, readable, nil, nil)
+		if w.Code != 302 || w.Header().Get("Location") != "https://cdn.example/movie.mp4" {
+			t.Fatal("readable Quark STRM failed", w.Code, w.Body.String())
 		}
 	}
 	if calls != 1 {
@@ -162,6 +174,7 @@ func TestQuarkTVQRBindingAndRefresh(t *testing.T) {
 			polls++
 			if polls == 1 {
 				body = `{"errno":11003}`
+				return &http.Response{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 			} else {
 				body = `{"code":"private-code"}`
 			}
@@ -177,9 +190,14 @@ func TestQuarkTVQRBindingAndRefresh(t *testing.T) {
 			}
 			body = `{"code":200,"data":{"access_token":"access","refresh_token":"refresh","expires_in":3600}}`
 		case "open-api-drive.quark.cn/file":
+			sum := md5.Sum([]byte(r.URL.Query().Get("device_id") + r.Header.Get("x-pan-tm")))
+			if r.URL.Query().Get("req_id") != hex.EncodeToString(sum[:]) {
+				t.Fatal("timestamp/request ID mismatch")
+			}
 			streams++
 			if streams == 1 {
 				body = `{"status":-1,"errno":11001}`
+				return &http.Response{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 			} else {
 				body = `{"data":{"video_info":[{"url":"https://cdn.example/test.mp4","resolution":"super","accessable":1,"format":"mp4"}]}}`
 			}

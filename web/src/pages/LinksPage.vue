@@ -8,7 +8,7 @@ import RoundedSelect from '../components/RoundedSelect.vue'
 import SecretInput from '../components/SecretInput.vue'
 import { copyText } from '../clipboard'
 const types = [{ id: 'audiobookshelf', name: 'AudioBookShelf', icon: 'abs' }, { id: 'emby', name: 'Emby', icon: 'emby' }, { id: 'fnos', name: '飞牛影视', icon: 'fnmovie' }]
-const modes = [{ value: 'always', label: '始终跳转' }, { value: 'public', label: '公网跳转' }, { value: 'private', label: '内网跳转' }, { value: 'never', label: '始终中继' }]
+const modes = [{ value: 'always', label: '始终跳转', icon: 'ExternalLink' }, { value: 'public', label: '公网跳转', icon: 'Globe' }, { value: 'private', label: '内网跳转', icon: 'House' }, { value: 'never', label: '始终中继', icon: 'CornerDownLeft' }]
 const route = useRoute()
 const tab = computed(() => route.path.endsWith('/cache') ? 'cache' : 'manage')
 const links = computed(() => state.links), modal = ref(false), step = ref(1), busy = ref(false), error = ref(''), events = shallowRef([]), query = ref(''), deleting = ref(null)
@@ -153,7 +153,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <button class="add-storage-tile link-add" @click="open()"><Icon name="Plus" :size="28" /><strong>添加以太链接</strong></button>
   </div>
   <section v-else class="link-playback">
-    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:112px" /><col style="width:10%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:78px" /><col style="width:72px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
+    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:112px" /><col style="width:10%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:96px" /><col style="width:72px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
       <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
         <td>{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>

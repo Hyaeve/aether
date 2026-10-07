@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 async function workspace(page) {
-  await page.route('**/api/plugins/emby', r => r.fulfill({ json: { enabled: false, token: '' } }))
+  await page.route('**/api/plugins/*', r => r.fulfill({ json: { enabled: false, token: '' } }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: {
     username: 'cache-test', storages: [

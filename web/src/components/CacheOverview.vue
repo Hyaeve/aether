@@ -24,18 +24,18 @@ const metrics = computed(() => [
   </section>
 </template>
 <style scoped>
-.cache-overview { display: grid; grid-template-columns: 102px minmax(180px, .85fr) minmax(350px, 1.3fr); gap: 26px; align-items: center; padding: 18px 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-.cache-chart { width: 96px; height: 96px; position: relative; }
+.cache-overview { display: grid; grid-template-columns: minmax(140px, .55fr) minmax(180px, .85fr) minmax(350px, 1.3fr); gap: 24px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.cache-chart { width: 78px; height: 78px; position: relative; }
 .cache-chart svg { width: 100%; transform: rotate(-90deg); fill: none; stroke-width: 8; }
 .cache-track { stroke: color-mix(in srgb, var(--text) 9%, transparent); }
 .cache-hit { stroke: #8295d4; stroke-linecap: round; transition: stroke-dasharray .35s; }
 .cache-chart span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.cache-chart strong { font-size: 20px; }
+.cache-chart strong { font-size: 17px; }
 .cache-chart small, dt, .cache-progress small { color: var(--muted); font-size: 12px; }
-.cache-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px 16px; margin: 0; }
+.cache-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px 14px; margin: 0; }
 .cache-metrics > div { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .cache-metrics svg { color: var(--primary); flex-shrink: 0; }
-dd { margin: 6px 0 0; font-size: 17px; overflow-wrap: anywhere; }
+dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
 .cache-progress { min-width: 0; }
 .cache-progress strong { font-size: 14px; }
 .cache-progress span, .cache-progress small { display: block; overflow-wrap: anywhere; margin-top: 8px; }

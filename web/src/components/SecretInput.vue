@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, watch, onUnmounted, ref } from 'vue'
 import { api, notify } from '../lib'
 import Icon from './Icon.vue'
 defineOptions({ inheritAttrs: false })
@@ -10,15 +10,18 @@ const loading = ref(false)
 const touched = ref(false)
 const savedLength = ref(8)
 const mask = computed(() => '*'.repeat(Math.min(4096, Math.max(1, props.modelValue === '********' ? savedLength.value : [...(props.modelValue || '')].length))))
-onMounted(async () => {
+let alive = true, generation = 0
+watch(() => [props.modelValue, props.secretPath, props.secretField], async () => {
+  const run = ++generation
   if (props.modelValue !== '********' || !props.secretPath) return
+  touched.value = false
+  visible.value = false
   try {
     const result = await api(props.secretPath, 'POST', { field: props.secretField, metadataOnly: true })
-    if (alive) savedLength.value = result.length
+    if (alive && run === generation) savedLength.value = result.length
   } catch { /* Keep a placeholder if metadata cannot be read; revealing still reports errors. */ }
-})
+}, { immediate: true })
 function input(event) { touched.value = true; emit('update:modelValue', event.target.value) }
-let alive = true
 onUnmounted(() => { alive = false })
 async function toggle() {
   if (visible.value) { visible.value = false; return }

@@ -4,6 +4,7 @@ import { api, state, notify } from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
+import ProviderIcon from './ProviderIcon.vue'
 
 const emit = defineEmits(['close', 'changed'])
 const bindings = ref([])
@@ -86,6 +87,15 @@ async function save() {
   }
 }
 
+async function toggleBinding(binding) {
+  busy.value = true
+  try {
+    const { config } = await api(`/quark-takeover/${binding.id}`)
+    await api(`/quark-takeover/${binding.id}`, 'PUT', { ...config, enabled: !config.enabled })
+    await load()
+  } catch (e) { error.value = e.message } finally { busy.value = false }
+}
+
 async function qr() {
   stop()
   busy.value = true
@@ -138,6 +148,7 @@ onUnmounted(stop)
   <Modal title="夸克 STRM 接管 · 账号绑定" compact wide @close="$emit('close')">
     <div class="modal-body binding-workspace">
       <div v-for="binding in bindings" :key="binding.id" class="binding-row">
+        <button class="binding-toggle" :aria-label="`${binding.enabled ? '停用' : '启用'}绑定 ${binding.name}`" :aria-pressed="binding.enabled" :disabled="busy || !binding.valid" @click="toggleBinding(binding)"><ProviderIcon type="quark" /></button>
         <div><strong>{{ binding.name }}</strong><small>TV · {{ binding.nickname || '已绑定' }} · {{ binding.valid ? '已授权' : '存储凭据已变更，请重新绑定' }}</small></div>
         <button class="icon-btn" :aria-label="`设置绑定 ${binding.name}`" :disabled="busy" @click="edit(binding)"><Icon name="Settings" /></button>
         <button class="icon-btn" :aria-label="`解除绑定 ${binding.name}`" :disabled="busy" @click="remove(binding)"><Icon name="Trash2" /></button>
@@ -162,7 +173,6 @@ onUnmounted(stop)
   <Modal v-if="editing" title="接管设置" compact @close="editing = ''">
     <form @submit.prevent="save">
       <div class="modal-body form-grid">
-        <label class="toggle-line full"><span>启用接管</span><input v-model="form.enabled" type="checkbox" role="switch" class="switch" /></label>
         <div class="field"><label>接管模式</label><RoundedSelect v-model="form.mode" label="接管模式" :options="[{ value: 'adaptive', label: '智能变轨' }, { value: 'direct', label: '强制直连' }, { value: 'split', label: '策略分流' }]" /></div>
         <div class="field"><label>最高画质</label><RoundedSelect v-model="form.quality" label="最高画质" :options="['low','normal','high','super','2k','4k','dolby_vision'].map((v,i) => ({ value:v, label:['流畅','标清','高清','超清','2K','4K','杜比视界'][i] }))" /></div>
         <label class="toggle-line full"><span>允许杜比视界</span><input v-model="form.allowDolby" type="checkbox" role="switch" class="switch" /></label>
@@ -179,6 +189,9 @@ onUnmounted(stop)
 
 <style scoped>
 .binding-row { display: flex; gap: 10px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.binding-toggle { width: 36px; height: 36px; flex-shrink: 0; border: 0; background: transparent; padding: 0; }
+.binding-toggle[aria-pressed=false] { opacity: .45; }
+.binding-toggle :deep(.provider-icon) { width: 36px; height: 36px; }
 .binding-row > div { flex: 1; min-width: 0; }
 .binding-row small { display: block; color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
 .binding-add { width: 100%; margin-top: 16px; }

@@ -64,6 +64,23 @@ const gridMode = computed(() => mode.value === 'grid')
 const { shown, top, bottom, columns: gridColumns, reset: resetScroll, reveal } = useVirtualList(displayItems, viewport, { rowHeight: computed(() => gridMode.value ? 148 : 52), header: computed(() => gridMode.value ? 0 : 44), grid: gridMode })
 watch([query, sortKey, ascending, mode], resetScroll)
 const detailFiles = computed(() => files.value.filter(f => selection.value.includes(f.id)))
+const detailCID = computed(() => state.storages.find(s => s.id === selected.value)?.type === '115' && detailFiles.value.length === 1 && detailFiles.value[0].isDir ? detailFiles.value[0].id : '')
+const downloadable = computed(() => detailFiles.value.length === 1 && !detailFiles.value[0].isDir && !!detailFiles.value[0].url)
+function downloadFile() {
+  if (!downloadable.value) return
+  const file = detailFiles.value[0]
+  const url = new URL(file.url, window.location.origin)
+  url.searchParams.set('download', '1')
+  const link = document.createElement('a')
+  link.href = url.toString()
+  link.download = file.name
+  link.target = '_blank'
+  link.rel = 'noopener noreferrer'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  closeMenu()
+}
 const targetPools = computed(() => state.storages.filter(s => s.enabled && s.type === state.storages.find(s => s.id === selected.value)?.type))
 function sort(key) { ascending.value = key === sortKey.value ? !ascending.value : true; sortKey.value = key }
 function select(event, f) {
@@ -213,6 +230,7 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
   </tbody></table></div>
   </section></div></div>
   <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
+    <button :disabled="!downloadable" @click="downloadFile"><Icon name="Download" />下载</button>
     <button v-if="selection.length === 1" @click="rename"><Icon name="Pencil" />重命名</button>
     <button @click="operation = 'move'; closeMenu()"><Icon name="FolderInput" />移动到</button><button @click="operation = 'copy'; closeMenu()"><Icon name="Copy" />复制到</button>
     <button class="danger-text" @click="deleting = true; closeMenu()"><Icon name="Trash2" />删除</button>
@@ -223,6 +241,7 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
   <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body">将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</div><footer class="modal-footer"><button class="btn" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })">确认修改</button></footer></Modal>
   <Modal v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目 · {{ bytes(detailFiles.reduce((n, f) => n + (f.isDir && !f.sizeKnown ? 0 : f.size || 0), 0)) }}</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-for="f in detailFiles" :key="f.id"><dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd><dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd><dt>修改时间</dt><dd>{{ !f.modified || f.modified.startsWith('0001') ? '未提供' : new Date(f.modified).toLocaleString('zh-CN') }}</dd><dt>位置</dt><dd>{{ state.storages.find(s => s.id === selected)?.name }} / {{ history.map(h => h.name).join(' / ') }}</dd><template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></Modal>
+  <Teleport v-if="details && detailCID" to=".file-details"><dl><dt>CID</dt><dd>{{ detailCID }}</dd></dl></Teleport>
   <OfflineDownload v-if="offline" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="offline = false" />
   </template>
 </template>
