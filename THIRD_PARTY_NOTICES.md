@@ -1,5 +1,14 @@
 # Protocol References
 
+The 115 Open offline integration independently implements the URL batch,
+torrent parsing, and BT submission HTTP fields observed in the local LitePan
+`drivers/115_Open/offline_download.go`. LitePan uses the PolyForm
+Noncommercial License 1.0.0. No LitePan source file or runtime dependency is
+bundled; Aether uses its own upload, authentication, validation, directory
+selection, response handling, and tests. Real-account interoperability remains
+unverified. The inspected LitePan Quark driver and OpenList `quark_uc/driver.go`
+did not provide a native offline protocol; Quark submission is explicitly unavailable.
+
 The Tianyi personal-cloud integration independently implements the HTTP login,
 session signature, listing, download, rapid-upload and batch-delete protocol
 documented by the behavior of OpenList's `drivers/189pc` at revision

@@ -3,10 +3,8 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -216,46 +214,6 @@ func (a *App) uploadFile(w http.ResponseWriter, r *http.Request) {
 	s, err := a.store.storage(r.URL.Query().Get("storage"))
 	if err == nil {
 		err = a.receiveFile(r.Context(), s, r.URL.Query().Get("parent"), r.URL.Query().Get("name"), r.Body, r.ContentLength)
-	}
-	if err != nil {
-		fail(w, 400, err)
-		return
-	}
-	jsonResponse(w, 200, map[string]bool{"ok": true})
-}
-
-func (a *App) offlineFile(w http.ResponseWriter, r *http.Request) {
-	var input struct{ StorageID, Parent, Name, URL string }
-	if !decode(w, r, &input) {
-		return
-	}
-	u, err := url.Parse(input.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || !safeName(input.Name) {
-		fail(w, 400, errors.New("请输入 HTTP(S) 下载地址和有效文件名"))
-		return
-	}
-	s, err := a.store.storage(input.StorageID)
-	if err != nil {
-		fail(w, 400, err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
-	defer cancel()
-	client := &http.Client{Timeout: 30 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 || (req.URL.Scheme != "http" && req.URL.Scheme != "https") || req.URL.User != nil {
-			return errors.New("下载重定向无效")
-		}
-		return nil
-	}}
-	req, _ := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-	res, err := client.Do(req)
-	if err == nil {
-		defer res.Body.Close()
-		if res.StatusCode != http.StatusOK {
-			err = fmt.Errorf("下载服务返回 %d", res.StatusCode)
-		} else {
-			err = a.receiveFile(ctx, s, input.Parent, input.Name, res.Body, res.ContentLength)
-		}
 	}
 	if err != nil {
 		fail(w, 400, err)

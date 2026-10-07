@@ -199,8 +199,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/mounts/{id}/{action}", a.protected(http.HandlerFunc(a.mountAction)))
 	mux.Handle("GET /api/local-directories", a.protected(http.HandlerFunc(a.localDirectories)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.store.pruneLogs()
-		jsonResponse(w, 200, a.store.snapshot().Logs)
+		jsonResponse(w, 200, a.store.logSnapshot())
 	})))
 	mux.Handle("GET /api/cas/status", a.protected(http.HandlerFunc(a.casStatus)))
 	mux.Handle("POST /api/cas/cleanup", a.protected(http.HandlerFunc(a.casCleanup)))
@@ -219,8 +218,12 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/config/import", a.protected(http.HandlerFunc(a.configImport)))
 	mux.Handle("/api/links/{id}/test", a.protected(http.HandlerFunc(a.testMediaLink)))
 	mux.Handle("/api/files/action", a.protected(http.HandlerFunc(a.fileAction)))
+	mux.Handle("POST /api/files/rename-preview", a.protected(http.HandlerFunc(a.renameWorkbench)))
+	mux.Handle("POST /api/files/rename", a.protected(http.HandlerFunc(a.renameWorkbench)))
+	mux.Handle("/api/files/rename-rules", a.protected(http.HandlerFunc(a.renameRuleSets)))
+	mux.Handle("POST /api/files/directory-size", a.protected(http.HandlerFunc(a.directorySize)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
-	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.offlineFile)))
+	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
@@ -440,7 +443,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(405)
 		return
 	}
-	st := a.store.snapshot()
+	st := a.store.snapshotWithLogLimit(30)
 	for i := range st.Storages {
 		for _, key := range []string{"password", "token", "accessToken", "refreshToken", "cookie", "authorization"} {
 			if st.Storages[i].Config[key] != "" {
@@ -720,7 +723,13 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 		URL string `json:"url,omitempty"`
 	}
 	out := []fileLink{}
+	cacheEnabled := a.store.snapshotWithLogLimit(0).Settings.CacheEnabled
 	for _, f := range files {
+		if f.IsDir && cacheEnabled {
+			if cached, ok := a.cache.get(directorySizeKey(s.ID, f.ID)); ok && len(cached) == 1 {
+				f.Size, f.SizeKnown = cached[0].Size, true
+			}
+		}
 		link := ""
 		if !f.IsDir {
 			link = a.streamURL(s.ID, f.ID, f.PickCode)

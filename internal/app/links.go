@@ -88,6 +88,7 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 	}
 	cfg := lc.Default()
 	cfg.Redirect.Mode = lc.RedirectMode(link.Mode)
+	cfg.Redirect.TrustedProxyCIDRs = linkTrustedProxies()
 	cfg.Redirect.FollowUpstreamRedirects = true
 	cfg.Redirect.BlockClientUserAgent = lc.Bool(strings.TrimSpace(link.BlockedUA) != "")
 	cfg.Redirect.BlockedUserAgents = strings.Split(link.BlockedUA, "\n")

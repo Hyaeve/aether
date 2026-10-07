@@ -23,7 +23,7 @@
 
 ## 必须遵守的记录规范
 
-- 发布推送以 `VERSION` 为准，未指定版本时末位加 1，逢 10 向前进 1（如 `0.1.9` → `0.2.0`、`0.9.9` → `1.0.0`），同步后端、Docker 默认值、前端包版本并推送对应 `v` 标签。当前版本修正为 `v0.2.1`，下次默认发布为 `v0.2.2`。
+- 发布推送以 `VERSION` 为准，未指定版本时末位加 1；末位逢 10 向中间位进 1，中间位逢 100 向首位进 1（如 `0.1.9` → `0.2.0`、`0.9.9` → `0.10.0`、`0.99.9` → `1.0.0`；`0.101.9` 归一为 `1.1.9`），同步后端、Docker 默认值、前端包版本并推送对应 `v` 标签。当前版本为 `v0.2.2`，下次默认发布为 `v0.2.3`。
 
 - 每次新增、修改或删除文件，都必须在本文件追加记录，再向用户交付。
 - 每条记录包含日期、需求、文件路径、关键代码或入口、功能变化、验证结果与未完成项。
@@ -607,3 +607,43 @@
 - 修改 `internal/app/workspace_test.go`：`TestReleaseCheck` 固定测试基准版本并在结束后恢复，确保新版本、同版本和旧版本用例不受发布编号变化影响；首次全量测试发现原用例将 `v0.2.0` 固定视为新版本，已修正。
 - 验证：`go test ./...`、`npm run build`、版本一致性检查及 `git diff --check` 通过；不涉及业务或界面行为，因此未重复浏览器测试。未操作用户配置数据、15151 服务或生成仓库根目录 exe。
 - 发布：使用中文提交和标签说明，补推 `main` 与 `v0.2.1`；结果以 Git 确认为准。
+
+## 2026-10-07：明确中间版本位逢百进位
+
+- 需求：末位逢 10 进 1，中间位逢 100 进 1，`v0.101.9` 归一为 `v1.1.9`。
+- 修改 `README.md`、`AGENTS.md` 的有效发布规则：补充两级不同进制及边界示例，纠正上一条记录中 `0.9.9` → `1.0.0` 的错误解释；历史记录保留，以本条为准。
+- 验证：人工核对进位示例并执行 `git diff --check`；仅文档变更，不重跑业务测试。当前版本仍为 `0.2.1`，本轮不提交或推送，不变更既有标签；此前 GitHub 网络连接失败的推送状态不变。
+
+## 2026-10-07：系统日志加载与虚拟列表性能优化
+
+- 需求：改善系统日志加载慢，确保结构化和原始列表均使用虚拟滚动。
+- 修改 `internal/app/logs.go`、`internal/app/server.go`：日志接口使用只读 `logSnapshot`，按保留时间和数量复制日志，不再每次读取都重写磁盘文件或 JSON 深拷贝全部配置；持久化清理仍由日志写入及设置变更执行。
+- 修改 `internal/app/model.go`、`internal/app/server.go`：新增 `snapshotWithLogLimit`，状态轮询在序列化前仅截取最近 30 条日志供仪表盘展示，避免每 5 秒重复传输全部日志；原完整内部快照行为不变。
+- 修改 `web/src/pages/LogsPage.vue`：日志数据使用浅响应引用，载入时倒序一次；空搜索不拼接全文，结构化固定行高直接计算索引及偏移，不建立全量行高表或观测每行；原始列表保留动态行高虚拟化及完整换行，行高测量改变总高度时保持触底位置。
+- 修改 `web/src/style.css`：日志滚动容器关闭浏览器自动锚定及滚动穿透，避免动态行高与浏览器滚动补偿相互干扰。
+- 修改 `internal/app/logs_test.go`：验证两万条日志读取、保留期限、状态摘要、快照隔离和读取不改写日志文件。新增 `web/tests/logs-virtual.spec.js`：两万条日志双模式虚拟渲染、滚动到底、移动端长行不重叠、筛选和刷新保留测试。
+- 验证：`go test ./...`、`go vet ./...`、`npm run build`、`git diff --check` 通过；4 项 Playwright 测试通过（两万条双模式、仪表盘、初始化完整流程、原有日志筛选与虚拟滚动），检查移动端截图确认原始日志完整换行及触底。原有日志用例单独运行时因依赖前置账号初始化超时，连同初始化用例重跑通过。测试在隔离 15159 服务运行，未测真实 Docker 大日志的加载耗时。
+- 限制：日志接口仍一次返回保留范围内的数据，本轮优化读取及渲染开销，未引入服务端分页。保留先前版本规则文档改动；本轮未要求推送，不提交、不改版本、不操作用户配置及 15151 服务。
+
+## 2026-10-07：已添加存储卡片的本地及 WebDAV 图标比例
+
+- 修改 `web/src/style.css`：仅在 `.storage-card` 内将本地 SVG 和 WebDAV 图标由 27px、32px 调为 44px，DAV 字样同步放大至 11px；保留 48px 图标占位、84px 卡片高度及裸图标样式，不影响侧栏、登录星轨或添加存储窗口。
+- 新增 `web/tests/storage-icons.spec.js`：模拟本地、WebDAV、夸克存储，验证桌面和手机图标尺寸、卡片高度和无横向溢出并截图。
+- 验证：`npm run build`、针对性 Playwright 测试通过，覆盖桌面及手机尺寸；查看桌面截图确认两种图标与云盘图标主体比例接近，卡片布局未改变。本轮不提交推送、不递增版本，保留此前未提交改动。
+
+## 2026-10-07：文件工具工作台、原生离线提交、目录统计与 v0.2.2 发布
+
+- 新增 `internal/app/rename_workbench.go`：规则集读写 `/config/organize/rename-rules.json`，按顺序执行普通查找替换，支持大小写、首次匹配；预览与确认分离，提交校验期望名称和冲突，不覆盖已有项，不支持互换重名，部分失败返回完成数量。禁止操作回收站，规则集随已有配置备份纳入。
+- 新增 `internal/app/directory_size.go`，修改 `internal/app/drivers.go`、`internal/app/server.go`：目录大小统计及 `sizeKnown`，受限递归、取消、云端间隔、共享 TTL/LRU 缓存持久化；列表合并已计算大小。新增鉴权重命名、规则集、大小接口。
+- 新增 `web/src/components/RenameWorkbench.vue`：左侧约三分之二虚拟预览列表，右侧规则添加/排序/删除、规则集保存/应用/删除；确认按钮执行改名。修改 `web/src/pages/FilesPage.vue`：工具箱菜单、刷新及空白取消选中、详情自动统计目录大小并显示列表、保留 F2 单项内联改名。
+- 新增 `internal/app/cloud_offline.go`、`web/src/components/OfflineDownload.vue`：115 Open 原生批量链接和多种子提交，默认当前目录、目录选择、逐项结果。种子上传到目标下的 `Aether种子`，解析后提交全部种子内容；清理本机临时文件，不删除网盘种子。修改 `internal/app/file_create.go` 移除旧 HTTP 代下载，`server.go` 改用原生入口。夸克缺少可核实原生离线协议，入口明确禁用提交，不能宣称完成此项。
+- 修改 `internal/app/mounts.go`、`internal/app/mount_fs.go`：只将本次选择的本地源子目录纳入递归校验，允许云盘/聚合挂载到 `/NetDisk/AetherDrive`；聚合排除与目标重叠的本地池，仍保护系统/配置/数据/非空目录和其他挂载点。修改 `internal/app/mounts_test.go`、`internal/app/file_create_test.go` 同步测试。
+- 新增 `internal/app/link_client_ip.go`，修改 `internal/app/links.go`：默认只信任回环及本机接口地址的转发头，可用 `AETHER_TRUSTED_PROXIES` 指定额外可信代理；复用现有 IPv4/IPv6 多跳校验，不默认信任全内网。NAT 或代理未传来源仍不能恢复客户端地址。
+- 修改 `web/src/pages/LinksPage.vue`、`web/src/style.css`：UA 收窄，上游圆角框，模式固定 48px 胶囊及短文案，链接扩展，请求 IP 标题，刷新移到类型筛选左边；工作台及离线窗口样式。修改 `web/src/components/Icon.vue` 加工具箱图标。
+- 新增 `internal/app/rename_workbench_test.go`、`internal/app/cloud_offline_test.go`：规则顺序/冲突/预览校验/本地执行/持久化、目录缓存恢复与清空、115 URL/BT 模拟协议及 IPv4/IPv6 可信代理。新增 `web/tests/rename-workbench.spec.js`，修改 `web/tests/file-browser.spec.js`、`web/tests/z-links.spec.js`：工具、规则集、多选范围、大小、离线目录、多种子和播放表头回归。
+- 修改 `README.md`、`THIRD_PARTY_NOTICES.md`、`AGENTS.md`：当前行为、协议参考来源与限制；独立实现 115 离线 HTTP 协议，未复制 LitePan 源文件。修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json` 同步 `0.2.2`，工作流仍仅 amd64。
+- 包含此前未提交的日志虚拟化、日志只读快照、图标调整及对应测试（文件详见前两条记录），保留版本规则修订。没有操作用户配置、15151 服务或生成仓库根目录 exe。
+- 验证：`go test ./... -count=1`、`go vet ./...`、`npm run build`、`git diff --check` 通过；修复后完整 18 项 Playwright 回归通过（2.1 分钟），新增工作台/离线测试再跑 2 项通过。查看桌面及手机工作台截图；没有真实网盘、Docker、FUSE 联调，不宣称成功下载或挂载；批量改名不提供跨云端事务回滚。
+- 回归修正：首轮 18 项浏览器测试通过 17 项，存储卡片图标受内联文字基线影响轻微偏离中心；`web/src/style.css` 将图标按钮固定为 48px 居中 flex，不改卡片尺寸。新增规则测试首次断言漏算 `Folder` 内的 `old` 匹配，修正预期后通过。
+- 发布：中文提交并推送 main/v0.2.2，之前 v0.2.1 本地纠正标签一并补推；旧错误编号标签保留。远端连接曾重置，最终结果以 Git 输出为准。
+- 隔离预览：尝试在系统临时目录构建并隐藏启动 15154 预览，但命令被环境策略整体拒绝，未确认新预览已启动；未绕过策略，未修改原 15151 服务。浏览器验证使用临时配置及 15159 测试服务，测试结束已退出。

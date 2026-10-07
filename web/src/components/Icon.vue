@@ -1,5 +1,6 @@
 <script setup>
 import {
+  BriefcaseBusiness,
   FileClock, ListVideo, FileArchive, EllipsisVertical, Copy, FolderInput, GripVertical, Power,
   PanelLeft, Star, List, LayoutGrid, Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-vue-next'
 import { computed } from 'vue'
 const icons = {
+  BriefcaseBusiness,
   FileClock, ListVideo, FileArchive, EllipsisVertical, Copy, FolderInput, GripVertical, Power,
   PanelLeft, Star, List, LayoutGrid, Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,

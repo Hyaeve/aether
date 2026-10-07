@@ -224,9 +224,17 @@ func (s *Store) saveLocked() error {
 }
 
 func (s *Store) snapshot() State {
+	return s.snapshotWithLogLimit(-1)
+}
+
+func (s *Store) snapshotWithLogLimit(limit int) State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	b, _ := json.Marshal(s.state)
+	state := s.state
+	if limit >= 0 && len(state.Logs) > limit {
+		state.Logs = state.Logs[len(state.Logs)-limit:]
+	}
+	b, _ := json.Marshal(state)
 	var out State
 	_ = json.Unmarshal(b, &out)
 	return out

@@ -18,14 +18,15 @@ import (
 )
 
 type File struct {
-	SHA256   string    `json:"sha256,omitempty"`
-	MD5      string    `json:"md5,omitempty"`
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	IsDir    bool      `json:"isDir"`
-	Size     int64     `json:"size"`
-	Modified time.Time `json:"modified"`
-	PickCode string    `json:"pickCode,omitempty"`
+	SizeKnown bool      `json:"sizeKnown,omitempty"`
+	SHA256    string    `json:"sha256,omitempty"`
+	MD5       string    `json:"md5,omitempty"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	IsDir     bool      `json:"isDir"`
+	Size      int64     `json:"size"`
+	Modified  time.Time `json:"modified"`
+	PickCode  string    `json:"pickCode,omitempty"`
 }
 
 type Download struct {

@@ -3,10 +3,52 @@ package app
 import (
 	"encoding/json"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLogSnapshotReadOnlyAndStateSummary(t *testing.T) {
+	a := testApp(t)
+	now := time.Now()
+	a.store.mu.Lock()
+	a.store.state.Logs = []LogEntry{{Time: now.AddDate(0, 0, -20), Message: "expired"}}
+	for i := 0; i < 20000; i++ {
+		a.store.state.Logs = append(a.store.state.Logs, LogEntry{Time: now, Level: "info", Module: "system", Message: "retained"})
+	}
+	a.store.state.Logs[20000].Message = "latest"
+	a.store.mu.Unlock()
+	before, err := os.ReadFile(filepath.Join(a.store.logDir, "system.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs := a.store.logSnapshot()
+	if len(logs) != 20000 || logs[0].Message != "retained" || logs[19999].Message != "latest" {
+		t.Fatal("log snapshot must retain all in-range records")
+	}
+	logs[0].Message = "changed"
+	summary := a.store.snapshotWithLogLimit(30)
+	if len(summary.Logs) != 30 || summary.Logs[29].Message != "latest" {
+		t.Fatal("state summary must only copy recent logs")
+	}
+	summary.Logs[29].Message = "changed"
+	full := a.store.logSnapshot()
+	if full[0].Message != "retained" || full[19999].Message != "latest" {
+		t.Fatal("snapshots must not alias stored logs")
+	}
+	a.store.mu.Lock()
+	a.store.state.Settings.LogMaxEntries = 30000
+	a.store.mu.Unlock()
+	if len(a.store.logSnapshot()) != 20000 {
+		t.Fatal("expired logs must be excluded even below entry limit")
+	}
+	after, err := os.ReadFile(filepath.Join(a.store.logDir, "system.json"))
+	if err != nil || string(before) != string(after) {
+		t.Fatal("reading logs must not rewrite persisted logs", err)
+	}
+}
 
 func TestLogsEndpointAndAuditRedaction(t *testing.T) {
 	a := testApp(t)

@@ -96,6 +96,31 @@ func (s *Store) pruneLogs() {
 	}
 }
 
+// Reading logs must not rewrite the log file or serialize unrelated configuration.
+func (s *Store) logSnapshot() []LogEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	days, max := s.state.Settings.LogDays, s.state.Settings.LogMaxEntries
+	if days <= 0 {
+		days = 15
+	}
+	if max <= 0 {
+		max = 20000
+	}
+	entries := s.state.Logs
+	if len(entries) > max {
+		entries = entries[len(entries)-max:]
+	}
+	cutoff := time.Now().AddDate(0, 0, -days)
+	result := make([]LogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.Time.Before(cutoff) {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
 func logModule(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/api/auth/"), path == "/api/account":

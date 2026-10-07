@@ -133,10 +133,14 @@ func (a *App) validateMount(input *MountConfig) error {
 		protected = append(protected, "/proc", "/sys", "/dev", "/etc", "/usr", "/bin", "/sbin", "/lib", "/run", "/app")
 	}
 	for _, s := range a.store.snapshot().Storages {
-		if s.Type == "local" {
+		if s.Type == "local" && s.ID == input.StorageID {
 			root, err := filepath.EvalSymlinks(s.Config["root"])
 			if err == nil {
-				protected = append(protected, root)
+				source, sourceErr := relative(input.Source)
+				if sourceErr != nil {
+					return sourceErr
+				}
+				protected = append(protected, filepath.Join(root, filepath.FromSlash(source)))
 			}
 		}
 	}

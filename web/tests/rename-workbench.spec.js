@@ -1,0 +1,112 @@
+import { test, expect } from '@playwright/test'
+
+test('toolbox selection, ordered rename rules, saved sets and folder size', async ({ page }, info) => {
+  const storage = { id: 'workbench', type: 'local', name: '本地资料', enabled: true, config: {} }
+  let files = [{ id: '/Old Folder', name: 'Old Folder', isDir: true }, { id: '/old.txt', name: 'old.txt', size: 10, isDir: false }]
+  let previews = [], executed = [], sets = []
+  await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
+  await page.route('**/api/state', r => r.fulfill({ json: { username: 'rename-test', storages: [storage], tasks: [], settings: {}, cache: {}, traffic: {}, logs: [] } }))
+  await page.route('**/api/files?**', r => r.fulfill({ json: files }))
+  await page.route('**/api/files/directory-size', r => {
+    files[0] = { ...files[0], size: 4096, sizeKnown: true }
+    return r.fulfill({ json: files[0] })
+  })
+  await page.route('**/api/files/rename-rules', r => {
+    const method = r.request().method()
+    if (method === 'POST') sets.push({ ...r.request().postDataJSON(), id: 'set1' })
+    if (method === 'DELETE') sets = []
+    return r.fulfill({ json: sets })
+  })
+  await page.route('**/api/files/rename-preview', r => {
+    const input = r.request().postDataJSON()
+    previews.push(input)
+    return r.fulfill({ json: files.filter(f => input.ids.includes(f.id)).map(f => {
+      let newName = f.name
+      for (const rule of input.rules) if (rule.find) newName = newName.replace(new RegExp(rule.find, `${rule.caseSensitive ? '' : 'i'}${rule.firstOnly ? '' : 'g'}`), rule.replace)
+      return { ...f, newName }
+    }) })
+  })
+  await page.route('**/api/files/rename', r => {
+    executed.push(r.request().postDataJSON())
+    files = files.map(f => ({ ...f, name: executed.at(-1).expected.find(i => i.id === f.id)?.newName || f.name }))
+    return r.fulfill({ json: { processed: executed.at(-1).ids.length } })
+  })
+  await page.goto('/files')
+  await page.getByRole('button', { name: 'old.txt', exact: true }).click()
+  await expect(page.locator('.file-row.selected')).toHaveCount(1)
+  await page.getByRole('button', { name: '刷新目录' }).click()
+  await expect(page.locator('.file-row.selected')).toHaveCount(0)
+  await page.getByRole('button', { name: 'old.txt', exact: true }).click()
+  await page.locator('.file-view').click({ position: { x: 300, y: 350 } })
+  await expect(page.locator('.file-row.selected')).toHaveCount(0)
+  await page.getByRole('button', { name: '工具', exact: true }).click()
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+  await expect(page.locator('.rename-heading')).toContainText('2 个项目')
+  await page.getByLabel('查找内容', { exact: true }).fill('old')
+  await page.getByLabel('替换为', { exact: true }).fill('new')
+  await expect(page.locator('.rename-preview-row').first()).toContainText('new Fnewer')
+  expect(executed).toHaveLength(0)
+  await page.getByRole('button', { name: '添加规则', exact: true }).click()
+  await page.getByLabel('查找内容', { exact: true }).nth(1).fill('new')
+  await page.getByLabel('替换为', { exact: true }).nth(1).fill('final')
+  await expect(page.locator('.rename-preview-row').last()).toContainText('final.txt')
+  await page.getByLabel('规则集名称').fill('我的规则')
+  await page.getByRole('button', { name: '保存规则集' }).click()
+  await expect.poll(() => sets.length).toBe(1)
+  await page.locator('.rename-rules').evaluate(el => { el.scrollTop = 0 })
+  await page.screenshot({ path: info.outputPath('rename-desktop.png'), fullPage: true })
+  await page.getByRole('button', { name: '确认重命名', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'final.txt', exact: true })).toBeVisible()
+  expect(executed).toHaveLength(1)
+  await page.getByRole('button', { name: 'final Ffinaler', exact: true }).click({ button: 'right' })
+  await page.getByRole('button', { name: '查看详情' }).click()
+  await expect(page.getByRole('dialog', { name: '文件详情' })).toContainText('4.0 KB')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.file-row').filter({ hasText: 'final Ffinaler' })).toContainText('4.0 KB')
+  await page.getByRole('button', { name: 'final.txt', exact: true }).click()
+  await page.getByRole('button', { name: '工具', exact: true }).click()
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+  await expect(page.locator('.rename-heading')).toContainText('1 个项目')
+  await page.getByRole('button', { name: '选择规则集', exact: true }).click()
+  await page.getByRole('option', { name: '我的规则', exact: true }).click()
+  await expect(page.locator('.rename-rule')).toHaveCount(2)
+  await page.getByRole('button', { name: '删除规则集', exact: true }).click()
+  await expect.poll(() => sets.length).toBe(0)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('.rename-preview-row')).toHaveCount(1)
+  await expect(page.locator('.rename-preview-row')).toContainText('final.txt')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: info.outputPath('rename-mobile.png'), fullPage: true })
+})
+
+test('115 offline supports multiple links, torrents and destination selection', async ({ page }) => {
+  const storage = { id: '115test', type: '115', name: '115', enabled: true, config: {} }
+  let requests = []
+  await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
+  await page.route('**/api/state', r => r.fulfill({ json: { username: 'offline-test', storages: [storage], tasks: [], settings: {}, cache: {}, traffic: {}, logs: [] } }))
+  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '123', name: '下载', isDir: true }] }))
+  await page.route('**/api/files/offline', r => {
+    requests.push({ type: r.request().headers()['content-type'], body: r.request().postData() })
+    return r.fulfill({ json: [{ name: 'one', success: true }, { name: 'two', success: true }] })
+  })
+  await page.goto('/files')
+  await page.getByRole('button', { name: '工具', exact: true }).click()
+  await page.getByRole('menuitem', { name: '离线下载', exact: true }).click()
+  await page.getByLabel('下载链接').fill('https://example.com/one\nmagnet:?xt=urn:btih:test')
+  await page.getByRole('button', { name: '115 / 根目录', exact: true }).click()
+  await page.locator('.source-directory').getByText('下载', { exact: true }).click()
+  await page.getByRole('button', { name: '选择当前目录', exact: true }).click()
+  await page.getByRole('button', { name: '提交下载', exact: true }).click()
+  await expect.poll(() => requests.length).toBe(1)
+  expect(JSON.parse(requests[0].body)).toMatchObject({ parent: '123', urls: ['https://example.com/one', 'magnet:?xt=urn:btih:test'] })
+  await page.getByRole('button', { name: 'BT 下载', exact: true }).click()
+  await page.locator('input[accept=".torrent"]').setInputFiles([
+    { name: 'one.torrent', mimeType: 'application/x-bittorrent', buffer: Buffer.from('test1') },
+    { name: 'two.torrent', mimeType: 'application/x-bittorrent', buffer: Buffer.from('test2') }
+  ])
+  await page.getByRole('button', { name: '提交下载', exact: true }).click()
+  await expect.poll(() => requests.length).toBe(2)
+  expect(requests[1].type).toContain('multipart/form-data')
+  expect(requests[1].body).toContain('one.torrent')
+  expect(requests[1].body).toContain('two.torrent')
+})

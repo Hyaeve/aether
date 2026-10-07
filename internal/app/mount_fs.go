@@ -24,6 +24,17 @@ func mountStorageName(s Storage) string {
 	return s.ID
 }
 
+func (d mountFS) includesStorage(s Storage) bool {
+	if !s.Enabled {
+		return false
+	}
+	if s.Type == "local" {
+		root, err := filepath.EvalSymlinks(s.Config["root"])
+		return err == nil && !pathOverlaps(root, mountTarget(d.config))
+	}
+	return true
+}
+
 func (d mountFS) selectPath(name string) (Storage, string, string, error) {
 	rel, err := relative(name)
 	if err != nil {
@@ -36,7 +47,7 @@ func (d mountFS) selectPath(name string) (Storage, string, string, error) {
 		}
 		parts := strings.SplitN(rel, "/", 2)
 		for _, storage := range d.app.store.snapshot().Storages {
-			if storage.Enabled && mountStorageName(storage) == parts[0] {
+			if d.includesStorage(storage) && mountStorageName(storage) == parts[0] {
 				key, source = storage.ID, rootOf(storage)
 				break
 			}
@@ -61,7 +72,8 @@ func (d mountFS) selectPath(name string) (Storage, string, string, error) {
 
 func (d mountFS) localRoot(s Storage, source string) (*os.Root, error) {
 	real, err := filepath.EvalSymlinks(s.Config["root"])
-	if err != nil || pathOverlaps(real, mountTarget(d.config)) {
+	subtree, sourceErr := relative(source)
+	if err != nil || sourceErr != nil || pathOverlaps(filepath.Join(real, filepath.FromSlash(subtree)), mountTarget(d.config)) {
 		return nil, os.ErrPermission
 	}
 	root, err := os.OpenRoot(real)
@@ -117,7 +129,7 @@ func (d mountFS) OpenFile(ctx context.Context, name string, flag int, perm os.Fi
 		}
 		file := &davFile{ctx: ctx, info: davInfo{File{Name: "/", IsDir: true}}}
 		for _, storage := range d.app.store.snapshot().Storages {
-			if storage.Enabled {
+			if d.includesStorage(storage) {
 				file.entries = append(file.entries, davInfo{File{Name: mountStorageName(storage), IsDir: true}})
 			}
 		}

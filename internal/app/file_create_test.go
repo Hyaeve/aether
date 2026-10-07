@@ -3,8 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -57,15 +55,9 @@ func TestFileCreateUploadAndDownload(t *testing.T) {
 	if err != nil || string(content) != "hello" {
 		t.Fatal(string(content), err)
 	}
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "downloaded") }))
-	defer up.Close()
-	w := request(t, h, "POST", "/api/files/offline", map[string]string{"storageId": s.ID, "parent": "/new", "name": "remote.txt", "url": up.URL}, cookie)
-	if w.Code != 200 {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	content, err = os.ReadFile(filepath.Join(s.Config["root"], "new", "remote.txt"))
-	if err != nil || string(content) != "downloaded" {
-		t.Fatal(string(content), err)
+	w := request(t, h, "POST", "/api/files/offline", map[string]any{"storageId": s.ID, "parent": "/new", "urls": []string{"https://example.com/file"}}, cookie)
+	if w.Code != 400 {
+		t.Fatal("local storage must not pretend to support cloud offline download", w.Code)
 	}
 	var list []File
 	json.Unmarshal(request(t, h, "GET", "/api/files?storage="+s.ID+"&path=/new", nil, cookie).Body.Bytes(), &list)
@@ -108,6 +100,7 @@ func TestMountParentSiblingAllowed(t *testing.T) {
 		t.Fatal("sibling incorrectly blocked", err)
 	}
 	mount.MountPoint = source
+	mount.StorageID = "sibling"
 	if err := a.validateMount(&mount); err == nil {
 		t.Fatal("recursive mount accepted")
 	}

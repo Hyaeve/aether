@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { api, state, date, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
@@ -11,16 +11,23 @@ const modules = { audit: '操作审计', files: '文件与备份', storage: '存
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试' }
 if (!modules[filters.module]) filters.module = 'all'
 if (!levels[filters.level]) filters.level = 'all'
-const entries = ref([]), busy = ref(false), viewport = ref(null), scroll = ref(0), height = ref(500)
-const logs = computed(() => entries.value.filter(l => (filters.level === 'all' || filters.level === l.level) && (filters.module === 'all' || filters.module === l.module) && `${l.message} ${l.module} ${modules[l.module]} ${l.time}`.toLowerCase().includes(filters.query.toLowerCase())).slice().reverse())
+const entries = shallowRef([]), busy = ref(false), viewport = ref(null), scroll = ref(0), height = ref(500)
+const logs = computed(() => {
+  const query = filters.query.toLowerCase()
+  return entries.value.filter(l => (filters.level === 'all' || filters.level === l.level) && (filters.module === 'all' || filters.module === l.module) && (!query || `${l.message} ${l.module} ${modules[l.module]} ${l.time}`.toLowerCase().includes(query)))
+})
 const rowHeights = reactive(new Map())
 const rowNodes = new Map()
 const offsets = computed(() => {
+  if (filters.view !== 'raw') return []
   const result = [0]
-  for (let i = 0; i < logs.value.length; i++) result.push(result[i] + (filters.view === 'raw' ? rowHeights.get(i) || 88 : 44))
+  for (let i = 0; i < logs.value.length; i++) result.push(result[i] + (rowHeights.get(i) || 88))
   return result
 })
+const offsetAt = index => filters.view === 'raw' ? offsets.value[index] : index * 44
+const totalHeight = computed(() => offsetAt(logs.value.length))
 function indexAt(position) {
+  if (filters.view !== 'raw') return Math.min(logs.value.length, Math.max(0, Math.floor(position / 44)))
   let low = 0, high = logs.value.length
   while (low < high) {
     const middle = (low + high) >>> 1
@@ -35,23 +42,29 @@ function setRow(el, index) {
   const previous = rowNodes.get(index)
   if (previous === el) return
   if (previous) rowObserver?.unobserve(previous)
-  if (el) { rowNodes.set(index, el); rowObserver?.observe(el) } else rowNodes.delete(index)
+  if (el && filters.view === 'raw') { rowNodes.set(index, el); rowObserver?.observe(el) } else rowNodes.delete(index)
 }
 function resetRows() { rowHeights.clear(); scroll.value = 0; if (viewport.value) viewport.value.scrollTop = 0 }
 watch(filters, () => { localStorage.setItem(key, JSON.stringify(filters)); resetRows() })
 async function load() {
+  if (busy.value) return
   busy.value = true
-  try { entries.value = (await api('/logs')).map(l => ({ ...l, module: l.module || 'system', level: l.level === 'success' ? 'info' : ['cancelled', 'interrupted'].includes(l.level) ? 'warn' : l.level })); resetRows() }
+  try { entries.value = (await api('/logs')).map(l => ({ ...l, module: l.module || 'system', level: l.level === 'success' ? 'info' : ['cancelled', 'interrupted'].includes(l.level) ? 'warn' : l.level })).reverse(); resetRows() }
   catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 let observer, rowObserver, previousWidth = 0
 onMounted(() => {
   rowObserver = new ResizeObserver(rows => {
+    const atBottom = totalHeight.value > height.value && scroll.value + height.value >= totalHeight.value - 2
+    let changed = false
     for (const row of rows) {
       const index = Number(row.target.dataset.index)
       const size = Math.ceil(row.target.getBoundingClientRect().height)
-      if (rowHeights.get(index) !== size) rowHeights.set(index, size)
+      if (rowHeights.get(index) !== size) { rowHeights.set(index, size); changed = true }
     }
+    if (changed && atBottom) nextTick(() => {
+      if (viewport.value) viewport.value.scrollTop = Math.max(0, totalHeight.value - height.value)
+    })
   })
   observer = new ResizeObserver(([entry]) => {
     height.value = entry.contentRect.height
@@ -72,8 +85,8 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
       <button class="icon-btn" aria-label="刷新日志" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     </div>
     <div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" @scroll="scroll = $event.target.scrollTop">
-      <div :style="{ height: `${offsets.at(-1)}px`, position: 'relative' }">
-        <div :style="{ transform: `translateY(${offsets[start]}px)` }">
+      <div :style="{ height: `${totalHeight}px`, position: 'relative' }">
+        <div :style="{ transform: `translateY(${offsetAt(start)}px)` }">
           <div v-for="(entry, index) in visible" :key="`${filters.view}:${start + index}`" :ref="el => setRow(el, start + index)" :data-index="start + index" :data-level="entry.level" class="log-entry" :class="{ raw: filters.view === 'raw' }">
             <template v-if="filters.view === 'raw'"><strong class="raw-level">{{ entry.level.toUpperCase() }}</strong><code>{{ JSON.stringify(entry) }}</code></template>
             <template v-else><time>{{ date(entry.time) }}</time><span class="log-level" :data-level="entry.level">{{ levels[entry.level] || entry.level }}</span><span class="log-module">{{ modules[entry.module] || '系统' }}</span><span class="log-message">{{ entry.message }}</span></template>

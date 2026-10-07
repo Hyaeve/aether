@@ -48,8 +48,17 @@ func TestMountConfigAndValidation(t *testing.T) {
 		st.Storages = append(st.Storages, Storage{ID: "local-validation", Type: "local", Enabled: true, Config: map[string]string{"root": root}})
 		return nil
 	})
-	if err := a.validateMount(&MountConfig{Name: "recursive", MountPoint: root, Mode: 0755}); err == nil {
+	if err := a.validateMount(&MountConfig{Name: "recursive", StorageID: "local-validation", MountPoint: root, Mode: 0755}); err == nil {
 		t.Fatal("mount over local storage accepted")
+	}
+	aggregate := MountConfig{Name: "aggregate", MountPoint: root, Mode: 0755}
+	if err := a.validateMount(&aggregate); err != nil {
+		t.Fatal("aggregate mount parent should be allowed", err)
+	}
+	fs := mountFS{app: a, config: aggregate}
+	local, _ := a.store.storage("local-validation")
+	if fs.includesStorage(local) {
+		t.Fatal("overlapping local storage must be excluded to avoid recursion")
 	}
 	restored, err := NewStore(a.store.dir)
 	if err != nil || len(restored.snapshot().Mounts) != 1 {

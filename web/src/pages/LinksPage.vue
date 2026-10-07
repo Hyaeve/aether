@@ -15,7 +15,7 @@ const links = ref([]), modal = ref(false), step = ref(1), busy = ref(false), err
 const form = reactive({})
 const menu = ref(null)
 const outcome = ref('all')
-const outcomes = [{ value: 'all', label: '全部类型' }, { value: 'redirect', label: '302 跳转' }, { value: 'proxy', label: '中继' }, { value: 'transcode', label: '音频适配' }, { value: 'passthrough', label: '透传' }, { value: 'local', label: '本地' }, { value: 'error', label: '失败' }, { value: 'unauthorized', label: '未授权' }]
+const outcomes = [{ value: 'all', label: '全部类型' }, { value: 'redirect', label: '302' }, { value: 'proxy', label: '中继' }, { value: 'transcode', label: '适配' }, { value: 'passthrough', label: '透传' }, { value: 'local', label: '本地' }, { value: 'error', label: '失败' }, { value: 'unauthorized', label: '未授权' }]
 const armed = ref(''), dragging = ref(''), dropTarget = ref(''), sorting = ref(false)
 let holdTimer, releaseTimer, suppressClick = false, pointer = null
 const interactive = event => event.target.closest('button, a, input, .rounded-select')
@@ -85,7 +85,7 @@ watch(() => displayed.value.length, () => {
   }
 })
 watch([query, outcome], () => { scrollTop.value = 0; if (playbackScroller.value) playbackScroller.value.scrollTop = 0 })
-const outcomeLabel = e => ({ redirect: '302 跳转', proxy: '中继', transcode: '音频兼容中继', passthrough: '透传上游', local: '本地直读', error: '失败', unauthorized: '未授权' })[e.outcome] || e.outcome
+const outcomeLabel = e => ({ redirect: '302', proxy: '中继', transcode: '适配', passthrough: '透传', local: '本地', error: '失败', unauthorized: '拒绝' })[e.outcome] || e.outcome
 const targetText = e => e.target || e.mediaPath || e.error || e.path || '—'
 const uaText = e => e.effectiveUserAgent && e.effectiveUserAgent !== e.userAgent ? `${e.userAgent || '空'} → ${e.effectiveUserAgent}` : e.userAgent || '空'
 const cacheText = e => e.cacheSource === 'restored' ? '恢复命中' : e.cacheSource === 'hit' || e.cacheHit ? '缓存命中' : '首次获取'
@@ -139,7 +139,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
 <template>
   <div class="link-heading">
     <nav class="content-tabs" aria-label="以太链接栏目"><RouterLink to="/links/manage" :class="{ active: tab === 'manage' }"><Icon name="Waypoints" :size="17" />以链管理</RouterLink><RouterLink to="/links/cache" :class="{ active: tab === 'cache' }"><Icon name="ListVideo" :size="17" />直链缓存</RouterLink></nav>
-    <div v-if="tab === 'cache'" class="playback-toolbar"><RoundedSelect v-model="outcome" label="筛选播放类型" :options="outcomes" /><div class="toolbar-right"><button class="icon-btn" aria-label="刷新播放流水" @click="loadPlayback"><Icon name="RefreshCw" /></button><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div></div></div>
+    <div v-if="tab === 'cache'" class="playback-toolbar"><button class="icon-btn" aria-label="刷新播放流水" @click="loadPlayback"><Icon name="RefreshCw" /></button><RoundedSelect v-model="outcome" label="筛选播放类型" :options="outcomes" /><div class="toolbar-right"><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div></div></div>
   </div>
   <div v-if="tab === 'manage'" class="link-grid">
     <article v-for="link in links" :key="link.id" class="link-card" :data-id="link.id" tabindex="0" :aria-label="link.name" :class="{ 'drag-armed': armed === link.id, dragging: dragging === link.id, 'drop-target': dropTarget === link.id }" :draggable="false" @pointerdown="hold($event, link)" @click="cardClick($event, link)" @keydown="cardKey($event, link)" @dragstart.prevent @contextmenu.prevent.stop="context($event, link)">
@@ -149,10 +149,10 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <button class="add-storage-tile link-add" @click="open()"><Icon name="Plus" :size="28" /><strong>添加以太链接</strong></button>
   </div>
   <section v-else class="link-playback">
-    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:9%" /><col style="width:13%" /><col style="width:11%" /><col /><col style="width:14%" /><col style="width:10%" /><col style="width:10%" /><col style="width:7%" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>结果</th><th>目标</th><th>客户端 IP</th><th>缓存状态</th><th>缓存有效期</th><th>耗时</th></tr></thead><tbody>
+    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:126px" /><col style="width:8%" /><col style="width:9%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:94px" /><col style="width:64px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存有效期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
       <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
-        <td>{{ clock(event.time) }}</td><td :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</td>
+        <td>{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>
         <td><button class="playback-copy playback-pill" :disabled="!event.userAgent" :data-tooltip="uaText(event)" @click="copyValue(event.userAgent)">{{ uaText(event) }}</button></td>
         <td><span class="playback-result" :class="event.outcome">{{ outcomeLabel(event) }}</span></td>
         <td><button class="playback-copy playback-pill" :disabled="!event.target" :data-tooltip="targetText(event)" @click="copyValue(event.target)">{{ targetText(event) }}</button></td>
