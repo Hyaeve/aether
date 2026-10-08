@@ -41,8 +41,20 @@ func (a *App) generateED2K(ctx context.Context, s Storage, f File) ([]byte, erro
 }
 
 func (a *App) generateED2KInfo(ctx context.Context, s Storage, f File) (ED2KInfo, error) {
+	if s.Type == "115" {
+		if f.IsDir || f.Size <= 0 || f.Size > 1<<40 {
+			return ED2KInfo{}, fmt.Errorf("ED2K 源文件大小无效")
+		}
+		download, err := a.download(ctx, s, f.ID, f.PickCode)
+		if err != nil {
+			return ED2KInfo{}, err
+		}
+		in := &davFile{ctx: ctx, info: davInfo{f}, download: download}
+		defer in.Close()
+		return ed2kRemoteInfo(ctx, f, in)
+	}
 	if s.Type != "local" {
-		return ED2KInfo{}, fmt.Errorf("ED2K 计算目前仅支持本地存储")
+		return ED2KInfo{}, fmt.Errorf("ED2K 计算仅支持本地或 115 存储")
 	}
 	rel, err := relative(f.ID)
 	if err != nil {
@@ -77,4 +89,17 @@ func (a *App) generateED2KInfo(ctx context.Context, s Storage, f File) (ED2KInfo
 		return ED2KInfo{}, fmt.Errorf("计算期间文件发生变化")
 	}
 	return ED2KInfo{Name: f.Name, Size: after.Size(), Hash: hash}, nil
+}
+
+func ed2kRemoteInfo(ctx context.Context, f File, reader io.Reader) (ED2KInfo, error) {
+	// Read one extra byte to reject stale sizes instead of publishing an invalid hash.
+	limited := &io.LimitedReader{R: &cancelReader{ctx, reader}, N: f.Size + 1}
+	hash, err := ed2kHash(limited)
+	if err != nil {
+		return ED2KInfo{}, err
+	}
+	if limited.N != 1 {
+		return ED2KInfo{}, fmt.Errorf("ED2K 读取大小与源文件不一致，请刷新目录后重试")
+	}
+	return ED2KInfo{Name: f.Name, Size: f.Size, Hash: hash}, nil
 }

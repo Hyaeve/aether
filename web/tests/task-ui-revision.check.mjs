@@ -87,8 +87,8 @@ test('ED2K binding requires enabled 115 selection and keeps a local source', asy
   const name = await page.getByLabel('任务名称').boundingBox(), binding = await page.getByRole('button', { name: '绑定存储', exact: true }).boundingBox()
   assert.ok(Math.abs(name.y - binding.y) < 3)
   await page.getByRole('button', { name: '选择目录', exact: true }).click()
-  await expect(page.locator('.source-accounts button')).toHaveCount(1)
-  await page.locator('.source-accounts button').click()
+  await expect(page.locator('.source-accounts button')).toHaveCount(2)
+  await page.locator('.source-accounts button').filter({ hasText: '本地源' }).click()
   await page.getByRole('button', { name: '选择当前目录', exact: true }).click()
   await expect(page.getByRole('button', { name: '保存任务', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: '绑定存储', exact: true }).click()
@@ -129,7 +129,7 @@ test('compact cache shows idle and indeterminate running states on desktop and m
   await expect(page.locator('.cache-progress progress')).not.toHaveAttribute('value')
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
-    assert.ok((await page.locator('.cache-progress progress').boundingBox()).height >= 20)
+    assert.ok((await page.locator('.cache-progress progress').boundingBox()).height <= 16)
     assert.ok(await page.locator('.cache-overview').evaluate(el => el.scrollWidth <= el.clientWidth))
     await page.screenshot({ path: path.join(output, `cache-${width}.png`) })
   }

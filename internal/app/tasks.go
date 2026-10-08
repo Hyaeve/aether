@@ -318,11 +318,14 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				continue
 			}
 			suffix := ".strm"
+			if t.Kind == "ed2k" {
+				suffix = ".ed2k.strm"
+			}
 			if t.Kind == "ed2k" && t.ED2KBindingID == "" {
 				suffix = ".ed2k"
 			}
 			if generateCAS {
-				suffix = ".cas"
+				suffix = ".cas.strm"
 			}
 			filename := path.Join(target, taskOutputName(t, s, child, suffix))
 			if outputs[strings.ToLower(filename)] {
@@ -362,11 +365,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 				playbackInfo := info
 				info.PlaybackURL = a.signedStreamURL(streamClaim{Storage: binding.ID, File: f.ID, CAS: &playbackInfo, TaskID: t.ID, RetentionHours: casRetentionHours(t.RetentionHours), Redirect: true})
-				data, err := json.Marshal(info)
-				if err != nil {
-					return err
-				}
-				if err := writeCASOutput(root, filename, []byte(base64.StdEncoding.EncodeToString(data)), t.Mode == "incremental"); err != nil {
+				if err := writeCASOutput(root, filename, []byte(info.PlaybackURL+"\n"), t.Mode == "incremental"); err != nil {
 					return err
 				}
 				count++

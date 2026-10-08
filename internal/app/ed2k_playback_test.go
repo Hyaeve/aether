@@ -317,7 +317,7 @@ func TestED2KBoundGenerationAndNaming(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatal(n, err)
 	}
-	for _, name := range []string{"movie.strm", "disc.ISO.strm"} {
+	for _, name := range []string{"movie.ed2k.strm", "disc.ISO.ed2k.strm"} {
 		b, err := os.ReadFile(filepath.Join(a.outputDir, task.Target, "Series", name))
 		if err != nil {
 			t.Fatal(err)

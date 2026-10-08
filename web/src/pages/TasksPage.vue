@@ -16,7 +16,7 @@ const taskTitle = computed(() => props.kind === 'cas' ? 'CAS' : props.kind === '
 const bindingStorages = computed(() => state.storages.filter(s => s.enabled && ['mobile', 'tianyi'].includes(s.type) && s.config.mode === 'native'))
 const ed2kBindings = computed(() => state.storages.filter(s => s.enabled && s.type === '115'))
 const validED2KBinding = computed(() => ed2kBindings.value.some(s => s.id === form.ed2kBindingId))
-const availableStorages = computed(() => state.storages.filter(s => s.enabled && (props.kind !== 'ed2k' || s.type === 'local') && (props.kind !== 'cas' || s.type === 'local' || (s.type === storage(form.casBindingId)?.type && bindingStorages.value.some(b => b.id === s.id)))))
+const availableStorages = computed(() => state.storages.filter(s => s.enabled && (props.kind !== 'ed2k' || ['local', '115'].includes(s.type)) && (props.kind !== 'cas' || s.type === 'local' || (s.type === storage(form.casBindingId)?.type && bindingStorages.value.some(b => b.id === s.id)))))
 const casStatus = ref(null), casPanel = ref(false)
 async function showCAS() {
   try { casStatus.value = await api('/cas/status'); casPanel.value = true } catch (e) { notify(e.message, true) }

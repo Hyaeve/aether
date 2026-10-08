@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,15 +34,12 @@ func TestLocalCASGeneration(t *testing.T) {
 	if err != nil || count < 1 {
 		t.Fatalf("%d %v", count, err)
 	}
-	output := filepath.Join(a.outputDir, "generated", "Test.MP4.cas")
+	output := filepath.Join(a.outputDir, "generated", "Test.MP4.cas.strm")
 	encoded, err := os.ReadFile(output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, err := decodeCAS(encoded, "Test.MP4.cas")
-	if err != nil {
-		t.Fatal(err)
-	}
+	info := generatedCASClaim(t, encoded)
 	sha := sha256.Sum256(data)
 	mdOriginal := md5.Sum(data)
 	if info.SHA256 != hex.EncodeToString(sha[:]) || info.MD5 != hex.EncodeToString(mdOriginal[:]) || info.Provider != "mobile" || info.Size != int64(len(data)) || info.PlaybackURL == "" {
@@ -64,7 +64,7 @@ func TestLocalCASGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	tianyiOutput, _ := os.ReadFile(output)
-	tianyiInfo, err := decodeCAS(tianyiOutput, "Test.MP4.cas")
+	tianyiInfo := generatedCASClaim(t, tianyiOutput)
 	md := md5.Sum([]byte("updated"))
 	shaUpdated := sha256.Sum256([]byte("updated"))
 	if err != nil || tianyiInfo.Provider != "tianyi" || tianyiInfo.SHA256 != hex.EncodeToString(shaUpdated[:]) || tianyiInfo.MD5 != hex.EncodeToString(md[:]) {
@@ -89,6 +89,26 @@ func TestLocalCASGeneration(t *testing.T) {
 	} else {
 		t.Log("symlink creation unavailable:", err)
 	}
+}
+
+func generatedCASClaim(t *testing.T, content []byte) CASInfo {
+	t.Helper()
+	link := strings.TrimSpace(string(content))
+	u, err := url.Parse(link)
+	if err != nil || u.Scheme != "http" || u.Host == "" || u.Query().Get("sign") == "" || strings.ContainsAny(link, "\r\n") {
+		t.Fatalf("invalid STRM link: %s (%v)", content, err)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claim streamClaim
+	if err = json.Unmarshal(raw, &claim); err != nil || claim.CAS == nil || !claim.Redirect || claim.Storage == "" {
+		t.Fatalf("invalid CAS claim: %s (%v)", raw, err)
+	}
+	info := *claim.CAS
+	info.PlaybackURL = link
+	return info
 }
 
 func TestCloudCASGenerationHashValidation(t *testing.T) {

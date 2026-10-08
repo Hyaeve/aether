@@ -47,12 +47,14 @@ test('local CAS generation and persisted named directory navigation', async ({ p
     const state = await (await page.request.get('/api/state')).json()
     return state.tasks.find(t => t.name === '本地 CAS 哈希')?.status
   }).toBe('success')
-  const output = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'local-cas', 'Arrival.cas'), 'utf8')
-  const info = JSON.parse(Buffer.from(output, 'base64').toString('utf8'))
+  const output = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'local-cas', 'Arrival.cas.strm'), 'utf8')
+  const link = new URL(output.trim())
+  const claim = JSON.parse(Buffer.from(link.pathname.replace('/stream/', ''), 'base64url').toString('utf8'))
+  const info = claim.cas
   expect(info.sha256).toBe(createHash('sha256').update('test-video-content').digest('hex'))
   expect(info.provider).toBe('mobile')
   expect(info.md5).toBe(createHash('md5').update('test-video-content').digest('hex'))
-  expect(info.playback_url).toContain('/stream/')
+  expect(link.searchParams.get('sign')).toBeTruthy()
   await page.reload()
   await row.getByRole('button', {name:'任务操作 本地 CAS 哈希',exact:true}).click()
   await row.getByRole('button', { name: '编辑任务', exact: true }).click()

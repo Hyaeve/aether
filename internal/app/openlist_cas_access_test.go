@@ -106,11 +106,11 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 	if _, err := a.executeTask(context.Background(), task, local); err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(a.outputDir, "cas", "film.mp4.cas")
+	file := filepath.Join(a.outputDir, "cas", "film.mp4.cas.strm")
 	content, _ := os.ReadFile(file)
-	info, err := decodeCAS(content, "film.mp4.cas")
-	if err != nil || info.MD5 == "" || info.SHA256 == "" {
-		t.Fatal(info, err)
+	info := generatedCASClaim(t, content)
+	if info.MD5 == "" || info.SHA256 == "" {
+		t.Fatal(info)
 	}
 	pointer, err := linkstrm.Read(file, nil)
 	if err != nil || pointer.URL != info.PlaybackURL {
@@ -165,7 +165,8 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 	writer.WriteField("storageId", binding.ID)
 	writer.WriteField("parent", "/")
 	part, _ := writer.CreateFormFile("cas", "film.mp4.cas")
-	part.Write(content)
+	legacy, _ := json.Marshal(info)
+	part.Write([]byte(base64.StdEncoding.EncodeToString(legacy)))
 	writer.Close()
 	req := httptest.NewRequest("POST", "/api/files/offline", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())

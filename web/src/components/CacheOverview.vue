@@ -47,7 +47,7 @@ dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
 .cache-progress { min-width: 0; }
 .cache-progress strong { font-size: 14px; }
 .cache-progress-item > span, .cache-progress small { display: block; overflow-wrap: anywhere; margin-top: 4px; }
-.cache-progress-track { position: relative; height: 22px; margin-top: 6px; overflow: hidden; border-radius: 4px; background: color-mix(in srgb,var(--muted) 14%,var(--surface)); }
+.cache-progress-track { position: relative; height: 16px; margin-top: 6px; overflow: hidden; border-radius: 4px; background: color-mix(in srgb,var(--muted) 14%,var(--surface)); }
 .cache-progress progress { display: block; appearance: none; width: 100%; height: 100%; border: 0; opacity: .3; accent-color: var(--primary); }
 .cache-progress progress::-webkit-progress-bar { background: transparent; }
 .cache-progress progress::-webkit-progress-value { background: var(--primary); }

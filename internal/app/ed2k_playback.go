@@ -31,8 +31,8 @@ func (i ED2KInfo) URI() string {
 
 func (a *App) validateED2KBinding(t Task, source Storage) (Storage, error) {
 	s, err := a.store.storage(t.ED2KBindingID)
-	if t.Kind != "ed2k" || source.ID != t.StorageID || source.Type != "local" || !source.Enabled || err != nil || !s.Enabled || s.Type != "115" {
-		return Storage{}, errors.New("ED2K 需要本地源和已启用的 115 绑定存储")
+	if t.Kind != "ed2k" || source.ID != t.StorageID || (source.Type != "local" && source.Type != "115") || !source.Enabled || err != nil || !s.Enabled || s.Type != "115" {
+		return Storage{}, errors.New("ED2K 需要本地或 115 源和已启用的 115 绑定存储")
 	}
 	return s, nil
 }
