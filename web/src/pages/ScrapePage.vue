@@ -15,7 +15,7 @@ const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成'
 const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
-const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 292, grid: ref(true) })
+const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 292, grid: ref(true), window: true })
 watch([query, status, task], reset)
 const candidateQuery = ref(''), candidateBusy = ref(false), candidateError = ref('')
 let alive = true, timer, request = 0, candidateRequest = 0
@@ -70,9 +70,16 @@ async function saveMatch() {
     matching.value = null; await load(); notify('匹配已保存')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-watch(task, load)
-watch(tasks, options => {
-  if (!options.some(option => option.value === task.value)) task.value = options[0]?.value || ''
+const preferenceKey = computed(() => `aether-scrape-task:${state.username || ''}`)
+watch(task, value => {
+  if (value) { try { localStorage.setItem(preferenceKey.value, value) } catch {} }
+  load()
+})
+watch([tasks, preferenceKey], ([options, key], previous) => {
+  if (!options.length) { task.value = ''; return }
+  let saved = ''
+  try { saved = localStorage.getItem(preferenceKey.value) || '' } catch {}
+  if (previous?.[1] !== key || !options.some(option => option.value === task.value)) task.value = options.some(option => option.value === saved) ? saved : options[0].value
 }, { immediate: true })
 watch(() => state.tasks.find(t => t.id === task.value)?.status, (current, previous) => {
   if (previous === 'running' && current !== 'running') load()
@@ -123,7 +130,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     <label>TMDB ID<input v-model="match.tmdb" type="number" min="1" required /></label></div><footer class="modal-footer"><button class="btn primary" :disabled="busy || !match.tmdb">确认匹配</button></footer></form></Modal>
 </template>
 <style scoped>
-.scrape-panel { height: calc(100dvh - 180px); min-height: 320px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.scrape-panel { min-height: 320px; display: flex; flex-direction: column; background: var(--surface); }
 .scrape-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px; }
 .scrape-toolbar > .rounded-select:first-child { width: 220px; }
 .scrape-toolbar > .rounded-select:nth-child(2) { width: 130px; }
@@ -152,7 +159,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-status.error strong { color: var(--danger); }
 .scrape-actions { display: flex; gap: 3px; position: absolute; right: 5px; top: 146px; padding: 2px; border-radius: 6px; background: var(--surface); }
 .scrape-actions :deep(button) { width: 30px; height: 30px; }
-.scrape-body { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; }
+.scrape-body { min-height: 0; overflow-anchor: none; }
 .scrape-body::-webkit-scrollbar { display: none; }
 .scrape-panel > footer { padding: 8px 14px; color: var(--muted); font-size: 12px; }
 .scrape-settings { display: grid; gap: 16px; }

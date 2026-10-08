@@ -27,9 +27,16 @@ type PluginConfig struct {
 	Token    string `json:"token"`
 }
 type LibraryNotice struct {
-	ID   string    `json:"id"`
-	Name string    `json:"name"`
-	Time time.Time `json:"time"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Time      time.Time `json:"time"`
+	MediaType string    `json:"mediaType,omitempty"`
+	Series    string    `json:"series,omitempty"`
+	SeriesID  string    `json:"seriesId,omitempty"`
+	ServerID  string    `json:"serverId,omitempty"`
+	Season    *int      `json:"season,omitempty"`
+	Episodes  []int     `json:"episodes,omitempty"`
+	ItemIDs   []string  `json:"itemIds,omitempty"`
 }
 
 func pluginDefaults(kind string, p PluginConfig) PluginConfig {
@@ -366,11 +373,19 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Event string `json:"Event"`
-		Item  struct {
-			ID   string `json:"Id"`
-			Name string `json:"Name"`
-			Type string `json:"Type"`
+		Event  string `json:"Event"`
+		Server struct {
+			ID string `json:"Id"`
+		} `json:"Server"`
+		Item struct {
+			ID         string `json:"Id"`
+			Name       string `json:"Name"`
+			Type       string `json:"Type"`
+			SeriesName string `json:"SeriesName"`
+			SeriesID   string `json:"SeriesId"`
+			Season     *int   `json:"ParentIndexNumber"`
+			Episode    *int   `json:"IndexNumber"`
+			End        *int   `json:"IndexNumberEnd"`
 		} `json:"Item"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&input) != nil {
@@ -387,18 +402,37 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inserted := false
+	notice := LibraryNotice{ID: id(), Name: name, Time: time.Now(), MediaType: strings.ToLower(input.Item.Type), Series: strings.TrimSpace(input.Item.SeriesName), SeriesID: input.Item.SeriesID, ServerID: input.Server.ID, Season: input.Item.Season}
+	if len(notice.Series) > 1000 || len(notice.SeriesID) > 256 || len(input.Item.ID) > 256 || len(notice.ServerID) > 256 {
+		fail(w, 400, errors.New("通知字段过长"))
+		return
+	}
+	if notice.Season != nil && (*notice.Season < 0 || *notice.Season > 10000) {
+		fail(w, 400, errors.New("季数无效"))
+		return
+	}
+	if input.Item.ID != "" {
+		notice.ItemIDs = []string{input.Item.ID}
+	}
+	if notice.MediaType == "episode" && input.Item.Episode != nil {
+		start, end := *input.Item.Episode, *input.Item.Episode
+		if input.Item.End != nil {
+			end = *input.Item.End
+		}
+		if start < 0 || end < start || end > 100000 || end-start >= 1000 {
+			fail(w, 400, errors.New("集数范围无效"))
+			return
+		}
+		for n := start; n <= end; n++ {
+			notice.Episodes = append(notice.Episodes, n)
+		}
+	}
 	err := a.store.update(func(st *State) error {
 		current := st.Plugins["emby"]
 		if !current.Enabled || current.Token != p.Token {
 			return errors.New("通知入口配置已更改")
 		}
-		for _, n := range st.LibraryNotices {
-			if n.Name == name && time.Since(n.Time) < time.Minute {
-				return nil
-			}
-		}
-		st.LibraryNotices = append(st.LibraryNotices, LibraryNotice{ID: id(), Name: name, Time: time.Now()})
-		inserted = true
+		inserted = mergeLibraryNotice(st, notice)
 		if len(st.LibraryNotices) > 50 {
 			st.LibraryNotices = st.LibraryNotices[len(st.LibraryNotices)-50:]
 		}
@@ -409,7 +443,7 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if inserted {
-		a.store.event("info", "links", "Emby 入库："+name)
+		a.store.event("info", "links", "Emby 入库："+libraryNoticeDescription(notice))
 	}
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }

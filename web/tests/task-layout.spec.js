@@ -1,10 +1,16 @@
 import { test, expect } from '@playwright/test'
 
 test('task rows have paired layout, scan times, direct actions and toggle feedback', async ({ page }, info) => {
-  const tasks = [1, 2].map(id => ({ id: `${id}`, name: `任务 ${id}`, kind: 'strm', storageId: 'local', enabled: true, status: 'success', processed: 1, lastRun: '2026-10-08T01:00:00Z' }))
+  const tasks = [1, 2].map(id => ({ id: `${id}`, name: `任务 ${id}`, kind: 'strm', storageId: 'local', enabled: true, status: 'success', processed: 1, message: '生成完成：1 个文件', lastRun: '2026-10-08T01:00:00Z' }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { storages: [{ id: 'local', name: '本机', type: 'local', enabled: true }], tasks, settings: {}, traffic: {}, cache: {} } }))
   await page.route('**/api/tasks/**', r => {
+    if (r.request().url().endsWith('/reorder')) {
+      const { id, target } = r.request().postDataJSON()
+      const from = tasks.findIndex(t => t.id === id), to = tasks.findIndex(t => t.id === target)
+      tasks.splice(to, 0, tasks.splice(from, 1)[0])
+      return r.fulfill({ json: { ok: true } })
+    }
     const [, , id, action] = new URL(r.request().url()).pathname.split('/').slice(1)
     const task = tasks.find(t => t.id === id)
     if (r.request().method() === 'PUT') Object.assign(task, r.request().postDataJSON())
@@ -17,7 +23,21 @@ test('task rows have paired layout, scan times, direct actions and toggle feedba
   const first = await rows.nth(0).boundingBox(), second = await rows.nth(1).boundingBox()
   expect(first.y).toBe(second.y)
   expect(first.x + first.width).toBeLessThan(second.x)
-  await expect(rows.first()).toContainText('最后扫描')
+  await expect(rows.first()).not.toContainText('最后扫描')
+  await expect(rows.first().locator('time')).toHaveText(/^10-08 \d{2}:\d{2}:\d{2}$/)
+  await rows.first().locator('.task-last-scan').hover()
+  await expect(rows.first().locator('.task-result')).toBeVisible()
+  await expect(rows.first().locator('.task-result')).toHaveText('生成完成：1 个文件')
+  await expect(rows.first().locator('time')).toBeHidden()
+  await page.mouse.move(0, 0)
+  await expect(rows.first().locator('time')).toBeVisible()
+  await rows.first().dragTo(rows.last())
+  await expect(rows.first()).toHaveAttribute('aria-label', '任务 2')
+  await page.reload()
+  await expect(rows.first()).toHaveAttribute('aria-label', '任务 2')
+  await rows.first().focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(rows.first()).toHaveAttribute('aria-label', '任务 1')
   await page.getByRole('button', { name: '停用任务 任务 1', exact: true }).click()
   await expect(page.locator('.toast-stack')).toContainText('已停用任务 任务 1')
   await page.getByRole('button', { name: '启用任务 任务 1', exact: true }).click()

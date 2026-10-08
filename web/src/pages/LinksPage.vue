@@ -156,7 +156,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:112px" /><col style="width:10%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:96px" /><col style="width:72px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
       <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
-        <td>{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>
+        <td :data-tooltip="new Date(event.time).toLocaleString('zh-CN', { hour12: false })" data-tooltip-always tabindex="0">{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>
         <td><button class="playback-copy playback-pill" :disabled="!event.userAgent" :data-tooltip="uaText(event)" @click="copyValue(event.userAgent)">{{ uaText(event) }}</button></td>
         <td><span class="playback-result" :class="event.outcome">{{ outcomeLabel(event) }}</span></td>
         <td><button class="playback-copy playback-pill" :disabled="!event.target" :data-tooltip="targetText(event)" @click="copyValue(event.target)">{{ targetText(event) }}</button></td>

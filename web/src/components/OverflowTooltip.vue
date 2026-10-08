@@ -17,14 +17,14 @@ function show(event) {
   if (!el) return
   const value = el.dataset.tooltip || el.textContent
   const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight
-  if (!value || !clipped) return
+  if (!value || (!clipped && !el.hasAttribute('data-tooltip-always'))) return
   hide(); target = el
   const r = el.getBoundingClientRect()
   pointerX = event.clientX ?? r.left; pointerY = event.clientY ?? r.bottom
   timer = setTimeout(() => {
     text.value = value
     position()
-  }, 350)
+  }, el.hasAttribute('data-tooltip-always') ? 600 : 350)
 }
 function out(event) { if (target && !target.contains(event.relatedTarget)) hide() }
 function key(event) { if (event.key === 'Escape') hide() }

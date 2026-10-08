@@ -21,13 +21,14 @@ func startNativeFuse(a *App, config MountConfig) (fuseMountServer, error) {
 		UID: uint32(config.UID), GID: uint32(config.GID),
 		EntryTimeout: &timeout, AttrTimeout: &timeout,
 		MountOptions: fuse.MountOptions{
-			FsName: "aether:" + config.Name, Name: "aether",
+			Options: []string{"default_permissions"},
+			FsName:  "aether:" + config.Name, Name: "aether",
 			AllowOther: true, DirectMount: true, DisableXAttrs: true,
 			MaxWrite: 1024 * 1024, MaxReadAhead: 1024 * 1024,
 		},
 	}
 	if config.ReadOnly {
-		options.Options = []string{"ro"}
+		options.Options = append(options.Options, "ro")
 	}
 	return fs.Mount(mountTarget(config), &nativeFuseNode{backend: mountFS{app: a, config: config}}, options)
 }
@@ -40,6 +41,46 @@ type nativeFuseNode struct {
 }
 
 func (n *nativeFuseNode) name() string { return "/" + n.Path(nil) }
+
+// The kernel checks configured modes, including supplementary groups, through
+// default_permissions. Keep read-only enforcement here for direct callbacks too.
+func (n *nativeFuseNode) Access(ctx context.Context, mask uint32) syscall.Errno {
+	if mask & ^uint32(7) != 0 {
+		return syscall.EINVAL
+	}
+	if mask&2 != 0 && n.backend.config.ReadOnly {
+		return syscall.EROFS
+	}
+	_, err := n.backend.Stat(ctx, n.name())
+	return fuseErr(err)
+}
+
+// Cloud writes require local staging; report that real capacity, not a zero volume
+// or a made-up cloud quota. Local pools report their backing filesystem.
+func (n *nativeFuseNode) Statfs(ctx context.Context, out *fuse.StatfsOut) syscall.Errno {
+	location := n.backend.app.dataDir
+	s, source, _, err := n.backend.selectPath(n.name())
+	if err != nil {
+		return fuseErr(err)
+	}
+	if s.Type == "local" {
+		root, err := n.backend.localRoot(s, source)
+		if err != nil {
+			return fuseErr(err)
+		}
+		location = root.Name()
+		defer root.Close()
+	}
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(location, &stat); err != nil {
+		return fuseErr(err)
+	}
+	out.FromStatfsT(&stat)
+	if n.backend.config.ReadOnly {
+		out.Bavail = 0
+	}
+	return 0
+}
 
 func fuseErr(err error) syscall.Errno {
 	switch {
@@ -157,6 +198,7 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 	var file webdav.File
 	var staged *cloudWriteFile
 	var err error
+	fileContext := context.WithValue(n.backend.app.ctx, transferOwnedKey{}, true)
 	if write {
 		s, source, rel, e := n.backend.selectPath(n.name())
 		if e != nil {
@@ -167,7 +209,7 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 			if err == nil {
 				file = staged.File
 				if flags&syscall.O_TRUNC == 0 {
-					old, openErr := n.backend.OpenFile(ctx, n.name(), os.O_RDONLY, 0)
+					old, openErr := n.backend.OpenFile(fileContext, n.name(), os.O_RDONLY, 0)
 					if openErr == nil {
 						_, err = io.Copy(staged.File, old)
 						old.Close()
@@ -181,15 +223,22 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 				os.Remove(staged.File.Name())
 			}
 		} else {
-			file, err = n.backend.OpenFile(n.backend.app.ctx, n.name(), int(flags)&^syscall.O_APPEND, os.FileMode(n.backend.config.Mode&0666))
+			file, err = n.backend.OpenFile(fileContext, n.name(), int(flags)&^syscall.O_APPEND, os.FileMode(n.backend.config.Mode&0666))
 		}
 	} else {
-		file, err = n.backend.OpenFile(n.backend.app.ctx, n.name(), os.O_RDONLY, 0)
+		file, err = n.backend.OpenFile(fileContext, n.name(), os.O_RDONLY, 0)
 	}
 	if err != nil {
+		n.backend.app.store.event("error", "storage", "FUSE 打开文件失败："+n.name()+"："+err.Error())
+		p := n.backend.app.beginTransfer(context.WithValue(ctx, transferSourceKey{}, "FUSE"), map[bool]string{true: "upload", false: "download"}[write], Storage{Name: n.backend.config.Name}, n.name(), 0)
+		p.finish(err)
 		return nil, 0, fuseErr(err)
 	}
 	handle := &nativeFuseHandle{node: n, file: file, staged: staged, writable: write, dirty: write && flags&(syscall.O_CREAT|syscall.O_TRUNC) != 0}
+	{
+		s, _, _, _ := n.backend.selectPath(n.name())
+		handle.progress = n.backend.app.beginTransfer(context.WithValue(ctx, transferSourceKey{}, "FUSE"), map[bool]string{true: "upload", false: "download"}[write], s, n.name(), 0)
+	}
 	if write {
 		n.writer = handle
 	}
@@ -358,6 +407,7 @@ type nativeFuseHandle struct {
 	dirty      bool
 	offset     int64
 	positioned bool
+	progress   *transferProgress
 }
 
 func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fuse.ReadResult, syscall.Errno) {
@@ -375,8 +425,11 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 		}
 	}
 	n, err := h.file.Read(data)
+	h.progress.add(n)
 	h.offset, h.positioned = off+int64(n), true
 	if err != nil && err != io.EOF {
+		h.progress.finish(err)
+		h.node.backend.app.store.event("error", "storage", "FUSE 读取失败："+h.node.name()+"："+err.Error())
 		return nil, fuseErr(err)
 	}
 	return fuse.ReadResultData(data[:n]), 0
@@ -395,6 +448,10 @@ func (h *nativeFuseHandle) Write(ctx context.Context, data []byte, off int64) (u
 		return 0, fuseErr(err)
 	}
 	n, err := h.file.Write(data)
+	h.progress.add(n)
+	if err != nil {
+		h.progress.finish(err)
+	}
 	h.offset, h.positioned = off+int64(n), true
 	h.dirty = h.dirty || n > 0
 	return uint32(n), fuseErr(err)
@@ -415,6 +472,7 @@ func (h *nativeFuseHandle) Flush(ctx context.Context) syscall.Errno {
 		f := h.staged
 		err := f.publish(ctx)
 		if err != nil {
+			h.progress.finish(err)
 			f.app.store.event("error", "storage", "FUSE 上传失败，暂存保留于 "+f.File.Name()+"："+err.Error())
 			return fuseErr(err)
 		}
@@ -436,6 +494,11 @@ func (h *nativeFuseHandle) Release(_ context.Context) syscall.Errno {
 		return 0
 	}
 	err := h.file.Close()
+	if h.dirty {
+		h.progress.finish(syscall.EIO)
+	} else {
+		h.progress.finish(err)
+	}
 	h.file = nil
 	if h.node.writer == h {
 		h.node.writer = nil

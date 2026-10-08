@@ -1,5 +1,11 @@
 # Protocol References
 
+## TMDB Logo
+
+The TMDB settings button references the official TMDB blue-square SVG supplied
+by the user, served from `www.themoviedb.org`. The logo remains the property of
+TMDB and does not imply endorsement. No logo source is bundled or relicensed.
+
 ## Embedded Go-FUSE
 
 Aether embeds `github.com/hanwen/go-fuse/v2` v2.11.0 for Linux mounts.

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, useId } from 'vue'
 import Icon from './Icon.vue'
-const props = defineProps({ modelValue: String, label: String, placeholder: { type: String, default: '' }, disabled: Boolean, options: { type: Array, required: true } })
+const props = defineProps({ modelValue: String, label: String, placeholder: { type: String, default: '' }, disabled: Boolean, upward: Boolean, options: { type: Array, required: true } })
 const emit = defineEmits(['update:modelValue'])
 const root = ref(null), trigger = ref(null), opened = ref(false), active = ref(0)
 const id = useId()
@@ -29,7 +29,7 @@ onMounted(() => document.addEventListener('pointerdown', outside))
 onUnmounted(() => document.removeEventListener('pointerdown', outside))
 </script>
 <template>
-  <div ref="root" class="rounded-select">
+  <div ref="root" class="rounded-select" :class="{ 'opens-up': upward }">
     <button ref="trigger" type="button" class="rounded-select-trigger" :disabled="disabled || !options.length" :aria-label="label" aria-haspopup="listbox" :aria-expanded="opened" :aria-controls="id" @click="opened ? close() : show()" @keydown.down.prevent="show" @keydown.up.prevent="show"><span class="select-label"><Icon v-if="selected?.icon" :name="selected.icon" :size="15" />{{ selected?.label || placeholder }}</span><Icon name="ChevronDown" :size="16" :class="{ expanded: opened }" /></button>
     <Transition name="select-popup">
       <div v-if="opened" :id="id" role="listbox" :aria-label="`${label}选项`" :aria-activedescendant="`${id}-${active}`" tabindex="-1" class="rounded-select-popup" @keydown="keydown">
@@ -41,4 +41,5 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside))
 <style scoped>
 .select-label { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .select-label svg { flex-shrink: 0; }
+.opens-up .rounded-select-popup { top: auto; bottom: calc(100% + 6px); transform-origin: bottom; }
 </style>

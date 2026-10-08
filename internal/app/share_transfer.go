@@ -24,16 +24,20 @@ type shareEntry struct {
 }
 
 type sharePreview struct {
-	Owner   [32]byte
-	Config  [32]byte
-	Storage string
-	Code    string
-	Pass    string
-	Token   string
-	Items   []shareEntry
-	Expires time.Time
-	Used    bool
-	TaskID  string
+	Owner     [32]byte
+	Config    [32]byte
+	Storage   string
+	Code      string
+	Pass      string
+	Token     string
+	Items     []shareEntry
+	Expires   time.Time
+	Used      bool
+	TaskID    string
+	Batches   []shareBatch
+	Next      int
+	BatchBusy bool
+	Parent    string
 }
 
 var shareURLPattern = regexp.MustCompile(`https?://[^\s<>，。]+`)
@@ -188,6 +192,9 @@ func shareRequest(ctx context.Context, s Storage, method, address string, body a
 }
 
 func (a *App) readShare(ctx context.Context, s Storage, code, pass string) (string, []shareEntry, error) {
+	return a.readShareAt(ctx, s, code, pass, "root")
+}
+func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent string) (string, []shareEntry, error) {
 	items := []shareEntry{}
 	token := ""
 	if s.Type == "quark" {
@@ -279,7 +286,7 @@ func (a *App) readShare(ctx context.Context, s Storage, code, pass string) (stri
 					Dirs  []entry `json:"caLst"`
 				} `json:"data"`
 			}
-			body := map[string]any{"getOutLinkInfoReq": map[string]any{"account": account, "linkID": code, "passwd": pass, "pCaID": "root", "caSrt": 0, "coSrt": 0, "srtDr": 1, "bNum": page*100 + 1, "eNum": (page + 1) * 100}}
+			body := map[string]any{"getOutLinkInfoReq": map[string]any{"account": account, "linkID": code, "passwd": pass, "pCaID": parent, "caSrt": 0, "coSrt": 0, "srtDr": 1, "bNum": page*100 + 1, "eNum": (page + 1) * 100}}
 			if err := shareRequest(ctx, s, "POST", mobileShareBase+"IOutLink/getOutLinkInfoV6", body, &result); err != nil {
 				return "", nil, err
 			}
@@ -329,6 +336,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		Preview   string   `json:"preview"`
 		Parent    string   `json:"parent"`
 		IDs       []string `json:"ids"`
+		Batch     int      `json:"batch"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -344,6 +352,10 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("请选择 115、夸克或原生移动个人云存储"))
 		return
 	}
+	if r.PathValue("action") == "batch" {
+		a.saveShareBatch(w, r, ctx, s, in.Preview, in.Parent, in.Batch)
+		return
+	}
 	if r.PathValue("action") == "preview" {
 		provider, code, pass, err := parseShareLink(in.URL, in.Password)
 		if err != nil {
@@ -355,6 +367,11 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		token, items, err := a.readShare(ctx, s, code, pass)
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		batches, err := a.planShare(ctx, s, code, pass, items)
 		if err != nil {
 			fail(w, 400, err)
 			return
@@ -374,9 +391,9 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			fail(w, 429, errors.New("分享预览过多，请稍后再试"))
 			return
 		}
-		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Items: items, Expires: time.Now().Add(10 * time.Minute)}
+		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Items: items, Batches: batches, Expires: time.Now().Add(10 * time.Minute)}
 		a.shareMu.Unlock()
-		jsonResponse(w, 200, map[string]any{"preview": key, "items": items})
+		jsonResponse(w, 200, map[string]any{"preview": key, "items": items, "batches": len(batches)})
 		return
 	}
 	if r.PathValue("action") != "save" {
@@ -404,6 +421,11 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			if result.Data.Status == 2 {
 				status, message = "completed", "网盘已完成转存"
 				a.cache.clear()
+				a.shareMu.Lock()
+				if p.TaskID == task {
+					p.TaskID = ""
+				}
+				a.shareMu.Unlock()
 			}
 			if result.Data.Status == 3 {
 				status, message = "failed", "网盘转存失败，请检查账号权限、容量及分享有效性"
@@ -416,7 +438,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	a.shareMu.Lock()
 	p := a.sharePreviews[in.Preview]
-	if p == nil || p.Used || p.Owner != authorizationOwner(r) || p.Storage != s.ID || p.Config != shareConfig(s) || time.Now().After(p.Expires) {
+	if p == nil || p.Used || p.Next > 0 || p.BatchBusy || p.Owner != authorizationOwner(r) || p.Storage != s.ID || p.Config != shareConfig(s) || time.Now().After(p.Expires) {
 		a.shareMu.Unlock()
 		fail(w, 409, errors.New("预览已失效或已提交，请重新解析"))
 		return
@@ -454,6 +476,10 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		names[item.Name] = true
 	}
 	for _, item := range chosen {
+		if nativeMobile(s) && item.IsDir {
+			fail(w, 400, errors.New("移动分享目录须使用分批转存"))
+			return
+		}
 		if names[item.Name] {
 			fail(w, 409, errors.New("目标目录或选择中有同名项目，请更换目录或调整选择"))
 			return
@@ -470,7 +496,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.shareMu.Lock()
-	if p.Used {
+	if p.Used || p.Next > 0 || p.BatchBusy {
 		a.shareMu.Unlock()
 		fail(w, 409, errors.New("此预览已经提交"))
 		return

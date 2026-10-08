@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { captureScreenshot } from './helpers/screenshot.js'
 
 async function workspace(page) {
   await page.route('**/api/plugins/*', r => r.fulfill({ json: { enabled: false, token: '' } }))
@@ -20,10 +21,10 @@ test('real cache overview and explicit OpenList STRM source', async ({ page }, t
   await expect(page.locator('.cache-progress')).toContainText('已缓存 42 个目录')
   for (const theme of ['light', 'dark']) {
     await page.evaluate(t => document.documentElement.dataset.theme = t, theme)
-    await page.screenshot({ path: testInfo.outputPath(`cache-${theme}.png`) })
+    await captureScreenshot(page, { path: testInfo.outputPath(`cache-${theme}.png`) })
   }
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.screenshot({ path: testInfo.outputPath('cache-mobile.png') })
+  await captureScreenshot(page, { path: testInfo.outputPath('cache-mobile.png') })
   expect(await page.locator('.cache-overview').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/tasks/strm')
@@ -48,13 +49,14 @@ test('real cache overview and explicit OpenList STRM source', async ({ page }, t
 
 test('Quark takeover binds once by QR and toggles from its icon', async ({ page }, testInfo) => {
   await workspace(page)
-  let bindings = [], enabled = true
+  let bindings = [], enabled = true, authorize = false
   await page.route('**/api/quark-takeover', r => {
     if (r.request().method() === 'PUT') enabled = r.request().postDataJSON().enabled
     return r.fulfill({ json: { enabled, bindings, broker: 'https://broker.example' } })
   })
   await page.route('**/api/quark-takeover/quark/qr', r => r.fulfill({ json: { session: 'scan', image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=' } }))
   await page.route('**/api/quark-takeover/quark/poll', r => {
+    if (!authorize) return r.fulfill({ json: { authorized: false } })
     bindings = [{ id: 'quark', name: 'Quark', nickname: '同账号', enabled: true, valid: true }]
     return r.fulfill({ json: { authorized: true } })
   })
@@ -65,7 +67,7 @@ test('Quark takeover binds once by QR and toggles from its icon', async ({ page 
   await expect(card.locator('img')).toHaveAttribute('src', '/providers/quark.png')
   for (const theme of ['light', 'dark']) {
     await page.evaluate(t => document.documentElement.dataset.theme = t, theme)
-    await page.screenshot({ path: testInfo.outputPath(`quark-card-${theme}.png`) })
+    await captureScreenshot(page, { path: testInfo.outputPath(`quark-card-${theme}.png`) })
   }
   await card.getByText('夸克 STRM 接管', { exact: true }).click()
   await page.getByRole('button', { name: '添加绑定', exact: true }).click()
@@ -74,11 +76,12 @@ test('Quark takeover binds once by QR and toggles from its icon', async ({ page 
   await expect(page.getByRole('button', { name: '获取二维码', exact: true })).toBeDisabled()
   await page.getByRole('checkbox', { name: /同意通过第三方/ }).check()
   await expect(page.getByAltText('夸克 TV 授权二维码')).toBeVisible()
-  await page.screenshot({path:testInfo.outputPath('quark-qr.png')})
+  await captureScreenshot(page, { path: testInfo.outputPath('quark-qr.png') })
+  authorize = true
   await expect(page.getByRole('dialog', { name: '选择绑定的存储', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '添加绑定', exact: true })).toBeDisabled()
   await expect(page.locator('.binding-row')).toContainText('同账号')
-  await page.screenshot({ path: testInfo.outputPath('quark-bound.png') })
+  await captureScreenshot(page, { path: testInfo.outputPath('quark-bound.png') })
   await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click()
   await page.getByRole('button', { name: '停用夸克 STRM 接管', exact: true }).click()
   await expect(page.getByRole('button', { name: '启用夸克 STRM 接管', exact: true })).toHaveAttribute('aria-pressed', 'false')

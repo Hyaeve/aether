@@ -75,7 +75,7 @@ func TestED2KGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := Storage{ID: "ed2k", Type: "local", Enabled: true, Config: map[string]string{"root": root}}
-	task := Task{Kind: "ed2k", Source: "/", Mode: "incremental"}
+	task := Task{Kind: "ed2k", Source: "/", Mode: "incremental", MediaExtensions: "txt"}
 	n, err := a.executeTask(context.Background(), task, s)
 	if err != nil || n != 1 {
 		t.Fatalf("generate: %d %v", n, err)

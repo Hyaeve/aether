@@ -68,7 +68,6 @@ const devices115 = [
 let pollTimer
 const form = reactive({ name: '', type: '', enabled: true, cacheTTL: 0, config: {} })
 const visible = computed(() => state.storages.filter(s => !query.value || s.name.toLowerCase().includes(query.value.toLowerCase())))
-const online = computed(() => state.storages.filter(s => s.status === 'connected' && s.enabled).length)
 const picked = computed(() => driverOf(selected.value))
 const cloudTypes = ['115', 'quark', 'mobile', 'tianyi']
 const downloadOptions = computed(() => selected.value === 'quark' ? [{ value: 'proxy', label: '本机代理' }] : [{ value: 'redirect', label: '302 重定向' }, { value: 'proxy', label: '本机代理' }])
@@ -181,12 +180,6 @@ async function remove() {
 </script>
 
 <template>
-  <div class="metric-strip">
-    <div><span class="metric-icon"><Icon name="Layers3" /></span><span><small>全部存储池</small><strong>{{ state.storages.length }}<em>个</em></strong></span></div>
-    <div><span class="metric-icon green"><Icon name="CircleCheck" /></span><span><small>已连接</small><strong>{{ online }}<em>个</em></strong></span></div>
-    <div><span class="metric-icon amber"><Icon name="Cloud" /></span><span><small>云端存储</small><strong>{{ state.storages.filter(s => s.type !== 'local').length }}<em>个</em></strong></span></div>
-    <div><span class="metric-icon neutral"><Icon name="HardDrive" /></span><span><small>本地存储</small><strong>{{ state.storages.filter(s => s.type === 'local').length }}<em>个</em></strong></span></div>
-  </div>
   <div class="storage-grid">
     <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id, 'drag-armed': armed === s.id, dragging: dragging === s.id, 'drop-target': dropTarget === s.id, 'storage-disabled': !s.enabled }" :draggable="armed === s.id && !sorting" tabindex="0" :aria-label="`${s.name}，${s.enabled ? '已启用' : '已停用'}`" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" @pointerdown="hold($event,s)" @pointerup="release" @pointerleave="!dragging && release()" @click="cardClick($event,s)" @contextmenu.prevent.stop="menu = s.id" @keydown="reorderKey($event, s)" @dragstart="dragStart($event, s)" @dragend="dragEnd" @dragover.prevent="dragging && (dropTarget = s.id)" @dragleave.self="dropTarget = ''" @drop.prevent="moveStorage(dragging, s.id)">
       <div class="storage-card-top"><button class="provider-toggle" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click.stop="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3>{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><div class="storage-menu-control" @click.stop><button class="icon-btn" :aria-label="`存储操作 ${s.name}`" :aria-expanded="menu === s.id" @click="menu = menu === s.id ? '' : s.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === s.id" class="storage-menu"><button @click="open(s)"><Icon name="Pencil" />编辑存储</button><button :disabled="testing === s.id || !s.enabled" @click="closeMenu(); test(s)"><Icon name="Activity" />测试连接</button><button @click="closeMenu(); toggle(s)"><Icon name="Power" />{{ s.enabled ? '停用存储' : '启用存储' }}</button><button class="danger-text" @click="closeMenu(); confirmDelete = s"><Icon name="Trash2" />删除存储</button></div></div></div>

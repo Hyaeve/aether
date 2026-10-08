@@ -6,6 +6,7 @@ import './style.css'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/backup', redirect: '/transfer/backup' },
     { path: '/links', redirect: '/links/manage' },
     { path: '/webdav', redirect: '/files/webdav' },
     { path: '/mounts', redirect: '/files/mounts' },

@@ -79,7 +79,12 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Type != "local" {
+		var progress *transferProgress
+		if req.Action == "copy" || req.Action == "move" {
+			progress = a.beginTransfer(r.Context(), "copy", s, fmt.Sprintf("%s · %d 项", req.Action, len(req.IDs)), 0)
+		}
 		err := a.cloudFileAction(r.Context(), s, target, req)
+		progress.finish(err)
 		a.cache.clear()
 		if err != nil {
 			fail(w, 400, err)
@@ -187,14 +192,16 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 				err = src.Rename(name, out)
 			}
 		case "copy", "move":
+			progress := a.beginTransfer(r.Context(), "copy", s, path.Base(name), 0)
 			if req.Action == "move" && s.ID == target.ID {
 				err = src.Rename(name, out)
 			} else {
-				err = copyLocalTree(r.Context(), src, dst, name, out, 0)
+				err = copyLocalTree(context.WithValue(r.Context(), copyProgressKey{}, progress), src, dst, name, out, 0)
 				if err == nil && req.Action == "move" {
 					err = src.RemoveAll(name)
 				}
 			}
+			progress.finish(err)
 		}
 		if err != nil {
 			break
@@ -210,6 +217,8 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 	a.store.event("info", "files", fmt.Sprintf("%s 完成%d项", req.Action, done))
 	jsonResponse(w, 200, map[string]int{"processed": done})
 }
+
+type copyProgressKey struct{}
 
 func copyLocalTree(ctx context.Context, src, dst *os.Root, from, to string, depth int) (err error) {
 	if err := ctx.Err(); err != nil {
@@ -280,6 +289,9 @@ func copyLocalTree(ctx context.Context, src, dst *os.Root, from, to string, dept
 				return err
 			}
 			copied += int64(n)
+			if progress, ok := ctx.Value(copyProgressKey{}).(*transferProgress); ok {
+				progress.add(n)
+			}
 		}
 		if e == io.EOF {
 			break

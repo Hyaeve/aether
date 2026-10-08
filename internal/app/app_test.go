@@ -389,8 +389,8 @@ func TestSignedStreamAndDAV(t *testing.T) {
 	r.SetBasicAuth("admin", "a-secure-password-123")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != 405 {
-		t.Fatal("DAV allowed writes")
+	if w.Code != 204 {
+		t.Fatal("administrator DAV delete failed", w.Code, w.Body.String())
 	}
 }
 

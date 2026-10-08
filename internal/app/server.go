@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	transfers      transferLog
+	traffic        trafficMeter
 	shareMu        sync.Mutex
 	sharePreviews  map[string]*sharePreview
 	scrapeMu       sync.Mutex
@@ -245,6 +247,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
 	mux.Handle("POST /api/files/share/{action}", a.protected(http.HandlerFunc(a.shareTransfer)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
+	mux.Handle("/api/tasks/reorder", a.protected(http.HandlerFunc(a.reorderTask)))
+	mux.Handle("GET /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
+	mux.Handle("GET /api/traffic", a.protected(http.HandlerFunc(a.trafficRates)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
 	mux.Handle("/api/files", a.protected(http.HandlerFunc(a.files)))
@@ -851,6 +856,15 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) validateTask(t *Task) error {
+	var extensionErr error
+	t.MediaExtensions, extensionErr = normalizeExtensions(t.MediaExtensions)
+	if extensionErr != nil {
+		return extensionErr
+	}
+	t.MetadataExtensions, extensionErr = normalizeExtensions(t.MetadataExtensions)
+	if extensionErr != nil {
+		return extensionErr
+	}
 	t.Name = strings.TrimSpace(t.Name)
 	if t.Name == "" {
 		return errors.New("请输入任务名称")
@@ -1166,6 +1180,16 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cw := countWriter{w, &a.downloaded}
+	if r.Method == "GET" {
+		tracked := &transferResponse{ResponseWriter: w, progress: a.beginTransfer(r.Context(), "download", s, claim.File, 0)}
+		cw.ResponseWriter = tracked
+		defer func() {
+			if r.Context().Err() != nil {
+				tracked.failure = r.Context().Err()
+			}
+			tracked.progress.finish(tracked.failure)
+		}()
+	}
 	if s.Type == "local" {
 		root, err := os.OpenRoot(s.Config["root"])
 		if err != nil {
@@ -1228,6 +1252,7 @@ func redirectDownload(w http.ResponseWriter, r *http.Request, address string) {
 }
 
 func (a *App) serveDAV(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(context.WithValue(r.Context(), transferSourceKey{}, "WebDAV"))
 	st := a.store.snapshot()
 	if !st.Settings.WebDAVEnabled {
 		http.NotFound(w, r)
@@ -1262,8 +1287,33 @@ func (a *App) serveDAV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.Method {
-	case "GET", "HEAD", "PROPFIND", "OPTIONS":
+	case "OPTIONS":
+		allow := "GET, HEAD, PROPFIND, OPTIONS"
+		if _, restricted := r.Context().Value(davGrantsKey{}).([]DAVGrant); !restricted {
+			allow += ", PUT, MKCOL, MOVE, DELETE, LOCK, UNLOCK"
+			w.Header().Set("DAV", "1, 2")
+		} else {
+			w.Header().Set("DAV", "1")
+		}
+		w.Header().Set("Allow", allow)
+		w.Header().Set("MS-Author-Via", "DAV")
+		w.WriteHeader(http.StatusOK)
+	case "GET", "HEAD", "PROPFIND":
 		a.dav.ServeHTTP(countWriter{w, &a.downloaded}, r)
+	case "PUT", "MKCOL", "MOVE", "DELETE", "LOCK", "UNLOCK":
+		if _, restricted := r.Context().Value(davGrantsKey{}).([]DAVGrant); restricted {
+			w.Header().Set("Allow", "GET, HEAD, PROPFIND, OPTIONS")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		ctx := r.Context()
+		if r.Method == "PUT" {
+			body := &mountRequestBody{ReadCloser: r.Body}
+			r.Body = body
+			ctx = context.WithValue(ctx, mountPutLength{}, r.ContentLength)
+			ctx = context.WithValue(ctx, mountPutFailure{}, body)
+		}
+		a.dav.ServeHTTP(w, r.WithContext(ctx))
 	default:
 		w.Header().Set("Allow", "GET, HEAD, PROPFIND, OPTIONS")
 		w.WriteHeader(405)

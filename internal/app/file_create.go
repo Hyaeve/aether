@@ -168,7 +168,10 @@ func (r *cancelReader) Read(p []byte) (int, error) {
 	return r.reader.Read(p)
 }
 
-func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, body io.Reader, size int64) error {
+func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, body io.Reader, size int64) (resultErr error) {
+	progress := a.beginTransfer(ctx, "upload", s, name, size)
+	defer func() { progress.finish(resultErr) }()
+	body = transferReader{body, progress}
 	const limit = int64(100 << 30)
 	if size > limit {
 		return errors.New("文件过大（单文件上限 100 GiB）")

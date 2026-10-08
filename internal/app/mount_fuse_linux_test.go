@@ -21,6 +21,10 @@ func TestNativeFuseLocalCallbacks(t *testing.T) {
 	ctx := context.Background()
 	node := &nativeFuseNode{backend: mountFS{app: a, config: MountConfig{ID: "test", StorageID: s.ID, Source: "/", Mode: 0755, UID: 123, GID: 456}}}
 	fs.NewNodeFS(node, &fs.Options{})
+	var space fuse.StatfsOut
+	if errno := node.Statfs(ctx, &space); errno != 0 || space.Blocks == 0 || space.Bsize == 0 || space.Bavail == 0 {
+		t.Fatal("missing real filesystem capacity", space, errno)
+	}
 	var out fuse.EntryOut
 	child, handle, _, errno := node.Create(ctx, "native.txt", syscall.O_RDWR, 0600, &out)
 	if errno != 0 {
@@ -57,6 +61,9 @@ func TestNativeFuseLocalCallbacks(t *testing.T) {
 		t.Fatal(errno)
 	}
 	node.backend.config.ReadOnly = true
+	if errno := node.Access(ctx, 2); errno != syscall.EROFS {
+		t.Fatal("readonly access", errno)
+	}
 	if _, _, _, errno := node.Create(ctx, "denied", syscall.O_RDWR, 0600, &out); errno != syscall.EROFS {
 		t.Fatal(errno)
 	}
@@ -101,6 +108,20 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 		t.Fatal(errno)
 	}
 	node.AddChild("book.txt", child, true)
+	readHandle, _, errno := child.Operations().(*nativeFuseNode).Open(ctx, syscall.O_RDONLY)
+	if errno != 0 {
+		t.Fatal("open existing cloud file", errno)
+	}
+	reader := readHandle.(*nativeFuseHandle)
+	result, errno := reader.Read(ctx, make([]byte, 5), 5)
+	if errno != 0 {
+		t.Fatal("read existing cloud file", errno)
+	}
+	bytes, status := result.Bytes(nil)
+	if status != fuse.OK || string(bytes) != "world" {
+		t.Fatal(string(bytes), status)
+	}
+	reader.Release(ctx)
 	handle, _, errno = child.Operations().(*nativeFuseNode).Open(ctx, syscall.O_RDWR)
 	if errno != 0 {
 		t.Fatal(errno)

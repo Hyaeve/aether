@@ -41,6 +41,18 @@ type cloudWriteFile struct {
 	parent, name string
 	expected     int64
 	closed       bool
+	writeErr     error
+}
+
+func (f *cloudWriteFile) Write(data []byte) (int, error) {
+	n, err := f.File.Write(data)
+	if err != nil {
+		f.writeErr = err
+	}
+	return n, err
+}
+func (f *cloudWriteFile) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{f}, r)
 }
 
 func (f *cloudWriteFile) Stat() (os.FileInfo, error) {
@@ -66,6 +78,9 @@ func (f *cloudWriteFile) Close() error {
 	}
 	if err == nil {
 		err = f.ctx.Err()
+	}
+	if err == nil {
+		err = f.writeErr
 	}
 	if body, ok := f.ctx.Value(mountPutFailure{}).(*mountRequestBody); ok && body.err != nil {
 		err = body.err

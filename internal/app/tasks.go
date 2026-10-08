@@ -260,7 +260,8 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				continue
 			}
 			var info *CASInfo
-			if t.Kind == "cas" && !generateCAS {
+			metadata := excludedType(f.Name, t.MetadataExtensions) && !taskMedia(t, f.Name)
+			if t.Kind == "cas" && !generateCAS && !metadata {
 				if !strings.EqualFold(path.Ext(f.Name), ".cas") || excluded(f.Name, t.ExcludeFiles) {
 					continue
 				}
@@ -268,12 +269,12 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if err != nil {
 					return fmt.Errorf("%s: %w", f.Name, err)
 				}
-				if excludedType(parsed.Name, t.ExcludeTypes) {
+				if !taskMedia(t, parsed.Name) || excludedType(parsed.Name, t.ExcludeTypes) {
 					continue
 				}
 				info = &parsed
 				child = path.Join(rel, parsed.Name)
-			} else if (t.Kind != "strm" && t.Kind != "ed2k" && !generateCAS) || (t.Kind != "ed2k" && !isVideo(f.Name)) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
+			} else if (t.Kind != "strm" && t.Kind != "ed2k" && t.Kind != "cas") || (!taskMedia(t, f.Name) && !metadata) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
 				continue
 			}
 			// Create the output root only when a matching file actually needs writing.
@@ -287,6 +288,23 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 			}
 			// Retain the source extension so movie.mp4 and movie.mkv never collide.
+			if metadata {
+				metadataPath := path.Join(target, child)
+				if outputs[strings.ToLower(metadataPath)] {
+					return fmt.Errorf("输出文件名冲突：%s", metadataPath)
+				}
+				outputs[strings.ToLower(metadataPath)] = true
+				if t.Mode == "incremental" {
+					if _, err := root.Stat(metadataPath); err == nil {
+						continue
+					}
+				}
+				if err := a.copyTaskMetadata(ctx, s, f, root, metadataPath, t.Mode == "incremental"); err != nil {
+					return err
+				}
+				count++
+				continue
+			}
 			filename := path.Join(target, child+".strm")
 			if t.Kind == "strm" && s.Type == "openlist" {
 				filename = path.Join(target, strings.TrimSuffix(child, path.Ext(child))+".strm")

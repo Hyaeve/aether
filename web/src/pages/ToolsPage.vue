@@ -67,9 +67,9 @@ const tools = [
   { name: '洗版策略', icon: 'RefreshCw', file: 'upgrade-policies.json', detail: '根据画质与版本偏好替换已有媒体' },
   { name: 'AI 辅助识别', kind: 'ai', icon: 'BrainCircuit', file: 'ai.json', detail: '通过 OpenAI 兼容模型识别媒体名称与季集信息' },
   { name: '识别规则', icon: 'ListFilter', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
-  { name: 'TMDB 配置', kind: 'tmdb', icon: 'Film', detail: '配置影视元数据接口、图片域名与语言偏好' },
+  { name: 'TMDB 配置', kind: 'tmdb', icon: 'TMDB', detail: '配置影视元数据接口、图片域名与语言偏好' },
   { name: '代理配置', kind: 'proxy', icon: 'Network', detail: '管理 TMDB 与 AI 请求使用的网络代理' },
-  { name: 'Emby 入库通知', kind: 'emby', icon: 'Bell', detail: '接收媒体入库事件并显示在通知列表中' },
+  { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', detail: '接收电影与剧集入库通知，按剧名、季和集数汇总' },
   { name: '配置备份', icon: 'FileArchive', detail: '加密导入导出系统、存储池、以链与规则配置' }
 ]
 </script>

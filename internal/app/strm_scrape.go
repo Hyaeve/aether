@@ -39,6 +39,7 @@ type scrapeItem struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
 	Poster  string `json:"poster,omitempty"`
+	Manual  bool   `json:"manual,omitempty"`
 }
 type scrapeProgress struct {
 	Running   bool   `json:"running"`
@@ -54,7 +55,7 @@ type scrapeIndex struct {
 	Items []scrapeItem `json:"items"`
 }
 
-var scrapeEpisode = regexp.MustCompile(`(?i)S(\d{1,3})[ ._-]*E(\d{1,4})\b`)
+var scrapeEpisode = regexp.MustCompile(`(?i)S(\d{1,3})[ ._-]*E(\d{1,4})(?:$|[^0-9])`)
 var scrapeYear = regexp.MustCompile(`(?:^|[ ._(\[])((?:19|20)\d{2})(?:$|[ ._)\]])`)
 var scrapeSuffix = regexp.MustCompile(`(?i)\b(?:2160p|1080p|720p|4k|web[ .-]?dl|bluray|remux|h26[45]|x26[45])\b.*$`)
 var scrapeID = regexp.MustCompile(`(?i)[{\[]tmdb[-=](\d+)[}\]]`)
@@ -74,10 +75,16 @@ func recognizeSTRM(name string) scrapeItem {
 		item.Season, _ = strconv.Atoi(m[1])
 		item.Episode, _ = strconv.Atoi(m[2])
 		title = title[:scrapeEpisode.FindStringIndex(title)[0]]
+	} else {
+		title = recognizeEpisode(title, &item)
 	}
-	if m := scrapeYear.FindStringSubmatch(title); len(m) > 0 {
+	yearStart := 0
+	if m := scrapeYear.FindStringIndex(title); m != nil && m[0] == 0 {
+		yearStart = 4
+	}
+	if m := scrapeYear.FindStringSubmatch(title[yearStart:]); len(m) > 0 {
 		item.Year = m[1]
-		title = title[:scrapeYear.FindStringIndex(title)[0]]
+		title = title[:yearStart+scrapeYear.FindStringIndex(title[yearStart:])[0]]
 	}
 	title = scrapeSuffix.ReplaceAllString(title, "")
 	item.Title = strings.Trim(strings.NewReplacer(".", " ", "_", " ").Replace(title), " -()[]")
@@ -182,12 +189,23 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 		}
 		item := recognizeSTRMPath(name)
 		item.Path = name
-		if saved, ok := old[name]; ok {
-			item = saved
+		if saved, ok := old[name]; ok && saved.TMDB > 0 {
+			// Reparse unmatched legacy rows; preserve explicit matches, but correct
+			// old automatic movie classifications when the path has TV evidence.
+			if saved.Manual || saved.Kind == item.Kind || item.Kind != "tv" {
+				season, episode := item.Season, item.Episode
+				item = saved
+				if item.Kind == "tv" && episode > 0 {
+					item.Season, item.Episode = season, episode
+				}
+			}
 		}
 		items = append(items, item)
 		return nil
 	})
+	if err == nil {
+		inferScrapeSiblings(items)
+	}
 	return items, err
 }
 func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +389,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			if in.Path != "" && selected(index.Items[i]) {
 				index.Items[i].TMDB = in.TMDB
 				index.Items[i].Kind = in.Kind
+				index.Items[i].Manual = true
 				index.Items[i].Status = "pending"
 				index.Items[i].Message = ""
 				index.Items[i].Poster = ""

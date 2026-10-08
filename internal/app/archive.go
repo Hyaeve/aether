@@ -90,7 +90,8 @@ func (a *App) fileArchive(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": selected.Name + ".zip"}))
 	w.Header().Set("Cache-Control", "no-store")
-	archive := zip.NewWriter(countWriter{w, &a.downloaded})
+	progress := &transferProgress{meter: &a.traffic, kind: "download"}
+	archive := zip.NewWriter(transferWriter{Writer: countWriter{w, &a.downloaded}, progress: progress})
 	write := func() error {
 		for _, item := range manifest {
 			header := &zip.FileHeader{Name: item.Name, Method: zip.Store}

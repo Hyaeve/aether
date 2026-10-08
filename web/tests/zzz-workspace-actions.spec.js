@@ -60,7 +60,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await expect(page.locator('summary')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(page.getByLabel('UID', { exact: true })).toHaveValue('0')
   await expect(page.getByLabel('GID', { exact: true })).toHaveValue('0')
-  await expect(page.getByLabel('权限', { exact: true })).toHaveValue('0755')
+  await expect(page.getByLabel('权限', { exact: true })).toHaveValue('0777')
   const mountPoint = path.join(process.env.AETHER_E2E_ROOT, 'fuse-target')
   mkdirSync(mountPoint, { recursive: true })
   mkdirSync(path.join(mountPoint, '保留目录'), { recursive: true })

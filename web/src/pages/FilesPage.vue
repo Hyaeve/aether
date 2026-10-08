@@ -29,6 +29,17 @@ const selected = ref([route.query.storage, saved.storage].find(id => state.stora
 const current = ref('/'), history = ref([]), files = ref([]), busy = ref(false), error = ref(''), query = ref('')
 const searchInput = ref('')
 const viewport = ref(null), draft = ref(false), confirmRename = ref(false), details = ref(false), createMenu = ref(false)
+const toolPosition = ref(null)
+function transferChanged(event) { if (event.detail?.storageId === selected.value) load(true) }
+onMounted(() => window.addEventListener('aether-files-changed', transferChanged))
+onUnmounted(() => window.removeEventListener('aether-files-changed', transferChanged))
+function blankTools(event) {
+  if (event.target.closest('.file-row, .file-grid-item, button, input, a') || !selected.value || busy.value || uploadBusy.value || renameID.value) return
+  event.preventDefault()
+  closeMenu()
+  toolPosition.value = { position: 'fixed', left: `${Math.max(8, Math.min(event.clientX, window.innerWidth - 210))}px`, top: `${Math.max(8, Math.min(event.clientY, window.innerHeight - 290))}px`, right: 'auto', zIndex: 100 }
+  createMenu.value = true
+}
 const workbenchFiles = ref(null), detailBusy = ref(false), detailError = ref('')
 const offlineSupported = computed(() => !!selected.value)
 const shareTransfer = ref(false)
@@ -218,8 +229,8 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     <div class="search-field"><Icon name="Search" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="query = searchInput" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
-    <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
-      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" role="menu"><button role="menuitem" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
+    <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
+      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
     </div>
   </div></div>
   <input ref="fileUpload" type="file" multiple hidden @change="upload" /><input ref="folderUpload" type="file" webkitdirectory multiple hidden @change="upload" />
@@ -228,7 +239,7 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
   <div class="file-toolbar"><button class="icon-btn" aria-label="展开收藏栏" :aria-expanded="favoritesOpen" @click="favoritesOpen = !favoritesOpen"><Icon name="PanelLeft" /></button><RoundedSelect v-model="selected" label="选择存储池" :disabled="!!renameID || uploadBusy" :options="state.storages.filter(s => s.enabled).map(s => ({ value: s.id, label: s.name }))" /><div class="path-bar"><PathBreadcrumbs :entries="history" :disabled="busy || !!renameID || uploadBusy" @jump="jump" /></div><button class="icon-btn" :disabled="!!renameID" :aria-label="mode === 'list' ? '当前列表视图，切换网格' : '当前网格视图，切换列表'" @click="mode = mode === 'list' ? 'grid' : 'list'"><Icon :name="mode === 'list' ? 'List' : 'LayoutGrid'" /></button></div>
   <div class="file-workspace" :class="{ 'with-favorites': favoritesOpen }">
   <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="!selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div><p v-if="!poolFavorites.length" class="muted">暂无收藏</p></aside>
-  <section ref="viewport" class="file-view">
+  <section ref="viewport" class="file-view" @contextmenu="blankTools">
   <div v-if="error" class="error-message" role="alert">{{ error }}</div>
   <div v-if="busy" class="empty-state"><Icon name="LoaderCircle" class="spin" :size="30" /><p>正在读取目录…</p></div>
   <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>

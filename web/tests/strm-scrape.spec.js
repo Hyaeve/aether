@@ -36,6 +36,11 @@ test('STRM scrape workspace scans, rematches and saves settings without shifting
   await page.getByRole('button', { name: '刷新刮削索引', exact: true }).click()
   await expect(page.locator('.scrape-card').first()).toBeVisible()
   expect(await page.locator('.scrape-card').count()).toBeLessThan(100)
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect(page.locator('.scrape-card').last()).toContainText('Film 999')
+  expect(await page.locator('.scrape-card').count()).toBeLessThan(100)
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect(page.locator('.scrape-card').first()).toContainText('Film 0')
   await page.getByRole('button', { name: '重新匹配', exact: true }).first().click()
   await expect(page.locator('.candidate-card img')).toBeVisible()
   const candidateType = await page.locator('.candidate-search .rounded-select').boundingBox()
@@ -59,4 +64,27 @@ test('STRM scrape workspace scans, rematches and saves settings without shifting
   await page.setViewportSize({width:390,height:844})
   await page.screenshot({path:info.outputPath('scrape-mobile.png')})
   expect(await page.locator('.scrape-panel').evaluate(el=>el.scrollWidth <= el.clientWidth)).toBe(true)
+})
+
+test('scrape library selection persists per account and recovers from a deleted task', async ({ page }) => {
+  let username = 'scrape-owner'
+  let tasks = [{ id: 'one', name: '电影库', kind: 'strm' }, { id: 'two', name: '电视剧库', kind: 'strm' }]
+  await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
+  await page.route('**/api/state', r => r.fulfill({ json: { username, storages: [], tasks, settings: {}, traffic: {}, cache: {} } }))
+  await page.route('**/api/strm-scrape/**', r => r.fulfill({ json: r.request().url().includes('/items?') ? [] : {} }))
+  await page.goto('/tasks/scrape')
+  const selector = page.getByRole('button', { name: 'STRM 任务', exact: true })
+  await selector.click()
+  await page.getByRole('option', { name: '电视剧库', exact: true }).click()
+  await page.reload()
+  await expect(selector).toHaveText('电视剧库')
+  username = 'other'
+  await page.reload()
+  await expect(selector).toHaveText('电影库')
+  username = 'scrape-owner'
+  await page.reload()
+  await expect(selector).toHaveText('电视剧库')
+  tasks = tasks.slice(0, 1)
+  await page.reload()
+  await expect(selector).toHaveText('电影库')
 })

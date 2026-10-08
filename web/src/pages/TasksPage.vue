@@ -27,6 +27,18 @@ async function cleanupCAS() {
 }
 const modal = ref(false), busy = ref(false), error = ref(''), editing = ref(''), more = ref(false), picker = ref(false), confirmDelete = ref(null), menu = ref('')
 const form = reactive({})
+const extensionGroups = {
+  video: 'mp4;mkv;avi;mov;wmv;flv;webm;m4v;ts;m2ts;mkvb;rm;3gp;iso',
+  audio: 'mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus',
+  image: 'jpg;jpeg;png;webp', data: 'nfo;ass;srt'
+}
+const extensionTokens = value => [...new Set((value || '').toLowerCase().split(';').map(v => v.trim().replace(/^\./, '')).filter(Boolean))]
+function groupActive(field, group) { return extensionGroups[group].split(';').every(v => extensionTokens(form[field]).includes(v)) }
+function toggleExtensions(field, group) {
+  const set = new Set(extensionTokens(form[field])), values = extensionGroups[group].split(';'), remove = groupActive(field, group)
+  values.forEach(v => remove ? set.delete(v) : set.add(v))
+  form[field] = [...set].join(';')
+}
 watch(() => form.casBindingId, () => {
   if (props.kind === 'cas' && !availableStorages.value.some(s => s.id === form.storageId)) {
     Object.assign(form, { storageId: '', source: '/', sourceLabel: '', sourceTrail: [] })
@@ -34,6 +46,43 @@ watch(() => form.casBindingId, () => {
 })
 const tasks = computed(() => state.tasks.filter(t => t.kind === props.kind))
 const pending = ref(new Set())
+const dragging = ref(''), dropTarget = ref(''), sorting = ref(false)
+function dragStart(event, task) {
+  if (sorting.value || event.target.closest('button')) { event.preventDefault(); return }
+  menu.value = ''; dragging.value = task.id
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', task.id)
+}
+function dragEnd() { dragging.value = ''; dropTarget.value = '' }
+async function moveTask(id, target) {
+  dragEnd()
+  if (!id || !target || id === target || sorting.value) return
+  sorting.value = true
+  try { await api('/tasks/reorder', 'POST', { id, target }); await reload() }
+  catch (e) { notify(e.message, true) }
+  finally { sorting.value = false }
+}
+function moveBy(task, direction) {
+  const index = tasks.value.findIndex(t => t.id === task.id)
+  const target = tasks.value[index + direction]
+  menu.value = ''
+  if (target) moveTask(task.id, target.id)
+}
+function reorderKey(event, task) {
+  if (event.target !== event.currentTarget || !event.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
+  event.preventDefault()
+  moveBy(task, ['ArrowUp', 'ArrowLeft'].includes(event.key) ? -1 : 1)
+}
+function scanTime(value) {
+  if (!value || value.startsWith('0001-')) return '尚未扫描'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '尚未扫描'
+  const pad = n => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+function taskResult(task) {
+  return task.message || ({ running: '正在执行', success: '执行成功', error: '执行失败', failed: '执行失败', cancelled: '已停止' }[task.status]) || '尚未执行'
+}
 const storage = id => state.storages.find(s => s.id === id)
 function closeMenu(event) { if (!event.target.closest('.task-row-menu')) menu.value = '' }
 function escapeMenu(event) { if (event.key === 'Escape') menu.value = '' }
@@ -86,12 +135,12 @@ async function toggle(t) {
   <CacheOverview v-if="kind === 'cache'" :tasks="tasks" />
   <div v-else class="metric-strip three"><div><span class="metric-icon"><Icon name="ListTodo" /></span><span><small>全部任务</small><strong>{{ tasks.length }}<em>项</em></strong></span></div><div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>正在执行</small><strong>{{ tasks.filter(t => t.status === 'running').length }}<em>项</em></strong></span></div><div><span class="metric-icon amber"><Icon name="FileVideo" /></span><span><small>本次生成文件</small><strong>{{ tasks.reduce((n, t) => n + t.processed, 0) }}<em>条</em></strong></span></div></div>
   <div v-if="!tasks.length" class="empty-state"><span class="empty-icon"><Icon :name="kind !== 'cache' ? 'FileVideo' : 'Database'" :size="36" /></span><h3>还没有任务</h3><p>从一个存储目录开始。</p><button class="btn" @click="open()"><Icon name="Plus" />添加 {{ taskTitle }} 任务</button></div>
-  <div v-else class="task-list"><article v-for="t in tasks" :key="t.id" class="task-row-card">
+  <div v-else class="task-list"><article v-for="t in tasks" :key="t.id" class="task-row-card" :class="{ dragging: dragging === t.id, 'drop-target': dropTarget === t.id }" :draggable="!sorting" tabindex="0" :aria-label="t.name" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" @keydown="reorderKey($event, t)" @dragstart="dragStart($event, t)" @dragend="dragEnd" @dragover.prevent="dragging && (dropTarget = t.id)" @dragleave.self="dropTarget = ''" @drop.prevent="moveTask(dragging, t.id)">
     <button class="task-provider-toggle" :aria-label="`${t.enabled ? '停用' : '启用'}任务 ${t.name}`" :title="`${t.enabled ? '停用' : '启用'}任务`" :aria-pressed="t.enabled" :disabled="t.status === 'running' || pending.has(t.id)" @click="toggle(t)"><ProviderIcon :type="storage(t.storageId)?.type" /></button>
     <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
-    <div class="task-last-scan"><small>最后扫描</small><time>{{ date(t.lastRun) }}</time></div>
+    <div class="task-last-scan" tabindex="0" :aria-label="`${scanTime(t.lastRun)}，${taskResult(t)}`" :title="taskResult(t)"><time>{{ scanTime(t.lastRun) }}</time><span class="task-result">{{ taskResult(t) }}</span></div>
     <button class="icon-btn task-run" :aria-label="t.status === 'running' ? '停止任务' : '立即执行'" :title="t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id)" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.status === 'running' ? 'Square' : 'Play'" /></button>
-    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
+    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button :disabled="sorting || tasks[0].id === t.id" @click="moveBy(t, -1)"><Icon name="ArrowUp" />上移</button><button :disabled="sorting || tasks[tasks.length - 1].id === t.id" @click="moveBy(t, 1)"><Icon name="ArrowDown" />下移</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
   </article></div>
   <Modal v-if="modal" :title="`${editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />{{ kind === 'cas' ? '需要本地、原生移动或天翼个人云存储池。' : '请先添加并启用一个存储池。' }}<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
@@ -99,6 +148,8 @@ async function toggle(t) {
         <label>任务名称 <span class="required">*</span><input v-model="form.name" required /></label>
         <div v-if="kind === 'cas'" class="field"><label>绑定存储</label><RoundedSelect v-model="form.casBindingId" label="绑定存储" placeholder="选择移动或天翼存储" :options="bindingStorages.map(s => ({ value: s.id, label: s.name }))" /></div>
         <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
+        <div v-if="kind !== 'cache'" class="field full extension-field"><label for="task-media-extensions">媒体扩展名 <span><button type="button" class="icon-btn" aria-label="视频扩展名" title="视频扩展名" :aria-pressed="groupActive('mediaExtensions','video')" @click="toggleExtensions('mediaExtensions','video')"><Icon name="FileVideo" /></button><button type="button" class="icon-btn" aria-label="音频扩展名" title="音频扩展名" :aria-pressed="groupActive('mediaExtensions','audio')" @click="toggleExtensions('mediaExtensions','audio')"><Icon name="Music" /></button></span></label><input id="task-media-extensions" v-model="form.mediaExtensions" /></div>
+        <div v-if="kind !== 'cache'" class="field full extension-field"><label for="task-metadata-extensions">元数据扩展名 <span><button type="button" class="icon-btn" aria-label="图片扩展名" title="图片扩展名" :aria-pressed="groupActive('metadataExtensions','image')" @click="toggleExtensions('metadataExtensions','image')"><Icon name="Image" /></button><button type="button" class="icon-btn" aria-label="数据扩展名" title="数据扩展名" :aria-pressed="groupActive('metadataExtensions','data')" @click="toggleExtensions('metadataExtensions','data')"><Icon name="Database" /></button></span></label><input id="task-metadata-extensions" v-model="form.metadataExtensions" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" :disabled="kind === 'cas' && !form.casBindingId" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '选择存储池及源目录' }}</span><Icon name="FolderOpen" /></button></div>
         <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>

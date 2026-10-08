@@ -14,28 +14,46 @@ export function useVirtualList(items, viewport, options = {}) {
   const top = computed(() => first.value * rowHeight.value)
   const bottom = computed(() => Math.max(0, rows.value - last.value) * rowHeight.value)
   let observer
-  const sync = () => { if (viewport.value) scroll.value = viewport.value.scrollTop }
+  const sync = () => {
+    if (!viewport.value) return
+    if (options.window) {
+      scroll.value = Math.max(0, -viewport.value.getBoundingClientRect().top)
+      height.value = window.innerHeight
+    } else scroll.value = viewport.value.scrollTop
+  }
   watch(viewport, (el, previous) => {
     previous?.removeEventListener('scroll', sync)
+    window.removeEventListener('scroll', sync)
+    window.removeEventListener('resize', sync)
     observer?.disconnect()
     if (!el) return
-    el.addEventListener('scroll', sync, { passive: true })
+    ;(options.window ? window : el).addEventListener('scroll', sync, { passive: true })
+    if (options.window) window.addEventListener('resize', sync, { passive: true })
     observer = new ResizeObserver(() => {
-      height.value = el.clientHeight
+      height.value = options.window ? window.innerHeight : el.clientHeight
       width.value = el.clientWidth
+      sync()
     })
     observer.observe(el)
     sync()
   }, { flush: 'post' })
-  function reset() { scroll.value = 0; if (viewport.value) viewport.value.scrollTop = 0 }
+  function reset() {
+    scroll.value = 0
+    if (!viewport.value) return
+    if (options.window) {
+      if (viewport.value.getBoundingClientRect().top < 0) viewport.value.scrollIntoView({ block: 'start' })
+    } else viewport.value.scrollTop = 0
+  }
   function reveal(index) {
     if (!viewport.value || index < 0) return
-    viewport.value.scrollTop = Math.floor(index / columns.value) * rowHeight.value
+    const offset = Math.floor(index / columns.value) * rowHeight.value
+    if (options.window) window.scrollTo(0, window.scrollY + viewport.value.getBoundingClientRect().top + offset)
+    else viewport.value.scrollTop = offset
     sync()
   }
   watch(() => items.value.length, () => {
     if (scroll.value > rows.value * rowHeight.value) reset()
   })
-  onUnmounted(() => { observer?.disconnect(); viewport.value?.removeEventListener('scroll', sync) })
+  onUnmounted(() => { observer?.disconnect(); viewport.value?.removeEventListener('scroll', sync); window.removeEventListener('scroll', sync); window.removeEventListener('resize', sync) })
   return { shown, start, top, bottom, columns, reset, reveal }
 }

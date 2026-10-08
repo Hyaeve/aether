@@ -3,7 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
 import GravityWell from './GravityWell.vue'
-import { createMeteorBatch, meteorOpacity } from '../meteor'
+import { createMeteorBatch, meteorOpacity, rockPosition } from '../meteor'
 
 const universe = ref(), canvas = ref(), scene = ref()
 const props = defineProps({ decorative: Boolean })
@@ -84,6 +84,19 @@ function buildGalaxy(random, scale) {
     const radius = .4 + random() * 1.1
     dust.fillRect(x, y, radius, radius)
   }
+  // Cached spiral galaxies with individual stellar cores, not blurred backdrop blobs.
+  for (const [cx, cy, radius, tilt] of [[.76,.2,.068,-.5],[.86,.28,.032,.4],[.68,.29,.025,-.2],[.22,.76,.05,.5]]) {
+    dust.save(); dust.translate(width * cx, height * cy); dust.rotate(tilt)
+    for (let i=0;i<2100;i++) {
+      const r = random() ** .7 * width * radius
+      const angle = i % 2 * Math.PI + r / (width * radius) * 5.8 + (random() - .5) * .75
+      const x = Math.cos(angle) * r, y = Math.sin(angle) * r * .45
+      dust.fillStyle = i % 4 ? `rgba(174,203,229,${.1 + random() * .3})` : `rgba(240,217,178,${.1 + random() * .35})`
+      dust.fillRect(x, y, .55 + random() * .7, .55 + random() * .7)
+    }
+    dust.fillStyle = '#f1dfc9'; dust.beginPath(); dust.ellipse(0,0,2.2,1.2,0,0,Math.PI*2); dust.fill()
+    dust.restore()
+  }
 }
 
 function paintMeteor(time) {
@@ -97,7 +110,7 @@ function paintMeteor(time) {
     if (progress <= 0 || progress >= 1) continue
     // Equal pixel offsets keep every trail parallel at all viewport aspect ratios.
     const travel = width * meteor.distance
-    const x = width * meteor.x - progress * travel
+    const x = width * meteor.x - (progress - .06) * travel
     const y = height * meteor.y + progress * travel * .3
     const tailX = x + travel * meteor.tail
     const tailY = y - travel * meteor.tail * .3
@@ -188,9 +201,10 @@ function paint(time) {
     }
   }
   // Faceted, cratered rocks drift slowly outside the central orbital group.
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     ctx.save()
-    ctx.translate(width * (.09 + i * .77) + Math.sin(time * .035 + i) * 9, height * (.65 - i * .29))
+    const position = rockPosition(i, time, width, height)
+    ctx.translate(position.x, position.y)
     ctx.rotate(time * .012 + i)
     ctx.beginPath()
     for (let n = 0; n < 9; n++) {

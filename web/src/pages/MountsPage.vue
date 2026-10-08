@@ -9,7 +9,7 @@ import ProviderIcon from '../components/ProviderIcon.vue'
 import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 import FileTabs from '../components/FileTabs.vue'
 const mounts = ref([]), modal = ref(false), picker = ref(false), directoryPicker = ref(false), busy = ref(false), error = ref(''), deleting = ref(null)
-const form = ref({}), permission = ref('0755')
+const form = ref({}), permission = ref('0777')
 const menu = ref(null)
 function closeMenu() { menu.value = null }
 function menuKey(event) { if (event.key === 'Escape') closeMenu() }
@@ -20,7 +20,7 @@ const sourceName = mount => mount.storageId ? `${state.storages.find(s => s.id =
 const statusName = mount => ({ mounted: '已挂载', stopped: '未挂载', error: '挂载失败' })[mount.status] || '未挂载'
 function open(mount) {
   closeMenu()
-  form.value = mount ? JSON.parse(JSON.stringify(mount)) : { name: '', storageId: '', source: '/', sourceLabel: '', sourceTrail: [], mountPoint: '', readOnly: false, automount: true, uid: 0, gid: 0, mode: 493 }
+  form.value = mount ? JSON.parse(JSON.stringify(mount)) : { name: '', storageId: '', source: '/', sourceLabel: '', sourceTrail: [], mountPoint: '', readOnly: false, automount: true, uid: 0, gid: 0, mode: 511 }
   permission.value = form.value.mode.toString(8).padStart(4, '0')
   error.value = ''; modal.value = true
 }

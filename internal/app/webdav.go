@@ -3,9 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -55,9 +58,53 @@ func davStorageNames(storages []Storage) map[string]string {
 	return names
 }
 
-func (d davFS) Mkdir(context.Context, string, os.FileMode) error { return os.ErrPermission }
-func (d davFS) RemoveAll(context.Context, string) error          { return os.ErrPermission }
-func (d davFS) Rename(context.Context, string, string) error     { return os.ErrPermission }
+func (d davFS) writePath(ctx context.Context, name string) (mountFS, string, error) {
+	if _, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant); restricted {
+		return mountFS{}, "", os.ErrPermission
+	}
+	clean, err := relative(name)
+	if err != nil {
+		return mountFS{}, "", os.ErrPermission
+	}
+	parts := strings.SplitN(clean, "/", 2)
+	if len(parts) != 2 || parts[1] == "." {
+		return mountFS{}, "", os.ErrPermission
+	}
+	s, _, err := d.resolve(ctx, "/"+parts[0])
+	if err != nil || s.ID == "" {
+		return mountFS{}, "", os.ErrNotExist
+	}
+	return mountFS{app: d.a, config: MountConfig{StorageID: s.ID, Source: rootOf(s)}}, parts[1], nil
+}
+
+func (d davFS) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
+	fs, rel, err := d.writePath(ctx, name)
+	if err != nil {
+		return err
+	}
+	return fs.Mkdir(ctx, rel, perm)
+}
+func (d davFS) RemoveAll(ctx context.Context, name string) error {
+	fs, rel, err := d.writePath(ctx, name)
+	if err != nil {
+		return err
+	}
+	return fs.RemoveAll(ctx, rel)
+}
+func (d davFS) Rename(ctx context.Context, from, to string) error {
+	fs, oldRel, err := d.writePath(ctx, from)
+	if err != nil {
+		return err
+	}
+	dst, newRel, err := d.writePath(ctx, to)
+	if err != nil {
+		return err
+	}
+	if fs.config.StorageID != dst.config.StorageID {
+		return os.ErrPermission
+	}
+	return fs.Rename(ctx, oldRel, newRel)
+}
 
 type davInfo struct{ file File }
 
@@ -72,6 +119,15 @@ func (i davInfo) Mode() os.FileMode {
 func (i davInfo) ModTime() time.Time { return i.file.Modified }
 func (i davInfo) IsDir() bool        { return i.file.IsDir }
 func (i davInfo) Sys() any           { return nil }
+func (i davInfo) ContentType(context.Context) (string, error) {
+	if i.file.IsDir {
+		return "", nil
+	}
+	if value := mime.TypeByExtension(path.Ext(i.file.Name)); value != "" {
+		return value, nil
+	}
+	return "application/octet-stream", nil
+}
 
 func (d davFS) list(ctx context.Context, s Storage, dir string) ([]File, error) {
 	if _, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant); restricted && s.Type == "local" {
@@ -166,7 +222,26 @@ func (d davFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 
 func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
 	if flag != os.O_RDONLY {
-		return nil, os.ErrPermission
+		fs, rel, err := d.writePath(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		s, source, rel, err := fs.selectPath(rel)
+		if err != nil {
+			return nil, err
+		}
+		if s.Type == "local" {
+			file, err := fs.openDAVLocalWrite(ctx, s, source, rel, flag, perm)
+			if err != nil {
+				return nil, err
+			}
+			return d.a.trackedFile(ctx, s, name, file, flag), nil
+		}
+		file, err := fs.openCloudWrite(ctx, s, source, rel, flag)
+		if err != nil {
+			return nil, err
+		}
+		return d.a.trackedFile(ctx, s, name, file, flag), nil
 	}
 	s, f, err := d.resolve(ctx, name)
 	if err != nil {
@@ -203,23 +278,27 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 		}
 		return df, nil
 	}
-	download, err := d.a.download(ctx, s, f.ID, f.PickCode)
-	if err != nil {
-		return nil, err
-	}
-	if s.Type == "local" {
-		root, err := os.OpenRoot(s.Config["root"])
+	df.open = func() error {
+		df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size)
+		download, err := d.a.download(ctx, s, f.ID, f.PickCode)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		local, err := root.Open(download.Local)
-		root.Close()
-		if err != nil {
-			return nil, err
+		if s.Type == "local" {
+			root, err := os.OpenRoot(s.Config["root"])
+			if err != nil {
+				return err
+			}
+			df.local, err = root.Open(download.Local)
+			root.Close()
+			if err != nil {
+				return err
+			}
+			_, err = df.local.Seek(df.offset, io.SeekStart)
+			return err
 		}
-		df.local = local
-	} else {
 		df.download = download
+		return nil
 	}
 	return df, nil
 }
@@ -233,11 +312,14 @@ type davFile struct {
 	download Download
 	body     io.ReadCloser
 	offset   int64
+	open     func() error
+	progress *transferProgress
 }
 
 func (f *davFile) Stat() (os.FileInfo, error) { return f.info, nil }
 func (f *davFile) Write([]byte) (int, error)  { return 0, os.ErrPermission }
-func (f *davFile) Close() error {
+func (f *davFile) Close() (err error) {
+	defer func() { f.progress.finish(err) }()
 	if f.local != nil {
 		return f.local.Close()
 	}
@@ -287,8 +369,20 @@ func (f *davFile) Seek(offset int64, whence int) (int64, error) {
 	return offset, nil
 }
 func (f *davFile) Read(b []byte) (int, error) {
+	if f.open != nil {
+		if err := f.open(); err != nil {
+			f.progress.finish(err)
+			return 0, err
+		}
+		f.open = nil
+	}
 	if f.local != nil {
-		return f.local.Read(b)
+		n, err := f.local.Read(b)
+		f.progress.add(n)
+		if err != nil && err != io.EOF {
+			f.progress.finish(err)
+		}
+		return n, err
 	}
 	if f.info.IsDir() {
 		return 0, os.ErrInvalid
@@ -299,20 +393,43 @@ func (f *davFile) Read(b []byte) (int, error) {
 			return 0, err
 		}
 		req.Header = f.download.Headers.Clone()
+		if req.Header == nil {
+			req.Header = http.Header{}
+		}
 		if f.offset > 0 {
 			req.Header.Set("Range", "bytes="+strconv.FormatInt(f.offset, 10)+"-")
 		}
-		res, err := http.DefaultClient.Do(req)
+		client := &http.Client{Transport: apiClient.Transport, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || next.URL.User != nil || (next.URL.Scheme != "http" && next.URL.Scheme != "https") {
+				return http.ErrUseLastResponse
+			}
+			if via[len(via)-1].URL.Scheme == "https" && next.URL.Scheme != "https" {
+				return http.ErrUseLastResponse
+			}
+			if next.URL.Host != via[0].URL.Host || next.URL.Scheme != via[0].URL.Scheme {
+				next.Header.Del("Authorization")
+				next.Header.Del("Cookie")
+				next.Header.Del("Proxy-Authorization")
+			}
+			return nil
+		}}
+		res, err := client.Do(req)
 		if err != nil {
+			f.progress.finish(err)
 			return 0, err
 		}
-		if res.StatusCode >= 400 || (f.offset > 0 && res.StatusCode != 206) {
+		if (res.StatusCode != 200 && res.StatusCode != 206) || (f.offset > 0 && res.StatusCode != 206) {
 			res.Body.Close()
-			return 0, errors.New("上游不支持当前读取范围")
+			f.progress.finish(os.ErrPermission)
+			return 0, fmt.Errorf("上游读取返回 HTTP %d（偏移 %d）", res.StatusCode, f.offset)
 		}
 		f.body = res.Body
 	}
 	n, err := f.body.Read(b)
+	f.progress.add(n)
+	if err != nil && err != io.EOF {
+		f.progress.finish(err)
+	}
 	f.offset += int64(n)
 	return n, err
 }

@@ -1,6 +1,7 @@
 export function createMeteorBatch(random = Math.random) {
-  return Array.from({ length: 2 + Math.floor(random() * 4) }, () => ({
-    x: 1 / 6 + random() * (5 / 6),
+  const count = 2 + Math.floor(random() * 4)
+  return Array.from({ length: count }, (_, index) => ({
+    x: 1 / 6 + ((index + random()) / count) * (5 / 6),
     y: .01 + random() * .08,
     distance: .65 + random() * .35,
     fadeStart: 1 / 3 + random() * .27,
@@ -9,6 +10,12 @@ export function createMeteorBatch(random = Math.random) {
     duration: (1.8 + random() * .8) * [1, 2, 3][Math.floor(random() * 3)],
     tail: .04 + random() * .025
   }))
+}
+
+export function rockPosition(index, time, width, height) {
+  const wrap = (value, size) => ((value % size) + size) % size
+  return { x: wrap(width * (.12 + index * .29) + time * (3 + index * 1.1) + 24, width + 48) - 24,
+    y: wrap(height * (.68 - index * .18) + time * (.7 + index * .22) + 24, height + 48) - 24 }
 }
 
 export function meteorOpacity(progress, fadeStart = 1 / 3, fadeEnd = 1) {

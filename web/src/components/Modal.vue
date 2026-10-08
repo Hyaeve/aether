@@ -1,10 +1,19 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import Icon from './Icon.vue'
 defineProps({ title: String, eyebrow: String, wide: Boolean, compact: Boolean, confirmation: Boolean })
 const emit = defineEmits(['close'])
 const panel = ref()
 let previous
+function styleActions() {
+  panel.value?.querySelectorAll('.modal-footer .btn').forEach(button => {
+    const text = button.textContent.trim()
+    button.classList.toggle('cancel', /^(取消|关闭|放弃修改)$/.test(text))
+    button.classList.toggle('test-connection', /^(测试连接|连接测试|测试)$/.test(text))
+  })
+}
+onUpdated(styleActions)
+onMounted(styleActions)
 function key(event) {
   if ([...document.querySelectorAll('.modal')].at(-1) !== panel.value) return
   if (event.key === 'Escape') emit('close')
