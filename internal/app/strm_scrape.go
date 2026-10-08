@@ -141,6 +141,13 @@ func (a *App) loadScrapeIndex(task, root string) scrapeIndex {
 	b, err := os.ReadFile(a.scrapeIndexPath(task))
 	var old scrapeIndex
 	if err == nil && json.Unmarshal(b, &old) == nil && old.Root == root {
+		filtered := make([]scrapeItem, 0, len(old.Items))
+		for _, item := range old.Items {
+			if fs.ValidPath(item.Path) && strings.EqualFold(path.Ext(item.Path), ".strm") {
+				filtered = append(filtered, item)
+			}
+		}
+		old.Items = filtered
 		return old
 	}
 	return index
@@ -159,6 +166,7 @@ func (a *App) saveScrapeIndex(task string, index scrapeIndex) error {
 func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scrapeSettings) ([]scrapeItem, error) {
 	items := []scrapeItem{}
 	old := map[string]scrapeItem{}
+	tvDirs := map[string]bool{}
 	for _, item := range previous.Items {
 		old[item.Path] = item
 	}
@@ -179,6 +187,9 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 			if strings.Count(name, "/") > 128 {
 				return errors.New("目录层级过深")
 			}
+			if _, seasonal := seasonDirectory(path.Base(name)); seasonal && name != "." {
+				tvDirs[scrapeWorkDir(path.Join(name, "episode.strm"))] = true
+			}
 			return nil
 		}
 		if !entry.Type().IsRegular() || !strings.EqualFold(path.Ext(name), ".strm") {
@@ -189,27 +200,38 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 		}
 		item := recognizeSTRMPath(name)
 		item.Path = name
-		if saved, ok := old[name]; ok && saved.TMDB > 0 {
-			// Reparse unmatched legacy rows; preserve explicit matches, but correct
-			// old automatic movie classifications when the path has TV evidence.
-			if saved.Manual || saved.Kind == item.Kind || item.Kind != "tv" {
-				season, episode := item.Season, item.Episode
-				item = saved
-				if item.Kind == "tv" && episode > 0 {
-					item.Season, item.Episode = season, episode
-				}
-			}
-		}
 		items = append(items, item)
 		return nil
 	})
 	if err == nil {
-		inferScrapeSiblings(items)
+		inferScrapeWorks(items, tvDirs)
+		for i := range items {
+			item := &items[i]
+			if saved, ok := old[item.Path]; ok && saved.TMDB > 0 {
+				if saved.Manual || saved.Kind == item.Kind {
+					title, year, season, episode := item.Title, item.Year, item.Season, item.Episode
+					*item = saved
+					if !saved.Manual {
+						item.Title = title
+						if year != "" {
+							item.Year = year
+						}
+					}
+					if item.Kind == "tv" && episode > 0 {
+						item.Season, item.Episode = season, episode
+					}
+				}
+			}
+		}
 	}
 	return items, err
 }
 func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	action := r.PathValue("action")
+	if action == "cover" && (r.Method == "GET" || r.Method == "HEAD") {
+		a.scrapeCover(w, r)
+		return
+	}
 	if action == "settings" {
 		if r.Method == "GET" {
 			jsonResponse(w, 200, a.scrapeConfig())
@@ -326,7 +348,11 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 				index.Items = []scrapeItem{}
 			}
 		}
-		items := index.Items
+		items := append([]scrapeItem(nil), index.Items...)
+		if dir, err := os.OpenRoot(root); err == nil {
+			localScrapePosters(dir, task, items)
+			dir.Close()
+		}
 		if r.URL.Query().Get("group") == "true" {
 			jsonResponse(w, 200, scrapeWorks(items))
 		} else {
@@ -345,7 +371,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 		return
 	}
-	if action != "scan" && action != "run" && action != "identify" && action != "match" {
+	if action != "scan" && action != "run" && action != "identify" && action != "match" && action != "reset" {
 		w.WriteHeader(404)
 		return
 	}
@@ -354,11 +380,12 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TaskID string `json:"taskId"`
-		Path   string `json:"path"`
-		TMDB   int    `json:"tmdb"`
-		Kind   string `json:"kind"`
-		Group  bool   `json:"group"`
+		TaskID    string `json:"taskId"`
+		Path      string `json:"path"`
+		TMDB      int    `json:"tmdb"`
+		Kind      string `json:"kind"`
+		Group     bool   `json:"group"`
+		Confirmed bool   `json:"confirmed"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -378,6 +405,26 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	}
 	selected := func(item scrapeItem) bool {
 		return in.Path == "" || item.Path == in.Path || (in.Group && selectedWork != "" && scrapeWorkKey(item) == selectedWork)
+	}
+	if action == "reset" {
+		if !in.Confirmed || in.Path == "" || selectedWork == "" {
+			fail(w, 400, errors.New("请确认要重置的作品"))
+			return
+		}
+		for i := range index.Items {
+			if selected(index.Items[i]) {
+				index.Items[i].TMDB = 0
+				index.Items[i].Manual = false
+				index.Items[i].Poster, index.Items[i].Message = "", ""
+				index.Items[i].Status = "pending"
+			}
+		}
+		if err := a.saveScrapeIndex(in.TaskID, index); err != nil {
+			fail(w, 500, err)
+			return
+		}
+		jsonResponse(w, 200, map[string]bool{"ok": true})
+		return
 	}
 	if action == "match" {
 		if in.TMDB < 1 || (in.Kind != "movie" && in.Kind != "tv") {
@@ -676,10 +723,7 @@ func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb Plu
 	posterPath, fanartPath := stem+"-poster.jpg", stem+"-fanart.jpg"
 	if item.Kind == "tv" {
 		nfo.XMLName.Local = "tvshow"
-		dir := path.Dir(item.Path)
-		if strings.HasPrefix(strings.ToLower(path.Base(dir)), "season") || regexp.MustCompile(`(?i)^s\d+$`).MatchString(path.Base(dir)) {
-			dir = path.Dir(dir)
-		}
+		dir := scrapeWorkDir(item.Path)
 		if err := writeNFO(path.Join(dir, "tvshow.nfo"), nfo); err != nil {
 			return err
 		}

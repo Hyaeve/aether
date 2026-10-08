@@ -18,6 +18,15 @@ func TestTaskOutputLocations(t *testing.T) {
 			if kind == "cas" {
 				task.CASBindingID = addCASBindings(t, a)[0].ID
 			}
+			if kind == "ed2k" {
+				task.ED2KBindingID = "bound-115"
+				if err := a.store.update(func(st *State) error {
+					st.Storages = append(st.Storages, Storage{ID: "bound-115", Type: "115", Enabled: true})
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := a.validateTask(&task); err != nil {
 				t.Fatal(err)
 			}

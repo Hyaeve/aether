@@ -20,6 +20,12 @@ test('STRM scrape workspace scans, rematches and saves settings without shifting
       Object.assign(items.find(i => i.path === input.path), { tmdb: input.tmdb, kind: input.kind })
       return r.fulfill({ json: { ok: true } })
     }
+    if (action === 'reset') {
+      const input = r.request().postDataJSON()
+      expect(input.confirmed).toBe(true)
+      Object.assign(items.find(i => i.path === input.path), { tmdb: 0, status: 'pending' })
+      return r.fulfill({json:{ok:true}})
+    }
     const response = { running: true, total: 1000, done: 0, taskId: 'strm' }
     progress = { ...response, running: false, message: '索引已刷新' }
     return r.fulfill({ status: 202, json: response })
@@ -41,7 +47,7 @@ test('STRM scrape workspace scans, rematches and saves settings without shifting
   expect(await page.locator('.scrape-card').count()).toBeLessThan(100)
   await page.evaluate(() => window.scrollTo(0, 0))
   await expect(page.locator('.scrape-card').first()).toContainText('Film 0')
-  await page.getByRole('button', { name: '重新匹配', exact: true }).first().click()
+  await page.getByRole('button', { name: '识别作品', exact: true }).first().click()
   await expect(page.locator('.candidate-card img')).toBeVisible()
   const candidateType = await page.locator('.candidate-search .rounded-select').boundingBox()
   const candidateInput = await page.getByRole('textbox',{name:'候选名称'}).boundingBox()
@@ -51,6 +57,14 @@ test('STRM scrape workspace scans, rematches and saves settings without shifting
   await expect(page.getByLabel('TMDB ID')).toHaveValue('123')
   await page.getByRole('button', { name: '确认匹配', exact: true }).click()
   await expect(page.locator('.scrape-card').first()).toContainText('TMDB 123')
+  const card = page.locator('.scrape-card').first()
+  const left = await card.getByRole('button',{name:'重置元数据',exact:true}).boundingBox()
+  const right = await card.getByRole('button',{name:'识别作品',exact:true}).boundingBox()
+  expect(right.x).toBeGreaterThan(left.x)
+  expect(right.y).toBe(left.y)
+  await card.getByRole('button',{name:'重置元数据',exact:true}).click()
+  await page.getByRole('button',{name:'确认重置',exact:true}).click()
+  await expect(card).not.toContainText('TMDB 123')
   await page.getByRole('button', { name: '刮削设置', exact: true }).click()
   await page.getByRole('button', { name: '写入策略', exact: true }).click()
   await page.getByRole('option', { name: '覆盖已有', exact: true }).click()

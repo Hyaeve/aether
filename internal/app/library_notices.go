@@ -52,13 +52,16 @@ func libraryNoticeDescription(n LibraryNotice) string {
 func mergeLibraryNotice(st *State, incoming LibraryNotice) bool {
 	for i := len(st.LibraryNotices) - 1; i >= 0; i-- {
 		n := &st.LibraryNotices[i]
+		if normalizedNoticeEvent(n.Event) != normalizedNoticeEvent(incoming.Event) {
+			continue
+		}
 		if incoming.Time.Sub(n.Time) > 10*time.Minute || incoming.Time.Before(n.Time) || n.ServerID != incoming.ServerID {
 			continue
 		}
 		if len(incoming.ItemIDs) > 0 && slices.Contains(n.ItemIDs, incoming.ItemIDs[0]) {
 			return false
 		}
-		if incoming.MediaType == "episode" && n.MediaType == "episode" && incoming.Series != "" && n.Series == incoming.Series && n.SeriesID == incoming.SeriesID && n.Season != nil && incoming.Season != nil && *n.Season == *incoming.Season && len(n.Episodes) > 0 && len(incoming.Episodes) > 0 && len(n.ItemIDs) < 1000 && len(n.Episodes)+len(incoming.Episodes) <= 1000 {
+		if normalizedNoticeEvent(incoming.Event) == "library.new" && incoming.MediaType == "episode" && n.MediaType == "episode" && incoming.Series != "" && n.Series == incoming.Series && n.SeriesID == incoming.SeriesID && n.Season != nil && incoming.Season != nil && *n.Season == *incoming.Season && len(n.Episodes) > 0 && len(incoming.Episodes) > 0 && len(n.ItemIDs) < 1000 && len(n.Episodes)+len(incoming.Episodes) <= 1000 {
 			merged := append(slices.Clone(n.Episodes), incoming.Episodes...)
 			slices.Sort(merged)
 			merged = slices.Compact(merged)
@@ -76,4 +79,11 @@ func mergeLibraryNotice(st *State, incoming LibraryNotice) bool {
 	}
 	st.LibraryNotices = append(st.LibraryNotices, incoming)
 	return true
+}
+
+func normalizedNoticeEvent(event string) string {
+	if event == "" {
+		return "library.new"
+	}
+	return event
 }

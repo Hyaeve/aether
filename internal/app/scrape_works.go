@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var scrapeSeasonDir = regexp.MustCompile(`(?i)^(?:season[ ._-]*|s)(\d{1,3})$`)
+var scrapeSeasonDir = regexp.MustCompile(`(?i)^(?:season[ ._-]*|s)(\d{1,3})(?:[ ._-]+.*)?$`)
 var scrapeChineseSeason = regexp.MustCompile(`第([零〇一二两三四五六七八九十百\d]+)季`)
 var scrapeChineseEpisode = regexp.MustCompile(`第([零〇一二两三四五六七八九十百\d]+)[集话話]`)
 var scrapeEpisodeOnly = regexp.MustCompile(`(?i)(?:^|[ ._\-\[])E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4})(?:$|[^a-z0-9])`)
@@ -93,6 +93,7 @@ func scrapeNumber(raw string) int {
 }
 
 func seasonDirectory(name string) (int, bool) {
+	name = strings.TrimSpace(name)
 	if m := scrapeSeasonDir.FindStringSubmatch(name); m != nil {
 		return scrapeNumber(m[1]), true
 	}
@@ -100,7 +101,7 @@ func seasonDirectory(name string) (int, bool) {
 		return scrapeNumber(m[1]), true
 	}
 	switch strings.ToLower(name) {
-	case "specials", "special", "特别篇", "特別篇", "特别集":
+	case "specials", "special", "extras", "sp", "特别篇", "特別篇", "特别集", "花絮", "特典", "番外":
 		return 0, true
 	}
 	return 0, false
@@ -192,19 +193,40 @@ type scrapeWork struct {
 }
 
 func scrapeWorkKey(item scrapeItem) string {
-	dir := path.Dir(item.Path)
-	if item.Kind == "tv" {
-		dir = scrapeWorkDir(item.Path)
-		if !genericMediaDir(path.Base(dir)) {
-			return strings.Join([]string{dir, "tv"}, "\x00")
+	dir := scrapeWorkDir(item.Path)
+	if !genericMediaDir(path.Base(dir)) {
+		return strings.Join([]string{dir, item.Kind}, "\x00")
+	}
+	return item.Path
+}
+
+// Classify the whole work before applying saved matches. One unnumbered file
+// must not split a series into a TV card and unrelated movie cards.
+func inferScrapeWorks(items []scrapeItem, tvDirs map[string]bool) {
+	inferScrapeSiblings(items)
+	for _, item := range items {
+		if item.Kind == "tv" {
+			tvDirs[scrapeWorkDir(item.Path)] = true
 		}
 	}
-	original := recognizeSTRMPath(item.Path)
-	title := normalizedTitle(original.Title)
-	if title == "" {
-		return item.Path
+	for i := range items {
+		item := &items[i]
+		dir := scrapeWorkDir(item.Path)
+		if genericMediaDir(path.Base(dir)) {
+			continue
+		}
+		parent := recognizeSTRM(path.Base(dir) + ".strm")
+		item.Title = parent.Title
+		if parent.Year != "" {
+			item.Year = parent.Year
+		}
+		if parent.TMDB > 0 {
+			item.TMDB = parent.TMDB
+		}
+		if tvDirs[dir] && item.Kind != "tv" {
+			item.Kind, item.Season = "tv", 1
+		}
 	}
-	return strings.Join([]string{dir, item.Kind, title, original.Year}, "\x00")
 }
 
 func scrapeWorks(items []scrapeItem) []scrapeWork {

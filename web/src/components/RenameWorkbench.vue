@@ -5,6 +5,7 @@ import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
 import { useVirtualList } from '../virtual-list'
+import { changedNameParts } from '../name-diff'
 const props = defineProps({ storage: String, source: String, files: Array })
 const emit = defineEmits(['close', 'changed'])
 const rules = ref([{ kind: 'replace', find: '', replace: '', caseSensitive: false, firstOnly: false }])
@@ -55,7 +56,10 @@ watch(rules, () => {
   timer = setTimeout(preview, 250)
 }, { deep: true })
 function addRule() { rules.value.push({ kind: 'replace', find: '', replace: '', caseSensitive: false, firstOnly: false }); expanded.value = rules.value.length - 1 }
-function removeRule(index) { rules.value.splice(index, 1); expanded.value = Math.min(index, rules.value.length - 1) }
+function removeRule(index) { if (index === 0) return; rules.value.splice(index, 1); expanded.value = Math.min(index, rules.value.length - 1) }
+function nameParts(item) {
+  return changedNameParts(item.name, item.newName || '')
+}
 function applySet(value) {
   chosen.value = value
   const set = sets.value.find(s => s.id === value)
@@ -97,20 +101,21 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
           <div :style="{ height: `${top}px` }" />
           <article v-for="item in shown" :key="item.id" class="rename-preview-row" :class="{ignored: ignored.includes(item.id)}">
             <div><small>原：</small><span :data-tooltip="item.name">{{ item.name }}</span></div>
-            <div class="rename-changed" :class="{ 'error-message': item.error }"><small>新：</small><span :data-tooltip="item.error || item.newName">{{ item.error || item.newName }}</span></div>
-            <div class="rename-item-actions"><button class="icon-btn" :aria-label="ignored.includes(item.id) ? '取消忽略' : '忽略'" :title="ignored.includes(item.id) ? '取消忽略' : '忽略'" :disabled="busy" @click="toggleIgnore(item)"><Icon :name="ignored.includes(item.id) ? 'RotateCcw' : 'X'" /></button><button class="icon-btn" aria-label="修改" title="修改" :disabled="busy" @click="editing = item; editName = item.name"><Icon name="Pencil" /></button></div>
+            <div class="rename-changed" :class="{ 'error-message': item.error }"><small>新：</small><span :data-tooltip="item.error || item.newName"><template v-if="item.error">{{ item.error }}</template><template v-else><template v-for="(part, index) in nameParts(item)" :key="index"><mark v-if="part.changed">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></template></span></div>
+            <div class="rename-item-actions"><button class="icon-btn" :aria-label="ignored.includes(item.id) ? '取消忽略' : '忽略'" :data-tooltip="ignored.includes(item.id) ? '取消忽略' : '忽略'" data-tooltip-always :disabled="busy" @click="toggleIgnore(item)"><Icon :name="ignored.includes(item.id) ? 'RotateCcw' : 'X'" /></button><button class="icon-btn" aria-label="修改" data-tooltip="修改" data-tooltip-always :disabled="busy" @click="editing = item; editName = item.name"><Icon name="Pencil" /></button></div>
           </article><div :style="{ height: `${bottom}px` }" />
         </div><p v-if="error && items.length" class="error-message">{{ error }}</p>
       </section>
       <aside class="rename-rules">
         <fieldset :disabled="busy">
           <article v-for="(rule, index) in rules" :key="index" class="rename-rule" :class="{collapsed: expanded !== index}">
-            <header><strong>规则 {{ index + 1 }}</strong><button class="icon-btn" aria-label="删除规则" :disabled="rules.length === 1" @click="removeRule(index)"><Icon name="Trash2" /></button><button class="icon-btn" :aria-label="`规则 ${index + 1}`" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" /></button></header>
-            <template v-if="expanded === index">
+            <header><strong>规则 {{ index + 1 }}</strong><button v-if="index > 0" class="icon-btn" aria-label="删除规则" @click="removeRule(index)"><Icon name="Trash2" /></button><button class="icon-btn" :aria-label="`规则 ${index + 1}`" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" /></button></header>
+            <Transition name="rule-expand"><div v-if="expanded === index" class="rule-collapse"><div class="rule-fields">
             <RoundedSelect v-model="rule.kind" label="规则类型" :options="[{ value: 'replace', label: '查找替换' }]" />
+            <div class="rule-inline"><span>查找类型</span><RoundedSelect :model-value="rule.findType || 'literal'" @update:model-value="rule.findType = $event" label="查找类型" :options="[{ value: 'literal', label: '常规查找' }, { value: 'regex', label: '正则查找' }]" /></div>
             <label>查找内容<input v-model="rule.find" maxlength="255" /></label><label>替换为<input v-model="rule.replace" maxlength="255" /></label>
-            <label class="rename-check"><input v-model="rule.caseSensitive" type="checkbox" />区分大小写</label><label class="rename-check"><input v-model="rule.firstOnly" type="checkbox" />仅替换第一个</label>
-            </template>
+            <div class="rule-checks"><label class="rename-check"><input v-model="rule.caseSensitive" type="checkbox" />大小写</label><label class="rename-check"><input v-model="rule.firstOnly" type="checkbox" />仅第一个</label></div>
+            </div></div></Transition>
           </article>
           <button class="btn rename-add-rule" :disabled="rules.length >= 30" @click="addRule"><Icon name="Plus" />添加规则</button>
         </fieldset>
@@ -131,5 +136,13 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 .rename-save { margin-top: auto; padding-top: 18px; }
 .rename-rule.collapsed { padding: 4px 12px; margin-bottom: 6px; }
 .rename-rule.collapsed header { margin: 0; }
+.rule-collapse { display:grid; grid-template-rows:1fr; opacity:1; }.rule-fields { min-height:0; }.rule-expand-enter-active .rule-fields, .rule-expand-leave-active .rule-fields { overflow:hidden; }.rule-expand-enter-active, .rule-expand-leave-active { transition:grid-template-rows .24s ease, opacity .2s ease; }.rule-expand-enter-from, .rule-expand-leave-to { grid-template-rows:0fr; opacity:0; }
+.rename-rules, .rename-rules :deep(button), .rename-rules label, .rename-rules input, .rename-rules :deep(.rounded-select) { font-size:13px; }
+.rename-rule label:not(.rename-check), .rule-inline { display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:8px; margin-top:8px; }.rule-inline { margin-bottom:8px; }
+.rename-rule input:not([type=checkbox]), .rename-rules :deep(.rounded-select-trigger), .rename-rules .btn { min-height:32px; height:32px; padding-top:4px; padding-bottom:4px; }
+.rule-checks { display:flex; gap:18px; }.rule-checks label { margin:10px 0 2px; }
+.rename-rule { padding:10px; margin-bottom:8px; }.rename-rule header { margin-bottom:6px; }.rename-rule .icon-btn { width:28px; height:28px; min-height:28px; }
+.rename-changed small { color:#309783; }.rename-changed mark { color:var(--primary); background:color-mix(in srgb,var(--primary) 12%,transparent); border-radius:3px; }.rename-changed > span { color:var(--text); }
+@media(prefers-reduced-motion:reduce) { .rule-expand-enter-active, .rule-expand-leave-active { transition:none; } }
 @media (hover: none) { .rename-preview-row .rename-item-actions { opacity: 1; } }
 </style>

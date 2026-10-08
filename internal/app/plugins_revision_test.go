@@ -91,6 +91,9 @@ func TestPluginsConfigurationAndRealRequests(t *testing.T) {
 		t.Fatal("proxy not used", w.Code, proxyCalls)
 	}
 	reopened, err := NewStore(a.store.dir)
+	if err == nil {
+		err = reopened.initTools(a.store.toolsDir)
+	}
 	if err != nil || reopened.snapshot().Plugins["ai"].APIKey != "secret-api" {
 		t.Fatal("plugin persistence failed", err)
 	}

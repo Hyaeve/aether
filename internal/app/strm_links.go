@@ -140,6 +140,11 @@ func (a *App) playSTRMReference(w http.ResponseWriter, r *http.Request) {
 		ref = strmReference{Storage: storage, File: string(fid), Name: name}
 	}
 	target, _ := url.Parse(a.streamURL(ref.Storage, ref.File, ref.Pick))
+	if r.URL.Query().Get("download") == "1" {
+		query := target.Query()
+		query.Set("download", "1")
+		target.RawQuery = query.Encode()
+	}
 	request := r.Clone(r.Context())
 	request.URL = target
 	request.SetPathValue("token", path.Base(target.Path))

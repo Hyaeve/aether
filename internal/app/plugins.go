@@ -27,6 +27,7 @@ type PluginConfig struct {
 	Token    string `json:"token"`
 }
 type LibraryNotice struct {
+	Event     string    `json:"event,omitempty"`
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Time      time.Time `json:"time"`
@@ -107,7 +108,7 @@ func (a *App) pluginConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	old := pluginDefaults(kind, a.store.snapshotWithLogLimit(0).Plugins[kind])
+	old := pluginDefaults(kind, a.store.plugin(kind))
 	if r.Method == "GET" {
 		if old.APIKey != "" {
 			old.APIKey = "********"
@@ -158,7 +159,7 @@ func (a *App) pluginSecret(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	p := a.store.snapshotWithLogLimit(0).Plugins[r.PathValue("kind")]
+	p := a.store.plugin(r.PathValue("kind"))
 	value := ""
 	switch in.Field {
 	case "apiKey":
@@ -361,7 +362,7 @@ func (a *App) pluginAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
-	p := a.store.snapshotWithLogLimit(0).Plugins["emby"]
+	p := a.store.plugin("emby")
 	want, got := sha256.Sum256([]byte(p.Token)), sha256.Sum256([]byte(r.URL.Query().Get("token")))
 	if !p.Enabled || p.Token == "" || subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
 		fail(w, 403, errors.New("通知入口未启用或令牌无效"))
@@ -373,8 +374,10 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Event  string `json:"Event"`
-		Server struct {
+		Event       string `json:"Event"`
+		Title       string `json:"Title"`
+		Description string `json:"Description"`
+		Server      struct {
 			ID string `json:"Id"`
 		} `json:"Server"`
 		Item struct {
@@ -392,17 +395,33 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("通知内容无效"))
 		return
 	}
-	if !strings.EqualFold(input.Event, "library.new") && !strings.EqualFold(input.Event, "itemadded") {
-		jsonResponse(w, 200, map[string]bool{"ignored": true})
+	input.Event = strings.ToLower(strings.TrimSpace(input.Event))
+	if input.Event == "" || len(input.Event) > 128 || strings.ContainsAny(input.Event, "\r\n\x00") {
+		fail(w, 400, errors.New("通知事件无效"))
 		return
 	}
+	if input.Event == "itemadded" {
+		input.Event = "library.new"
+	}
 	name := strings.TrimSpace(input.Item.Name)
+	if name == "" && input.Event != "library.new" {
+		name = strings.TrimSpace(input.Title)
+		if name == "" {
+			name = strings.TrimSpace(input.Description)
+		}
+		if name == "" {
+			name = input.Event
+		}
+	}
 	if name == "" || len(name) > 1000 {
 		fail(w, 400, errors.New("通知缺少有效媒体名称"))
 		return
 	}
 	inserted := false
-	notice := LibraryNotice{ID: id(), Name: name, Time: time.Now(), MediaType: strings.ToLower(input.Item.Type), Series: strings.TrimSpace(input.Item.SeriesName), SeriesID: input.Item.SeriesID, ServerID: input.Server.ID, Season: input.Item.Season}
+	if input.Item.Type == "" && (input.Item.SeriesName != "" || input.Item.SeriesID != "") && input.Item.Episode != nil {
+		input.Item.Type = "Episode"
+	}
+	notice := LibraryNotice{Event: input.Event, ID: id(), Name: name, Time: time.Now(), MediaType: strings.ToLower(input.Item.Type), Series: strings.TrimSpace(input.Item.SeriesName), SeriesID: input.Item.SeriesID, ServerID: input.Server.ID, Season: input.Item.Season}
 	if len(notice.Series) > 1000 || len(notice.SeriesID) > 256 || len(input.Item.ID) > 256 || len(notice.ServerID) > 256 {
 		fail(w, 400, errors.New("通知字段过长"))
 		return
@@ -443,7 +462,7 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if inserted {
-		a.store.event("info", "links", "Emby 入库："+libraryNoticeDescription(notice))
+		a.store.event("info", "links", "Emby 通知 ["+input.Event+"]："+libraryNoticeDescription(notice))
 	}
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }

@@ -39,6 +39,10 @@ async function load() {
     bindings.value = data.bindings || []
     broker.value = data.broker || ''
     emit('changed', data)
+    if (!bindings.value.some(b => b.id === editing.value)) {
+      editing.value = ''
+      if (bindings.value.length) await edit(bindings.value[0])
+    }
   } catch (e) {
     error.value = e.message
   }
@@ -82,7 +86,6 @@ async function save() {
   busy.value = true
   try {
     await api(`/quark-takeover/${editing.value}`, 'PUT', form)
-    editing.value = ''
     await load()
     notify('接管设置已保存')
   } catch (e) {
@@ -152,18 +155,23 @@ onUnmounted(stop)
 </script>
 
 <template>
-  <Modal v-if="!adding && !editing" title="夸克 STRM 接管 · 账号绑定" compact wide @close="$emit('close')">
-    <div class="modal-body binding-workspace">
+  <Modal v-if="!adding" title="夸克 STRM 接管" compact wide @close="$emit('close')">
+    <div class="modal-body takeover-workspace"><aside class="binding-workspace"><h3>账号绑定</h3>
       <div v-for="binding in bindings" :key="binding.id" class="binding-row">
         <button class="binding-toggle" :aria-label="`${binding.enabled ? '停用' : '启用'}绑定 ${binding.name}`" :aria-pressed="binding.enabled" :disabled="busy || !binding.valid" @click="toggleBinding(binding)"><ProviderIcon type="quark" /></button>
-        <div><strong>{{ binding.name }}</strong><small>TV · {{ binding.nickname || '已绑定' }} · {{ binding.valid ? '已授权' : '存储凭据已变更，请重新绑定' }}</small></div>
+        <button class="binding-select" :class="{active: editing === binding.id}" :disabled="busy" @click="edit(binding)"><strong>{{ binding.name }}</strong><small>TV · {{ binding.nickname || '已绑定' }} · {{ binding.valid ? '已授权' : '凭据已变更' }}</small></button>
         <button class="icon-btn" :aria-label="`设置绑定 ${binding.name}`" :disabled="busy" @click="edit(binding)"><Icon name="Settings" /></button>
         <button class="icon-btn" :aria-label="`解除绑定 ${binding.name}`" :disabled="busy" @click="remove(binding)"><Icon name="Trash2" /></button>
       </div>
       <p v-if="!bindings.length" class="muted">暂无绑定账号</p>
       <button class="btn binding-add" :disabled="!pools.length || busy" @click="add"><Icon name="Plus" />添加绑定</button>
-      <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-    </div>
+    </aside><form class="takeover-settings" @submit.prevent="save"><h3>播放设置</h3><p v-if="!editing" class="muted">选择或添加绑定账号</p><fieldset v-else :disabled="busy">
+      <div class="field"><label>清晰度偏好</label><RoundedSelect v-model="form.quality" label="最高画质" :options="['low','normal','high','super','2k','4k','dolby_vision'].map((v,i) => ({ value:v, label:['流畅','标清','高清','超清','2K','4K','杜比视界'][i] }))" /></div>
+      <label class="toggle-line"><span>允许杜比视界</span><input v-model="form.allowDolby" type="checkbox" role="switch" class="switch" /></label>
+      <div class="field"><label>接管模式</label><RoundedSelect v-model="form.mode" label="接管模式" :options="[{ value: 'adaptive', label: '智能变轨' }, { value: 'direct', label: '强制直连' }, { value: 'split', label: '策略分流' }]" /></div>
+      <template v-if="form.mode === 'split'"><div class="field"><label>UA 规则</label><RoundedSelect v-model="form.uaListMode" label="UA 规则" :options="[{ value:'proxy_list',label:'匹配时走原通道' },{ value:'direct_list',label:'仅匹配时接管' }]" /></div><label>UA 关键词<textarea v-model="form.ua" rows="3" placeholder="一行一个关键词" /></label></template>
+      <button class="btn primary" :disabled="busy">保存设置</button>
+    </fieldset></form><p v-if="error" class="error-message" role="alert">{{ error }}</p></div>
   </Modal>
 
   <Modal v-if="adding" title="选择绑定的存储" compact @close="stop(); adding = false">
@@ -178,24 +186,11 @@ onUnmounted(stop)
     <footer class="modal-footer"><button class="btn primary" :disabled="busy || !storage || !consent" @click="qr">获取二维码</button></footer>
   </Modal>
 
-  <Modal v-if="editing" title="接管设置" compact @close="editing = ''">
-    <form @submit.prevent="save">
-      <div class="modal-body form-grid">
-        <div class="field"><label>接管模式</label><RoundedSelect v-model="form.mode" label="接管模式" :options="[{ value: 'adaptive', label: '智能变轨' }, { value: 'direct', label: '强制直连' }, { value: 'split', label: '策略分流' }]" /></div>
-        <div class="field"><label>最高画质</label><RoundedSelect v-model="form.quality" label="最高画质" :options="['low','normal','high','super','2k','4k','dolby_vision'].map((v,i) => ({ value:v, label:['流畅','标清','高清','超清','2K','4K','杜比视界'][i] }))" /></div>
-        <label class="toggle-line full"><span>允许杜比视界</span><input v-model="form.allowDolby" type="checkbox" role="switch" class="switch" /></label>
-        <template v-if="form.mode === 'split'">
-          <div class="field full"><label>UA 规则</label><RoundedSelect v-model="form.uaListMode" label="UA 规则" :options="[{ value:'proxy_list',label:'匹配时走原通道' },{ value:'direct_list',label:'仅匹配时接管' }]" /></div>
-          <label class="full">UA 关键词<textarea v-model="form.ua" rows="3" placeholder="一行一个关键词" /></label>
-        </template>
-        <p v-if="error" class="error-message full" role="alert">{{ error }}</p>
-      </div>
-      <footer class="modal-footer"><button class="btn primary" :disabled="busy">保存设置</button></footer>
-    </form>
-  </Modal>
 </template>
 
 <style scoped>
+.takeover-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); gap:20px; }.takeover-workspace h3 { font-size:14px; margin:0 0 12px; }.takeover-settings { border-left:1px solid var(--border); padding-left:20px; min-width:0; }.takeover-settings fieldset { display:grid; gap:14px; border:0; margin:0; padding:0; min-width:0; }.binding-select { min-width:0; flex:1; text-align:left; border:0; border-radius:6px; padding:8px 4px; background:transparent; color:var(--text); }.binding-select.active { background:color-mix(in srgb,var(--primary) 9%,transparent); }.binding-row .icon-btn { width:26px; min-width:26px; }.takeover-workspace > .error-message { grid-column:1/-1; }
+@media(max-width:600px) { .takeover-workspace { grid-template-columns:1fr; }.takeover-settings { border-left:0; border-top:1px solid var(--border); padding:16px 0 0; } }
 .binding-row { display: flex; gap: 10px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
 .binding-toggle { width: 36px; height: 36px; flex-shrink: 0; border: 0; background: transparent; padding: 0; }
 .binding-toggle[aria-pressed=false] { opacity: .45; }

@@ -47,7 +47,7 @@ test('local CAS generation and persisted named directory navigation', async ({ p
     const state = await (await page.request.get('/api/state')).json()
     return state.tasks.find(t => t.name === '本地 CAS 哈希')?.status
   }).toBe('success')
-  const output = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'local-cas', 'Arrival.MP4.cas'), 'utf8')
+  const output = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'local-cas', 'Arrival.cas'), 'utf8')
   const info = JSON.parse(Buffer.from(output, 'base64').toString('utf8'))
   expect(info.sha256).toBe(createHash('sha256').update('test-video-content').digest('hex'))
   expect(info.provider).toBe('mobile')

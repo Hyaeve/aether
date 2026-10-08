@@ -123,7 +123,7 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await expect(page.getByText('电影增量同步', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '立即执行', exact: true }).click()
   await expect.poll(async () => (await (await page.request.get('/api/state')).json()).tasks.find(t => t.name === '电影增量同步')?.status, {timeout:20000}).toBe('success')
-  const strm = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'Movies', 'Arrival.MP4.strm'), 'utf8')
+  const strm = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'Movies', 'Arrival.strm'), 'utf8')
   expect(strm).toMatch(/^http:\/\/[^/]+:15159\/stream\//)
   expect(strm).toContain('?sign=')
   await page.screenshot({ path: testInfo.outputPath('tasks-desktop.png'), fullPage: true })
@@ -313,7 +313,7 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   await expect(page.locator('.toast').filter({ hasText: '当前版本已是最新' })).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
-  await expect(page.locator('.plugin-card')).toHaveCount(12)
+  await expect(page.locator('.plugin-card')).toHaveCount(14)
   expect(await page.locator('.plugin-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4)
   await page.screenshot({ path: testInfo.outputPath('plugins-desktop.png'), fullPage: true })
   await page.getByRole('button', { name: /^识别规则/ }).click()
@@ -500,7 +500,7 @@ test('WebDAV users and scoped directories', async ({ page }, testInfo) => {
   await expect(page.getByRole('button', { name: '刷新目录', exact: true })).toHaveText('')
   expect(await page.locator('.files-heading-actions .search-field').evaluate(el => el.previousElementSibling.getAttribute('aria-label'))).toBe('刷新目录')
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
-  await expect(page.locator('.plugin-description')).toHaveCount(12)
+  await expect(page.locator('.plugin-description')).toHaveCount(14)
   await expect(page.locator('.plugin-description').first()).toHaveCSS('-webkit-line-clamp', '2')
   await page.screenshot({ path: testInfo.outputPath('tools-descriptions.png'), fullPage: true })
 })
@@ -623,6 +623,7 @@ test('storage drag order persists and cards remain minimal', async ({ page }, te
 })
 
 test('login starfield, orbit motion and provider assets', async ({ page }, testInfo) => {
+  await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: false } }))
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
   await page.goto('/')

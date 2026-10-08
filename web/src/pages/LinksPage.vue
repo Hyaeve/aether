@@ -24,7 +24,7 @@ function hold(event, link) {
   clearTimeout(holdTimer); clearTimeout(releaseTimer)
   const card = event.currentTarget
   pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, link: link.id }
-  holdTimer = setTimeout(() => { armed.value = link.id; suppressClick = true; card?.setPointerCapture?.(event.pointerId) }, 230)
+  holdTimer = setTimeout(() => { armed.value = link.id; suppressClick = true; card?.setPointerCapture?.(event.pointerId) }, 160)
 }
 function pointerMove(event) {
   if (!pointer || event.pointerId !== pointer.id) return

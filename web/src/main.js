@@ -2,6 +2,8 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './style.css'
+import { preloadLogos } from './assets-preload'
+preloadLogos()
 
 const router = createRouter({
   history: createWebHistory(),

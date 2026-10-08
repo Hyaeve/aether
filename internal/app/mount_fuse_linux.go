@@ -38,6 +38,9 @@ type nativeFuseNode struct {
 	backend mountFS
 	mu      sync.Mutex
 	writer  *nativeFuseHandle
+	attrMu  sync.RWMutex
+	mtime   *time.Time
+	atime   *time.Time
 }
 
 func (n *nativeFuseNode) name() string { return "/" + n.Path(nil) }
@@ -96,6 +99,8 @@ func fuseErr(err error) syscall.Errno {
 }
 
 func (n *nativeFuseNode) attributes(info os.FileInfo, out *fuse.Attr) {
+	n.attrMu.RLock()
+	defer n.attrMu.RUnlock()
 	out.Mode = syscall.S_IFREG | n.backend.config.Mode&0666
 	out.Nlink = 1
 	if info.IsDir() {
@@ -107,6 +112,12 @@ func (n *nativeFuseNode) attributes(info os.FileInfo, out *fuse.Attr) {
 	out.Blksize, out.Blocks = 4096, (out.Size+511)/512
 	if t := info.ModTime(); !t.IsZero() && t.Unix() >= 0 {
 		out.Mtime, out.Ctime, out.Atime = uint64(t.Unix()), uint64(t.Unix()), uint64(t.Unix())
+	}
+	if n.mtime != nil {
+		out.Mtime, out.Mtimensec = uint64(n.mtime.Unix()), uint32(n.mtime.Nanosecond())
+	}
+	if n.atime != nil {
+		out.Atime, out.Atimensec = uint64(n.atime.Unix()), uint32(n.atime.Nanosecond())
 	}
 }
 
@@ -279,6 +290,7 @@ func (n *nativeFuseNode) Mkdir(ctx context.Context, name string, _ uint32, out *
 		return nil, syscall.EINVAL
 	}
 	if err := n.backend.Mkdir(ctx, path.Join(n.name(), name), os.FileMode(n.backend.config.Mode)); err != nil {
+		n.backend.app.store.event("error", "storage", "FUSE 创建目录失败："+path.Join(n.name(), name)+"："+err.Error())
 		return nil, fuseErr(err)
 	}
 	return n.Lookup(ctx, name, out)
@@ -364,8 +376,21 @@ func (n *nativeFuseNode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse
 	if n.backend.config.ReadOnly {
 		return syscall.EROFS
 	}
-	// Ownership and permissions are mount-wide; never silently accept changes.
-	if in.Valid & ^uint32(fuse.FATTR_SIZE|fuse.FATTR_FH|fuse.FATTR_LOCKOWNER) != 0 {
+	// Copy clients commonly reapply the current mode/owner and source timestamps.
+	if in.Valid & ^uint32(fuse.FATTR_SIZE|fuse.FATTR_FH|fuse.FATTR_LOCKOWNER|fuse.FATTR_MODE|fuse.FATTR_UID|fuse.FATTR_GID|fuse.FATTR_ATIME|fuse.FATTR_MTIME|fuse.FATTR_ATIME_NOW|fuse.FATTR_MTIME_NOW) != 0 {
+		return syscall.ENOTSUP
+	}
+	var current fuse.AttrOut
+	if errno := n.Getattr(ctx, fh, &current); errno != 0 {
+		return errno
+	}
+	if mode, ok := in.GetMode(); ok && mode != current.Mode&07777 {
+		return syscall.ENOTSUP
+	}
+	if uid, ok := in.GetUID(); ok && uid != current.Uid {
+		return syscall.ENOTSUP
+	}
+	if gid, ok := in.GetGID(); ok && gid != current.Gid {
 		return syscall.ENOTSUP
 	}
 	if size, ok := in.GetSize(); ok {
@@ -394,6 +419,38 @@ func (n *nativeFuseNode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse
 				return errno
 			}
 		}
+	}
+	atime, hasA := in.GetATime()
+	mtime, hasM := in.GetMTime()
+	if hasA || hasM {
+		if !hasA {
+			atime = time.Unix(int64(current.Atime), int64(current.Atimensec))
+		}
+		if !hasM {
+			mtime = time.Unix(int64(current.Mtime), int64(current.Mtimensec))
+		}
+		if atime.Unix() < 0 || mtime.Unix() < 0 {
+			return syscall.EINVAL
+		}
+		s, source, rel, err := n.backend.selectPath(n.name())
+		if err != nil {
+			return fuseErr(err)
+		}
+		if s.Type == "local" {
+			root, err := n.backend.localRoot(s, source)
+			if err != nil {
+				return fuseErr(err)
+			}
+			err = root.Chtimes(rel, atime, mtime)
+			root.Close()
+			if err != nil {
+				return fuseErr(err)
+			}
+		}
+		// Cloud drivers cannot set remote timestamps; retain virtual metadata for this inode.
+		n.attrMu.Lock()
+		n.atime, n.mtime = &atime, &mtime
+		n.attrMu.Unlock()
 	}
 	return n.Getattr(ctx, fh, out)
 }

@@ -31,6 +31,11 @@ func TestNativeFuseLocalCallbacks(t *testing.T) {
 		t.Fatal(errno)
 	}
 	h := handle.(*nativeFuseHandle)
+	var metadata fuse.AttrOut
+	stamp := fuse.SetAttrIn{SetAttrInCommon: fuse.SetAttrInCommon{Valid: fuse.FATTR_MTIME | fuse.FATTR_ATIME, Mtime: 1700000000, Atime: 1700000000}}
+	if errno := child.Operations().(*nativeFuseNode).Setattr(ctx, handle, &stamp, &metadata); errno != 0 || metadata.Mtime != 1700000000 {
+		t.Fatal("copy timestamps rejected", errno, metadata)
+	}
 	if _, errno := h.Write(ctx, []byte("hello"), 0); errno != 0 {
 		t.Fatal(errno)
 	}

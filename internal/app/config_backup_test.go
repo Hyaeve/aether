@@ -30,6 +30,7 @@ func TestConfigBackup(t *testing.T) {
 	if err := a.store.update(func(st *State) error {
 		st.Storages = append(st.Storages, Storage{ID: "saved-pool", Name: "saved", Type: "local", Enabled: true, Config: map[string]string{"root": t.TempDir()}})
 		st.Links = append(st.Links, MediaLink{ID: "saved-link", Name: "saved", APIKey: "backup-private-key"})
+		st.Simulcast = map[string]SimulcastConfig{"pan": {Enabled: true, Directory: "99"}}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -93,12 +94,21 @@ func TestConfigBackup(t *testing.T) {
 	if a.store.snapshot().Username != "admin" {
 		t.Fatal("restore failed")
 	}
+	if cfg := a.store.snapshot().Simulcast["pan"]; !cfg.Enabled || cfg.Directory != "99" {
+		t.Fatal("simulcast config missing from backup restore")
+	}
 	if len(a.store.snapshot().Links) != 1 || a.store.snapshot().Links[0].APIKey != "backup-private-key" || len(a.store.snapshot().Storages) != 1 {
 		t.Fatal("storage or link missing")
 	}
 	reloaded, err := NewStore(a.store.dir)
 	if err != nil || reloaded.snapshot().Links[0].APIKey != "backup-private-key" {
 		t.Fatal("restored state not persisted", err)
+	}
+	if err := reloaded.initTools(a.store.toolsDir); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.snapshot().Simulcast["pan"].Directory != "99" {
+		t.Fatal("simulcast snapshot not persisted")
 	}
 	bundle.Files["../escape.json"] = json.RawMessage("{}")
 	if validateBundle(bundle) == nil {

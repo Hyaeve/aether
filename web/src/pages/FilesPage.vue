@@ -77,6 +77,14 @@ const gridMode = computed(() => mode.value === 'grid')
 const { shown, top, bottom, columns: gridColumns, reset: resetScroll, reveal } = useVirtualList(displayItems, viewport, { rowHeight: computed(() => gridMode.value ? 148 : 52), header: computed(() => gridMode.value ? 0 : 44), grid: gridMode })
 watch([query, sortKey, ascending, mode], resetScroll)
 const detailFiles = computed(() => files.value.filter(f => selection.value.includes(f.id)))
+const detailSummary = computed(() => ({
+  folders: detailFiles.value.reduce((n, f) => n + (f.isDir ? 1 + (f.folderCount || 0) : 0), 0),
+  files: detailFiles.value.reduce((n, f) => n + (f.isDir ? f.fileCount || 0 : 1), 0),
+  size: detailFiles.value.reduce((n, f) => n + (f.size || 0), 0),
+  complete: detailFiles.value.every(f => !f.isDir || f.sizeKnown && f.countsKnown)
+}))
+function detailLocation(f) { return [state.storages.find(s => s.id === selected.value)?.name, ...history.value.map(h => h.name), f?.name].filter(Boolean).join(' / ') }
+async function copyLocation(f) { try { await copyText(detailLocation(f)); notify('位置已复制') } catch { notify('复制失败', true) } }
 const detailCID = computed(() => state.storages.find(s => s.id === selected.value)?.type === '115' && detailFiles.value.length === 1 && detailFiles.value[0].isDir ? detailFiles.value[0].id : '')
 const downloadable = computed(() => detailFiles.value.length === 1 && (detailFiles.value[0].isDir || !!detailFiles.value[0].url))
 function downloadFile() {
@@ -265,14 +273,14 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
   <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body">将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</div><footer class="modal-footer"><button class="btn" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })">确认修改</button></footer></Modal>
-  <Modal v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目 · {{ bytes(detailFiles.reduce((n, f) => n + (f.isDir && !f.sizeKnown ? 0 : f.size || 0), 0)) }}</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-for="f in detailFiles" :key="f.id">
+  <Modal v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-if="detailFiles.length > 1"><dt>大小</dt><dd>{{ detailBusy ? '正在统计…' : !detailSummary.complete ? '统计未完成 · ' : '' }}{{ bytes(detailSummary.size) }}</dd><dt>包含</dt><dd>{{ detailSummary.folders }} 个文件夹，{{ detailSummary.files }} 个文件</dd><dt>所在目录</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation()">{{ detailLocation() }}<Icon name="Copy" :size="14" /></button></dd></dl><dl v-for="f in detailFiles.length === 1 ? detailFiles : []" :key="f.id">
     <dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd>
     <dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd>
     <template v-if="f.isDir"><dt>包含</dt><dd>{{ f.countsKnown ? `${f.folderCount || 0} 个文件夹，${f.fileCount || 0} 个文件` : detailBusy ? '正在统计…' : '未完成统计' }}</dd></template>
     <dt>创建时间</dt><dd>{{ !f.created || f.created.startsWith('0001') ? '未提供' : new Date(f.created).toLocaleString('zh-CN') }}</dd>
     <dt>修改时间</dt><dd>{{ !f.modified || f.modified.startsWith('0001') ? '未提供' : new Date(f.modified).toLocaleString('zh-CN') }}</dd>
     <template v-if="detailCID"><dt>CID</dt><dd><button class="text-btn" aria-label="复制 CID" @click="copyCID">{{ detailCID }}<Icon name="Copy" :size="14" /></button></dd></template>
-    <dt>位置</dt><dd>{{ state.storages.find(s => s.id === selected)?.name }} / {{ history.map(h => h.name).join(' / ') }}</dd>
+    <dt>位置</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation(f)">{{ detailLocation(f) }}<Icon name="Copy" :size="14" /></button></dd>
     <template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></Modal>
   <Modal v-if="folderDownload" title="下载文件夹" confirmation @close="folderDownload = null"><div class="modal-body">确认将「{{ folderDownload.name }}」打包为 ZIP 下载？打包将通过以太传输，目录较大时需要较长时间。</div><footer class="modal-footer"><button class="btn primary" @click="confirmFolderDownload">确认下载</button><button class="btn" @click="folderDownload = null">取消</button></footer></Modal>
   <OfflineDownload v-if="offline" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="offline = false" />

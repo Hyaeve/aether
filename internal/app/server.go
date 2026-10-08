@@ -29,6 +29,7 @@ import (
 )
 
 type App struct {
+	simulcast      *pan115Simulcast
 	transfers      transferLog
 	traffic        trafficMeter
 	shareMu        sync.Mutex
@@ -103,12 +104,16 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	if err != nil {
 		return nil, err
 	}
+	if err := store.initTools(filepath.Join(dataDir, "tools")); err != nil {
+		return nil, err
+	}
 	if err := applyPendingConfig(store); err != nil {
 		return nil, err
 	}
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
 		gates: map[string]time.Time{}, intervals: map[string]int{}, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, started: time.Now()}
 	a.casGate = make(chan struct{}, 1)
+	a.simulcast = newPan115Simulcast(a, linkTrustedProxies())
 	if err := a.restoreSessions(); err != nil {
 		return nil, fmt.Errorf("restore sessions: %w", err)
 	}
@@ -120,7 +125,11 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 		return nil, err
 	}
 	a.cache.restore(dataDir, store.snapshot().Settings)
-	a.dav = &webdav.Handler{Prefix: "/dav", FileSystem: davFS{a}, LockSystem: webdav.NewMemLS()}
+	a.dav = &webdav.Handler{Prefix: "/dav", FileSystem: davFS{a}, LockSystem: webdav.NewMemLS(), Logger: func(r *http.Request, err error) {
+		if err != nil {
+			a.store.event("warn", "storage", "WebDAV "+r.Method+" "+r.URL.Path+"："+err.Error())
+		}
+	}}
 	return a, nil
 }
 
@@ -147,6 +156,7 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	a.mounts.startAutomatic()
 	defer a.mounts.close()
 	go a.scheduler()
+	go a.storageHealthLoop()
 	server := &http.Server{Handler: a.Handler(env("AETHER_WEB_DIR", "web/dist")), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
@@ -218,6 +228,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/mounts/{id}", a.protected(http.HandlerFunc(a.mountAPI)))
 	mux.Handle("POST /api/mounts/{id}/{action}", a.protected(http.HandlerFunc(a.mountAction)))
 	mux.Handle("GET /api/local-directories", a.protected(http.HandlerFunc(a.localDirectories)))
+	mux.Handle("POST /api/local-directories", a.protected(http.HandlerFunc(a.createLocalDirectory)))
+	a.RegisterStrmReplace(mux)
+	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, a.store.logSnapshot())
 	})))
@@ -857,6 +870,13 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) validateTask(t *Task) error {
 	var extensionErr error
+	if t.RetainedExtensions != nil {
+		value, err := normalizeExtensions(*t.RetainedExtensions)
+		if err != nil {
+			return err
+		}
+		t.RetainedExtensions = &value
+	}
 	t.MediaExtensions, extensionErr = normalizeExtensions(t.MediaExtensions)
 	if extensionErr != nil {
 		return extensionErr
@@ -885,8 +905,8 @@ func (a *App) validateTask(t *Task) error {
 	case "strm", "cas", "ed2k":
 		if t.Kind == "ed2k" {
 			s, _ := a.store.storage(t.StorageID)
-			if s.Type != "local" {
-				return errors.New("ED2K 任务仅支持本地存储")
+			if _, err := a.validateED2KBinding(*t, s); err != nil {
+				return err
 			}
 		}
 		if t.Kind == "cas" {
@@ -946,12 +966,14 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &t) {
 		return
 	}
+	created := time.Now()
+	defaultTaskCron(&t, created)
 	if err := a.validateTask(&t); err != nil {
 		fail(w, 400, err)
 		return
 	}
 	t.ID, t.Status, t.Message, t.Processed, t.LastRun = id(), "idle", "等待执行", 0, time.Time{}
-	t.NextRun = nextRun(t, time.Now())
+	t.NextRun = nextRun(t, created)
 	if err := a.store.update(func(st *State) error { st.Tasks = append(st.Tasks, t); return nil }); err != nil {
 		fail(w, 500, err)
 		return
@@ -1157,6 +1179,15 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var d Download
+	if claim.ED2K != nil {
+		d, err = a.ed2kDownloadWithUA(r.Context(), s, claim, r.UserAgent())
+		if err != nil {
+			fail(w, 502, err)
+			return
+		}
+		redirectDownload(w, r, d.URL)
+		return
+	}
 	if claim.CAS == nil && s.Type == "quark" && r.URL.Query().Get("download") != "1" {
 		if target := a.quarkTVTarget(r.Context(), s, claim.File, r.UserAgent()); target != "" {
 			w.Header().Set("Cache-Control", "no-store")
@@ -1169,7 +1200,13 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		d, release, err = a.casDownload(r.Context(), s, claim)
 		defer release()
 	} else {
-		d, err = a.downloadWithUA(r.Context(), s, claim.File, claim.Pick, r.UserAgent())
+		file := File{ID: claim.File, PickCode: claim.Pick}
+		if a.simulcast != nil && s.Type == "115" && r.URL.Query().Get("download") != "1" {
+			file, err = a.simulcast.PlayFile(r, s, file)
+		}
+		if err == nil {
+			d, err = a.downloadWithUA(r.Context(), s, file.ID, file.PickCode, r.UserAgent())
+		}
 	}
 	if err != nil {
 		fail(w, 502, err)

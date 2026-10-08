@@ -13,6 +13,7 @@ import (
 )
 
 type renameRule struct {
+	FindType      string `json:"findType,omitempty"`
 	Kind          string `json:"kind"`
 	Find          string `json:"find"`
 	Replace       string `json:"replace"`
@@ -51,10 +52,19 @@ func applyRenameRules(name string, rules []renameRule) (string, error) {
 			return "", errors.New("查找内容不能为空，规则内容最多 1024 字节")
 		}
 		pattern := regexp.QuoteMeta(rule.Find)
+		if rule.FindType == "regex" {
+			pattern = rule.Find
+		} else if rule.FindType != "" && rule.FindType != "literal" {
+			return "", errors.New("不支持的查找类型")
+		}
 		if !rule.CaseSensitive {
 			pattern = "(?i)" + pattern
 		}
-		matches := regexp.MustCompile(pattern).FindAllStringIndex(name, -1)
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return "", errors.New("正则表达式无效")
+		}
+		matches := re.FindAllStringSubmatchIndex(name, -1)
 		if rule.FirstOnly && len(matches) > 1 {
 			matches = matches[:1]
 		}
@@ -62,7 +72,11 @@ func applyRenameRules(name string, rules []renameRule) (string, error) {
 		start := 0
 		for _, match := range matches {
 			out.WriteString(name[start:match[0]])
-			out.WriteString(rule.Replace)
+			if rule.FindType == "regex" {
+				out.Write(re.ExpandString(nil, rule.Replace, name, match))
+			} else {
+				out.WriteString(rule.Replace)
+			}
 			start = match[1]
 			if out.Len() > 4096 {
 				return "", errors.New("替换后名称过长")

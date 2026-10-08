@@ -19,7 +19,7 @@ let holdTimer, suppressClick = false
 function hold(event, s) {
   if (event.button !== 0 || event.target.closest('button')) return
   clearTimeout(holdTimer)
-  holdTimer = setTimeout(() => { armed.value = s.id; suppressClick = true }, 230)
+  holdTimer = setTimeout(() => { armed.value = s.id; suppressClick = true }, 160)
 }
 function release() { clearTimeout(holdTimer); setTimeout(() => { armed.value = ''; suppressClick = false }, 100) }
 function cardClick(event, s) { if (!suppressClick && !event.target.closest('button')) open(s) }
@@ -181,7 +181,7 @@ async function remove() {
 
 <template>
   <div class="storage-grid">
-    <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id, 'drag-armed': armed === s.id, dragging: dragging === s.id, 'drop-target': dropTarget === s.id, 'storage-disabled': !s.enabled }" :draggable="armed === s.id && !sorting" tabindex="0" :aria-label="`${s.name}，${s.enabled ? '已启用' : '已停用'}`" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" @pointerdown="hold($event,s)" @pointerup="release" @pointerleave="!dragging && release()" @click="cardClick($event,s)" @contextmenu.prevent.stop="menu = s.id" @keydown="reorderKey($event, s)" @dragstart="dragStart($event, s)" @dragend="dragEnd" @dragover.prevent="dragging && (dropTarget = s.id)" @dragleave.self="dropTarget = ''" @drop.prevent="moveStorage(dragging, s.id)">
+    <article v-for="s in visible" :key="s.id" class="storage-card" :class="{ 'menu-open': menu === s.id, 'drag-armed': armed === s.id, dragging: dragging === s.id, 'drop-target': dropTarget === s.id, 'storage-disabled': !s.enabled, 'storage-unhealthy': s.enabled && s.status === 'error' }" :draggable="armed === s.id && !sorting" tabindex="0" :aria-label="`${s.name}，${s.enabled ? '已启用' : '已停用'}`" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" @pointerdown="hold($event,s)" @pointerup="release" @pointerleave="!dragging && release()" @click="cardClick($event,s)" @contextmenu.prevent.stop="menu = s.id" @keydown="reorderKey($event, s)" @dragstart="dragStart($event, s)" @dragend="dragEnd" @dragover.prevent="dragging && (dropTarget = s.id)" @dragleave.self="dropTarget = ''" @drop.prevent="moveStorage(dragging, s.id)">
       <div class="storage-card-top"><button class="provider-toggle" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click.stop="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3>{{ s.name }}</h3><span>{{ driverOf(s.type).name }}</span></div><div class="storage-menu-control" @click.stop><button class="icon-btn" :aria-label="`存储操作 ${s.name}`" :aria-expanded="menu === s.id" @click="menu = menu === s.id ? '' : s.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === s.id" class="storage-menu"><button @click="open(s)"><Icon name="Pencil" />编辑存储</button><button :disabled="testing === s.id || !s.enabled" @click="closeMenu(); test(s)"><Icon name="Activity" />测试连接</button><button @click="closeMenu(); toggle(s)"><Icon name="Power" />{{ s.enabled ? '停用存储' : '启用存储' }}</button><button class="danger-text" @click="closeMenu(); confirmDelete = s"><Icon name="Trash2" />删除存储</button></div></div></div>
     </article>
     <button class="add-storage-tile" aria-label="添加存储池" @click="open()"><span class="add-tile-icon"><Icon name="Plus" :size="25" /></span><strong>添加存储池</strong></button>

@@ -43,6 +43,8 @@ type MountConfig struct {
 }
 
 type Task struct {
+	RetainedExtensions *string          `json:"retainedExtensions,omitempty"`
+	ED2KBindingID      string           `json:"ed2kBindingId,omitempty"`
 	MediaExtensions    string           `json:"mediaExtensions"`
 	MetadataExtensions string           `json:"metadataExtensions"`
 	EncodePath         bool             `json:"encodePath,omitempty"`
@@ -102,29 +104,32 @@ type LogEntry struct {
 }
 
 type State struct {
-	Plugins        map[string]PluginConfig   `json:"plugins,omitempty"`
-	LibraryNotices []LibraryNotice           `json:"libraryNotices,omitempty"`
-	QuarkTV        map[string]QuarkTVBinding `json:"quarkTV,omitempty"`
-	QuarkTVEnabled *bool                     `json:"quarkTVEnabled,omitempty"`
-	Mounts         []MountConfig             `json:"mounts,omitempty"`
-	Links          []MediaLink               `json:"links,omitempty"`
-	DAVUsers       []DAVUser                 `json:"davUsers,omitempty"`
-	CASTemporary   []CASTemporary            `json:"casTemporary,omitempty"`
-	Storages       []Storage                 `json:"storages"`
-	Tasks          []Task                    `json:"tasks"`
-	Settings       Settings                  `json:"settings"`
-	Username       string                    `json:"username"`
-	Password       string                    `json:"password"`
-	SignKey        string                    `json:"signKey"`
-	Logs           []LogEntry                `json:"logs"`
+	ToolsRevision  string                     `json:"toolsRevision,omitempty"`
+	Simulcast      map[string]SimulcastConfig `json:"simulcast,omitempty"`
+	Plugins        map[string]PluginConfig    `json:"plugins,omitempty"`
+	LibraryNotices []LibraryNotice            `json:"libraryNotices,omitempty"`
+	QuarkTV        map[string]QuarkTVBinding  `json:"quarkTV,omitempty"`
+	QuarkTVEnabled *bool                      `json:"quarkTVEnabled,omitempty"`
+	Mounts         []MountConfig              `json:"mounts,omitempty"`
+	Links          []MediaLink                `json:"links,omitempty"`
+	DAVUsers       []DAVUser                  `json:"davUsers,omitempty"`
+	CASTemporary   []CASTemporary             `json:"casTemporary,omitempty"`
+	Storages       []Storage                  `json:"storages"`
+	Tasks          []Task                     `json:"tasks"`
+	Settings       Settings                   `json:"settings"`
+	Username       string                     `json:"username"`
+	Password       string                     `json:"password"`
+	SignKey        string                     `json:"signKey"`
+	Logs           []LogEntry                 `json:"logs"`
 }
 
 type Store struct {
-	logDir string
-	mu     sync.RWMutex
-	state  State
-	dir    string
-	aead   cipher.AEAD
+	toolsDir string
+	logDir   string
+	mu       sync.RWMutex
+	state    State
+	dir      string
+	aead     cipher.AEAD
 }
 
 func id() string {
@@ -216,6 +221,15 @@ func atomicWrite(name string, data []byte) error {
 
 func (s *Store) saveLocked() error {
 	persisted := s.state
+	if s.toolsDir != "" {
+		revision, err := s.writeToolsLocked()
+		if err != nil {
+			return err
+		}
+		persisted.ToolsRevision = revision
+		persisted.Plugins, persisted.QuarkTV, persisted.QuarkTVEnabled = nil, nil, nil
+		persisted.Simulcast = nil
+	}
 	if s.logDir != "" {
 		persisted.Logs = nil
 	}
@@ -227,7 +241,14 @@ func (s *Store) saveLocked() error {
 	if _, err := rand.Read(nonce); err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(s.dir, "state.enc"), s.aead.Seal(nonce, nonce, plain, nil))
+	if err := atomicWrite(filepath.Join(s.dir, "state.enc"), s.aead.Seal(nonce, nonce, plain, nil)); err != nil {
+		return err
+	}
+	if s.toolsDir != "" {
+		s.cleanToolsLocked(s.state.ToolsRevision, persisted.ToolsRevision)
+		s.state.ToolsRevision = persisted.ToolsRevision
+	}
+	return nil
 }
 
 func (s *Store) snapshot() State {

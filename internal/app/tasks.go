@@ -20,6 +20,12 @@ import (
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
+func defaultTaskCron(t *Task, created time.Time) {
+	if (t.Kind == "strm" || t.Kind == "cas" || t.Kind == "ed2k") && strings.TrimSpace(t.Cron) == "" {
+		t.Cron = fmt.Sprintf("0 %d * * *", created.Hour())
+	}
+}
+
 func nextRun(t Task, now time.Time) time.Time {
 	if !t.Enabled {
 		return time.Time{}
@@ -210,6 +216,13 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		}
 	}
 	generateCAS := t.Kind == "cas" && (t.CASOperation == "generate" || (t.CASOperation == "" && s.Type == "local"))
+	if t.Kind == "ed2k" && t.ED2KBindingID != "" {
+		var err error
+		binding, err = a.validateED2KBinding(t, s)
+		if err != nil {
+			return 0, err
+		}
+	}
 	visited := map[string]bool{}
 	outputs := map[string]bool{}
 	lastProgress := time.Time{}
@@ -287,7 +300,6 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return err
 				}
 			}
-			// Retain the source extension so movie.mp4 and movie.mkv never collide.
 			if metadata {
 				metadataPath := path.Join(target, child)
 				if outputs[strings.ToLower(metadataPath)] {
@@ -305,16 +317,14 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				count++
 				continue
 			}
-			filename := path.Join(target, child+".strm")
-			if t.Kind == "strm" && s.Type == "openlist" {
-				filename = path.Join(target, strings.TrimSuffix(child, path.Ext(child))+".strm")
-			}
-			if t.Kind == "ed2k" {
-				filename = path.Join(target, child+".ed2k")
+			suffix := ".strm"
+			if t.Kind == "ed2k" && t.ED2KBindingID == "" {
+				suffix = ".ed2k"
 			}
 			if generateCAS {
-				filename = path.Join(target, child+".cas")
+				suffix = ".cas"
 			}
+			filename := path.Join(target, taskOutputName(t, s, child, suffix))
 			if outputs[strings.ToLower(filename)] {
 				return fmt.Errorf("输出文件名冲突：%s", filename)
 			}
@@ -325,9 +335,14 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 			}
 			if t.Kind == "ed2k" {
-				data, err := a.generateED2K(ctx, s, f)
+				info, err := a.generateED2KInfo(ctx, s, f)
 				if err != nil {
 					return err
+				}
+				data := []byte(info.URI() + "\n")
+				if t.ED2KBindingID != "" {
+					info.Binding = a.ed2kBindingStamp(t, s, binding)
+					data = []byte(a.signedStreamURL(streamClaim{Storage: binding.ID, File: f.ID, TaskID: t.ID, ED2K: &info, Redirect: true}) + "\n")
 				}
 				if err := writeCASOutput(root, filename, data, t.Mode == "incremental"); err != nil {
 					return err
@@ -419,13 +434,14 @@ func openlistSTRM(s Storage, fileID string, encode bool) (string, error) {
 }
 
 type streamClaim struct {
-	Redirect       bool     `json:"redirect,omitempty"`
-	Storage        string   `json:"s"`
-	File           string   `json:"f"`
-	Pick           string   `json:"p"`
-	CAS            *CASInfo `json:"cas,omitempty"`
-	TaskID         string   `json:"task,omitempty"`
-	RetentionHours int      `json:"retentionHours,omitempty"`
+	Redirect       bool      `json:"redirect,omitempty"`
+	Storage        string    `json:"s"`
+	File           string    `json:"f"`
+	Pick           string    `json:"p"`
+	CAS            *CASInfo  `json:"cas,omitempty"`
+	ED2K           *ED2KInfo `json:"ed2k,omitempty"`
+	TaskID         string    `json:"task,omitempty"`
+	RetentionHours int       `json:"retentionHours,omitempty"`
 }
 
 func (a *App) streamURL(sid, fid, pick string) string {

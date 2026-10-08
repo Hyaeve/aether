@@ -10,6 +10,14 @@ const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), se
 const query = ref(''), status = ref('all')
 const settings = reactive({ writeMode: 'missing', episodes: true, fanart: false, actors: false, excluded: '' })
 const match = reactive({ tmdb: '', kind: 'movie' })
+const resetting = ref(null)
+async function resetMetadata() {
+  busy.value = true
+  try {
+    await api('/strm-scrape/reset', 'POST', { taskId: task.value, path: resetting.value.path, group: true, confirmed: true })
+    resetting.value = null; await load(); notify('作品元数据已重置')
+  } catch (e) { notify(e.message, true) } finally { busy.value = false }
+}
 const tasks = computed(() => state.tasks.filter(t => t.kind === 'strm').map(t => ({ value: t.id, label: t.name })))
 const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', miss: '未匹配', doubt: '待确认', error: '失败' }
 const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
@@ -107,7 +115,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
         <article v-for="item in shown" :key="item.path" class="scrape-card">
           <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :disabled="progress.running || busy" @click="rematch(item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '电视剧' : '电影' }}</span></template></button>
           <div class="scrape-card-body"><strong :data-tooltip="item.title">{{ item.title }}</strong><small :data-tooltip="item.path">{{ item.kind === 'tv' ? `${item.count || 1} 集` : '电影' }} · {{ item.year || '年份未知' }}</small><span class="scrape-status" :class="item.status">{{ statuses[itemStatus(item)] }}<em v-if="item.tmdb">TMDB {{ item.tmdb }}</em></span></div>
-          <div class="scrape-actions"><button class="icon-btn" aria-label="重新匹配" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" /></button><button class="icon-btn" aria-label="重新刮削" :disabled="progress.running || busy" @click="action('run', item)"><Icon name="RefreshCw" /></button></div>
+          <div class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" /></button><button class="icon-btn" aria-label="识别作品" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" /></button></div>
         </article>
         <div v-if="bottom" :style="{height: `${bottom}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
       </div>
@@ -115,6 +123,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     </div>
     <footer>{{ filtered.length }} 部作品</footer>
   </section>
+  <Modal v-if="resetting" title="重置作品元数据" compact confirmation @close="!busy && (resetting = null)"><div class="modal-body"><p>重置「{{ resetting.title }}」的识别结果、匹配信息和刮削状态？磁盘上的 NFO、封面和 STRM 文件会保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="resetMetadata">确认重置</button><button class="btn" :disabled="busy" @click="resetting = null">取消</button></footer></Modal>
   <Modal v-if="settingsOpen" title="STRM 刮削设置" compact @close="settingsOpen = false"><form @submit.prevent="saveSettings"><div class="modal-body scrape-settings">
     <div class="field"><label>写入策略</label><RoundedSelect v-model="settings.writeMode" label="写入策略" :options="[{value:'missing',label:'仅补缺'}, {value:'overwrite',label:'覆盖已有'}]" /></div>
     <label class="toggle-line"><span>分集 NFO 与预览图</span><input v-model="settings.episodes" type="checkbox" /></label>
@@ -143,7 +152,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-row { height: 66px; box-sizing: border-box; border-bottom: 1px solid color-mix(in srgb,var(--border) 50%,transparent); font-size: 14px; }
 .scrape-wall { display: grid; padding: 0 12px; column-gap: 12px; }
 .scrape-card { position: relative; min-width: 0; height: 280px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
-.scrape-poster { width: 100%; height: 182px; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
+.scrape-poster { width: 100%; height: 154px; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
 .scrape-poster img { width: 100%; height: 100%; object-fit: contain; }
 .scrape-poster span { font-size: 12px; }
 .scrape-card-body { min-width: 0; padding: 9px 10px; font-size: 14px; }
@@ -157,7 +166,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-name strong, .scrape-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .scrape-status.ok strong { color: var(--success); }
 .scrape-status.error strong { color: var(--danger); }
-.scrape-actions { display: flex; gap: 3px; position: absolute; right: 5px; top: 146px; padding: 2px; border-radius: 6px; background: var(--surface); }
+.scrape-actions { display: flex; justify-content: space-between; position: absolute; left: 5px; right: 5px; bottom: 4px; }
 .scrape-actions :deep(button) { width: 30px; height: 30px; }
 .scrape-body { min-height: 0; overflow-anchor: none; }
 .scrape-body::-webkit-scrollbar { display: none; }

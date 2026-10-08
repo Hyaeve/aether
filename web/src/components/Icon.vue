@@ -1,5 +1,6 @@
 <script setup>
 import {
+  FilePenLine,
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
   FileClock, ListVideo, FileArchive, EllipsisVertical, Copy, FolderInput, GripVertical, Power,
   PanelLeft, Star, List, LayoutGrid, Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
@@ -15,8 +16,9 @@ import {
 import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 const icons = {
+  FilePenLine,
   EmbyNotice: EmbyNoticeIcon,
-  TMDB: () => h('img', { src: 'https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg', alt: '', width: 32, height: 32, referrerpolicy: 'no-referrer', style: 'object-fit:contain' }),
+  TMDB: () => h('img', { src: '/providers/tmdb.svg', alt: '', width: 32, height: 32, style: 'object-fit:contain' }),
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
   FileClock, ListVideo, FileArchive, EllipsisVertical, Copy, FolderInput, GripVertical, Power,
   PanelLeft, Star, List, LayoutGrid, Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,

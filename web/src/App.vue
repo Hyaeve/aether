@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, state, reload, notify, notices, bytes, date } from './lib'
 import Icon from './components/Icon.vue'
 import { libraryNoticeText } from './library-notices'
+import { replacementJobs, refreshReplacementNotices } from './replacement-notices'
 import TaskTabs from './components/TaskTabs.vue'
 import FileTabs from './components/FileTabs.vue'
 import LoginPage from './pages/LoginPage.vue'
@@ -48,14 +49,22 @@ const planned = computed(() => ({
   '/tasks/organize': { title: '目录整理', icon: 'FolderTree', items: ['目录整理任务', '整理规则与预览'] },
   '/tasks/scrape': { title: 'STRM 刮削', icon: 'ScanSearch', items: ['媒体识别', 'TMDB 元数据', 'NFO 与封面'] }
 }[currentPath.value]))
+const dismissedKeys = ref([])
+const embyEventLabel = event => ({ 'library.new': '入库', 'playback.start': '开始播放', 'playback.stop': '停止播放', 'playback.pause': '暂停播放', 'playback.unpause': '继续播放', 'system.notificationtest': '测试通知' }[event || 'library.new'] || event)
 const taskNotices = computed(() => [
   ...state.tasks.filter(t => ['success', 'error', 'cancelled', 'interrupted'].includes(t.status) && t.lastRun && !t.lastRun.startsWith('0001')).map(t => ({ ...t, key: `${t.id}:${t.lastRun}:${t.status}` })),
-  ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}:${n.time}`, name: `Emby 入库 · ${libraryNoticeText(n)}`, lastRun: n.time, status: 'success', kind: 'emby' }))
-].sort((a, b) => new Date(b.lastRun) - new Date(a.lastRun)).slice(0, 50))
+  ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}:${n.time}`, name: `Emby ${embyEventLabel(n.event)} · ${libraryNoticeText(n)}`, lastRun: n.time, status: 'success', kind: 'emby', message: embyEventLabel(n.event) })),
+  ...replacementJobs.value.map(n => ({ key: `replace:${n.id}:${n.status}`, id: n.id, name: 'STRM 替换', lastRun: n.updatedAt || n.time, status: n.status === 'completed' ? 'success' : n.status === 'failed' ? 'error' : 'running', kind: 'replace', message: `${n.status === 'running' ? '进行中' : n.status === 'completed' ? '已完成' : '失败'} · 已替换 ${n.changed} 个文件${n.error ? ` · ${n.error}` : ''}` }))
+].filter(n => !dismissedKeys.value.includes(n.key)).sort((a, b) => new Date(b.lastRun) - new Date(a.lastRun)).slice(0, 50))
 const readKeys = ref([])
 watch(() => state.username, user => {
   try { const saved = JSON.parse(localStorage.getItem(`aether-read:${user}`) || '[]'); readKeys.value = Array.isArray(saved) ? saved : [] } catch { readKeys.value = [] }
+  try { const saved = JSON.parse(localStorage.getItem(`aether-dismissed:${user}`) || '[]'); dismissedKeys.value = Array.isArray(saved) ? saved.slice(-500) : [] } catch { dismissedKeys.value = [] }
 }, { immediate: true })
+function clearNotifications() {
+  dismissedKeys.value = [...new Set([...dismissedKeys.value, ...taskNotices.value.map(n => n.key)])].slice(-500)
+  localStorage.setItem(`aether-dismissed:${state.username}`, JSON.stringify(dismissedKeys.value))
+}
 const unread = computed(() => taskNotices.value.filter(t => !readKeys.value.includes(t.key)).length)
 function markRead() {
   readKeys.value = taskNotices.value.map(t => t.key)
@@ -63,7 +72,7 @@ function markRead() {
 }
 function openNotifications() { notificationMenu.value = !notificationMenu.value; accountMenu.value = false; if (notificationMenu.value) markRead() }
 function openNotice(t) {
-  router.push(t.kind === 'emby' ? '/tools' : `/tasks/${['cas', 'cache'].includes(t.kind) ? t.kind : 'strm'}`)
+  router.push(['emby', 'replace'].includes(t.kind) ? '/tools' : `/tasks/${['cas', 'cache', 'ed2k'].includes(t.kind) ? t.kind : 'strm'}`)
   closeMenus()
 }
 watch(taskNotices, () => { if (notificationMenu.value) markRead() })
@@ -88,7 +97,7 @@ async function refreshTraffic() {
 watch(() => state.authenticated, () => { trafficGeneration++; trafficRates.value = null; refreshTraffic() })
 async function bootstrap() {
   connectionError.value = ''
-  try { Object.assign(state, await api('/auth/status')); await reload(); state.loaded = true; online.value = true }
+  try { Object.assign(state, await api('/auth/status')); await reload(); refreshReplacementNotices(); state.loaded = true; online.value = true }
   catch (e) { connectionError.value = e.message; online.value = false }
 }
 async function logout() {
@@ -101,7 +110,7 @@ onMounted(() => {
   bootstrap(); media.addEventListener('change', applyTheme)
   trafficTimer = setInterval(refreshTraffic, 1000)
   document.addEventListener('click', closeMenus); document.addEventListener('keydown', escapeMenus)
-  timer = setInterval(async () => { if (state.authenticated) { try { await reload(); online.value = true } catch { online.value = false } } }, 5000)
+  timer = setInterval(async () => { if (state.authenticated) { refreshReplacementNotices(); try { await reload(); online.value = true } catch { online.value = false } } }, 5000)
 })
 onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInterval(timer); media.removeEventListener('change', applyTheme); document.removeEventListener('click', closeMenus); document.removeEventListener('keydown', escapeMenus) })
 </script>
@@ -120,12 +129,12 @@ onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInter
         <button class="icon-btn mobile-menu" aria-label="打开导航" @click="mobileNav = !mobileNav"><Icon name="Menu" /></button>
         <div class="breadcrumbs"><span>Aether</span><Icon name="ChevronRight" :size="16" /><strong>{{ title }}</strong></div>
         <div class="topbar-actions">
-          <div class="traffic-stat upload"><Icon name="ArrowUp" /><span>上传 <b>{{ rateText(trafficRates?.uploadRate) }}</b></span></div>
-          <div class="traffic-stat download"><Icon name="ArrowDown" /><span>下载 <b>{{ rateText(trafficRates?.downloadRate) }}</b></span></div>
+          <div class="traffic-stat upload" aria-label="上传速率"><Icon name="ArrowUp" /><b>{{ rateText(trafficRates?.uploadRate) }}</b></div>
+          <div class="traffic-stat download" aria-label="下载速率"><Icon name="ArrowDown" /><b>{{ rateText(trafficRates?.downloadRate) }}</b></div>
           <button class="icon-btn theme-toggle" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
           <div class="notification-control" @click.stop>
             <button class="icon-btn notification-button" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
-            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><h2>最近通知</h2><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><Icon :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.kind === 'emby' ? '已入库' : t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断' }} · {{ date(t.lastRun) }}</small></span></button></section>
+            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><header><h2>最近通知</h2><button class="icon-btn notice-clear" aria-label="清除通知" :disabled="!taskNotices.length" @click="clearNotifications"><Icon name="Trash2" :size="15" /></button></header><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><div v-else class="notification-list"><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><Icon :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'running' ? 'LoaderCircle' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : t.status === 'running' ? 'spin' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.message || (t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断') }} · {{ date(t.lastRun) }}</small></span></button></div></section>
           </div>
           <div class="account-control" @click.stop>
             <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>

@@ -15,6 +15,17 @@ const taskAudioExtensions = "mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus"
 
 var extensionToken = regexp.MustCompile(`^[a-z0-9]{1,16}$`)
 
+func taskOutputName(t Task, s Storage, name, suffix string) string {
+	if t.RetainedExtensions != nil {
+		if !excludedType(name, *t.RetainedExtensions) {
+			name = strings.TrimSuffix(name, path.Ext(name))
+		}
+	} else if t.Kind == "strm" && s.Type == "openlist" {
+		name = strings.TrimSuffix(name, path.Ext(name))
+	}
+	return name + suffix
+}
+
 func normalizeExtensions(value string) (string, error) {
 	if len(value) > 2048 {
 		return "", errors.New("扩展名列表过长")

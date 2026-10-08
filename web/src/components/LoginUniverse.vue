@@ -14,7 +14,7 @@ const satellites = []
 let observer, motionPreference, frame = 0, elapsed = 0, previous = 0
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
-let galaxy, moon
+let galaxy, spiral, moon
 let meteorCycle = -1, meteors = []
 const tilt = -18 * Math.PI / 180
 
@@ -84,18 +84,22 @@ function buildGalaxy(random, scale) {
     const radius = .4 + random() * 1.1
     dust.fillRect(x, y, radius, radius)
   }
-  // Cached spiral galaxies with individual stellar cores, not blurred backdrop blobs.
-  for (const [cx, cy, radius, tilt] of [[.76,.2,.068,-.5],[.86,.28,.032,.4],[.68,.29,.025,-.2],[.22,.76,.05,.5]]) {
-    dust.save(); dust.translate(width * cx, height * cy); dust.rotate(tilt)
-    for (let i=0;i<2100;i++) {
-      const r = random() ** .7 * width * radius
-      const angle = i % 2 * Math.PI + r / (width * radius) * 5.8 + (random() - .5) * .75
-      const x = Math.cos(angle) * r, y = Math.sin(angle) * r * .45
-      dust.fillStyle = i % 4 ? `rgba(174,203,229,${.1 + random() * .3})` : `rgba(240,217,178,${.1 + random() * .35})`
-      dust.fillRect(x, y, .55 + random() * .7, .55 + random() * .7)
-    }
-    dust.fillStyle = '#f1dfc9'; dust.beginPath(); dust.ellipse(0,0,2.2,1.2,0,0,Math.PI*2); dust.fill()
-    dust.restore()
+  // One cached face-on stellar disk rotates within a fixed inclined projection.
+  spiral = document.createElement('canvas')
+  spiral.width = spiral.height = 640
+  const disk = spiral.getContext('2d')
+  if (!disk) return
+  disk.translate(320, 320)
+  for (let i = 0; i < 68000; i++) {
+    const core = i < 18000
+    const r = core ? random() ** 2 * 65 : (random() ** .65) * 286
+    const scatter = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
+    const angle = core || i % 7 === 0 ? random() * Math.PI * 2 : i % 4 * Math.PI / 2 + 5.2 * Math.sqrt(r / 286) + scatter * .3
+    const distance = Math.max(0, r + (core ? 0 : scatter * 15))
+    const alpha = core ? .2 + random() * .45 : (.12 + random() * .4) * (1 - r / 360)
+    disk.fillStyle = core || i % 9 === 0 ? `rgba(255,231,193,${alpha})` : `rgba(174,207,249,${alpha})`
+    const size = .5 + random() * 1.3
+    disk.fillRect(Math.cos(angle) * distance, Math.sin(angle) * distance, size, size)
   }
 }
 
@@ -162,6 +166,22 @@ function paint(time) {
     ctx.globalAlpha = .8 + Math.sin(time * .16) * .15
     ctx.drawImage(galaxy, Math.sin(time * .04) * 5, Math.cos(time * .04) * 3, width, height)
     ctx.restore()
+  }
+  if (spiral) {
+    for (const [x, y, size, inclination, phase, speed, alpha] of [
+      [.72, .24, 1, -.35, 0, .035, 1],
+      [.22, .76, .62, .5, 1.8, -.022, .78]
+    ]) {
+      const radius = Math.min(width * .2, height * .23, 210) * size
+      ctx.save()
+      ctx.globalAlpha = alpha
+      ctx.translate(width * x, height * y)
+      ctx.rotate(inclination)
+      ctx.scale(1, .62)
+      ctx.rotate(phase + time * speed)
+      ctx.drawImage(spiral, -radius, -radius, radius * 2, radius * 2)
+      ctx.restore()
+    }
   }
   for (const star of stars) {
     const drift = time * (star.radius > 1 ? 1.1 : .3)

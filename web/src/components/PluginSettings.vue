@@ -6,19 +6,21 @@ import Modal from './Modal.vue'
 import SecretInput from './SecretInput.vue'
 import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
+import { readPlugin, invalidatePlugin } from '../plugin-config'
 const props = defineProps({ kind: String, title: String })
 const emit = defineEmits(['close', 'changed'])
 const form = reactive({ enabled: false, apiURL: '', imageURL: '', apiKey: '', language: 'zh-CN', model: '', address: '', token: '' })
 const loaded = ref(false), busy = ref(false), error = ref('')
 const webhook = computed(() => `${location.origin}/api/emby/webhook?token=${encodeURIComponent(form.token)}`)
 async function load() {
-  try { Object.assign(form, await api(`/plugins/${props.kind}`)); loaded.value = true }
+  try { Object.assign(form, await readPlugin(props.kind)); loaded.value = true }
   catch (e) { error.value = e.message }
 }
 async function save() {
   busy.value = true; error.value = ''
   try {
     await api(`/plugins/${props.kind}`, 'PUT', form)
+    invalidatePlugin(props.kind)
     await load(); emit('changed', { kind: props.kind, enabled: form.enabled }); notify('配置已保存')
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
@@ -45,7 +47,7 @@ onMounted(load)
           <label>API 域名<input v-model="form.apiURL" type="url" required /></label>
           <label>图片域名<input v-model="form.imageURL" type="url" required /></label>
           <label>API 密钥<SecretInput v-model="form.apiKey" :secret-path="`/plugins/${kind}/secret`" secret-field="apiKey" autocomplete="off" /></label>
-          <div class="field"><label>语言</label><RoundedSelect v-model="form.language" label="语言" :options="[{ value: 'zh-CN', label: '中文' }, { value: 'en-US', label: '英文' }]" /></div>
+          <div class="field"><label>语言</label><RoundedSelect upward v-model="form.language" label="语言" :options="[{ value: 'zh-CN', label: '中文' }, { value: 'en-US', label: '英文' }]" /></div>
           </div>
         </template>
         <template v-else-if="kind === 'ai'">
@@ -60,7 +62,7 @@ onMounted(load)
         <template v-else-if="kind === 'emby'">
           <label>通知令牌<input v-model="form.token" autocomplete="off" placeholder="aether" /></label>
           <div v-if="form.token" class="webhook-address"><code>{{ webhook }}</code><button type="button" class="icon-btn" aria-label="复制 Webhook 地址" @click="copy"><Icon name="Copy" /></button></div>
-          <ol class="webhook-help"><li>在 Emby 通知设置中添加 Webhook，填写以上地址。</li><li>请求方式选择 POST，内容类型选择 application/json。</li><li>勾选媒体入库事件（library.new），保存后添加媒体验证。</li><li>Emby 必须能访问此主机与端口；跨容器时请将地址中的主机改为可访问的 Aether 地址。</li></ol>
+          <ol class="webhook-help"><li>在 Emby 通知设置中添加 Webhook，填写以上地址。</li><li>请求方式选择 POST，内容类型选择 application/json。</li><li>勾选需要接收的入库、播放或系统事件，保存后发送测试通知。</li><li>Emby 必须能访问此主机与端口；跨容器时请将地址中的主机改为可访问的 Aether 地址。</li></ol>
         </template>
         </template>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>

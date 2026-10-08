@@ -94,6 +94,7 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	b := configBundle{State: a.store.snapshot(), Files: map[string]json.RawMessage{}}
 	b.State.Logs = nil
+	b.State.ToolsRevision = ""
 	var total int64
 	err := filepath.WalkDir(a.store.dir, func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {

@@ -4,29 +4,34 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import SecretInput from '../components/SecretInput.vue'
 import QuarkTakeover from '../components/QuarkTakeover.vue'
+import StrmReplace from '../components/StrmReplace.vue'
+import Pan115Simulcast from '../components/Pan115Simulcast.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import PluginSettings from '../components/PluginSettings.vue'
 import { api, notify } from '../lib'
+import { readPlugin, invalidatePlugin } from '../plugin-config'
+import { refreshReplacementNotices } from '../replacement-notices'
 const busy = ref(false)
 const takeover = ref({ enabled: false, bindings: [] })
 const pluginStates = ref({})
 async function togglePlugin(tool) {
   busy.value = true
   try {
-    const current = await api(`/plugins/${tool.kind}`)
+    const current = await readPlugin(tool.kind, true)
     await api(`/plugins/${tool.kind}`, 'PUT', { ...current, enabled: !current.enabled })
+    invalidatePlugin(tool.kind)
     pluginStates.value[tool.kind] = !current.enabled
     notify(`${current.enabled ? '已停用' : '已启用'} ${tool.name}`)
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 onMounted(() => Promise.all(['emby', 'tmdb', 'ai', 'proxy'].map(async kind => {
-  try { pluginStates.value[kind] = (await api(`/plugins/${kind}`)).enabled } catch (e) { notify(e.message, true) }
+  try { pluginStates.value[kind] = (await readPlugin(kind, true)).enabled } catch (e) { notify(e.message, true) }
 })))
 async function loadTakeover() {
   try { takeover.value = await api('/quark-takeover') } catch (e) { notify(e.message, true) }
 }
 async function toggleTakeover() {
-  if (!takeover.value.bindings.length) { selected.value = tools[2]; return }
+  if (!takeover.value.bindings.length) { selected.value = tools.find(t => t.name === '夸克 STRM 接管'); return }
   busy.value = true
   try {
     await api('/quark-takeover', 'PUT', { enabled: !takeover.value.enabled })
@@ -59,6 +64,7 @@ async function backup() {
 }
 const selected = ref(null)
 const tools = [
+  { name: '115 同播复制', icon: 'Copy', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
   { name: '115 STRM 增强', icon: 'Sparkles', detail: '增强 115 媒体链接生成与播放解析' },
   { name: '115 分享 STRM', icon: 'Share2', detail: '从 115 分享目录生成媒体播放链接' },
   { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '让夸克 STRM 改走 TV 版 302 直链；转码画质和字幕受影响且部分第三方播放器不兼容。' },
@@ -69,18 +75,21 @@ const tools = [
   { name: '识别规则', icon: 'ListFilter', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
   { name: 'TMDB 配置', kind: 'tmdb', icon: 'TMDB', detail: '配置影视元数据接口、图片域名与语言偏好' },
   { name: '代理配置', kind: 'proxy', icon: 'Network', detail: '管理 TMDB 与 AI 请求使用的网络代理' },
-  { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', detail: '接收电影与剧集入库通知，按剧名、季和集数汇总' },
+  { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', detail: '接收 Emby 中勾选的入库、播放及系统事件，保留媒体名称与季集信息' },
   { name: '配置备份', icon: 'FileArchive', detail: '加密导入导出系统、存储池、以链与规则配置' }
 ]
+tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', detail: '批量替换容器目录内 STRM 文件内容，保留文件名与目录结构' })
 </script>
 <template>
   <section class="page-head"><h1>辅助工具</h1></section>
   <div class="plugin-grid">
     <article v-for="tool in tools" :key="tool.name" class="plugin-card" role="button" tabindex="0" :aria-label="tool.name" @click="selected = tool" @keydown.enter.self="selected = tool" @keydown.space.prevent.self="selected = tool">
-      <button v-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small v-if="tool.subtitle" class="plugin-subtitle">{{ tool.subtitle }}</small><small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管'].includes(tool.name)" class="status pending">待实现</span>
+      <span v-if="tool.name === '115 同播复制'" class="plugin-symbol simulcast-symbol"><ProviderIcon type="115" /><Icon name="Copy" :size="15" /></span><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small v-if="tool.subtitle" class="plugin-subtitle">{{ tool.subtitle }}</small><small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', 'STRM 替换'].includes(tool.name)" class="status pending">待实现</span>
     </article>
   </div>
   <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" @changed="takeover = $event" />
+  <Pan115Simulcast v-else-if="selected?.name === '115 同播复制'" @close="selected = null" />
+  <StrmReplace v-else-if="selected?.name === 'STRM 替换'" @close="selected = null" @started="refreshReplacementNotices" />
   <PluginSettings v-else-if="selected?.kind" :key="selected.kind" :kind="selected.kind" :title="selected.name" @close="selected = null" @changed="pluginStates[$event.kind] = $event.enabled" />
   <Modal v-else-if="selected" :title="selected.name" @close="selected = null">
     <template v-if="selected.name === '配置备份'"><div class="modal-body"><p>备份包含账号、存储池、以链和规则配置，使用你设置的密码加密。导入后需重启容器，并使用备份中的账号登录。</p></div><footer class="modal-footer backup-actions"><button class="btn" @click="start('import')"><Icon name="ArchiveRestore" />导入配置备份</button><button class="btn primary" @click="start('export')"><Icon name="Download" />导出配置备份</button></footer></template>
@@ -95,6 +104,8 @@ const tools = [
 </template>
 <style scoped>
 .quark-takeover-symbol { position: relative; background: transparent; padding: 0; border: 0; }
+.simulcast-symbol { position:relative; background:transparent; }
+.simulcast-symbol > svg { position:absolute; right:-3px; bottom:-3px; color:var(--primary); background:var(--surface); border-radius:4px; }
 .plugin-toggle { border: 0; padding: 0; }
 .plugin-toggle[aria-pressed=false] { opacity: .5; }
 .quark-takeover-symbol :deep(.provider-icon), .quark-takeover-symbol :deep(.provider-logo) { width: 100%; height: 100%; padding: 0; border-radius: 8px; }

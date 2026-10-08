@@ -71,3 +71,28 @@ func TestEmbyEpisodeWebhookMetadata(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
+
+func TestEmbyOtherEventsRemainDistinct(t *testing.T) {
+	a := testApp(t)
+	if err := a.store.update(func(st *State) error {
+		st.Plugins = map[string]PluginConfig{"emby": {Enabled: true, Token: "events"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := a.Handler(t.TempDir())
+	for _, event := range []string{"library.new", "playback.start", "playback.stop", "system.notificationtest"} {
+		data, _ := json.Marshal(map[string]any{"Event": event, "Title": "测试通知", "Item": map[string]any{"Id": "same", "Name": "电影"}})
+		r := httptest.NewRequest("POST", "/api/emby/webhook?token=events", bytes.NewReader(data))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	notices := a.store.snapshot().LibraryNotices
+	if len(notices) != 4 || notices[1].Event != "playback.start" {
+		t.Fatal(notices)
+	}
+}

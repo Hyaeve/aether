@@ -473,11 +473,7 @@ func (a *App) downloadWithUA(ctx context.Context, s Storage, fileID, pick, userA
 		if pick == "" {
 			return d, errors.New("缺少 pick_code，请刷新目录后重试")
 		}
-		c, err := client115(ctx, s)
-		if err != nil {
-			return d, err
-		}
-		info, err := c.DownloadWithUA(pick, userAgent)
+		info, err := download115(ctx, s, pick, userAgent)
 		if err != nil {
 			return d, err
 		}

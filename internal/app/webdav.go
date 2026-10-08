@@ -108,6 +108,21 @@ func (d davFS) Rename(ctx context.Context, from, to string) error {
 
 type davInfo struct{ file File }
 
+type davWritableInfo struct{ davInfo }
+
+func (i davWritableInfo) Mode() os.FileMode {
+	if i.IsDir() {
+		return os.ModeDir | 0777
+	}
+	return 0666
+}
+func davFileInfo(ctx context.Context, f File) os.FileInfo {
+	if _, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant); !restricted {
+		return davWritableInfo{davInfo{f}}
+	}
+	return davInfo{f}
+}
+
 func (i davInfo) Name() string { return i.file.Name }
 func (i davInfo) Size() int64  { return i.file.Size }
 func (i davInfo) Mode() os.FileMode {
@@ -217,7 +232,7 @@ func (d davFS) resolve(ctx context.Context, name string) (Storage, File, error) 
 
 func (d davFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 	_, f, err := d.resolve(ctx, name)
-	return davInfo{f}, err
+	return davFileInfo(ctx, f), err
 }
 
 func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
@@ -247,7 +262,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	if err != nil {
 		return nil, err
 	}
-	df := &davFile{ctx: ctx, info: davInfo{f}}
+	df := &davFile{ctx: ctx, info: davFileInfo(ctx, f)}
 	if f.IsDir {
 		files := []File{}
 		if s.ID == "" {
@@ -274,7 +289,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 			}
 		}
 		for _, f := range files {
-			df.entries = append(df.entries, davInfo{f})
+			df.entries = append(df.entries, davFileInfo(ctx, f))
 		}
 		return df, nil
 	}
@@ -282,7 +297,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 		df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size)
 		download, err := d.a.download(ctx, s, f.ID, f.PickCode)
 		if err != nil {
-			return err
+			return fmt.Errorf("获取文件读取链接失败（存储类型 %s）：%w", s.Type, err)
 		}
 		if s.Type == "local" {
 			root, err := os.OpenRoot(s.Config["root"])
@@ -305,7 +320,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 
 type davFile struct {
 	ctx      context.Context
-	info     davInfo
+	info     os.FileInfo
 	entries  []os.FileInfo
 	index    int
 	local    *os.File
@@ -346,6 +361,9 @@ func (f *davFile) Readdir(n int) ([]os.FileInfo, error) {
 	return out, nil
 }
 func (f *davFile) Seek(offset int64, whence int) (int64, error) {
+	if f.info.IsDir() {
+		return 0, os.ErrInvalid
+	}
 	if f.local != nil {
 		return f.local.Seek(offset, whence)
 	}
@@ -369,6 +387,12 @@ func (f *davFile) Seek(offset int64, whence int) (int64, error) {
 	return offset, nil
 }
 func (f *davFile) Read(b []byte) (int, error) {
+	if f.info.IsDir() {
+		return 0, os.ErrInvalid
+	}
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if f.open != nil {
 		if err := f.open(); err != nil {
 			f.progress.finish(err)
@@ -383,9 +407,6 @@ func (f *davFile) Read(b []byte) (int, error) {
 			f.progress.finish(err)
 		}
 		return n, err
-	}
-	if f.info.IsDir() {
-		return 0, os.ErrInvalid
 	}
 	if f.body == nil {
 		req, err := http.NewRequestWithContext(f.ctx, "GET", f.download.URL, nil)
@@ -415,13 +436,20 @@ func (f *davFile) Read(b []byte) (int, error) {
 		}}
 		res, err := client.Do(req)
 		if err != nil {
+			// net/url errors include signed URLs; never persist those in logs.
+			if f.ctx.Err() != nil {
+				err = f.ctx.Err()
+			} else {
+				err = fmt.Errorf("上游读取请求失败（偏移 %d，网络或重定向错误）", f.offset)
+			}
 			f.progress.finish(err)
 			return 0, err
 		}
 		if (res.StatusCode != 200 && res.StatusCode != 206) || (f.offset > 0 && res.StatusCode != 206) {
 			res.Body.Close()
-			f.progress.finish(os.ErrPermission)
-			return 0, fmt.Errorf("上游读取返回 HTTP %d（偏移 %d）", res.StatusCode, f.offset)
+			err := fmt.Errorf("上游读取返回 HTTP %d（偏移 %d）", res.StatusCode, f.offset)
+			f.progress.finish(err)
+			return 0, err
 		}
 		f.body = res.Body
 	}

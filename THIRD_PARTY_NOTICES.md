@@ -3,8 +3,9 @@
 ## TMDB Logo
 
 The TMDB settings button references the official TMDB blue-square SVG supplied
-by the user, served from `www.themoviedb.org`. The logo remains the property of
-TMDB and does not imply endorsement. No logo source is bundled or relicensed.
+by the user, originally served from `www.themoviedb.org`. A local copy is bundled
+at `web/public/providers/tmdb.svg` to avoid third-party loading delays. The logo
+remains the property of TMDB, is not relicensed, and does not imply endorsement.
 
 ## Embedded Go-FUSE
 

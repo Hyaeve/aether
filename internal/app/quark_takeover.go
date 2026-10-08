@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// TV credentials are independent from the web Cookie and persist only in state.enc.
+// TV credentials are independent from the web Cookie and persist in encrypted tools snapshots.
 type QuarkTVBinding struct {
 	Enabled      bool      `json:"enabled"`
 	Mode         string    `json:"mode"`

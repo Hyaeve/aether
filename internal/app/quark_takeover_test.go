@@ -98,6 +98,9 @@ func TestQuarkTVSignedPlaybackCacheAndSecretIsolation(t *testing.T) {
 		t.Fatal("unprotected plugin", w.Code)
 	}
 	reopened, err := NewStore(a.store.dir)
+	if err == nil {
+		err = reopened.initTools(a.store.toolsDir)
+	}
 	if err != nil || reopened.snapshot().QuarkTV[s.ID].AccessToken != b.AccessToken {
 		t.Fatal("credentials not persisted", err)
 	}
@@ -319,6 +322,9 @@ func TestQuarkTVBindingIdentityDuplicatesAndGlobalSwitch(t *testing.T) {
 		t.Fatal("global disable ineffective")
 	}
 	reopened, err := NewStore(a.store.dir)
+	if err == nil {
+		err = reopened.initTools(a.store.toolsDir)
+	}
 	if err != nil || quarkTVEnabled(reopened.snapshot()) {
 		t.Fatal("global disable not persistent", err)
 	}

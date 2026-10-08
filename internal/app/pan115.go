@@ -2,17 +2,106 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	driver "github.com/SheltonZhu/115driver/pkg/driver"
 	"github.com/go-resty/resty/v2"
+	"golang.org/x/net/publicsuffix"
 )
 
 const pan115UA = "Mozilla/5.0 115Browser/27.0.5.7"
+
+// The SDK's errors can contain entire API bodies and its headers contain the
+// login Cookie. Keep diagnostics numeric and CDN credentials response-scoped.
+func download115(ctx context.Context, s Storage, pick, ua string) (*driver.DownloadInfo, error) {
+	c, err := client115(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := "chrome/downurl"
+	if s.Config["device"] == "android" {
+		endpoint = "android/2.0/ufile/download"
+	}
+	status, code := 0, int64(0)
+	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	c.Client.OnAfterResponse(func(_ *resty.Client, r *resty.Response) error {
+		status = r.StatusCode()
+		var envelope struct {
+			Errno json.Number `json:"errno"`
+			Code  json.Number `json:"code"`
+			ErrNo json.Number `json:"errNo"`
+		}
+		if json.Unmarshal(r.Body(), &envelope) == nil {
+			code, _ = envelope.Errno.Int64()
+			if code == 0 {
+				code, _ = envelope.ErrNo.Int64()
+			}
+			if code == 0 {
+				code, _ = envelope.Code.Int64()
+			}
+		}
+		if r.Request.RawRequest != nil {
+			set115DownloadCookies(jar, r.Request.RawRequest.URL, r.Cookies())
+		}
+		return nil
+	})
+	var info *driver.DownloadInfo
+	if s.Config["device"] == "android" {
+		info, err = c.DownloadWithUAByAndroidAPI(pick, ua)
+	} else {
+		info, err = c.DownloadWithUA(pick, ua)
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		reason := "请求或响应解析失败"
+		if errors.Is(err, driver.ErrUnexpected) {
+			reason = "未知上游错误或空下载记录"
+		}
+		return nil, fmt.Errorf("115 获取下载链接失败（接口 %s，HTTP %d，错误码 %d）：%s", endpoint, status, code, reason)
+	}
+	return finish115Download(info, jar, ua, endpoint)
+}
+
+func set115DownloadCookies(jar http.CookieJar, origin *url.URL, cookies []*http.Cookie) {
+	allowed := []*http.Cookie{}
+	for _, cookie := range cookies {
+		if cookie == nil {
+			continue
+		}
+		switch strings.ToUpper(cookie.Name) {
+		case "UID", "CID", "SEID", "KID":
+			continue
+		}
+		allowed = append(allowed, cookie)
+	}
+	jar.SetCookies(origin, allowed)
+}
+
+func finish115Download(info *driver.DownloadInfo, jar http.CookieJar, ua, endpoint string) (*driver.DownloadInfo, error) {
+	if info == nil {
+		return nil, errors.New("115 下载接口未返回文件记录")
+	}
+	u, err := url.Parse(info.Url.Url)
+	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return nil, fmt.Errorf("115 下载接口 %s 未返回有效链接", endpoint)
+	}
+	info.Header = http.Header{"User-Agent": {ua}}
+	req := &http.Request{Header: info.Header}
+	for _, cookie := range jar.Cookies(u) {
+		req.AddCookie(cookie)
+	}
+	return info, nil
+}
 
 func valid115Device(device string) bool {
 	switch device {
