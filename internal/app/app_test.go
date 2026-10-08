@@ -374,7 +374,7 @@ func TestSignedStreamAndDAV(t *testing.T) {
 	r.SetBasicAuth("admin", "a-secure-password-123")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != 207 || !strings.Contains(w.Body.String(), s.ID) {
+	if w.Code != 207 || !strings.Contains(w.Body.String(), s.Name) {
 		t.Fatalf("DAV list %d %s", w.Code, w.Body.String())
 	}
 	r = httptest.NewRequest("GET", "/dav/"+s.ID+"/movie.mp4", nil)

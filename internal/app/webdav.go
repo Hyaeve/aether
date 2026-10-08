@@ -16,6 +16,45 @@ import (
 
 type davFS struct{ a *App }
 
+func davStorageNames(storages []Storage) map[string]string {
+	names := make(map[string]string)
+	counts := make(map[string]int)
+	reserved := make(map[string]bool)
+	for _, s := range storages {
+		if s.Enabled {
+			counts[s.Name]++
+			reserved[s.ID] = true
+			reserved[s.Name] = true
+		}
+	}
+	for _, s := range storages {
+		if !s.Enabled {
+			continue
+		}
+		name := s.Name
+		if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\:\x00") {
+			names[s.ID] = s.ID
+			continue
+		}
+		conflict := counts[name] > 1
+		for _, other := range storages {
+			if other.Enabled && other.ID != s.ID && other.ID == name {
+				conflict = true
+			}
+		}
+		if conflict {
+			base := name + " (" + s.ID + ")"
+			name = base
+			for n := 2; reserved[name]; n++ {
+				name = base + " (" + strconv.Itoa(n) + ")"
+			}
+		}
+		names[s.ID] = name
+		reserved[name] = true
+	}
+	return names
+}
+
 func (d davFS) Mkdir(context.Context, string, os.FileMode) error { return os.ErrPermission }
 func (d davFS) RemoveAll(context.Context, string) error          { return os.ErrPermission }
 func (d davFS) Rename(context.Context, string, string) error     { return os.ErrPermission }
@@ -54,6 +93,8 @@ func (d davFS) resolve(ctx context.Context, name string) (Storage, File, error) 
 	grants, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant)
 	var grant DAVGrant
 	storageID := parts[0]
+	storages := d.a.store.snapshot().Storages
+	names := davStorageNames(storages)
 	if restricted {
 		for _, g := range grants {
 			if g.Name == parts[0] {
@@ -65,8 +106,15 @@ func (d davFS) resolve(ctx context.Context, name string) (Storage, File, error) 
 		if grant.StorageID == "" {
 			return s, File{}, os.ErrNotExist
 		}
+	} else {
+		for id, name := range names {
+			if name == parts[0] {
+				storageID = id
+				break
+			}
+		}
 	}
-	for _, v := range d.a.store.snapshot().Storages {
+	for _, v := range storages {
 		if v.Enabled && v.ID == storageID {
 			s = v
 			break
@@ -75,7 +123,7 @@ func (d davFS) resolve(ctx context.Context, name string) (Storage, File, error) 
 	if s.ID == "" {
 		return s, File{}, os.ErrNotExist
 	}
-	current := File{ID: rootOf(s), Name: s.ID, IsDir: true}
+	current := File{ID: rootOf(s), Name: names[s.ID], IsDir: true}
 	if restricted {
 		current = File{ID: grant.Directory, Name: grant.Name, IsDir: true}
 		if s.Type == "local" {
@@ -129,7 +177,9 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 		files := []File{}
 		if s.ID == "" {
 			grants, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant)
-			for _, s := range d.a.store.snapshot().Storages {
+			storages := d.a.store.snapshot().Storages
+			names := davStorageNames(storages)
+			for _, s := range storages {
 				if s.Enabled {
 					if restricted {
 						for _, g := range grants {
@@ -138,7 +188,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 							}
 						}
 					} else {
-						files = append(files, File{ID: s.ID, Name: s.ID, IsDir: true})
+						files = append(files, File{ID: s.ID, Name: names[s.ID], IsDir: true})
 					}
 				}
 			}
