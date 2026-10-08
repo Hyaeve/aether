@@ -17,14 +17,17 @@ import (
 )
 
 type PluginConfig struct {
-	Enabled  bool   `json:"enabled"`
-	APIURL   string `json:"apiURL"`
-	ImageURL string `json:"imageURL"`
-	APIKey   string `json:"apiKey"`
-	Language string `json:"language"`
-	Model    string `json:"model"`
-	Address  string `json:"address"`
-	Token    string `json:"token"`
+	Enabled         bool   `json:"enabled"`
+	APIURL          string `json:"apiURL"`
+	ImageURL        string `json:"imageURL"`
+	APIKey          string `json:"apiKey"`
+	Language        string `json:"language"`
+	Model           string `json:"model"`
+	Address         string `json:"address"`
+	Token           string `json:"token"`
+	RequestInterval int    `json:"requestInterval"`
+	Username        string `json:"username"`
+	Password        string `json:"password"`
 }
 type LibraryNotice struct {
 	Event     string    `json:"event,omitempty"`
@@ -42,6 +45,9 @@ type LibraryNotice struct {
 
 func pluginDefaults(kind string, p PluginConfig) PluginConfig {
 	if kind == "tmdb" {
+		if p.RequestInterval == 0 {
+			p.RequestInterval = 250
+		}
 		if p.APIURL == "" {
 			p.APIURL = "https://api.themoviedb.org"
 		}
@@ -71,7 +77,10 @@ func validatePlugin(kind string, p PluginConfig) error {
 		if !httpURL(p.APIURL) || !httpURL(p.ImageURL) {
 			return errors.New("请输入有效的 TMDB API 与图片地址")
 		}
-		if p.Language != "zh-CN" && p.Language != "en-US" {
+		if p.RequestInterval < 0 || p.RequestInterval > 60000 {
+			return errors.New("请求间隔须为1–60000毫秒")
+		}
+		if p.Language != "zh-CN" && p.Language != "zh-TW" && p.Language != "en-US" {
 			return errors.New("不支持的语言")
 		}
 	case "ai":
@@ -95,7 +104,7 @@ func validatePlugin(kind string, p PluginConfig) error {
 			return errors.New("通知令牌需为 1–256 个字符且不含首尾空格")
 		}
 	}
-	if len(p.APIKey) > 8192 || len(p.Model) > 256 || len(p.APIURL) > 2048 || len(p.Address) > 2048 {
+	if len(p.Username) > 256 || len(p.Password) > 8192 || len(p.APIKey) > 8192 || len(p.Model) > 256 || len(p.APIURL) > 2048 || len(p.Address) > 2048 {
 		return errors.New("配置内容过长")
 	}
 	return nil
@@ -110,6 +119,9 @@ func (a *App) pluginConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	old := pluginDefaults(kind, a.store.plugin(kind))
 	if r.Method == "GET" {
+		if old.Password != "" {
+			old.Password = "********"
+		}
 		if old.APIKey != "" {
 			old.APIKey = "********"
 		}
@@ -125,6 +137,9 @@ func (a *App) pluginConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p = pluginDefaults(kind, p)
+	if p.Password == "********" {
+		p.Password = old.Password
+	}
 	if p.APIKey == "********" {
 		p.APIKey = old.APIKey
 	}
@@ -162,6 +177,8 @@ func (a *App) pluginSecret(w http.ResponseWriter, r *http.Request) {
 	p := a.store.plugin(r.PathValue("kind"))
 	value := ""
 	switch in.Field {
+	case "password":
+		value = p.Password
 	case "apiKey":
 		value = p.APIKey
 	case "address":
@@ -194,6 +211,9 @@ func pluginClient(proxy PluginConfig) (*http.Client, func(), error) {
 				return nil, closeIdle, err
 			}
 			u, _ := url.Parse(proxy.Address)
+			if proxy.Username != "" || proxy.Password != "" {
+				u.User = url.UserPassword(proxy.Username, proxy.Password)
+			}
 			t.Proxy = http.ProxyURL(u)
 		}
 		transport = t
@@ -252,6 +272,9 @@ func (a *App) pluginAction(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.store.snapshotWithLogLimit(0)
 	p := pluginDefaults(kind, input.Config)
+	if p.Password == "********" {
+		p.Password = st.Plugins[kind].Password
+	}
 	if (kind == "ai" && action == "search") || (kind == "tmdb" && action == "recognize") || (kind == "proxy" && action != "test") {
 		fail(w, 400, errors.New("不支持此插件操作"))
 		return
@@ -293,6 +316,10 @@ func (a *App) pluginAction(w http.ResponseWriter, r *http.Request) {
 			err = nil
 		}
 	case "tmdb":
+		if err = waitTMDB(r.Context(), p); err != nil {
+			fail(w, 400, err)
+			return
+		}
 		endpoint := "/3/configuration"
 		q := url.Values{}
 		if action == "search" {

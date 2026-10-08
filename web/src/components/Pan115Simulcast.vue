@@ -52,17 +52,15 @@ function select(value) {
 <template>
   <Modal title="115 同播复制" @close="!busy && emit('close')">
   <section class="modal-body simulcast-settings" :aria-busy="busy">
-    <div class="section-label"><h3>存储设置</h3><button class="icon-btn" title="刷新" aria-label="刷新同播配置" :disabled="busy" @click="load"><Icon name="RefreshCw" /></button></div>
     <p v-if="error && !editing && !removing" class="error-message" role="alert">{{ error }}</p>
     <div class="simulcast-list">
       <article v-for="(config, id) in configs" :key="id" class="simulcast-row">
-        <ProviderIcon type="115" small />
+        <button class="simulcast-toggle" :aria-label="`${config.enabled ? '停用' : '启用'} ${poolName(id)} 同播复制`" :aria-pressed="config.enabled" :disabled="busy" @click="persist({ ...configs, [id]: { ...config, enabled: !config.enabled } })"><ProviderIcon type="115" /></button>
         <div class="simulcast-name"><strong>{{ poolName(id) }}</strong><span>{{ config.directoryLabel || config.directory }}</span></div>
-        <input type="checkbox" class="switch" role="switch" :aria-label="`启用 ${poolName(id)} 同播复制`" :checked="config.enabled" :disabled="busy" @click.prevent="persist({ ...configs, [id]: { ...config, enabled: !config.enabled } })" />
         <button class="icon-btn" title="编辑" :aria-label="`编辑 ${poolName(id)}`" :disabled="busy" @click="edit(id)"><Icon name="Pencil" /></button>
         <button class="icon-btn danger-text" title="删除" :aria-label="`删除 ${poolName(id)}`" :disabled="busy" @click="removing = id; error = ''"><Icon name="Trash2" /></button>
       </article>
-      <button class="simulcast-add" :disabled="busy || !loaded || !canAdd" @click="edit()"><Icon name="Plus" />添加存储</button>
+      <button class="simulcast-add" :disabled="busy || !loaded || !canAdd" @click="edit()"><Icon name="Plus" />存储绑定</button>
     </div>
   </section>
   </Modal>
@@ -71,7 +69,6 @@ function select(value) {
       <div class="modal-body simulcast-form">
         <label>115 存储<RoundedSelect v-model="form.storageId" label="115 存储" placeholder="选择存储" :options="options" :disabled="busy || !!original" /></label>
         <label>复制目录<button type="button" class="btn simulcast-directory" aria-label="选择复制目录" :disabled="busy || !form.storageId" @click="picker = true"><Icon name="Folder" /><span>{{ form.directoryLabel || form.directory || '选择目录' }}</span></button></label>
-        <label class="toggle-line"><span>启用同播复制</span><input v-model="form.enabled" type="checkbox" class="switch" role="switch" :disabled="busy" /></label>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       </div>
       <footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="editing = false">取消</button><button class="btn primary" :disabled="busy || !form.storageId || !form.directory">{{ busy ? '保存中…' : '保存' }}</button></footer>
@@ -90,6 +87,10 @@ function select(value) {
 .simulcast-row { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); min-width: 0; }
 .simulcast-name { flex: 1; min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .simulcast-name span { color: var(--muted); font-size: 13px; }
+.simulcast-toggle { padding:0; border:0; background:transparent; flex:0 0 40px; width:40px; height:40px; }
+.simulcast-toggle[aria-pressed=false] { opacity:.45; }
+.simulcast-toggle :deep(.provider-icon) { width:40px; height:40px; background:transparent; border-radius:0; }
+.simulcast-toggle :deep(img) { width:100%; height:100%; }
 .simulcast-row .icon-btn { width: 36px; height: 36px; flex-shrink: 0; }
 .simulcast-add { display: flex; justify-content: center; align-items: center; gap: 8px; border: 1px dashed var(--border); border-radius: 8px; min-height: 48px; color: var(--muted); background: transparent; cursor: pointer; }
 .simulcast-add:disabled { opacity: .5; cursor: default; }

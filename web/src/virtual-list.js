@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, unref, watch } from 'vue'
 export function useVirtualList(items, viewport, options = {}) {
   const scroll = ref(0), height = ref(500), width = ref(800)
   const rowHeight = computed(() => unref(options.rowHeight) || 52)
-  const columns = computed(() => options.grid?.value ? Math.max(1, Math.floor(width.value / 166)) : 1)
+  const columns = computed(() => options.grid?.value ? Math.max(1, Math.floor(width.value / (options.columnWidth || 166))) : 1)
   const header = computed(() => unref(options.header) || 0)
   const rows = computed(() => Math.ceil(items.value.length / columns.value))
   const first = computed(() => Math.min(Math.max(0, rows.value - 1), Math.max(0, Math.floor((scroll.value - header.value) / rowHeight.value) - 5)))

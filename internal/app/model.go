@@ -43,6 +43,7 @@ type MountConfig struct {
 }
 
 type Task struct {
+	ScrapeExcluded     bool             `json:"scrapeExcluded,omitempty"`
 	RetainedExtensions *string          `json:"retainedExtensions,omitempty"`
 	ED2KBindingID      string           `json:"ed2kBindingId,omitempty"`
 	MediaExtensions    string           `json:"mediaExtensions"`

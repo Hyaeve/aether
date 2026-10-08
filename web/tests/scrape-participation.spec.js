@@ -1,0 +1,25 @@
+import { test, expect } from '@playwright/test'
+
+test('STRM participation defaults on, saves exclusion and filters libraries', async ({ page }, info) => {
+  let task = {id:'one',name:'媒体库',kind:'strm',storageId:'local',source:'/',target:'/media',enabled:true,retainedExtensions:'iso',apiInterval:200,mode:'incremental',cron:'0 2 * * *',cacheTTL:0}
+  await page.route('**/api/auth/status',r=>r.fulfill({json:{initialized:true,authenticated:true}}))
+  await page.route('**/api/state',r=>r.fulfill({json:{storages:[{id:'local',name:'本地',type:'local',enabled:true,config:{}}],tasks:[task,{...task,id:'hidden',name:'隐藏库',scrapeExcluded:true}],settings:{},cache:{},traffic:{}}}))
+  await page.route('**/api/tasks/one',r=>{task={...task,...r.request().postDataJSON()};return r.fulfill({json:task})})
+  await page.route('**/api/strm-scrape/**',r=>r.fulfill({json:r.request().url().includes('/items')?[]:{}}))
+  await page.goto('/tasks/strm')
+  await page.getByRole('button',{name:'任务操作 媒体库',exact:true}).click()
+  await page.getByRole('button',{name:'编辑任务',exact:true}).click()
+  await page.getByRole('button',{name:'更多选项',exact:true}).click()
+  const select=page.getByRole('button',{name:'STRM 刮削',exact:true})
+  await expect(select).toHaveText('参与')
+  const input=await page.getByLabel('保留扩展名',{exact:true}).boundingBox(), box=await select.boundingBox()
+  expect(Math.abs(input.y-box.y)).toBeLessThan(5)
+  await expect(page.getByRole('button',{name:'视频扩展名',exact:true}).locator('svg')).toHaveClass(/lucide-film/)
+  await expect(page.getByRole('button',{name:'数据扩展名',exact:true}).locator('svg')).toHaveClass(/lucide-file-json/)
+  await select.click();await page.getByRole('option',{name:'不参与',exact:true}).click()
+  await page.screenshot({path:info.outputPath('scrape-participation.png')})
+  await page.getByRole('button',{name:'保存任务',exact:true}).click()
+  await expect.poll(()=>task.scrapeExcluded).toBe(true)
+  await page.getByRole('link',{name:'STRM 刮削',exact:true}).click()
+  await expect(page.getByRole('button',{name:'STRM 任务',exact:true})).toBeDisabled()
+})

@@ -78,3 +78,26 @@ func Test115ReadHeadersAreResponseScoped(t *testing.T) {
 		}
 	}
 }
+
+func Test115ChromeRedirectUsesBoundedFallbackWithoutFollowingLocation(t *testing.T) {
+	old := apiClient
+	t.Cleanup(func() { apiClient = old })
+	calls := 0
+	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 && r.URL.Path != "/app/chrome/downurl" {
+			t.Fatal(r.URL.Path)
+		}
+		if calls == 2 && r.URL.Path != "/android/2.0/ufile/download" {
+			t.Fatal(r.URL.Path)
+		}
+		if calls > 2 || r.URL.Hostname() != "proapi.115.com" {
+			t.Fatal("unsafe redirect/retry", r.URL.Host)
+		}
+		return &http.Response{StatusCode: 302, Header: http.Header{"Location": {"https://untrusted.invalid/?secret=do-not-log"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+	})}
+	_, err := download115(context.Background(), Storage{Type: "115", Config: map[string]string{"cookie": test115Cookie, "device": "web"}}, "pick", "Reader/1")
+	if calls != 2 || err == nil || !strings.Contains(err.Error(), "未携带CK跟随") || strings.Contains(err.Error(), "do-not-log") {
+		t.Fatal(calls, err)
+	}
+}

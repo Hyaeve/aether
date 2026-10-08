@@ -47,12 +47,7 @@ onUnmounted(() => generation++)
 <template>
   <Modal title="选择容器目录" compact wide @close="emit('close')">
     <div class="modal-body local-directory-picker">
-      <div class="picker-toolbar"><nav class="directory-crumbs" aria-label="容器目录路径"><template v-for="(crumb, i) in crumbs" :key="crumb.path"><Icon v-if="i" name="ChevronRight" :size="14" /><button type="button" :disabled="busy || creating" :aria-current="i === crumbs.length - 1 ? 'location' : undefined" @click="load(crumb.path)">{{ crumb.label }}</button></template><button v-if="!crumbs.length && error" class="text-btn" @click="load('')">根目录</button></nav><button type="button" class="icon-btn bordered" title="新建文件夹" aria-label="新建文件夹" :aria-expanded="createOpen" :disabled="!directory.path || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" /></button></div>
-      <form v-if="createOpen" class="picker-create-form" @submit.prevent="createFolder">
-        <label for="local-folder-name">文件夹名称</label><input id="local-folder-name" ref="nameInput" v-model="folderName" maxlength="255" required :disabled="creating" :aria-invalid="!!createError" aria-describedby="local-create-error" />
-        <button type="submit" class="icon-btn bordered" :disabled="creating || busy || !folderName.trim()" :aria-label="creating ? '正在创建' : '确认创建'" title="确认创建"><Icon :name="creating ? 'LoaderCircle' : 'Check'" /></button><button type="button" class="icon-btn" :disabled="creating" aria-label="取消新建" title="取消新建" @click="createOpen = false"><Icon name="X" /></button>
-        <p v-if="createError" id="local-create-error" class="error-message" role="alert">{{ createError }}</p>
-      </form>
+      <div class="picker-toolbar"><nav class="directory-crumbs" aria-label="容器目录路径"><template v-for="(crumb, i) in crumbs" :key="crumb.path"><Icon v-if="i" name="ChevronRight" :size="14" /><button type="button" :disabled="busy || creating" :aria-current="i === crumbs.length - 1 ? 'location' : undefined" @click="load(crumb.path)">{{ crumb.label }}</button></template><button v-if="!crumbs.length && error" class="text-btn" @click="load('')">根目录</button></nav><button type="button" class="icon-btn" aria-label="新建文件夹" :aria-expanded="createOpen" :disabled="!directory.path || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" /></button></div>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       <div class="container-directory-list" :aria-busy="busy">
         <p v-if="busy" class="small-empty">正在读取目录…</p>
@@ -61,6 +56,7 @@ onUnmounted(() => generation++)
     </div>
     <footer class="modal-footer"><button class="btn" @click="emit('close')">取消</button><button class="btn primary" :disabled="busy || creating || !!error || !directory.path" @click="emit('select', directory.path)">选择当前目录</button></footer>
   </Modal>
+  <Modal v-if="createOpen" title="新建文件夹" compact @close="!creating && (createOpen = false)"><form @submit.prevent="createFolder"><div class="modal-body"><label>文件夹名称<input ref="nameInput" v-model="folderName" maxlength="255" required :disabled="creating" /></label><p v-if="createError" class="error-message" role="alert">{{ createError }}</p></div><footer class="modal-footer"><button type="submit" class="btn primary" :disabled="creating || busy || !folderName.trim()">确认创建</button><button type="button" class="btn" :disabled="creating" @click="createOpen = false">取消</button></footer></form></Modal>
 </template>
 <style scoped>
 .picker-toolbar { display: flex; align-items: center; gap: 8px; }

@@ -48,6 +48,18 @@ func TestScrapeWorksGroupSeasonsWithoutMixingLibraries(t *testing.T) {
 	if updated[0].TMDB != 123 || updated[1].TMDB != 123 || updated[2].TMDB != 0 || updated[3].TMDB != 0 || updated[1].Season != 2 {
 		t.Fatal(updated)
 	}
+	w = request(t, h, "POST", "/api/strm-scrape/reset", map[string]any{"taskId": task.ID, "scope": "../Show", "confirmed": true}, cookie)
+	if w.Code != 400 {
+		t.Fatal("invalid scope accepted", w.Code)
+	}
+	w = request(t, h, "POST", "/api/strm-scrape/reset", map[string]any{"taskId": task.ID, "path": items[0].Path, "group": true, "scope": "Show/Season 2", "confirmed": true}, cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	updated = a.loadScrapeIndex(task.ID, root).Items
+	if updated[0].TMDB != 123 || updated[1].TMDB != 0 {
+		t.Fatal("scope crossed season boundary", updated)
+	}
 }
 
 func TestScrapeCandidatesUseConfiguredTMDB(t *testing.T) {

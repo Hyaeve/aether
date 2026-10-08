@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
@@ -77,7 +79,14 @@ func TestNativeFuseLocalCallbacks(t *testing.T) {
 func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 	a := testApp(t)
 	root := t.TempDir()
-	remote := httptest.NewServer(&webdav.Handler{FileSystem: webdav.Dir(root), LockSystem: webdav.NewMemLS()})
+	var reads atomic.Int32
+	dav := &webdav.Handler{FileSystem: webdav.Dir(root), LockSystem: webdav.NewMemLS()}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			reads.Add(1)
+		}
+		dav.ServeHTTP(w, r)
+	}))
 	defer remote.Close()
 	s := Storage{ID: "dav", Name: "dav", Type: "webdav", Enabled: true, Config: map[string]string{"address": remote.URL, "root": "/"}}
 	a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil })
@@ -125,6 +134,17 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 	bytes, status := result.Bytes(nil)
 	if status != fuse.OK || string(bytes) != "world" {
 		t.Fatal(string(bytes), status)
+	}
+	before := reads.Load()
+	if _, errno = reader.Read(ctx, make([]byte, 5), 0); errno != 0 || reads.Load() != before {
+		t.Fatal("cache miss", errno, reads.Load(), before)
+	}
+	a.cache.clear()
+	if _, errno = reader.Read(ctx, make([]byte, 5), 0); errno != 0 || reads.Load() != before+1 {
+		t.Fatal("cache invalidation", errno, reads.Load(), before)
+	}
+	if entries, err := os.ReadDir(filepath.Join(a.dataDir, "fuse_read_cache")); err != nil || len(entries) == 0 {
+		t.Fatal("cache not persisted", err)
 	}
 	reader.Release(ctx)
 	handle, _, errno = child.Operations().(*nativeFuseNode).Open(ctx, syscall.O_RDWR)

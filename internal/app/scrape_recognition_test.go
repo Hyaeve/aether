@@ -14,6 +14,7 @@ func TestScrapeDirectoryAndEpisodeRecognition(t *testing.T) {
 	}{
 		{"庆余年/第2季/第十二集.strm", "庆余年", "tv", 2, 12},
 		{"Show/Season 2/03.mkv.strm", "Show", "tv", 2, 3},
+		{"Show/Season 2/[03].strm", "Show", "tv", 2, 3},
 		{"Show/Specials/E01.strm", "Show", "tv", 0, 1},
 		{"Show/Show.1x03.strm", "Show", "tv", 1, 3},
 		{"Show/Show.EP02.strm", "Show", "tv", 1, 2},
@@ -28,6 +29,37 @@ func TestScrapeDirectoryAndEpisodeRecognition(t *testing.T) {
 				t.Fatal(item)
 			}
 		})
+	}
+}
+
+func TestScrapeTVMarkerAndMultiSeasonDirectories(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"Show/tvshow.nfo", "Show/pilot.strm", "Show/cover.jpg", "Film/Film.2020.strm", "Film/trailer.mp4"} {
+		writeTest(t, filepath.Join(dir, filepath.FromSlash(name)), "fixture")
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	items, err := scanSTRM(context.Background(), root, scrapeIndex{}, scrapeSettings{})
+	if err != nil || len(items) != 2 {
+		t.Fatalf("items=%+v error=%v", items, err)
+	}
+	for _, item := range items {
+		if item.Path == "Show/pilot.strm" && item.Kind != "tv" {
+			t.Fatal(item)
+		}
+		if item.Path == "Film/Film.2020.strm" && item.Kind != "movie" {
+			t.Fatal(item)
+		}
+	}
+	works := scrapeWorks([]scrapeItem{
+		{Path: "Show/Season 1/01.strm", Kind: "tv", Title: "Show"},
+		{Path: "Show/Season 2/01.strm", Kind: "tv", Title: "Show"},
+	})
+	if len(works) != 1 || len(works[0].Directories) != 2 {
+		t.Fatal(works)
 	}
 }
 

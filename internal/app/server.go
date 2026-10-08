@@ -29,6 +29,10 @@ import (
 )
 
 type App struct {
+	fuseReadOnce     sync.Once
+	fuseReadRevision atomic.Uint64
+	fuseReads        *fuseReadCache
+
 	simulcast      *pan115Simulcast
 	transfers      transferLog
 	traffic        trafficMeter
@@ -113,6 +117,7 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
 		gates: map[string]time.Time{}, intervals: map[string]int{}, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, started: time.Now()}
 	a.casGate = make(chan struct{}, 1)
+	a.transfers.restore(filepath.Join(dataDir, "cache", "transfers.json"))
 	a.simulcast = newPan115Simulcast(a, linkTrustedProxies())
 	if err := a.restoreSessions(); err != nil {
 		return nil, fmt.Errorf("restore sessions: %w", err)
@@ -262,6 +267,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/tasks/reorder", a.protected(http.HandlerFunc(a.reorderTask)))
 	mux.Handle("GET /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
+	mux.Handle("DELETE /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
 	mux.Handle("GET /api/traffic", a.protected(http.HandlerFunc(a.trafficRates)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
@@ -839,6 +845,9 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, 404, err)
 		return
+	}
+	if r.URL.Query().Get("refresh") == "true" {
+		a.fuseReadRevision.Add(1)
 	}
 	files, err := a.listFiles(r.Context(), s, r.URL.Query().Get("path"), 0, r.URL.Query().Get("refresh") == "true")
 	if err != nil {

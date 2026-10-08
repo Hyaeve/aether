@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	driver115 "github.com/SheltonZhu/115driver/pkg/driver"
 )
 
 type shareEntry struct {
@@ -125,6 +127,17 @@ func shareConfig(s Storage) [32]byte {
 // Only fixed provider endpoints reach this client. Never follow redirects with credentials.
 func shareRequest(ctx context.Context, s Storage, method, address string, body any, out any) error {
 	headers := cloudHeaders(s)
+	if s.Type == "115" {
+		endpoint, err := url.Parse(address)
+		if err != nil {
+			return err
+		}
+		params := endpoint.Query()
+		if form, ok := body.(url.Values); ok {
+			params = form
+		}
+		headers.Set("Referer", driver115.BuildShareReferer(params.Get("share_code"), params.Get("receive_code")))
+	}
 	var reader io.Reader
 	if nativeMobile(s) {
 		_, auth, err := mobileAccount(s)
@@ -164,6 +177,13 @@ func shareRequest(ctx context.Context, s Storage, method, address string, body a
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
+		if s.Type == "115" {
+			stage := "预览"
+			if method == http.MethodPost {
+				stage = "转存"
+			}
+			return fmt.Errorf("115 分享%s失败（%s %s，HTTP %d）；上游拒绝请求，可能是接口限制或风控，请检查CK及设备类型；转存不会自动重试", stage, method, req.URL.Host+req.URL.Path, res.StatusCode)
+		}
 		return fmt.Errorf("分享服务 HTTP %d，请检查授权或网络", res.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, (4<<20)+1))
@@ -231,8 +251,8 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 					} `json:"list"`
 				} `json:"data"`
 			}
-			q := url.Values{"share_code": {code}, "receive_code": {pass}, "cid": {"0"}, "offset": {strconv.Itoa(page * 100)}, "limit": {"100"}}
-			if err := shareRequest(ctx, s, "GET", "https://webapi.115.com/share/snap?"+q.Encode(), nil, &result); err != nil {
+			q := url.Values{"share_code": {code}, "receive_code": {pass}, "cid": {"0"}, "offset": {strconv.Itoa(page * 100)}, "limit": {"100"}, "asc": {"0"}, "format": {"json"}}
+			if err := shareRequest(ctx, s, "GET", driver115.ApiShareSnap+"?"+q.Encode(), nil, &result); err != nil {
 				return "", nil, err
 			}
 			total = result.Data.Count

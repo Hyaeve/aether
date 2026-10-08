@@ -127,7 +127,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
   <Modal v-if="editing" title="重命名" compact @close="!busy && (editing = null)"><form @submit.prevent="renameOne"><div class="modal-body"><label>新名称<input v-model="editName" required maxlength="255" :disabled="busy" /></label></div><footer class="modal-footer"><button type="button" class="btn cancel" :disabled="busy" @click="editing = null">取消</button><button class="btn primary" :disabled="busy || !editName.trim()">确认修改</button></footer></form></Modal>
 </template>
 <style scoped>
-.rename-preview-row { position: relative; grid-template-columns: minmax(0,1fr); gap: 6px; padding-right: 92px; }
+.rename-preview-row { position: relative; grid-template-columns: minmax(0,1fr); gap: 6px; padding-right: 92px; font-size:12px; }
 .rename-preview-row small { flex-shrink: 0; color: var(--muted); }
 .rename-preview-row.ignored > div:not(.rename-item-actions) { opacity: .45; }
 .rename-preview-row .rename-item-actions { position: absolute; right: 8px; top: 28px; opacity: 0; }
@@ -137,12 +137,13 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 .rename-rule.collapsed { padding: 4px 12px; margin-bottom: 6px; }
 .rename-rule.collapsed header { margin: 0; }
 .rule-collapse { display:grid; grid-template-rows:1fr; opacity:1; }.rule-fields { min-height:0; }.rule-expand-enter-active .rule-fields, .rule-expand-leave-active .rule-fields { overflow:hidden; }.rule-expand-enter-active, .rule-expand-leave-active { transition:grid-template-rows .24s ease, opacity .2s ease; }.rule-expand-enter-from, .rule-expand-leave-to { grid-template-rows:0fr; opacity:0; }
-.rename-rules, .rename-rules :deep(button), .rename-rules label, .rename-rules input, .rename-rules :deep(.rounded-select) { font-size:13px; }
+.rename-rules, .rename-rules :deep(button), .rename-rules label, .rename-rules input, .rename-rules :deep(.rounded-select), .rename-rule header strong { font-size:12px; }
 .rename-rule label:not(.rename-check), .rule-inline { display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:8px; margin-top:8px; }.rule-inline { margin-bottom:8px; }
-.rename-rule input:not([type=checkbox]), .rename-rules :deep(.rounded-select-trigger), .rename-rules .btn { min-height:32px; height:32px; padding-top:4px; padding-bottom:4px; }
+.rename-rule input:not([type=checkbox]), .rename-rules :deep(.rounded-select-trigger), .rename-rules .btn { min-height:28px; height:28px; padding-top:3px; padding-bottom:3px; }
 .rule-checks { display:flex; gap:18px; }.rule-checks label { margin:10px 0 2px; }
 .rename-rule { padding:10px; margin-bottom:8px; }.rename-rule header { margin-bottom:6px; }.rename-rule .icon-btn { width:28px; height:28px; min-height:28px; }
-.rename-changed small { color:#309783; }.rename-changed mark { color:var(--primary); background:color-mix(in srgb,var(--primary) 12%,transparent); border-radius:3px; }.rename-changed > span { color:var(--text); }
+.rename-changed small, .rename-changed > span { color:#c87612; }.rename-changed mark { color:#cf7510; background:#df921c20; border-radius:3px; }
+[data-theme=dark] .rename-changed small, [data-theme=dark] .rename-changed > span, [data-theme=dark] .rename-changed mark { color:#f4b45a; }
 @media(prefers-reduced-motion:reduce) { .rule-expand-enter-active, .rule-expand-leave-active { transition:none; } }
 @media (hover: none) { .rename-preview-row .rename-item-actions { opacity: 1; } }
 </style>

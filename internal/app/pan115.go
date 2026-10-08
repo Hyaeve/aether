@@ -58,6 +58,13 @@ func download115(ctx context.Context, s Storage, pick, ua string) (*driver.Downl
 		info, err = c.DownloadWithUAByAndroidAPI(pick, ua)
 	} else {
 		info, err = c.DownloadWithUA(pick, ua)
+		// The Chrome endpoint can redirect instead of returning its JSON envelope.
+		// Never forward login cookies to that Location; retry the read-only Android API once.
+		if err != nil && status == http.StatusFound && ctx.Err() == nil {
+			endpoint = "android/2.0/ufile/download（chrome返回302后备用）"
+			status, code = 0, 0
+			info, err = c.DownloadWithUAByAndroidAPI(pick, ua)
+		}
 	}
 	if err != nil {
 		if ctx.Err() != nil {
@@ -66,6 +73,9 @@ func download115(ctx context.Context, s Storage, pick, ua string) (*driver.Downl
 		reason := "请求或响应解析失败"
 		if errors.Is(err, driver.ErrUnexpected) {
 			reason = "未知上游错误或空下载记录"
+		}
+		if status >= 300 && status < 400 {
+			reason = "上游返回重定向而非下载数据，未携带CK跟随；请检查CK有效性、设备与上游风控"
 		}
 		return nil, fmt.Errorf("115 获取下载链接失败（接口 %s，HTTP %d，错误码 %d）：%s", endpoint, status, code, reason)
 	}

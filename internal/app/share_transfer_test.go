@@ -66,6 +66,9 @@ func TestShareProtocols(t *testing.T) {
 				case strings.HasSuffix(r.URL.Path, "/detail"):
 					return `{"code":0,"data":{"list":[{"fid":"f","file_name":"Film.mkv","share_fid_token":"file-token"}]},"metadata":{"_total":1}}`
 				case strings.HasSuffix(r.URL.Path, "/snap"):
+					if r.Method != "GET" || r.URL.Host != "115cdn.com" || r.URL.Path != "/webapi/share/snap" || r.URL.Query().Get("format") != "json" || r.Header.Get("Referer") != "https://115cdn.com/s/code?password=1234&" {
+						t.Error("incorrect 115 share preview protocol", r.Method, r.URL.Host, r.URL.Path)
+					}
 					return `{"state":true,"data":{"count":1,"list":[{"fid":"f","n":"Film.mkv"}]}}`
 				case strings.HasSuffix(r.URL.Path, "/getOutLinkInfoV6"):
 					return `{"code":"0","data":{"nodNum":1,"coLst":[{"coId":"f","coName":"Film.mkv","coPath":"root/f"}]}}`
@@ -74,6 +77,9 @@ func TestShareProtocols(t *testing.T) {
 					b, _ := io.ReadAll(r.Body)
 					switch provider {
 					case "115":
+						if r.Method != "POST" || r.URL.Host != "webapi.115.com" || r.URL.Path != "/share/receive" || r.Header.Get("Referer") != "https://115cdn.com/s/code?password=1234&" {
+							t.Error("incorrect 115 share receive protocol")
+						}
 						if !strings.Contains(string(b), "file_id=f") || !strings.Contains(string(b), "cid=target") {
 							t.Error(string(b))
 						}
@@ -104,6 +110,28 @@ func TestShareProtocols(t *testing.T) {
 				t.Fatal(task, saves, err)
 			}
 		})
+	}
+}
+
+func Test115ShareHTTPFailureDoesNotRetryOrLeakSecrets(t *testing.T) {
+	old := apiClient.Transport
+	defer func() { apiClient.Transport = old }()
+	for _, status := range []int{405, 302, 500} {
+		calls := 0
+		apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return &http.Response{StatusCode: status, Header: http.Header{"Location": {"https://attacker.example/?secret"}}, Body: io.NopCloser(strings.NewReader("private upstream body")), Request: r}, nil
+		})
+		s := Storage{Type: "115", Config: map[string]string{"cookie": "private-cookie"}}
+		_, err := submitShare(context.Background(), s, sharePreview{Code: "private-code", Pass: "private-pass"}, "target", []shareEntry{{ID: "file", Name: "test"}})
+		if err == nil || calls != 1 || !strings.Contains(err.Error(), "分享转存失败") {
+			t.Fatal(calls, err)
+		}
+		for _, secret := range []string{"private-cookie", "private-code", "private-pass", "attacker", "private upstream body"} {
+			if strings.Contains(err.Error(), secret) {
+				t.Fatal("secret in error")
+			}
+		}
 	}
 }
 

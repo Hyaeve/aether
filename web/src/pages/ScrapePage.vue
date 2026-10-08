@@ -8,6 +8,12 @@ import Modal from '../components/Modal.vue'
 import { useVirtualList } from '../virtual-list'
 const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), settingsOpen = ref(false), matching = ref(null), candidates = ref([])
 const query = ref(''), status = ref('all')
+const scope = ref('')
+const directories = computed(() => {
+  const paths = new Set()
+  for (const item of items.value) { for(const dir of item.directories || [item.path.split('/').slice(0,-1).join('/')]) { const parts=dir.split('/').filter(p=>p && p!=='.'); for(let i=1;i<=parts.length;i++) paths.add(parts.slice(0,i).join('/')) } }
+  return [{value:'',label:'全部目录'}, ...[...paths].sort().map(value=>({value,label:value}))]
+})
 const settings = reactive({ writeMode: 'missing', episodes: true, fanart: false, actors: false, excluded: '' })
 const match = reactive({ tmdb: '', kind: 'movie' })
 const resetting = ref(null)
@@ -18,13 +24,13 @@ async function resetMetadata() {
     resetting.value = null; await load(); notify('作品元数据已重置')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-const tasks = computed(() => state.tasks.filter(t => t.kind === 'strm').map(t => ({ value: t.id, label: t.name })))
+const tasks = computed(() => state.tasks.filter(t => t.kind === 'strm' && !t.scrapeExcluded).map(t => ({ value: t.id, label: t.name })))
 const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', miss: '未匹配', doubt: '待确认', error: '失败' }
 const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
-const filtered = computed(() => items.value.filter(i => (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
+const filtered = computed(() => items.value.filter(i => (!scope.value || (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>d===scope.value || d.startsWith(scope.value+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
-const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 292, grid: ref(true), window: true })
-watch([query, status, task], reset)
+const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 368, columnWidth: 210, grid: ref(true), window: true })
+watch([query, status, task, scope], reset)
 const candidateQuery = ref(''), candidateBusy = ref(false), candidateError = ref('')
 let alive = true, timer, request = 0, candidateRequest = 0
 async function load() {
@@ -46,7 +52,7 @@ async function poll() {
 async function action(name, item) {
   busy.value = true
   try {
-    const result = await api(`/strm-scrape/${name}`, 'POST', { taskId: task.value, path: item?.path || '', group: true })
+    const result = await api(`/strm-scrape/${name}`, 'POST', { taskId: task.value, path: item?.path || '', scope: scope.value, group: true })
     if (name !== 'stop') progress.value = result
     else notify('正在停止刮削')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
@@ -80,6 +86,7 @@ async function saveMatch() {
 }
 const preferenceKey = computed(() => `aether-scrape-task:${state.username || ''}`)
 watch(task, value => {
+  scope.value = ''
   if (value) { try { localStorage.setItem(preferenceKey.value, value) } catch {} }
   load()
 })
@@ -99,10 +106,11 @@ onMounted(async () => {
 onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequest++ })
 </script>
 <template>
-  <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button class="btn" @click="settingsOpen = true"><Icon name="Settings2" />刮削设置</button><button v-if="progress.running" class="btn" :disabled="busy" @click="action('stop')"><Icon name="Square" />停止</button><button v-else class="btn primary" :disabled="!task || busy" @click="action('run')"><Icon name="Play" />开始刮削</button></div></section>
+  <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button class="btn" @click="settingsOpen = true"><Icon name="Settings2" />刮削设置</button><button v-if="progress.running" class="btn" :disabled="busy" @click="action('stop')"><Icon name="Square" />停止</button></div></section>
   <section class="scrape-panel">
     <div class="scrape-toolbar">
       <RoundedSelect v-model="task" label="STRM 任务" placeholder="选择 STRM 任务" :disabled="progress.running" :options="tasks" />
+      <RoundedSelect v-model="scope" label="筛选库目录" :disabled="progress.running" :options="directories" />
       <RoundedSelect v-model="status" label="刮削状态" :options="[{ value: 'all', label: '全部状态' }, ...Object.entries(statuses).map(([value,label]) => ({value,label}))]" />
       <button class="btn" :disabled="!task || busy || progress.running" @click="action('identify')"><Icon name="ScanSearch" />识别 STRM 库</button>
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索刮削记录" placeholder="搜索名称或路径" /></div>
@@ -141,8 +149,9 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 <style scoped>
 .scrape-panel { min-height: 320px; display: flex; flex-direction: column; background: var(--surface); }
 .scrape-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px; }
-.scrape-toolbar > .rounded-select:first-child { width: 220px; }
-.scrape-toolbar > .rounded-select:nth-child(2) { width: 130px; }
+.scrape-toolbar > .rounded-select:first-child { width: 170px; }
+.scrape-toolbar > .rounded-select:nth-child(2) { width: 160px; }
+.scrape-toolbar > .rounded-select:nth-child(3) { width: 120px; }
 .scrape-toolbar .search-field { width: 200px; margin-left: auto; }
 .scrape-progress { display: flex; align-items: center; gap: 12px; padding: 0 14px 12px; font-size: 13px; color: var(--muted); }
 .scrape-progress span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
@@ -151,9 +160,9 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-head { background: var(--bg); color: var(--muted); font-size: 13px; }
 .scrape-row { height: 66px; box-sizing: border-box; border-bottom: 1px solid color-mix(in srgb,var(--border) 50%,transparent); font-size: 14px; }
 .scrape-wall { display: grid; padding: 0 12px; column-gap: 12px; }
-.scrape-card { position: relative; min-width: 0; height: 280px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
-.scrape-poster { width: 100%; height: 154px; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
-.scrape-poster img { width: 100%; height: 100%; object-fit: contain; }
+.scrape-card { position: relative; min-width: 0; height: 356px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
+.scrape-poster { width: 100%; height: 256px; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
+.scrape-poster img { width: 100%; height: 100%; object-fit: cover; }
 .scrape-poster span { font-size: 12px; }
 .scrape-card-body { min-width: 0; padding: 9px 10px; font-size: 14px; }
 .scrape-card-body > strong, .scrape-card-body > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -166,7 +175,10 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-name strong, .scrape-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .scrape-status.ok strong { color: var(--success); }
 .scrape-status.error strong { color: var(--danger); }
-.scrape-actions { display: flex; justify-content: space-between; position: absolute; left: 5px; right: 5px; bottom: 4px; }
+.scrape-actions { display: flex; justify-content: space-between; position: absolute; left: 12px; right: 12px; top: 211px; opacity:0; pointer-events:none; transform:translateY(5px); transition:opacity .18s,transform .18s; }
+.scrape-card:hover .scrape-actions, .scrape-card:focus-within .scrape-actions { opacity:1; pointer-events:auto; transform:none; }
+.scrape-actions :deep(button) { background:var(--surface); border-radius:10px; box-shadow:0 2px 8px #0002; }
+@media(hover:none) { .scrape-actions { opacity:1; pointer-events:auto; transform:none; } }
 .scrape-actions :deep(button) { width: 30px; height: 30px; }
 .scrape-body { min-height: 0; overflow-anchor: none; }
 .scrape-body::-webkit-scrollbar { display: none; }

@@ -104,7 +104,7 @@ func (a *App) scrapeIndexPath(task string) string {
 }
 func (a *App) scrapeRoot(taskID string) (string, error) {
 	for _, t := range a.store.snapshotWithLogLimit(0).Tasks {
-		if t.ID == taskID && t.Kind == "strm" {
+		if t.ID == taskID && t.Kind == "strm" && !t.ScrapeExcluded {
 			base, rel, err := a.outputLocation(t.Target)
 			if err != nil {
 				return "", err
@@ -193,6 +193,9 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 			return nil
 		}
 		if !entry.Type().IsRegular() || !strings.EqualFold(path.Ext(name), ".strm") {
+			if entry.Type().IsRegular() && strings.EqualFold(path.Base(name), "tvshow.nfo") {
+				tvDirs[path.Dir(name)] = true
+			}
 			return nil
 		}
 		if len(items) >= 10000 {
@@ -386,8 +389,13 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		Kind      string `json:"kind"`
 		Group     bool   `json:"group"`
 		Confirmed bool   `json:"confirmed"`
+		Scope     string `json:"scope"`
 	}
 	if !decode(w, r, &in) {
+		return
+	}
+	if in.Scope != "" && (!fs.ValidPath(in.Scope) || in.Scope == ".") {
+		fail(w, 400, errors.New("无效的库目录"))
 		return
 	}
 	rootName, err := a.scrapeRoot(in.TaskID)
@@ -404,6 +412,9 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	selected := func(item scrapeItem) bool {
+		if in.Scope != "" && !strings.HasPrefix(item.Path, in.Scope+"/") {
+			return false
+		}
 		return in.Path == "" || item.Path == in.Path || (in.Group && selectedWork != "" && scrapeWorkKey(item) == selectedWork)
 	}
 	if action == "reset" {
@@ -479,7 +490,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			index.Items = items
 			a.scrapeMu.Lock()
 			a.scrapeProgress.Total = len(items)
-			if in.Path != "" {
+			if in.Path != "" || in.Scope != "" {
 				a.scrapeProgress.Total = 0
 				for _, item := range items {
 					if selected(item) {
@@ -598,6 +609,9 @@ type tmdbMedia struct {
 }
 
 func tmdbGet(ctx context.Context, client *http.Client, cfg PluginConfig, endpoint string, q url.Values, out any) error {
+	if err := waitTMDB(ctx, cfg); err != nil {
+		return err
+	}
 	if q == nil {
 		q = url.Values{}
 	}
@@ -780,6 +794,9 @@ func scrapeImage(ctx context.Context, root *os.Root, client *http.Client, cfg Pl
 	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(cfg.ImageURL, "/")+"/t/p/w780"+image, nil)
 	if err != nil {
 		return errors.New("图片地址无效")
+	}
+	if err := waitTMDB(ctx, cfg); err != nil {
+		return err
 	}
 	res, err := client.Do(req)
 	if err != nil {

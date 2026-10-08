@@ -1,6 +1,6 @@
 <script setup>
 import {
-  FilePenLine,
+  FilePenLine, FileJson,
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
   FileClock, ListVideo, FileArchive, EllipsisVertical, Copy, FolderInput, GripVertical, Power,
   PanelLeft, Star, List, LayoutGrid, Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
@@ -16,7 +16,7 @@ import {
 import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 const icons = {
-  FilePenLine,
+  FilePenLine, FileJson,
   EmbyNotice: EmbyNoticeIcon,
   TMDB: () => h('img', { src: '/providers/tmdb.svg', alt: '', width: 32, height: 32, style: 'object-fit:contain' }),
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,

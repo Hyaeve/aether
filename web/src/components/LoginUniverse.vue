@@ -14,7 +14,7 @@ const satellites = []
 let observer, motionPreference, frame = 0, elapsed = 0, previous = 0
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
-let galaxy, spiral, moon
+let galaxy, spiral, moon, rocks = []
 let meteorCycle = -1, meteors = []
 const tilt = -18 * Math.PI / 180
 
@@ -43,6 +43,7 @@ function resize() {
   }))
   buildGalaxy(random, scale)
   buildMoon(random)
+  buildRocks(random)
   paint(elapsed)
 }
 
@@ -94,13 +95,28 @@ function buildGalaxy(random, scale) {
     const core = i < 18000
     const r = core ? random() ** 2 * 65 : (random() ** .65) * 286
     const scatter = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
-    const angle = core || i % 7 === 0 ? random() * Math.PI * 2 : i % 4 * Math.PI / 2 + 5.2 * Math.sqrt(r / 286) + scatter * .3
-    const distance = Math.max(0, r + (core ? 0 : scatter * 15))
+    const angle = core || i % 3 !== 0 ? random() * Math.PI * 2 : i % 4 * Math.PI / 2 + 3.1 * Math.sqrt(r / 286) + scatter * .85
+    const distance = Math.max(0, r + (core ? 0 : scatter * 30))
     const alpha = core ? .2 + random() * .45 : (.12 + random() * .4) * (1 - r / 360)
     disk.fillStyle = core || i % 9 === 0 ? `rgba(255,231,193,${alpha})` : `rgba(174,207,249,${alpha})`
     const size = .5 + random() * 1.3
     disk.fillRect(Math.cos(angle) * distance, Math.sin(angle) * distance, size, size)
   }
+}
+
+function buildRocks(random) {
+  rocks = Array.from({length:3}, () => {
+    const texture=document.createElement('canvas'); texture.width=texture.height=128
+    const c=texture.getContext('2d'); c.translate(64,64); c.beginPath()
+    for(let j=0;j<24;j++) { const a=j*Math.PI/12, r=43+random()*12; const x=Math.cos(a)*r,y=Math.sin(a)*r*.85; if(j)c.lineTo(x,y); else c.moveTo(x,y) }
+    c.closePath(); c.clip()
+    const shade=c.createRadialGradient(-24,-28,2,18,22,82)
+    shade.addColorStop(0,'#aaa8a0'); shade.addColorStop(.45,'#595b5e'); shade.addColorStop(1,'#111624')
+    c.fillStyle=shade; c.fillRect(-64,-64,128,128)
+    for(let j=0;j<7000;j++) { const x=random()*128-64,y=random()*128-64; c.fillStyle=random()>.5?'#d7cbbc18':'#070b1428'; c.fillRect(x,y,.5+random()*1.4,.5+random()*1.4) }
+    for(let j=0;j<45;j++) { const x=random()*104-52,y=random()*104-52,r=1+random()**2*10; const crater=c.createRadialGradient(x-r*.3,y-r*.3,0,x,y,r); crater.addColorStop(0,'#0b101ab0'); crater.addColorStop(.7,'#1c223069'); crater.addColorStop(.88,'#d6c9b656'); crater.addColorStop(1,'#0000'); c.fillStyle=crater;c.beginPath();c.ellipse(x,y,r,r*.8,.3,0,Math.PI*2);c.fill() }
+    return texture
+  })
 }
 
 function paintMeteor(time) {
@@ -220,26 +236,14 @@ function paint(time) {
       ctx.beginPath(); ctx.arc(x * width, y * height, 1.2, 0, Math.PI * 2); ctx.fill()
     }
   }
-  // Faceted, cratered rocks drift slowly outside the central orbital group.
+  // Cached textured rocks drift across the complete canvas at different depths.
   for (let i = 0; i < 3; i++) {
     ctx.save()
     const position = rockPosition(i, time, width, height)
     ctx.translate(position.x, position.y)
     ctx.rotate(time * .012 + i)
-    ctx.beginPath()
-    for (let n = 0; n < 9; n++) {
-      const angle = n / 9 * Math.PI * 2
-      const radius = 10 + Math.sin(n * 5 + i) * 2
-      const x = Math.cos(angle) * radius, y = Math.sin(angle) * radius
-      if (!n) ctx.moveTo(x, y); else ctx.lineTo(x, y)
-    }
-    ctx.closePath()
-    const rock = ctx.createLinearGradient(-9, -10, 10, 12)
-    rock.addColorStop(0, '#7e8195'); rock.addColorStop(.5, '#393f53'); rock.addColorStop(1, '#111627')
-    ctx.fillStyle = rock; ctx.fill()
-    for (const [x,y,r] of [[-3,-3,3],[4,2,2],[-2,5,1.5]]) {
-      ctx.fillStyle = '#151b2c88'; ctx.beginPath(); ctx.ellipse(x,y,r,r*.7,.4,0,Math.PI*2); ctx.fill()
-    }
+    const size=30+i*10
+    if(rocks[i])ctx.drawImage(rocks[i],-size/2,-size/2,size,size)
     ctx.restore()
   }
 }

@@ -42,7 +42,16 @@ async function load() {
 function root() { dir.value = '/'; label.value = '根目录'; trail.value = []; query.value = '' }
 function choose(id) { if (creating.value || selected.value === id) return; selected.value = id; root() }
 function enter(item) { if (creating.value) return; trail.value.push({ id: dir.value, name: label.value }); dir.value = item.id; label.value = item.name; query.value = '' }
-function back() { const parent = trail.value.pop(); dir.value = parent?.id || '/'; label.value = parent?.name || '根目录'; query.value = '' }
+const crumbs = computed(() => {
+  const entries = [...trail.value, {id:dir.value,name:label.value}]
+  if (entries[0]?.id !== '/') entries.unshift({id:'/',name:'根目录'})
+  return entries.filter((c,i) => !i || c.id !== entries[i-1].id)
+})
+function jump(index) {
+  const entry=crumbs.value[index]
+  if (!entry || creating.value) return
+  trail.value=crumbs.value.slice(0,index); dir.value=entry.id; label.value=entry.name; query.value=''
+}
 watch([selected, dir], () => { createOpen.value = false; createError.value = ''; load() }, { immediate: true })
 onUnmounted(() => generation++)
 </script>
@@ -51,12 +60,7 @@ onUnmounted(() => generation++)
     <div class="task-source-picker">
       <aside class="source-accounts"><h3>选择存储</h3><button v-if="allowAll" type="button" :class="{ active: !selected }" @click="choose('')"><Icon name="Layers" /><span>所有存储池</span></button><button v-for="s in storages" :key="s.id" type="button" :class="{ active: selected === s.id }" :aria-pressed="selected === s.id" @click="choose(s.id)"><ProviderIcon :type="s.type" small /><span><strong>{{ s.name }}</strong><small>{{ driverOf(s.type).name }}</small></span></button><p v-if="!storages.length" class="small-empty">暂无可用存储池</p></aside>
       <section class="source-directories">
-        <div class="source-toolbar"><button type="button" class="icon-btn bordered" aria-label="上级目录" :disabled="dir === '/' || busy || creating" @click="back"><Icon name="ArrowUp" /></button><button type="button" class="text-btn" :disabled="dir === '/' || busy || creating" @click="root">根目录</button><span class="source-path">{{ label }}</span><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选当前目录文件夹" /></div><button type="button" class="icon-btn bordered" title="新建文件夹" aria-label="新建文件夹" :aria-expanded="createOpen" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" /></button></div>
-        <form v-if="createOpen" class="picker-create-form" @submit.prevent="createFolder">
-          <label for="source-folder-name">文件夹名称</label><input id="source-folder-name" ref="nameInput" v-model="folderName" maxlength="255" required :disabled="creating" :aria-invalid="!!createError" aria-describedby="source-create-error" />
-          <button type="submit" class="icon-btn bordered" :disabled="creating || busy || !folderName.trim()" :aria-label="creating ? '正在创建' : '确认创建'" title="确认创建"><Icon :name="creating ? 'LoaderCircle' : 'Check'" /></button><button type="button" class="icon-btn" :disabled="creating" aria-label="取消新建" title="取消新建" @click="createOpen = false"><Icon name="X" /></button>
-          <p v-if="createError" id="source-create-error" class="error-message" role="alert">{{ createError }}</p>
-        </form>
+        <div class="source-toolbar"><nav class="directory-crumbs" aria-label="存储目录路径"><template v-for="(c,i) in crumbs" :key="c.id"><Icon v-if="i" name="ChevronRight" :size="14" /><button type="button" :disabled="busy || creating" :aria-current="i === crumbs.length-1 ? 'location' : undefined" @click="jump(i)">{{ c.name }}</button></template></nav><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选当前目录文件夹" /></div><button type="button" class="icon-btn" aria-label="新建文件夹" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" /></button></div>
         <div class="source-list" :aria-busy="busy">
           <div class="source-columns"><span>名称</span><span>修改时间</span></div>
           <p v-if="error" class="error-message" role="alert">{{ error }}</p>
@@ -68,12 +72,14 @@ onUnmounted(() => generation++)
       </section>
     </div>
   </Modal>
+  <Modal v-if="createOpen" title="新建文件夹" compact @close="!creating && (createOpen = false)"><form @submit.prevent="createFolder"><div class="modal-body"><label>文件夹名称<input ref="nameInput" v-model="folderName" maxlength="255" required :disabled="creating" /></label><p v-if="createError" class="error-message" role="alert">{{ createError }}</p></div><footer class="modal-footer"><button type="submit" class="btn primary" :disabled="creating || busy || !folderName.trim()">确认创建</button><button type="button" class="btn" :disabled="creating" @click="createOpen = false">取消</button></footer></form></Modal>
 </template>
 <style scoped>
 .picker-create-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
 .picker-create-form input { flex: 1; min-width: 100px; width: 0; }
 .picker-create-form .error-message { flex-basis: 100%; margin: 0; }
 .source-toolbar { flex-wrap: wrap; }
+.source-toolbar .directory-crumbs { flex:1; min-width:0; }
 .source-toolbar > .icon-btn { flex: 0 0 36px; }
 @media (max-width: 700px) {
   .source-toolbar .search-field { order: 1; }

@@ -1,12 +1,15 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { api, bytes, date } from '../lib'
+import { api, bytes, date, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 const props = defineProps({ rules: Boolean })
 const selected = ref('copy'), items = ref([]), error = ref(''), query = ref(''), busy = ref(false)
 const modes = [{ id: 'copy', name: '复制', icon: 'Copy' }, { id: 'upload', name: '上传', icon: 'ArrowUp' }, { id: 'download', name: '下载', icon: 'Download' }]
 const filtered = computed(() => items.value.filter(i => i.kind === selected.value && [i.name, i.storage, i.source, status(i)].some(v => String(v || '').toLowerCase().includes(query.value.trim().toLowerCase()))))
 let timer, alive = true
+async function clearFailed() {
+  try { items.value = await api('/transfers', 'DELETE'); notify('失败记录已清除') } catch (e) { notify(e.message,true) }
+}
 async function load() {
   if (busy.value) return
   clearTimeout(timer); busy.value = true
@@ -19,7 +22,7 @@ onMounted(load)
 onUnmounted(() => { alive = false; clearTimeout(timer) })
 </script>
 <template>
-  <nav class="content-tabs"><RouterLink to="/transfer" :class="{ active: !rules }"><Icon name="ArrowLeftRight" />传输任务</RouterLink><RouterLink to="/transfer/backup" :class="{ active: rules }"><Icon name="ArchiveRestore" />备份规则</RouterLink><div v-if="!rules" class="transfer-actions"><button class="icon-btn" aria-label="刷新传输任务" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索传输任务" placeholder="搜索任务…" /></div></div></nav>
+  <nav class="content-tabs"><RouterLink to="/transfer" :class="{ active: !rules }"><Icon name="ArrowLeftRight" />传输任务</RouterLink><RouterLink to="/transfer/backup" :class="{ active: rules }"><Icon name="ArchiveRestore" />备份规则</RouterLink><div v-if="!rules" class="transfer-actions"><button class="icon-btn" aria-label="清除失败记录" :disabled="!items.some(i => i.status === 'failed')" @click="clearFailed"><Icon name="Trash2" /></button><button class="icon-btn" aria-label="刷新传输任务" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索传输任务" placeholder="搜索任务…" /></div></div></nav>
   <template v-if="!rules">
     <div class="transfer-modes" role="tablist" aria-label="传输类型"><button v-for="mode in modes" :key="mode.id" role="tab" :class="mode.id" :aria-selected="selected === mode.id" @click="selected = mode.id"><Icon :name="mode.icon" /><strong>{{ mode.name }}</strong><span>{{ items.filter(i => i.kind === mode.id && i.status === 'running').length }}</span></button></div>
     <p v-if="error" class="error-message">{{ error }}</p>

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -246,6 +247,16 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 		return nil, 0, fuseErr(err)
 	}
 	handle := &nativeFuseHandle{node: n, file: file, staged: staged, writable: write, dirty: write && flags&(syscall.O_CREAT|syscall.O_TRUNC) != 0}
+	if !write {
+		s, source, rel, _ := n.backend.selectPath(n.name())
+		if s.ID != "" && s.Type != "local" {
+			if info, statErr := file.Stat(); statErr == nil && info.Size() > 0 {
+				handle.cacheKey = fmt.Sprintf("%s\x00%s\x00%s\x00%x\x00%d\x00%d", s.ID, source, rel, shareConfig(s), info.Size(), info.ModTime().UnixNano())
+				handle.cacheSize = info.Size()
+				handle.cacheConfig = shareConfig(s)
+			}
+		}
+	}
 	{
 		s, _, _, _ := n.backend.selectPath(n.name())
 		handle.progress = n.backend.app.beginTransfer(context.WithValue(ctx, transferSourceKey{}, "FUSE"), map[bool]string{true: "upload", false: "download"}[write], s, n.name(), 0)
@@ -456,15 +467,18 @@ func (n *nativeFuseNode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse
 }
 
 type nativeFuseHandle struct {
-	mu         sync.Mutex
-	node       *nativeFuseNode
-	file       webdav.File
-	staged     *cloudWriteFile
-	writable   bool
-	dirty      bool
-	offset     int64
-	positioned bool
-	progress   *transferProgress
+	mu          sync.Mutex
+	node        *nativeFuseNode
+	file        webdav.File
+	staged      *cloudWriteFile
+	writable    bool
+	dirty       bool
+	offset      int64
+	positioned  bool
+	progress    *transferProgress
+	cacheKey    string
+	cacheSize   int64
+	cacheConfig [32]byte
 }
 
 func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fuse.ReadResult, syscall.Errno) {
@@ -481,9 +495,33 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 			return nil, fuseErr(err)
 		}
 	}
-	n, err := h.file.Read(data)
-	h.progress.add(n)
-	h.offset, h.positioned = off+int64(n), true
+	var n int
+	var err error
+	if h.cacheKey != "" && h.cacheSize > 0 {
+		s, _, _, e := h.node.backend.selectPath(h.node.name())
+		if e != nil {
+			return nil, fuseErr(e)
+		}
+		if shareConfig(s) != h.cacheConfig {
+			return nil, syscall.ESTALE
+		}
+		read := func(buf []byte, position int64) (int, error) {
+			if _, e := h.file.Seek(position, io.SeekStart); e != nil {
+				return 0, e
+			}
+			n, err := io.ReadFull(h.file, buf)
+			h.progress.add(n)
+			return n, err
+		}
+		key := fmt.Sprintf("%s:%d:%d", h.cacheKey, h.node.backend.app.cache.revision(), h.node.backend.app.fuseReadRevision.Load())
+		n, err = h.node.backend.app.fuseCache().readAt(ctx, key, h.cacheSize, data, off, read)
+		h.positioned = false
+	} else {
+		n, err = h.file.Read(data)
+		h.progress.add(n)
+	}
+	h.offset = off + int64(n)
+	h.positioned = h.cacheKey == ""
 	if err != nil && err != io.EOF {
 		h.progress.finish(err)
 		h.node.backend.app.store.event("error", "storage", "FUSE 读取失败："+h.node.name()+"："+err.Error())

@@ -12,7 +12,7 @@ var scrapeChineseSeason = regexp.MustCompile(`第([零〇一二两三四五六�
 var scrapeChineseEpisode = regexp.MustCompile(`第([零〇一二两三四五六七八九十百\d]+)[集话話]`)
 var scrapeEpisodeOnly = regexp.MustCompile(`(?i)(?:^|[ ._\-\[])E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4})(?:$|[^a-z0-9])`)
 var scrapeCrossEpisode = regexp.MustCompile(`(?i)(?:^|[ ._\-\[])(\d{1,2})x(\d{1,4})(?:$|[^a-z0-9])`)
-var scrapeNumericEpisode = regexp.MustCompile(`^(\d{1,3})(?:[ ._-].*)?$`)
+var scrapeNumericEpisode = regexp.MustCompile(`^[\[【(]?(\d{1,3})[\]】)]?(?:[ ._-].*)?$`)
 var scrapeTrailingEpisode = regexp.MustCompile(`^(.*?)[ ._-]+(\d{1,3})$`)
 
 // Bare episode numbers need corroboration from siblings, not a single numeric
@@ -189,7 +189,8 @@ func recognizeSTRMPath(name string) scrapeItem {
 
 type scrapeWork struct {
 	scrapeItem
-	Count int `json:"count"`
+	Count       int      `json:"count"`
+	Directories []string `json:"directories"`
 }
 
 func scrapeWorkKey(item scrapeItem) string {
@@ -237,6 +238,17 @@ func scrapeWorks(items []scrapeItem) []scrapeWork {
 		key := scrapeWorkKey(item)
 		if i, ok := indices[key]; ok {
 			result[i].Count++
+			dir := path.Dir(item.Path)
+			found := false
+			for _, existing := range result[i].Directories {
+				if existing == dir {
+					found = true
+					break
+				}
+			}
+			if !found {
+				result[i].Directories = append(result[i].Directories, dir)
+			}
 			if priority[item.Status] > priority[result[i].Status] {
 				result[i].Status, result[i].Message = item.Status, item.Message
 			}
@@ -245,7 +257,7 @@ func scrapeWorks(items []scrapeItem) []scrapeWork {
 			}
 		} else {
 			indices[key] = len(result)
-			result = append(result, scrapeWork{item, 1})
+			result = append(result, scrapeWork{scrapeItem: item, Count: 1, Directories: []string{path.Dir(item.Path)}})
 		}
 	}
 	return result

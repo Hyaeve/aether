@@ -9,7 +9,7 @@ import RoundedSelect from './RoundedSelect.vue'
 import { readPlugin, invalidatePlugin } from '../plugin-config'
 const props = defineProps({ kind: String, title: String })
 const emit = defineEmits(['close', 'changed'])
-const form = reactive({ enabled: false, apiURL: '', imageURL: '', apiKey: '', language: 'zh-CN', model: '', address: '', token: '' })
+const form = reactive({ enabled: false, apiURL: '', imageURL: '', apiKey: '', language: 'zh-CN', requestInterval: 250, username: '', password: '', model: '', address: '', token: '' })
 const loaded = ref(false), busy = ref(false), error = ref('')
 const webhook = computed(() => `${location.origin}/api/emby/webhook?token=${encodeURIComponent(form.token)}`)
 async function load() {
@@ -47,8 +47,9 @@ onMounted(load)
           <label>API 域名<input v-model="form.apiURL" type="url" required /></label>
           <label>图片域名<input v-model="form.imageURL" type="url" required /></label>
           <label>API 密钥<SecretInput v-model="form.apiKey" :secret-path="`/plugins/${kind}/secret`" secret-field="apiKey" autocomplete="off" /></label>
-          <div class="field"><label>语言</label><RoundedSelect upward v-model="form.language" label="语言" :options="[{ value: 'zh-CN', label: '中文' }, { value: 'en-US', label: '英文' }]" /></div>
+          <div class="field"><label>匹配语言</label><RoundedSelect upward v-model="form.language" label="匹配语言" :options="[{ value: 'zh-CN', label: '简体中文' }, { value: 'zh-TW', label: '繁体中文' }, { value: 'en-US', label: 'English' }]" /></div>
           </div>
+          <label>请求间隔<div class="unit-input"><input v-model.number="form.requestInterval" aria-label="请求间隔" type="number" min="1" max="60000" required /><span>ms</span></div></label>
         </template>
         <template v-else-if="kind === 'ai'">
           <label>API 地址<input v-model="form.apiURL" type="url" required /></label>
@@ -57,6 +58,8 @@ onMounted(load)
         </template>
         <template v-else-if="kind === 'proxy'">
           <label>代理地址<input v-model="form.address" placeholder="http://127.0.0.1:7890" autocomplete="off" /></label>
+          <label>用户名（可选）<input v-model="form.username" autocomplete="off" /></label>
+          <label>密码（可选）<SecretInput v-model="form.password" :secret-path="`/plugins/${kind}/secret`" secret-field="password" autocomplete="off" /></label>
           <p class="muted">用于 TMDB 和 AI 请求。支持 HTTP、HTTPS、SOCKS5。</p>
         </template>
         <template v-else-if="kind === 'emby'">
