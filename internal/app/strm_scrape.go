@@ -284,7 +284,31 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		items := a.loadScrapeIndex(task, root).Items
+		index := a.loadScrapeIndex(task, root)
+		// Discover generated files without requiring TMDB or overwriting an active scrape.
+		if !a.scrapeProgress.Running {
+			dir, openErr := os.OpenRoot(root)
+			if openErr != nil && !errors.Is(openErr, os.ErrNotExist) {
+				fail(w, 500, errors.New("无法读取 STRM 生成目录"))
+				return
+			}
+			if openErr == nil {
+				items, scanErr := scanSTRM(r.Context(), dir, index, a.scrapeConfig())
+				dir.Close()
+				if scanErr != nil {
+					fail(w, 500, scanErr)
+					return
+				}
+				index.Items = items
+				if err := a.saveScrapeIndex(task, index); err != nil {
+					fail(w, 500, err)
+					return
+				}
+			} else {
+				index.Items = []scrapeItem{}
+			}
+		}
+		items := index.Items
 		if r.URL.Query().Get("group") == "true" {
 			jsonResponse(w, 200, scrapeWorks(items))
 		} else {

@@ -33,6 +33,7 @@ watch(() => form.casBindingId, () => {
   }
 })
 const tasks = computed(() => state.tasks.filter(t => t.kind === props.kind))
+const pending = ref(new Set())
 const storage = id => state.storages.find(s => s.id === id)
 function closeMenu(event) { if (!event.target.closest('.task-row-menu')) menu.value = '' }
 function escapeMenu(event) { if (event.key === 'Escape') menu.value = '' }
@@ -63,14 +64,21 @@ function selectSource(value) {
 function sourceLabel(task) { return task.sourceLabel || (task.source === '/' ? '根目录' : '已选目录') }
 async function action(t, action) {
   menu.value = ''
+  if (pending.value.has(t.id)) return
+  pending.value.add(t.id)
   try { await api(`/tasks/${t.id}/${action}`, 'POST'); await reload(); notify(action === 'run' ? '任务已启动' : '正在停止任务') } catch (e) { notify(e.message, true) }
+  finally { pending.value.delete(t.id) }
 }
 async function remove() {
   busy.value = true
   try { await api(`/tasks/${confirmDelete.value.id}`, 'DELETE'); confirmDelete.value = null; await reload(); notify('任务已删除') } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 async function toggle(t) {
-  try { await api(`/tasks/${t.id}`, 'PUT', { ...t, enabled: !t.enabled }); await reload() } catch (e) { notify(e.message, true) }
+  if (pending.value.has(t.id)) return
+  pending.value.add(t.id)
+  const enabled = !t.enabled
+  try { await api(`/tasks/${t.id}`, 'PUT', { ...t, enabled }); await reload(); notify(`已${enabled ? '启用' : '停用'}任务 ${t.name}`) } catch (e) { notify(e.message, true) }
+  finally { pending.value.delete(t.id) }
 }
 </script>
 <template>
@@ -79,9 +87,11 @@ async function toggle(t) {
   <div v-else class="metric-strip three"><div><span class="metric-icon"><Icon name="ListTodo" /></span><span><small>全部任务</small><strong>{{ tasks.length }}<em>项</em></strong></span></div><div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>正在执行</small><strong>{{ tasks.filter(t => t.status === 'running').length }}<em>项</em></strong></span></div><div><span class="metric-icon amber"><Icon name="FileVideo" /></span><span><small>本次生成文件</small><strong>{{ tasks.reduce((n, t) => n + t.processed, 0) }}<em>条</em></strong></span></div></div>
   <div v-if="!tasks.length" class="empty-state"><span class="empty-icon"><Icon :name="kind !== 'cache' ? 'FileVideo' : 'Database'" :size="36" /></span><h3>还没有任务</h3><p>从一个存储目录开始。</p><button class="btn" @click="open()"><Icon name="Plus" />添加 {{ taskTitle }} 任务</button></div>
   <div v-else class="task-list"><article v-for="t in tasks" :key="t.id" class="task-row-card">
-    <button class="task-provider-toggle" :aria-label="`${t.enabled ? '停用' : '启用'}任务 ${t.name}`" :aria-pressed="t.enabled" :disabled="t.status === 'running'" @click="toggle(t)"><ProviderIcon :type="storage(t.storageId)?.type" /></button>
+    <button class="task-provider-toggle" :aria-label="`${t.enabled ? '停用' : '启用'}任务 ${t.name}`" :title="`${t.enabled ? '停用' : '启用'}任务`" :aria-pressed="t.enabled" :disabled="t.status === 'running' || pending.has(t.id)" @click="toggle(t)"><ProviderIcon :type="storage(t.storageId)?.type" /></button>
     <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
-    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.status === 'running' ? 'Square' : 'Play'" />{{ t.status === 'running' ? '停止任务' : '立即执行' }}</button><button :disabled="t.status === 'running'" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button class="danger-text" :disabled="t.status === 'running'" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
+    <div class="task-last-scan"><small>最后扫描</small><time>{{ date(t.lastRun) }}</time></div>
+    <button class="icon-btn task-run" :aria-label="t.status === 'running' ? '停止任务' : '立即执行'" :title="t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id)" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.status === 'running' ? 'Square' : 'Play'" /></button>
+    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
   </article></div>
   <Modal v-if="modal" :title="`${editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />{{ kind === 'cas' ? '需要本地、原生移动或天翼个人云存储池。' : '请先添加并启用一个存储池。' }}<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>

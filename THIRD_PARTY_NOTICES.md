@@ -177,3 +177,11 @@ state, cache and Vue components. No reference source files are incorporated.
 The TV service client identifiers and request signing constants are protocol
 parameters, not Aether user credentials. Aether does not include or silently
 use LitePan's third-party HTTP token broker.
+
+Share-transfer request formats were checked against the public implementations
+in ChenyangGao/p115client (`share_receive`), Cp0204/quark-auto-save
+(`get_stoken`, `get_detail`, `save_file`, `query_task`), and
+azheng0108/cloudpan-auto-save (`Cloud139Service` and `Cloud139Utils`).
+Aether independently implements the adapters, bounded preview sessions and
+Vue interface; no reference source files or runtime dependencies are included.
+These unofficial provider endpoints require real-account interoperability testing.

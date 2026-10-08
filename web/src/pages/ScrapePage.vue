@@ -11,8 +11,9 @@ const query = ref(''), status = ref('all')
 const settings = reactive({ writeMode: 'missing', episodes: true, fanart: false, actors: false, excluded: '' })
 const match = reactive({ tmdb: '', kind: 'movie' })
 const tasks = computed(() => state.tasks.filter(t => t.kind === 'strm').map(t => ({ value: t.id, label: t.name })))
-const statuses = { pending: '待刮削', ok: '已完成', miss: '未匹配', doubt: '待确认', error: '失败' }
-const filtered = computed(() => items.value.filter(i => (status.value === 'all' || i.status === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
+const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', miss: '未匹配', doubt: '待确认', error: '失败' }
+const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
+const filtered = computed(() => items.value.filter(i => (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
 const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 292, grid: ref(true) })
 watch([query, status, task], reset)
@@ -70,6 +71,12 @@ async function saveMatch() {
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 watch(task, load)
+watch(tasks, options => {
+  if (!options.some(option => option.value === task.value)) task.value = options[0]?.value || ''
+}, { immediate: true })
+watch(() => state.tasks.find(t => t.id === task.value)?.status, (current, previous) => {
+  if (previous === 'running' && current !== 'running') load()
+})
 onMounted(async () => {
   poll()
   try { Object.assign(settings, await api('/strm-scrape/settings')) } catch (e) { notify(e.message, true) }
@@ -92,7 +99,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
         <article v-for="item in shown" :key="item.path" class="scrape-card">
           <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :disabled="progress.running || busy" @click="rematch(item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '电视剧' : '电影' }}</span></template></button>
-          <div class="scrape-card-body"><strong :data-tooltip="item.title">{{ item.title }}</strong><small :data-tooltip="item.path">{{ item.kind === 'tv' ? `${item.count || 1} 集` : '电影' }} · {{ item.year || '年份未知' }}</small><span class="scrape-status" :class="item.status">{{ statuses[item.status] }}<em v-if="item.tmdb">TMDB {{ item.tmdb }}</em></span></div>
+          <div class="scrape-card-body"><strong :data-tooltip="item.title">{{ item.title }}</strong><small :data-tooltip="item.path">{{ item.kind === 'tv' ? `${item.count || 1} 集` : '电影' }} · {{ item.year || '年份未知' }}</small><span class="scrape-status" :class="item.status">{{ statuses[itemStatus(item)] }}<em v-if="item.tmdb">TMDB {{ item.tmdb }}</em></span></div>
           <div class="scrape-actions"><button class="icon-btn" aria-label="重新匹配" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" /></button><button class="icon-btn" aria-label="重新刮削" :disabled="progress.running || busy" @click="action('run', item)"><Icon name="RefreshCw" /></button></div>
         </article>
         <div v-if="bottom" :style="{height: `${bottom}px`, gridColumn: '1 / -1'}" aria-hidden="true" />

@@ -105,6 +105,6 @@ const tools = [
 .plugin-card:has(.quark-takeover-symbol) .plugin-subtitle { grid-column: 2; margin: 0; }
 .plugin-card:has(.quark-takeover-symbol) .plugin-description { grid-column: 1 / -1; margin-top: 10px; }
 .plugin-card { height: 156px; align-content: center; overflow: hidden; }
-.plugin-card:has(.quark-takeover-symbol) .plugin-description { white-space: nowrap; display: block; }
+.plugin-card:has(.quark-takeover-symbol) .plugin-description { display: -webkit-box; }
 .quark-takeover-symbol > svg { position: absolute; bottom: -2px; right: -4px; background: var(--surface); color: var(--primary); border-radius: 4px; }
 </style>

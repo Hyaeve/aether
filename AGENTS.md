@@ -1,5 +1,33 @@
 # Aether 开发约定与变更记录
 
+## 2026-10-08：发布 v0.2.9
+
+- 按用户要求提交并推送前两轮分享转存、任务图标、插件布局、任务条和 STRM 待匹配工作台变更；业务、界面、测试及文档文件范围见下方两条记录。
+- 修改 `VERSION`、`internal/app/version.go`、`Dockerfile`、`web/package.json`、`web/package-lock.json`，按发布规则从0.2.8同步递增至0.2.9；修改本文件记录发布范围。
+- 发布前已成功fetch；复用上一轮完整47项Playwright通过记录，本轮不重复浏览器回归，重新执行Go全量、vet、前端构建和差异检查，结果续记。
+- 不纳入配置、凭据、数据、依赖、二进制、日志或测试产物；不修改运行中的服务。真实网盘、TMDB、Docker/FUSE联调限制不变；main与v0.2.9推送状态以Git输出为准。
+- 本轮最终验证：`go test ./... -count=1`、`go vet ./...`、0.2.9前端构建、`git diff --check`全部通过；提交前main与origin/main一致，本地不存在v0.2.9标签。未重跑浏览器或真实外部服务联调。
+
+## 2026-10-08：分享转存与任务图标
+
+- 新增 `internal/app/share_transfer.go`，修改 `server.go`：受管理员鉴权的分享预览/提交/夸克任务状态接口；独立适配115分享snap/receive、夸克分享令牌/列表/save/task、原生移动分享列表/createOuterLinkBatchOprTask。仅解析官方域名，禁止携带凭据重定向；预览仅服务端内存保存10分钟，绑定管理员会话和存储配置，最多64会话/5000项目，每次提交1–100项。拒绝未知/重复选择、同名冲突、重复提交；写入失败不自动重放。移动兼容linkID参数及hash路径。
+- 新增 `web/src/components/ShareTransfer.vue`，修改 `FilesPage.vue`：工具菜单增加分享转存，目标存储/目录、提取码、根目录文件及目录勾选、提交状态、夸克有界轮询、关闭清理轮询和过期响应隔离。115和移动只报告已提交；夸克任务成功才显示已完成。修改 `style.css`：任务存储图标42px填满原框位置，外层背景/边框/圆角移除。
+- 新增 `internal/app/share_transfer_test.go`、`web/tests/share-transfer.spec.js`；修改 `file-browser.spec.js` 菜单断言。覆盖三家请求字段、分享凭据不外泄、鉴权、同名/重放拒绝、配置变化、重定向、链接格式、窗口桌面/手机布局及图标。更新 `README.md`、`THIRD_PARTY_NOTICES.md`，参考公开实现的协议参数，未复制参考源码。
+- 验证：Go全量、vet、前端构建、分享定向测试通过；首轮5项浏览器通过后截图发现列表继承竖排样式，改为横排并增加几何断言。一次定向重跑使用旧dist触发布局失败，重新构建后完整47项回归进行中，相关新增测试通过。已检查修正后的桌面/手机分享窗口及放大图标截图。
+- 边界：真实115/移动/夸克账号未联调，不能保证上游风控/权益/接口兼容性；仅同网盘转存，不支持付费验证、逐层浏览分享子目录、跨网盘下载上传。目标同名预检不是上游原子操作；移动/115无完成状态确认，不自动触发STRM或新增115生活事件监控。前轮未提交改动保留，未升级版本/提交/推送，未改用户config/data或原服务。
+- 隔离预览：`127.0.0.1:15156`健康检查成功，PID3336，临时目录`aether-preview-share-cfe6f2bdd97345d2bdc3e05f2aff57e4`，静态文件为`web/dist`，程序/配置/日志不纳入Git。
+- 最终验证：完整47项Playwright全部通过（2.9分钟）；Go全量、vet、分享定向测试、前端构建及diff检查通过。真实账号联调限制不变。
+
+## 2026-10-08：插件布局、任务条与 STRM 待匹配工作台
+
+- 修改 `web/src/components/PluginSettings.vue`：TMDB 两个域名同行，密钥和语言同行，语言复用 RoundedSelect；手机窄屏按现有表单断点换行。修改 `ToolsPage.vue`、`OverflowTooltip.vue`、`style.css`：插件描述最多两行，溢出提示宽度收至320px；通知右移，通知和账号菜单统一距顶部栏4px、共用右缘，保留手机防溢出。
+- 修改 `web/src/pages/TasksPage.vue`、`style.css`：桌面两个任务条一行，窄屏单列；增加最后扫描时间，执行/停止图标放在三点左侧，三点保留编辑/删除；启停成功显示消息气泡，待请求期间禁止重复提交，运行中仍禁止修改。
+- 修改 `internal/app/strm_scrape.go`、`web/src/pages/ScrapePage.vue`：进入或切换工作台任务自动扫描实际STRM输出，默认选择首个任务，当前生成任务结束刷新；无TMDB的待处理作品显示待匹配，已有匹配与海报保留。自动扫描无需TMDB，不写NFO/图片，活动刮削期间读取已保存索引避免相互覆盖。沿用10000文件、128层、os.Root及跳过符号链接限制；并非LitePan全部能力复刻。
+- 修改 `internal/app/strm_scrape_test.go`：真实生成后无需显式扫描即可发现、API鉴权、增删文件、保留匹配及不写NFO。新增 `web/tests/task-layout.spec.js`，修改 `storage-options.spec.js`、`strm-scrape.spec.js`、`plugins-tianyi.spec.js`、`workspace.spec.js`、`zz-cas.spec.js` 覆盖同行表单/下拉、双行描述/窄提示、双列任务/消息/直接执行、浮层间距和默认待匹配。更新 `README.md`。
+- 验证：Go全量、vet、前端构建通过。首轮6项定向4项通过，修正新增测试路由夹具及浮层半像素定位后完整回归中相关项通过；旧TMDB语言按钮断言已同步为下拉选项，最终回归结果续记。已查看桌面/手机任务条、TMDB表单、通知浮层截图。
+- 隔离预览：`127.0.0.1:15155`健康检查成功，PID30740，配置、数据、程序及日志位于临时目录 `aether-preview-workspace-241852e3ef4f486b842c99439cf2b84a`，静态文件使用`web/dist`。没有修改既有服务、用户config/data或根目录exe；未递增版本、提交或推送。真实网盘/TMDB未联调。
+- 最终验证：完整回归首轮43/45，两个旧断言分别为语言按钮及单行省略；同步后第二轮45/45全部通过（3.1分钟）。Go全量、vet、前端构建、diff检查通过；已查看日夜TMDB、插件双行描述、桌面/手机任务条与手机待匹配海报墙截图，预览健康复查正常。
+
 ## 2026-10-08：浏览偏好、目录下载、作品识别与 v0.2.8
 
 - 修改 `web/src/pages/FilesPage.vue`：当前浏览器按账号持久化存储池、排序字段和方向，校验已停用/不存在存储并优先 URL 选择；文件夹下载先确认再打开鉴权 ZIP；详情按大小、包含、创建/修改时间、CID、位置展示，115 单目录 CID 可点击复制。修改 `internal/app/drivers.go`、`pan115.go`、`tianyi.go` 加入上游真实创建时间，未提供则留空；修改 `directory_size.go` 与 `server.go` 将递归目录/文件数随大小缓存并在列表恢复。

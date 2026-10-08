@@ -5,6 +5,7 @@ import { copyText } from '../clipboard'
 import Modal from './Modal.vue'
 import SecretInput from './SecretInput.vue'
 import Icon from './Icon.vue'
+import RoundedSelect from './RoundedSelect.vue'
 const props = defineProps({ kind: String, title: String })
 const emit = defineEmits(['close', 'changed'])
 const form = reactive({ enabled: false, apiURL: '', imageURL: '', apiKey: '', language: 'zh-CN', model: '', address: '', token: '' })
@@ -40,10 +41,12 @@ onMounted(load)
         <p v-if="!loaded" role="status">正在读取配置…</p>
         <template v-if="loaded">
         <template v-if="kind === 'tmdb'">
+          <div class="form-grid">
           <label>API 域名<input v-model="form.apiURL" type="url" required /></label>
           <label>图片域名<input v-model="form.imageURL" type="url" required /></label>
           <label>API 密钥<SecretInput v-model="form.apiKey" :secret-path="`/plugins/${kind}/secret`" secret-field="apiKey" autocomplete="off" /></label>
-          <div class="field"><label>语言</label><div class="language-options"><button v-for="option in [{ value: 'zh-CN', label: '中文' }, { value: 'en-US', label: '英文' }]" :key="option.value" type="button" :aria-pressed="form.language === option.value" @click="form.language = option.value">{{ option.label }}</button></div></div>
+          <div class="field"><label>语言</label><RoundedSelect v-model="form.language" label="语言" :options="[{ value: 'zh-CN', label: '中文' }, { value: 'en-US', label: '英文' }]" /></div>
+          </div>
         </template>
         <template v-else-if="kind === 'ai'">
           <label>API 地址<input v-model="form.apiURL" type="url" required /></label>
@@ -69,9 +72,6 @@ onMounted(load)
 <style scoped>
 .plugin-settings { display: grid; gap: 16px; }
 .plugin-test { margin-right: auto; }
-.language-options { display: inline-flex; background: var(--bg); border-radius: 8px; padding: 3px; gap: 4px; }
-.language-options button { border: 0; padding: 7px 20px; border-radius: 6px; color: var(--muted); background: transparent; }
-.language-options button[aria-pressed=true] { color: var(--primary); background: var(--surface); }
 .plugin-query { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: end; border-top: 1px solid var(--border); padding-top: 16px; }
 .plugin-query small { grid-column: 1 / -1; color: var(--muted); }
 .plugin-result { margin: 0; max-height: 230px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); padding: 12px; border-radius: 8px; font-size: 13px; }

@@ -3,12 +3,12 @@ import { test, expect } from '@playwright/test'
 test('STRM scrape workspace scans, rematches and saves settings without shifting tabs', async ({ page }, info) => {
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { storages: [], tasks: [{ id: 'strm', name: '影片', kind: 'strm' }], settings: {}, traffic: {}, cache: {} } }))
-  let progress = { running: false, total: 0, done: 0 }, started = false
+  let progress = { running: false, total: 0, done: 0 }
   let settings = { writeMode: 'missing', episodes: true, fanart: false, actors: false, excluded: '' }
   const items = Array.from({ length: 1000 }, (_, i) => ({ path: `Film${i}.strm`, title: `Film ${i}`, kind: 'movie', status: 'pending', tmdb: 0 }))
   await page.route('**/api/strm-scrape/**', async r => {
     const action = new URL(r.request().url()).pathname.split('/').at(-1)
-    if (action === 'items') return r.fulfill({ json: started ? items : [] })
+    if (action === 'items') return r.fulfill({ json: items })
     if (action === 'settings') {
       if (r.request().method() === 'PUT') settings = r.request().postDataJSON()
       return r.fulfill({ json: settings })
@@ -20,7 +20,6 @@ test('STRM scrape workspace scans, rematches and saves settings without shifting
       Object.assign(items.find(i => i.path === input.path), { tmdb: input.tmdb, kind: input.kind })
       return r.fulfill({ json: { ok: true } })
     }
-    started = true
     const response = { running: true, total: 1000, done: 0, taskId: 'strm' }
     progress = { ...response, running: false, message: '索引已刷新' }
     return r.fulfill({ status: 202, json: response })
@@ -31,9 +30,9 @@ test('STRM scrape workspace scans, rematches and saves settings without shifting
   const after = await page.locator('.content-tabs').boundingBox()
   expect(after.x).toBe(before.x)
   expect(after.y).toBe(before.y)
-  await expect(page.getByRole('button', { name: '开始刮削', exact: true })).toBeDisabled()
-  await page.getByRole('button', { name: 'STRM 任务', exact: true }).click()
-  await page.getByRole('option', { name: '影片', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'STRM 任务', exact: true })).toHaveText('影片')
+  await expect(page.locator('.scrape-card').first()).toContainText('待匹配')
+  await expect(page.getByRole('button', { name: '开始刮削', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: '刷新刮削索引', exact: true }).click()
   await expect(page.locator('.scrape-card').first()).toBeVisible()
   expect(await page.locator('.scrape-card').count()).toBeLessThan(100)

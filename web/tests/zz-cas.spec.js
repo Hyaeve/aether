@@ -42,7 +42,6 @@ test('local CAS generation and persisted named directory navigation', async ({ p
   await page.screenshot({ path: testInfo.outputPath('local-cas-form.png'), fullPage: true })
   await page.getByRole('button', { name: '保存任务', exact: true }).click()
   const row = page.locator('.task-row-card').filter({ hasText: '本地 CAS 哈希' })
-  await row.getByRole('button', {name:'任务操作 本地 CAS 哈希',exact:true}).click()
   await row.getByRole('button', { name: '立即执行', exact: true }).click()
   await expect.poll(async () => {
     const state = await (await page.request.get('/api/state')).json()

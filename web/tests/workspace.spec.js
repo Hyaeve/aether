@@ -121,7 +121,6 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.screenshot({ path: testInfo.outputPath('strm-dialog-desktop.png'), fullPage: true })
   await page.getByRole('button', { name: '保存任务', exact: true }).click()
   await expect(page.getByText('电影增量同步', { exact: true })).toBeVisible()
-  await page.getByRole('button', {name:'任务操作 电影增量同步',exact:true}).click()
   await page.getByRole('button', { name: '立即执行', exact: true }).click()
   await expect.poll(async () => (await (await page.request.get('/api/state')).json()).tasks.find(t => t.name === '电影增量同步')?.status, {timeout:20000}).toBe('success')
   const strm = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'Movies', 'Arrival.MP4.strm'), 'utf8')
@@ -502,7 +501,7 @@ test('WebDAV users and scoped directories', async ({ page }, testInfo) => {
   expect(await page.locator('.files-heading-actions .search-field').evaluate(el => el.previousElementSibling.getAttribute('aria-label'))).toBe('刷新目录')
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
   await expect(page.locator('.plugin-description')).toHaveCount(12)
-  await expect(page.locator('.plugin-description').first()).toHaveCSS('text-overflow', 'ellipsis')
+  await expect(page.locator('.plugin-description').first()).toHaveCSS('-webkit-line-clamp', '2')
   await page.screenshot({ path: testInfo.outputPath('tools-descriptions.png'), fullPage: true })
 })
 

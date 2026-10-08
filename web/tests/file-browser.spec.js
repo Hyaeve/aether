@@ -36,7 +36,7 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
   const actionsBox = await page.locator('.files-heading-actions').boundingBox()
   expect(Math.abs(tabs.y + tabs.height / 2 - actionsBox.y - actionsBox.height / 2)).toBeLessThan(2)
   await page.getByRole('button', { name: '工具', exact: true }).click()
-  await expect(page.getByRole('menuitem')).toHaveText(['新建文件夹', '上传文件', '上传文件夹', '离线下载', '重命名'])
+  await expect(page.getByRole('menuitem')).toHaveText(['新建文件夹', '上传文件', '上传文件夹', '离线下载', '分享转存', '重命名'])
   await page.getByRole('menuitem', { name: '新建文件夹' }).click()
   await expect(page.getByLabel('新名称')).toHaveValue('')
   await page.getByLabel('新名称').press('Enter')

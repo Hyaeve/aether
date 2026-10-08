@@ -11,6 +11,7 @@ import FileTabs from '../components/FileTabs.vue'
 import PathBreadcrumbs from '../components/PathBreadcrumbs.vue'
 import RenameWorkbench from '../components/RenameWorkbench.vue'
 import OfflineDownload from '../components/OfflineDownload.vue'
+import ShareTransfer from '../components/ShareTransfer.vue'
 import { useVirtualList } from '../virtual-list'
 const preferenceKey = `aether-files:${state.username}`
 let saved = {}
@@ -30,6 +31,7 @@ const searchInput = ref('')
 const viewport = ref(null), draft = ref(false), confirmRename = ref(false), details = ref(false), createMenu = ref(false)
 const workbenchFiles = ref(null), detailBusy = ref(false), detailError = ref('')
 const offlineSupported = computed(() => !!selected.value)
+const shareTransfer = ref(false)
 function openWorkbench() { workbenchFiles.value = [...(selection.value.length ? detailFiles.value : files.value)]; createMenu.value = false; closeMenu() }
 function clearSelection(event) {
   if (renameID.value || details.value || workbenchFiles.value || event.target.closest('button,input,select,textarea,a,[role=option],.file-row,.file-grid-item,.modal,.context-menu,.rename-workbench')) return
@@ -217,7 +219,7 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     <div class="search-field"><Icon name="Search" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="query = searchInput" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
-      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" role="menu"><button role="menuitem" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button role="menuitem" :disabled="!files.length" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
+      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" role="menu"><button role="menuitem" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
     </div>
   </div></div>
   <input ref="fileUpload" type="file" multiple hidden @change="upload" /><input ref="folderUpload" type="file" webkitdirectory multiple hidden @change="upload" />
@@ -263,5 +265,6 @@ async function copy(f) { try { await copyText(f.url); notify('播放链接已复
     <template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></Modal>
   <Modal v-if="folderDownload" title="下载文件夹" confirmation @close="folderDownload = null"><div class="modal-body">确认将「{{ folderDownload.name }}」打包为 ZIP 下载？打包将通过以太传输，目录较大时需要较长时间。</div><footer class="modal-footer"><button class="btn primary" @click="confirmFolderDownload">确认下载</button><button class="btn" @click="folderDownload = null">取消</button></footer></Modal>
   <OfflineDownload v-if="offline" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="offline = false" />
+  <ShareTransfer v-if="shareTransfer" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="shareTransfer = false" @changed="load(true)" />
   </template>
 </template>

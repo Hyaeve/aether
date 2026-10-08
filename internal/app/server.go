@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	shareMu        sync.Mutex
+	sharePreviews  map[string]*sharePreview
 	scrapeMu       sync.Mutex
 	scrapeCancel   context.CancelFunc
 	scrapeProgress scrapeProgress
@@ -241,6 +243,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
+	mux.Handle("POST /api/files/share/{action}", a.protected(http.HandlerFunc(a.shareTransfer)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))

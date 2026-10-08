@@ -8,7 +8,7 @@ function move(event) {
   if (text.value) position()
 }
 function position() {
-  left.value = Math.max(8, Math.min(pointerX + 14, innerWidth - Math.min(460, innerWidth - 16) - 8))
+  left.value = Math.max(8, Math.min(pointerX + 14, innerWidth - Math.min(320, innerWidth - 16) - 8))
   top.value = Math.max(8, Math.min(pointerY + 18, innerHeight - 190))
 }
 function hide() { clearTimeout(timer); text.value = ''; target = null }
