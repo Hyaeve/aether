@@ -18,9 +18,11 @@ import (
 )
 
 const pan115UA = "Mozilla/5.0 115Browser/27.0.5.7"
+const pan115ReadUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 
 // The SDK's errors can contain entire API bodies and its headers contain the
-// login Cookie. Keep diagnostics numeric and CDN credentials response-scoped.
+// login Cookie. Keep diagnostics numeric and restrict CDN credentials to
+// HTTPS official hosts, never arbitrary URLs returned by an upstream.
 func download115(ctx context.Context, s Storage, pick, ua string) (*driver.DownloadInfo, error) {
 	return download115API(ctx, s, pick, ua, false)
 }
@@ -96,7 +98,7 @@ func download115API(ctx context.Context, s Storage, pick, ua string, alternate b
 	}
 	// The download API issues CDN tickets for its returned URL, which can be
 	// outside the response cookie's API domain.
-	// Bind only response tickets to that URL, never the SDK's merged login CK.
+	// Response tickets and login credentials have separate trust boundaries.
 	bind115CDNTickets(info, jar, downloadCookies)
 	return finish115Download(info, jar, ua, endpoint)
 }
@@ -142,6 +144,7 @@ func finish115Download(info *driver.DownloadInfo, jar http.CookieJar, ua, endpoi
 	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") {
 		return nil, fmt.Errorf("115 下载接口 %s 未返回有效链接", endpoint)
 	}
+	loginHeaders := info.Header
 	info.Header = http.Header{
 		"User-Agent": {ua}, "Referer": {"https://115.com/"},
 		"Accept": {"*/*"}, "Accept-Language": {"zh-CN,zh;q=0.9,en;q=0.8"},
@@ -149,10 +152,35 @@ func finish115Download(info *driver.DownloadInfo, jar http.CookieJar, ua, endpoi
 		"Pragma": {"no-cache"}, "Connection": {"keep-alive"},
 	}
 	req := &http.Request{Header: info.Header}
+	// 115driver/OpenList preserve the request CK for authenticated CDN reads.
+	// Do not copy the SDK's complete headers or Set-Cookie attributes. Credentials
+	// may only go to official HTTPS download hosts; redirects strip them again.
+	if official115DownloadURL(u) {
+		login := &http.Request{Header: loginHeaders}
+		for _, cookie := range login.Cookies() {
+			switch strings.ToUpper(cookie.Name) {
+			case "UID", "CID", "SEID", "KID":
+				req.AddCookie(cookie)
+			}
+		}
+	}
 	for _, cookie := range jar.Cookies(u) {
 		req.AddCookie(cookie)
 	}
 	return info, nil
+}
+
+func official115DownloadURL(u *url.URL) bool {
+	if u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, domain := range []string{"115.com", "115cdn.com", "115cdn.net"} {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
 }
 
 func valid115Device(device string) bool {
@@ -181,8 +209,13 @@ func credential115(cookie string) (*driver.Credential, error) {
 }
 
 func new115Client(ctx context.Context) *driver.Pan115Client {
+	transport := apiClient.Transport
+	if transport == nil {
+		// Otherwise resty creates a separate default transport for ticket issuance.
+		transport = http.DefaultTransport
+	}
 	c := driver.New().SetHttpClient(&http.Client{
-		Transport: apiClient.Transport, Timeout: 45 * time.Second,
+		Transport: transport, Timeout: 45 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}).SetUserAgent(pan115UA)
 	c.Client.OnBeforeRequest(func(_ *resty.Client, r *resty.Request) error {

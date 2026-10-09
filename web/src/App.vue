@@ -37,8 +37,9 @@ watch(() => [state.authenticated, state.username], () => closeAudio(), { flush: 
 let stopClipboard
 watch(() => [state.loaded && state.authenticated, state.username], ([ready]) => {
   stopClipboard?.(); clipboardShare.value = null
-  if (ready) stopClipboard = watchShareClipboard({ ready: () => state.loaded && state.authenticated, open: share => { clipboardShare.value = share; closeMenus() } })
+  if (ready) stopClipboard = watchShareClipboard({ ready: () => state.loaded && state.authenticated, open: share => { clipboardShare.value = share; closeMenus() }, blocked: reason => notify(reason === 'insecure' ? '自动监听剪贴板需要 HTTPS 或 localhost；当前页面可按 Ctrl+V 粘贴分享链接。' : '请允许浏览器读取剪贴板；也可按 Ctrl+V 粘贴分享链接。', true) })
 }, { flush: 'post' })
+function listenShares() { closeMenus(); window.dispatchEvent(new Event('aether:listen-shares')) }
 const theme = ref(localStorage.getItem('aether-theme') || 'light')
 const themes = [{ id: 'light', label: '日光', icon: 'Sun' }, { id: 'dark', label: '夜间', icon: 'Moon' }, { id: 'system', label: '跟随系统', icon: 'Monitor' }]
 const activeTheme = computed(() => themes.find(t => t.id === theme.value) || themes[0])
@@ -152,7 +153,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
           </div>
           <div class="account-control" @click.stop>
             <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
-            <div v-if="accountMenu" class="account-dropdown"><button @click="router.push('/settings/account'); closeMenus()"><Icon name="UserRound" :size="22" />账号设置</button><button @click="router.push('/settings/about'); closeMenus()"><Icon name="Info" :size="22" />关于以太</button><button @click="logout"><Icon name="LogOut" :size="22" />退出登录</button></div>
+            <div v-if="accountMenu" class="account-dropdown"><button @click="router.push('/settings/account'); closeMenus()"><Icon name="UserRound" :size="22" />账号设置</button><button @click="listenShares"><Icon name="Share2" :size="22" />监听分享链接</button><button @click="router.push('/settings/about'); closeMenus()"><Icon name="Info" :size="22" />关于以太</button><button @click="logout"><Icon name="LogOut" :size="22" />退出登录</button></div>
           </div>
         </div>
       </header>

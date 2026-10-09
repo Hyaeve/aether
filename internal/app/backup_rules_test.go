@@ -122,11 +122,10 @@ func TestBackupAPIAndEncryptedModule(t *testing.T) {
 	if a.store.snapshot().BackupRules[1].Status != "completed" {
 		t.Fatal(a.store.snapshot().BackupRules[1])
 	}
-	st := a.store.snapshot()
-	file := filepath.Join(a.store.dir, "transfer", "backup."+st.Modules["transfer/backup"]+".enc")
+	file := filepath.Join(a.store.dir, "transfer", "backup.json")
 	raw, err := os.ReadFile(file)
-	if err != nil || bytes.Contains(raw, []byte("Encrypted rule")) {
-		t.Fatal("not encrypted", err)
+	if err != nil || !bytes.Contains(raw, []byte("Encrypted rule")) || !json.Valid(raw) {
+		t.Fatal("normal configuration must be readable JSON", err)
 	}
 	reloaded, err := NewStore(a.store.dir)
 	if err != nil || len(reloaded.snapshot().BackupRules) != 2 {
@@ -183,6 +182,17 @@ func TestBackupRejectsOverlapInvalidFiltersAndSchedule(t *testing.T) {
 func TestBackupModuleLegacyMigrationAndMissingNewModuleRejected(t *testing.T) {
 	a, _, _, _ := backupFixture(t)
 	st := a.store.snapshot()
+	// Write real legacy snapshots before constructing the old root index.
+	a.store.state.ModuleVersion = 2
+	if err := a.store.saveModulesLocked(); err != nil {
+		t.Fatal(err)
+	}
+	st = a.store.snapshot()
+	for _, module := range jsonModules {
+		if err := os.Remove(filepath.Join(a.store.dir, filepath.FromSlash(module)+".json")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Construct an actual v0.3.9 encrypted root, without the new module version.
 	st.ModuleVersion = 0
 	delete(st.Modules, "transfer/backup")

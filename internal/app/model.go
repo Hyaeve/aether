@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -131,13 +132,15 @@ type State struct {
 }
 
 type Store struct {
-	modular  bool
-	toolsDir string
-	logDir   string
-	mu       sync.RWMutex
-	state    State
-	dir      string
-	aead     cipher.AEAD
+	modular   bool
+	toolsDir  string
+	logDir    string
+	mu        sync.RWMutex
+	state     State
+	dir       string
+	aead      cipher.AEAD
+	macKey    []byte
+	jsonCache map[string][]byte
 }
 
 func id() string {
@@ -153,8 +156,19 @@ func NewStore(dir string) (*Store, error) {
 		return nil, err
 	}
 	keyPath := filepath.Join(dir, "master.key")
+	if external := os.Getenv("AETHER_MASTER_KEY_FILE"); external != "" {
+		keyPath = external
+	}
 	key, err := os.ReadFile(keyPath)
 	if os.IsNotExist(err) {
+		if os.Getenv("AETHER_MASTER_KEY_FILE") != "" {
+			return nil, errors.New("外置配置密钥不可读取")
+		}
+		for _, name := range []string{"state.enc", "state.json", ".config-transaction.enc"} {
+			if _, check := os.Lstat(filepath.Join(dir, name)); !os.IsNotExist(check) {
+				return nil, errors.New("配置已存在，不能重新生成丢失的密钥")
+			}
+		}
 		key = make([]byte, 32)
 		if _, err = rand.Read(key); err != nil {
 			return nil, err
@@ -163,6 +177,9 @@ func NewStore(dir string) (*Store, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	if len(key) != 32 {
+		return nil, errors.New("配置主密钥必须为 32 字节")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -173,12 +190,36 @@ func NewStore(dir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{dir: dir, aead: aead}
+	mac := sha256.Sum256(append([]byte("aether-config-mac-key-v1\x00"), key...))
+	s.macKey = mac[:]
 	s.state = State{
 		Storages: []Storage{}, Tasks: []Task{}, Logs: []LogEntry{}, SignKey: id(),
 		Settings: Settings{LogDays: 15, LogMaxEntries: 20000, SessionDays: 15, CacheEnabled: true, CacheTTL: 30, CacheMaxItems: 10000, CacheMemoryMB: 128, CachePersist: true, SnapshotInterval: 10, WebDAVCache: true, PublicURL: defaultPublicURL()},
 	}
+	if err := s.recoverJSONTransaction(); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "state.json")); err == nil {
+		if err := s.readJSONModules(); err != nil {
+			return nil, err
+		}
+		s.modular = true
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	} else {
+		for _, module := range jsonModules {
+			if module == "state" {
+				continue
+			}
+			if _, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(module)+".json")); !os.IsNotExist(err) {
+				return nil, errors.New("JSON 模块配置存在但 state.json 缺失，已停止启动以避免回退旧配置")
+			}
+		}
+	}
 	data, err := os.ReadFile(filepath.Join(dir, "state.enc"))
-	if err == nil {
+	if s.modular {
+		err = nil
+	} else if err == nil {
 		if len(data) < aead.NonceSize() {
 			return nil, errors.New("invalid state file")
 		}
@@ -195,6 +236,10 @@ func NewStore(dir string) (*Store, error) {
 			}
 			s.modular = true
 		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	{
 		for i := range s.state.Tasks {
 			if s.state.Tasks[i].Kind != "cache" && strings.TrimSpace(s.state.Tasks[i].Cron) == "" {
 				s.state.Tasks[i].Cron = ""
@@ -218,8 +263,6 @@ func NewStore(dir string) (*Store, error) {
 			}
 			rule.NextRun = backupNext(*rule, time.Now())
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, err
 	}
 	if s.state.Settings.PublicURL == "http://localhost:15151" {
 		s.state.Settings.PublicURL = defaultPublicURL()
@@ -251,6 +294,9 @@ func atomicWrite(name string, data []byte) error {
 }
 
 func (s *Store) saveLocked() error {
+	if s.modular && s.state.ModuleVersion >= 3 {
+		return s.saveJSONModules()
+	}
 	if s.modular {
 		return s.saveModulesLocked()
 	}

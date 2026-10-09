@@ -33,11 +33,11 @@ func TestModuleMigrationEncryptedRestoreAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := a.store.snapshot()
-	if !a.store.modular || len(st.Modules) != len(moduleNames) || st.ToolsRevision != "" {
+	if !a.store.modular || st.ModuleVersion != 3 || st.ToolsRevision != "" {
 		t.Fatal("migration missing")
 	}
-	for _, key := range moduleNames {
-		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(key)+"."+st.Modules[key]+".enc"))
+	for _, key := range jsonModules {
+		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(key)+".json"))
 		if err != nil {
 			t.Fatal(key, err)
 		}
@@ -53,7 +53,7 @@ func TestModuleMigrationEncryptedRestoreAndRollback(t *testing.T) {
 	if got.Storages[0].Config["cookie"] != "secret-cookie" || got.Plugins["tmdb"].APIKey != "secret-token" || len(got.Tasks) != 4 || len(got.Links) != 1 || len(got.Mounts) != 1 || len(got.DAVUsers) != 1 {
 		t.Fatal("module restore incomplete")
 	}
-	before, _ := os.ReadFile(filepath.Join(dir, "state.enc"))
+	before, _ := os.ReadFile(filepath.Join(dir, "state.json"))
 	if err := os.Rename(filepath.Join(dir, "file"), filepath.Join(dir, "file.saved")); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestModuleMigrationEncryptedRestoreAndRollback(t *testing.T) {
 	if err := reopened.update(func(st *State) error { st.Storages[0].Name = "Changed"; return nil }); err == nil {
 		t.Fatal("failed transaction accepted")
 	}
-	after, _ := os.ReadFile(filepath.Join(dir, "state.enc"))
+	after, _ := os.ReadFile(filepath.Join(dir, "state.json"))
 	if !bytes.Equal(before, after) || reopened.snapshot().Storages[0].Name != "Pool" {
 		t.Fatal("failed save changed committed state")
 	}
@@ -78,7 +78,7 @@ func TestModuleMigrationEncryptedRestoreAndRollback(t *testing.T) {
 	}
 }
 
-func TestModuleSnapshotsRejectTamperingAndKeepPrevious(t *testing.T) {
+func TestModuleJSONRejectsTamperingAndRetainsUnchangedFiles(t *testing.T) {
 	s, err := NewStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -86,18 +86,18 @@ func TestModuleSnapshotsRejectTamperingAndKeepPrevious(t *testing.T) {
 	if err := s.initModules(); err != nil {
 		t.Fatal(err)
 	}
-	first := s.state.Modules["file/webdav"]
+	first, _ := os.ReadFile(filepath.Join(s.dir, "file", "webdav.json"))
 	if err := s.update(func(st *State) error { st.Settings.WebDAVEnabled = !st.Settings.WebDAVEnabled; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.update(func(st *State) error { st.Username = "same-module"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	previous := filepath.Join(s.dir, "file", "webdav."+first+".enc")
-	if _, err := os.Stat(previous); err != nil {
-		t.Fatal("unrelated update removed previous snapshot", err)
+	previous, _ := os.ReadFile(filepath.Join(s.dir, "file", "webdav.json"))
+	if bytes.Equal(first, previous) {
+		t.Fatal("changed module was not saved")
 	}
-	name := filepath.Join(s.dir, "tool", "config."+s.state.Modules["tool/config"]+".enc")
+	name := filepath.Join(s.dir, "tool", "config.json")
 	raw, err := os.ReadFile(name)
 	if err != nil {
 		t.Fatal(err)

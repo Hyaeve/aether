@@ -406,6 +406,9 @@ func davList(ctx context.Context, s Storage, dir string) ([]File, error) {
 }
 
 func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Download, error) {
+	if s.Type == "115" {
+		return a.downloadWithUA(ctx, s, fileID, pick, pan115ReadUA)
+	}
 	return a.downloadWithUA(ctx, s, fileID, pick, pan115UA)
 }
 

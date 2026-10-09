@@ -66,7 +66,7 @@ func Test115ReadHeadersAreResponseScoped(t *testing.T) {
 		}
 		want := ""
 		if address == "https://cdn.115.com/file" {
-			want = "download_ticket=ticket"
+			want = "CID=login-secret; download_ticket=ticket"
 		}
 		if got.Header.Get("Cookie") != want {
 			t.Fatal("credential leak", got.Header.Get("Cookie"))

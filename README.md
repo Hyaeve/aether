@@ -4,7 +4,7 @@
 
 自托管的云盘与本地存储工作空间，使用 Go + Vue 构建。
 
-当前版本：**v0.4.0** · [版本说明](docs/releases/v0.4.0.md)
+当前版本：**v0.4.1** · [版本说明](docs/releases/v0.4.1.md)
 
 ## 功能概览
 
@@ -42,7 +42,7 @@ docker compose up -d
 
 存储与设置在 `/config/storage`，任务在 `/config/task`，以太链接在 `/config/link`，辅助工具在 `/config/tool`，WebDAV 与挂载在 `/config/file`，备份规则在 `/config/transfer`。
 
-CK、Token、密码和 API Key 加密保存。请使用内置配置备份，或停机备份整个 `/config`，包括 `master.key`；不要单独移动模块快照。日志在 `/data/log`，播放缓存在 `/data/cache/link`。
+模块配置采用固定名称 JSON，CK、Token、上游密码和 API Key 字段加密；登录密码为加盐哈希。请使用内置配置备份，或停机备份整个 `/config` 及主密钥。日志在 `/data/log`，播放缓存在 `/data/cache/link`。迁移、外置密钥和剪贴板监听见[配置说明](docs/configuration.md)。
 
 备份规则保留源目录结构，支持同名跳过或覆盖、扩展名/名称/大小筛选及空 Cron 手动执行，不自动删除源文件或目标多余文件。覆盖、全量重置及刮削元数据清理前请先备份。
 

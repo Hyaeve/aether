@@ -27,12 +27,14 @@ type davModule struct {
 func (s *Store) initModules() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.modular {
+	if s.modular && s.state.ModuleVersion >= 3 {
 		return nil
 	}
+	previousVersion, previousModular := s.state.ModuleVersion, s.modular
 	s.modular = true
+	s.state.ModuleVersion = 3
 	if err := s.saveLocked(); err != nil {
-		s.modular = false
+		s.modular, s.state.ModuleVersion = previousModular, previousVersion
 		return err
 	}
 	s.toolsDir = ""

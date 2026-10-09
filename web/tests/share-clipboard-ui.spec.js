@@ -21,6 +21,54 @@ test('clipboard parser accepts exact share hosts and preserves passwords', () =>
   expect(clipboardShares('a'.repeat(200001))).toBeNull()
 })
 
+test('clipboard polls while focused and detects all providers without another click', async ({page}) => {
+  await page.addInitScript(() => {
+    window.shareText = ''
+    Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>window.shareText}})
+    Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'granted'})}})
+  })
+  await base(page); await page.goto('/storage')
+  await expect(page.getByRole('button',{name:'添加存储池',exact:true})).toBeVisible()
+  for (const [provider,url] of Object.entries(links)) {
+    await page.evaluate(text=>{window.shareText=text},url)
+    const modal=page.getByRole('dialog',{name:'分享转存',exact:true})
+    await expect(modal).toBeVisible()
+    await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(url)
+    await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText(`${provider}资料`)
+    await modal.getByRole('button',{name:'取消',exact:true}).click()
+  }
+})
+
+test('clipboard authorization can be retried explicitly', async ({page},info) => {
+  await page.addInitScript(() => {
+    window.allowClipboard=false; window.shareText='https://pan.quark.cn/s/33702e8b82b9'
+    Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'denied'})}})
+    Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>{
+      if(!window.allowClipboard) throw new DOMException('Denied','NotAllowedError')
+      return window.shareText
+    }}})
+  })
+  await base(page); await page.goto('/storage')
+  await page.getByRole('button',{name:'账号菜单'}).click()
+  await page.getByRole('button',{name:'监听分享链接',exact:true}).click()
+  await expect(page.locator('.toast').filter({hasText:'请允许浏览器读取剪贴板'})).toBeVisible()
+  await page.evaluate(()=>{window.allowClipboard=true})
+  await page.getByRole('button',{name:'账号菜单'}).click()
+  await page.getByRole('button',{name:'监听分享链接',exact:true}).click()
+  await expect(page.getByRole('dialog',{name:'分享转存',exact:true})).toBeVisible()
+  await page.getByRole('dialog',{name:'分享转存',exact:true}).getByRole('button',{name:'取消',exact:true}).click()
+  await page.getByRole('button',{name:'账号菜单'}).click()
+  await page.screenshot({path:info.outputPath('share-listener-menu.png')})
+})
+
+test('unavailable clipboard explains secure-context restriction', async ({page}) => {
+  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:undefined}))
+  await base(page);await page.goto('/storage')
+  await page.getByRole('button',{name:'账号菜单'}).click()
+  await page.getByRole('button',{name:'监听分享链接',exact:true}).click()
+  await expect(page.locator('.toast').filter({hasText:'自动监听剪贴板需要 HTTPS 或 localhost'})).toBeVisible()
+})
+
 test('authorized clipboard opens matching share modal once and never submits automatically', async ({page},info) => {
   await page.addInitScript(() => {
     window.shareText = ''; window.clipboardReads = 0
@@ -44,7 +92,8 @@ test('authorized clipboard opens matching share modal once and never submits aut
   }
   expect(submitted).toBe(0)
   await page.evaluate(value=>{window.shareText=value;window.dispatchEvent(new Event('focus'))},links['115'])
-  await expect(page.getByRole('dialog',{name:'分享转存'})).toHaveCount(0)
+  await expect(page.getByRole('dialog',{name:'分享转存'})).toBeVisible()
+  await page.getByRole('dialog',{name:'分享转存'}).getByRole('button',{name:'取消',exact:true}).click()
   await page.evaluate(()=>{window.shareText='https://pan.quark.cn/s/new123';window.dispatchEvent(new Event('focus'))})
   await expect(page.getByRole('dialog',{name:'分享转存'})).toBeVisible()
   await page.screenshot({path:info.outputPath('clipboard-share.png')})

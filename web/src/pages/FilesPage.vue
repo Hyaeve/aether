@@ -338,7 +338,9 @@ async function load(refresh = false) {
     const result = await api(`/files?storage=${encodeURIComponent(selected.value)}&path=${encodeURIComponent(current.value)}&refresh=${refresh}`)
     if (id === requestId) {
       files.value = result
-      visits.value = rememberVisit(visits.value, { storage: selected.value, id: current.value, history: history.value })
+      let persisted = visits.value
+      try { persisted = validVisits(JSON.parse(localStorage.getItem(visitKey) || '[]')) } catch {}
+      visits.value = rememberVisit(persisted, { storage: selected.value, id: current.value, history: history.value })
       try { localStorage.setItem(visitKey, JSON.stringify(visits.value)) } catch {}
     }
   } catch (e) { if (id === requestId) { error.value = e.message; files.value = [] } }

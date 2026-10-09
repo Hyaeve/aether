@@ -543,7 +543,7 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 			reader := &davFile{ctx: ctx, info: davInfo{f}, download: download, progress: downloadProgress}
 			if source.Type == "115" {
 				reader.refreshDownload = func() (Download, error) {
-					info, err := download115API(ctx, source, f.PickCode, pan115UA, true)
+					info, err := download115API(ctx, source, f.PickCode, pan115ReadUA, true)
 					if err != nil {
 						return Download{}, err
 					}

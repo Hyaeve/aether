@@ -18,44 +18,50 @@ export function clipboardShares(text) {
   return { provider, links: links.join('\n') }
 }
 
-export function watchShareClipboard({ ready, open, clipboard = navigator.clipboard, permissions = navigator.permissions, interval = 3000 }) {
-  let stopped = false, reading = false, prompted = false, generation = 0
-  const seen = new Set()
+export function watchShareClipboard({ ready, open, blocked = () => {}, clipboard = navigator.clipboard, permissions = navigator.permissions, interval = 1500 }) {
+  let stopped = false, reading = false, prompted = false, generation = 0, readable = false, previous = '', warned = false
   const editing = 'input, textarea, [contenteditable]:not([contenteditable="false"])'
   const available = () => !stopped && ready() && document.visibilityState === 'visible' && document.hasFocus() && !document.querySelector('.modal, .video-viewer, .image-viewer') && !document.activeElement?.closest?.(editing)
-  function accept(text) {
+  function accept(text, explicit = false) {
     if (!available()) return
     const share = clipboardShares(text)
-    if (share && !seen.has(share.links) && open(share) !== false) {
-      seen.add(share.links)
-      if (seen.size > 100) seen.delete(seen.values().next().value)
+    if (!share) { previous = ''; return }
+    if ((explicit || share.links !== previous) && open(share) !== false) {
+      previous = share.links
     }
   }
-  async function read(gesture = false) {
-    if (!clipboard?.readText || reading || !available()) return
+  function unavailable(reason) { if (!warned) { warned = true; blocked(reason) } }
+  async function read(gesture = false, explicit = false) {
+    if (!clipboard?.readText) { if (explicit) unavailable('insecure'); return }
+    if (reading || !available()) return
     reading = true
     const run = generation
     try {
-      let granted = false
-      try { granted = (await permissions?.query({ name: 'clipboard-read' }))?.state === 'granted' } catch {}
+      let granted = readable
+      try { granted = (await permissions?.query({ name: 'clipboard-read' }))?.state === 'granted' || readable } catch {}
       // Poll only with existing permission; try prompting at most once per session.
-      if (!granted && (!gesture || prompted)) return
+      if (!granted && (!gesture || prompted && !explicit)) return
       if (!granted) prompted = true
       const text = await clipboard.readText()
-      if (run === generation) accept(text)
-    } catch { /* Permission denial or insecure HTTP leaves manual paste available. */ }
+      readable = true
+      if (run === generation) accept(text, explicit)
+    } catch { if (explicit && run === generation) unavailable(window.isSecureContext ? 'permission' : 'insecure') }
     finally { reading = false }
   }
   const paste = event => {
     if (!event.isTrusted || event.target?.closest?.(editing)) return
-    accept(event.clipboardData?.getData('text/plain'))
+    accept(event.clipboardData?.getData('text/plain'), true)
   }
   const gesture = event => { if (event.isTrusted) read(true) }
   const focus = () => read()
+  const visibility = () => { if (document.visibilityState === 'visible') read() }
+  const activate = () => read(true, true)
   document.addEventListener('paste', paste)
   document.addEventListener('pointerup', gesture)
   window.addEventListener('focus', focus)
+  document.addEventListener('visibilitychange', visibility)
+  window.addEventListener('aether:listen-shares', activate)
   const timer = setInterval(read, interval)
   read()
-  return () => { stopped = true; generation++; seen.clear(); clearInterval(timer); document.removeEventListener('paste', paste); document.removeEventListener('pointerup', gesture); window.removeEventListener('focus', focus) }
+  return () => { stopped = true; generation++; clearInterval(timer); document.removeEventListener('paste', paste); document.removeEventListener('pointerup', gesture); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('aether:listen-shares', activate) }
 }

@@ -84,9 +84,18 @@ func ensureOrganizeConfigFiles(configDir string) error {
 }
 
 func migrateLegacyConfig(configDir, dataDir string) error {
+	if _, err := os.Stat(filepath.Join(configDir, "state.json")); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	if _, err := os.Stat(filepath.Join(configDir, "state.enc")); err == nil {
 		// Never generate a new key for existing encrypted configuration.
-		if _, err := os.Stat(filepath.Join(configDir, "master.key")); err != nil {
+		keyPath := filepath.Join(configDir, "master.key")
+		if external := os.Getenv("AETHER_MASTER_KEY_FILE"); external != "" {
+			keyPath = external
+		}
+		if _, err := os.Stat(keyPath); err != nil {
 			return fmt.Errorf("配置已存在但密钥不可读取: %w", err)
 		}
 		return nil

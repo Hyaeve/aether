@@ -78,6 +78,11 @@ func validateBundle(b configBundle) error {
 		if !fs.ValidPath(name) || strings.ContainsAny(name, `:\`) || !strings.HasSuffix(name, ".json") || !json.Valid(data) {
 			return errors.New("备份包含非法配置路径或JSON")
 		}
+		for _, module := range jsonModules {
+			if name == module+".json" {
+				return errors.New("模块配置必须通过备份状态恢复，不能作为附加文件覆盖")
+			}
+		}
 	}
 	return nil
 }
@@ -112,6 +117,15 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 		}
 		if filepath.Ext(name) != ".json" {
 			return nil
+		}
+		relModule, err := filepath.Rel(a.store.dir, name)
+		if err != nil {
+			return err
+		}
+		for _, module := range jsonModules {
+			if filepath.ToSlash(relModule) == module+".json" {
+				return nil
+			}
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -269,6 +283,7 @@ func applyPendingConfig(s *Store) error {
 	before := s.state
 	s.state = b.State
 	s.state.Modules = before.Modules
+	s.state.ModuleVersion = before.ModuleVersion
 	for i := range s.state.BackupRules {
 		s.state.BackupRules[i].Status = "idle"
 		s.state.BackupRules[i].Message = ""

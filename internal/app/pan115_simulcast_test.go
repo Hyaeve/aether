@@ -198,8 +198,8 @@ func TestPan115SimulcastRegisteredSettingsAndToolsRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reopened.state.Modules["tool/config"] == "" {
-		t.Fatal("configuration missing from encrypted tool module")
+	if reopened.state.ModuleVersion != 3 {
+		t.Fatal("configuration missing from JSON tool module")
 	}
 	if err = reopened.initTools(filepath.Join(a.dataDir, "tools")); err != nil {
 		t.Fatal(err)

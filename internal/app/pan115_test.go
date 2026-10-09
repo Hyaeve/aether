@@ -92,7 +92,7 @@ func Test115DownloadUploadAndCancellation(t *testing.T) {
 		switch r.URL.Path {
 		case "/app/chrome/downurl":
 			r.ParseForm()
-			if r.Form.Get("data") == "" || r.UserAgent() != pan115UA {
+			if r.Form.Get("data") == "" || r.UserAgent() != pan115ReadUA {
 				t.Fatal("missing encrypted download payload or UA")
 			}
 		case "/app/uploadinfo":

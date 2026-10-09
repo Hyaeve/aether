@@ -157,7 +157,7 @@ func Test115DAVAndMountUseProductionRefresh(t *testing.T) {
 					status = 403
 				case "/android/2.0/ufile/download":
 					refreshes++
-					if !strings.Contains(r.Header.Get("Cookie"), "CID=cid") || r.UserAgent() != pan115UA {
+					if !strings.Contains(r.Header.Get("Cookie"), "CID=cid") || r.UserAgent() != pan115ReadUA {
 						t.Fatal("refresh lost storage credentials or bound UA")
 					}
 					// Successful envelopes require 115's private RSA key. Verify
