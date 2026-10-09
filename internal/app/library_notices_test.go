@@ -101,3 +101,41 @@ func TestEmbyOtherEventsRemainDistinct(t *testing.T) {
 		t.Fatal(notices)
 	}
 }
+
+func TestEmbyNotificationFieldsAndRepeatedPlayback(t *testing.T) {
+	a := testApp(t)
+	a.store.update(func(st *State) error {
+		st.Plugins = map[string]PluginConfig{"emby": {Enabled: true, Token: "test"}}
+		return nil
+	})
+	h := a.Handler(t.TempDir())
+	send := func(body map[string]any) {
+		t.Helper()
+		data, _ := json.Marshal(body)
+		r := httptest.NewRequest("POST", "/api/emby/webhook?token=test", bytes.NewReader(data))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	for _, user := range []string{"Alice", "Bob"} {
+		send(map[string]any{"Event": "playback.start", "ServerName": "月见草🍀", "User": map[string]string{"Name": user}, "Item": map[string]any{"Id": "same", "Name": "第一集", "Type": "Episode", "SeriesName": "刀剑神域", "ParentIndexNumber": 1, "IndexNumber": 1}})
+	}
+	send(map[string]any{"Event": "scheduledtasks.completed", "Title": "月见草🍀 上 Cache file cleanup 已完成"})
+	notices := a.store.snapshot().LibraryNotices
+	if len(notices) != 3 || notices[0].UserName != "Alice" || notices[1].UserName != "Bob" || notices[2].ServerName != "月见草🍀" || notices[2].TaskName != "Cache file cleanup" {
+		t.Fatal(notices)
+	}
+	logs := a.store.snapshot().Logs
+	found := false
+	for _, l := range logs {
+		if l.Module == "links" && bytes.Contains([]byte(l.Message), []byte("["+notices[1].ID+"]")) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("notice ID missing from associated log")
+	}
+}

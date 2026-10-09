@@ -1,12 +1,13 @@
 <script setup>
 import {
-  FilePenLine, FileJson,
+  ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
+  FilePenLine, FileJson, FileAudio2,
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
   FileClock, ListVideo, FileArchive, EllipsisVertical, Copy, FolderInput, GripVertical, Power,
   PanelLeft, Star, List, LayoutGrid, Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
-  Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
+  Bell, Box, Check, CheckCheck, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
   CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
@@ -16,7 +17,8 @@ import {
 import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 const icons = {
-  FilePenLine, FileJson,
+  ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
+  FilePenLine, FileJson, FileAudio2,
   EmbyNotice: EmbyNoticeIcon,
   TMDB: () => h('img', { src: '/providers/tmdb.svg', alt: '', width: 32, height: 32, style: 'object-fit:contain' }),
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
@@ -24,7 +26,7 @@ const icons = {
   PanelLeft, Star, List, LayoutGrid, Settings, FolderSync, CloudDownload, Logs, TableProperties, LockKeyhole,
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
-  Bell, Box, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
+  Bell, Box, Check, CheckCheck, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
   CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,

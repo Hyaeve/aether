@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +68,9 @@ func TestShareProtocols(t *testing.T) {
 				case strings.HasSuffix(r.URL.Path, "/detail"):
 					return `{"code":0,"data":{"list":[{"fid":"f","file_name":"Film.mkv","share_fid_token":"file-token"}]},"metadata":{"_total":1}}`
 				case strings.HasSuffix(r.URL.Path, "/snap"):
+					if r.Header.Get("User-Agent") != pan115ShareUA {
+						t.Error("share request missing full browser UA")
+					}
 					if r.Method != "GET" || r.URL.Host != "115cdn.com" || r.URL.Path != "/webapi/share/snap" || r.URL.Query().Get("format") != "json" || r.Header.Get("Referer") != "https://115cdn.com/s/code?password=1234&" {
 						t.Error("incorrect 115 share preview protocol", r.Method, r.URL.Host, r.URL.Path)
 					}
@@ -110,6 +115,77 @@ func TestShareProtocols(t *testing.T) {
 				t.Fatal(task, saves, err)
 			}
 		})
+	}
+}
+
+func Test115SharePreview405Fallback(t *testing.T) {
+	old := apiClient.Transport
+	defer func() { apiClient.Transport = old }()
+	for _, status := range []int{405, 302, 403, 500, 200} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			calls := 0
+			query := url.Values{"share_code": {"private-code"}, "receive_code": {"private-pass"}, "cid": {"0"}, "offset": {"100"}, "limit": {"100"}, "format": {"json"}}
+			apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				wantHost, wantPath := "115cdn.com", "/webapi/share/snap"
+				if calls == 2 {
+					wantHost, wantPath = "webapi.115.com", "/share/snap"
+				}
+				if r.Method != http.MethodGet || r.URL.Host != wantHost || r.URL.Path != wantPath || r.URL.RawQuery != query.Encode() || r.Header.Get("Cookie") != "private-cookie" || r.Header.Get("User-Agent") != pan115ShareUA || r.Header.Get("Referer") != "https://115cdn.com/s/private-code?password=private-pass&" {
+					t.Error("unexpected preview request protocol")
+				}
+				code, body := status, "private upstream body"
+				if calls == 2 {
+					code, body = 200, `{"state":true,"data":{"count":1}}`
+				}
+				return &http.Response{StatusCode: code, Header: http.Header{"Location": {"https://attacker.example/"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+			})
+			var result struct {
+				Data struct {
+					Count int `json:"count"`
+				} `json:"data"`
+			}
+			err := read115Share(context.Background(), Storage{Type: "115", Config: map[string]string{"cookie": "private-cookie"}}, query, &result)
+			wantCalls := 1
+			if status == 405 {
+				wantCalls = 2
+			}
+			if calls != wantCalls || status == 405 && (err != nil || result.Data.Count != 1) || status != 405 && err == nil {
+				t.Fatal(calls, result, err)
+			}
+			if err != nil {
+				for _, secret := range []string{"private-cookie", "private-code", "private-pass", "attacker", "private upstream body"} {
+					if strings.Contains(err.Error(), secret) {
+						t.Fatal("secret in error")
+					}
+				}
+			}
+		})
+	}
+}
+
+func Test115SharePreviewFallbackStopsAfterSecondFailureOrCancellation(t *testing.T) {
+	old := apiClient.Transport
+	defer func() { apiClient.Transport = old }()
+	for _, cancelRequest := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls := 0
+		apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+			calls++
+			if cancelRequest {
+				cancel()
+			}
+			return &http.Response{StatusCode: 405, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+		})
+		err := read115Share(ctx, Storage{Type: "115"}, url.Values{}, &map[string]any{})
+		cancel()
+		wantCalls := 2
+		if cancelRequest {
+			wantCalls = 1
+		}
+		if err == nil || calls != wantCalls {
+			t.Fatal(cancelRequest, calls, err)
+		}
 	}
 }
 

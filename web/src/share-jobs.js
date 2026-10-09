@@ -1,6 +1,6 @@
 import { api, notices, state } from './lib'
 
-export async function transferShares(storage, parent, links, changed) {
+export async function transferShares(storage, parent, links, history = []) {
   const owner = state.username
   const id = Date.now() + Math.random()
   notices.push({ id, message: `${storage.name}：准备转存`, progress: 0 })
@@ -27,10 +27,11 @@ export async function transferShares(storage, parent, links, changed) {
         }
         update({ progress: (i + (batch + 1) / plan.batches) / links.length })
       }
-      changed?.()
       window.dispatchEvent(new CustomEvent('aether-files-changed', { detail: { storageId: storage.id } }))
     }
+    session()
     update({ progress: 1, message: `${storage.name}：${storage.type === 'quark' ? '转存已完成' : '全部批次已提交，请检查网盘结果'}` })
+    window.dispatchEvent(new CustomEvent('aether-files-changed', { detail: { storageId: storage.id, owner, destination: parent, history } }))
   } catch (e) { update({ error: true, message: e.message }) }
   finally { setTimeout(() => { const index = notices.findIndex(n => n.id === id); if (index >= 0) notices.splice(index, 1) }, 12000) }
 }

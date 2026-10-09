@@ -32,6 +32,8 @@ type PluginConfig struct {
 type LibraryNotice struct {
 	LibraryName string    `json:"libraryName,omitempty"`
 	ServerName  string    `json:"serverName,omitempty"`
+	UserName    string    `json:"userName,omitempty"`
+	TaskName    string    `json:"taskName,omitempty"`
 	Event       string    `json:"event,omitempty"`
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -407,7 +409,16 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		Title       string `json:"Title"`
 		Description string `json:"Description"`
 		LibraryName string `json:"LibraryName"`
-		Library     struct {
+		ServerName  string `json:"ServerName"`
+		UserName    string `json:"UserName"`
+		TaskName    string `json:"TaskName"`
+		User        struct {
+			Name string `json:"Name"`
+		} `json:"User"`
+		Task struct {
+			Name string `json:"Name"`
+		} `json:"Task"`
+		Library struct {
 			Name string `json:"Name"`
 		} `json:"Library"`
 		Server struct {
@@ -458,6 +469,35 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	notice := LibraryNotice{Event: input.Event, ID: id(), Name: name, Time: time.Now(), MediaType: strings.ToLower(input.Item.Type), Series: strings.TrimSpace(input.Item.SeriesName), SeriesID: input.Item.SeriesID, ServerID: input.Server.ID, Season: input.Item.Season}
 	notice.ServerName = strings.TrimSpace(input.Server.Name)
+	if notice.ServerName == "" {
+		notice.ServerName = strings.TrimSpace(input.ServerName)
+	}
+	notice.UserName = strings.TrimSpace(input.User.Name)
+	if notice.UserName == "" {
+		notice.UserName = strings.TrimSpace(input.UserName)
+	}
+	notice.TaskName = strings.TrimSpace(input.Task.Name)
+	if notice.TaskName == "" {
+		notice.TaskName = strings.TrimSpace(input.TaskName)
+	}
+	// Standard scheduled-task titles sometimes carry the server and task as prose.
+	if input.Event == "scheduledtasks.completed" && notice.ServerName == "" {
+		for _, text := range []string{name, strings.TrimSpace(input.Description)} {
+			if server, task, ok := strings.Cut(text, " 上 "); ok && strings.HasSuffix(task, " 已完成") {
+				notice.ServerName = strings.TrimSpace(server)
+				if notice.TaskName == "" {
+					notice.TaskName = strings.TrimSuffix(task, " 已完成")
+				}
+				break
+			}
+		}
+	}
+	for _, value := range []string{notice.UserName, notice.TaskName} {
+		if len(value) > 1000 || strings.ContainsAny(value, "\r\n\x00") {
+			fail(w, 400, errors.New("通知字段无效"))
+			return
+		}
+	}
 	for _, candidate := range []string{input.Library.Name, input.LibraryName, input.Item.LibraryName} {
 		if candidate = strings.TrimSpace(candidate); candidate != "" {
 			notice.LibraryName = candidate
@@ -508,7 +548,7 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if inserted {
-		a.store.event("info", "links", "Emby 通知 ["+input.Event+"]："+libraryNoticeDescription(notice))
+		a.store.event("info", "links", "Emby 通知 ["+notice.ID+"] ["+input.Event+"]："+notice.ServerName+" · "+notice.LibraryName+" · "+notice.UserName+" · "+libraryNoticeDescription(notice))
 	}
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }

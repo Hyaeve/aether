@@ -3,6 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, 
 import { api, state, date, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
+import { useRoute } from 'vue-router'
+const route = useRoute()
 const key = `aether-log-filters:${state.username}`
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(key) || '{}') || {} } catch {}
@@ -49,9 +51,16 @@ watch(filters, () => { localStorage.setItem(key, JSON.stringify(filters)); reset
 async function load() {
   if (busy.value) return
   busy.value = true
-  try { entries.value = (await api('/logs')).map(l => ({ ...l, module: l.module || 'system', level: l.level === 'success' ? 'info' : ['cancelled', 'interrupted'].includes(l.level) ? 'warn' : l.level })).reverse(); resetRows() }
+  try { entries.value = (await api('/logs')).map(l => ({ ...l, module: l.module || 'system', level: l.level === 'success' ? 'info' : ['cancelled', 'interrupted'].includes(l.level) ? 'warn' : l.level })).reverse(); applyNotice(); resetRows() }
   catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
+function applyNotice() {
+  if (!route.query.notice) return
+  filters.level = 'all'; filters.module = modules[route.query.module] ? route.query.module : 'all'
+  const exact = String(route.query.q || '')
+  filters.query = entries.value.some(l => l.message.includes(exact)) ? exact : String(route.query.fallback || exact)
+}
+watch(() => route.fullPath, () => { applyNotice(); resetRows() })
 let observer, rowObserver, previousWidth = 0
 onMounted(() => {
   rowObserver = new ResizeObserver(rows => {

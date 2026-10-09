@@ -26,6 +26,7 @@ type authorizationSession struct {
 	Owner    [32]byte              `json:"owner"`
 	Device   string                `json:"device,omitempty"`
 	QR115    *driver.QRCodeSession `json:"qr115,omitempty"`
+	Visitor  string                `json:"visitor,omitempty"`
 }
 
 type quarkAuthResponse struct {
@@ -118,6 +119,10 @@ func quarkAuthGet(r *http.Request, target string, cookies map[string]string) ([]
 
 func (a *App) startAuthorization(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if r.PathValue("provider") == "mobile" {
+		a.mobileQRStart(w, r)
+		return
+	}
 	if r.PathValue("provider") == "tianyi" {
 		a.tianyiQRStart(w, r)
 		return
@@ -158,6 +163,11 @@ func (a *App) startAuthorization(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) pollAuthorization(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("provider") == "mobile" {
+		w.Header().Set("Cache-Control", "no-store")
+		a.mobileQRPoll(w, r)
+		return
+	}
 	if r.PathValue("provider") == "tianyi" {
 		w.Header().Set("Cache-Control", "no-store")
 		a.tianyiQRPoll(w, r)

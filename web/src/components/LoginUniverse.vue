@@ -92,13 +92,14 @@ function buildGalaxy(random, scale) {
   if (!disk) return
   disk.translate(320, 320)
   for (let i = 0; i < 68000; i++) {
-    const core = i < 18000
-    const r = core ? random() ** 2 * 65 : (random() ** .65) * 286
+    const core = i < 24000
+    const r = core ? random() ** 1.7 * 115 : (random() ** .75) * 302
     const scatter = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
     const angle = core || i % 3 !== 0 ? random() * Math.PI * 2 : i % 4 * Math.PI / 2 + 3.1 * Math.sqrt(r / 286) + scatter * .85
     const distance = Math.max(0, r + (core ? 0 : scatter * 30))
-    const fade = Math.max(0, 1 - distance / 310) ** 2.4
-    const alpha = (core ? .55 + random() * .4 : .18 + random() * .55) * fade
+    const radial = Math.min(1, distance / 320)
+    const fade = (1 - radial * radial * (3 - 2 * radial)) ** 1.15
+    const alpha = (.16 + random() * .42) * fade * (.5 + 1.7 * Math.exp(-distance / 65))
     disk.fillStyle = core || i % 9 === 0 ? `rgba(255,231,193,${alpha})` : `rgba(174,207,249,${alpha})`
     const size = .5 + random() * 1.3
     disk.fillRect(Math.cos(angle) * distance, Math.sin(angle) * distance, size, size)
@@ -106,7 +107,7 @@ function buildGalaxy(random, scale) {
 }
 
 function buildRocks(random) {
-  rocks = Array.from({length:3}, () => {
+  rocks = Array.from({length:7}, () => {
     const texture=document.createElement('canvas'); texture.width=texture.height=128
     const c=texture.getContext('2d'); c.translate(64,64); c.beginPath()
     for(let j=0;j<24;j++) { const a=j*Math.PI/12, r=43+random()*12; const x=Math.cos(a)*r,y=Math.sin(a)*r*.85; if(j)c.lineTo(x,y); else c.moveTo(x,y) }
@@ -237,13 +238,13 @@ function paint(time) {
       ctx.beginPath(); ctx.arc(x * width, y * height, 1.2, 0, Math.PI * 2); ctx.fill()
     }
   }
-  // Cached textured rocks drift across the complete canvas at different depths.
-  for (let i = 0; i < 3; i++) {
+  // Small cached rocks drift gently through the lower-left field.
+  for (let i = 0; i < rocks.length; i++) {
     ctx.save()
     const position = rockPosition(i, time, width, height)
     ctx.translate(position.x, position.y)
     ctx.rotate(time * .012 + i)
-    const size=30+i*10
+    const size=10+i%3*4
     if(rocks[i])ctx.drawImage(rocks[i],-size/2,-size/2,size,size)
     ctx.restore()
   }

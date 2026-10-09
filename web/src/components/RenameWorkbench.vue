@@ -142,8 +142,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 .rename-rule input:not([type=checkbox]), .rename-rules :deep(.rounded-select-trigger), .rename-rules .btn { min-height:28px; height:28px; padding-top:3px; padding-bottom:3px; }
 .rule-checks { display:flex; gap:18px; }.rule-checks label { margin:10px 0 2px; }
 .rename-rule { padding:10px; margin-bottom:8px; }.rename-rule header { margin-bottom:6px; }.rename-rule .icon-btn { width:28px; height:28px; min-height:28px; }
-.rename-changed small, .rename-changed > span { color:#c87612; }.rename-changed mark { color:#cf7510; background:#df921c20; border-radius:3px; }
-[data-theme=dark] .rename-changed small, [data-theme=dark] .rename-changed > span, [data-theme=dark] .rename-changed mark { color:#f4b45a; }
+.rename-changed small, .rename-changed > span { color:var(--green); }.rename-changed mark { color:#cf7510; background:#df921c20; border-radius:3px; }
+[data-theme=dark] .rename-changed mark { color:#f4b45a; }
 @media(prefers-reduced-motion:reduce) { .rule-expand-enter-active, .rule-expand-leave-active { transition:none; } }
 @media (hover: none) { .rename-preview-row .rename-item-actions { opacity: 1; } }
 </style>

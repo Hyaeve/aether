@@ -13,9 +13,8 @@ export function createMeteorBatch(random = Math.random) {
 }
 
 export function rockPosition(index, time, width, height) {
-  const wrap = (value, size) => ((value % size) + size) % size
-  return { x: wrap(width * (.12 + index * .29) + time * (3 + index * 1.1) + 24, width + 48) - 24,
-    y: wrap(height * (.68 - index * .18) + time * (.7 + index * .22) + 24, height + 48) - 24 }
+  return { x: width * (.06 + index % 4 * .09 + Math.sin(time * (.012 + index * .002) + index) * .035),
+    y: height * (.76 + Math.floor(index / 4) * .12 + Math.sin(time * .019 + index * 1.7) * .035) }
 }
 
 export function meteorOpacity(progress, fadeStart = 1 / 3, fadeEnd = 1) {

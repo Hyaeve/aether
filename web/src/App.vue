@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, state, reload, notify, notices, bytes, date } from './lib'
 import Icon from './components/Icon.vue'
 import ThinScroll from './components/ThinScroll.vue'
-import { libraryNoticeText } from './library-notices'
+import { embyNoticeDisplay } from './library-notices'
 import { replacementJobs, refreshReplacementNotices } from './replacement-notices'
 import { recentNotices, noticeResult } from './task-notices'
 import ProviderIcon from './components/ProviderIcon.vue'
@@ -53,10 +53,9 @@ const planned = computed(() => ({
   '/tasks/scrape': { title: 'STRM 刮削', icon: 'ScanSearch', items: ['媒体识别', 'TMDB 元数据', 'NFO 与封面'] }
 }[currentPath.value]))
 const dismissedKeys = ref([])
-const embyEventLabel = event => ({ 'library.new': '入库', 'playback.start': '开始播放', 'playback.stop': '停止播放', 'playback.pause': '暂停播放', 'playback.unpause': '继续播放', 'system.notificationtest': '测试通知' }[event || 'library.new'] || event)
 const taskNotices = computed(() => recentNotices([
   ...state.tasks.filter(t => ['success', 'error', 'cancelled', 'interrupted'].includes(t.status) && t.lastRun && !t.lastRun.startsWith('0001')).map(t => ({ ...t, message: noticeResult(t), provider: state.storages.find(s => s.id === t.storageId)?.type, taskIcon: ({cache:'Database',strm:'FileVideo',cas:'Layers3',ed2k:'Link',organize:'FolderTree'})[t.kind] || 'ListTodo', key: `${t.id}:${t.lastRun}:${t.status}` })),
-  ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}:${n.time}`, name: n.serverName || n.libraryName || 'Emby', lastRun: n.time, status: 'success', kind: 'emby', message: `${n.event === 'scheduledtasks.completed' ? '计划任务完成' : embyEventLabel(n.event)} · ${libraryNoticeText(n)}` })),
+  ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}:${n.time}`, ...embyNoticeDisplay(n), lastRun: n.time, status: 'success', kind: 'emby', logQuery: `[${n.id}]`, legacyQuery: n.series || n.taskName || n.name })),
   ...replacementJobs.value.map(n => ({ key: `replace:${n.id}:${n.status}`, id: n.id, name: 'STRM 替换', lastRun: n.updatedAt || n.time, status: n.status === 'completed' ? 'success' : n.status === 'failed' ? 'error' : 'running', kind: 'replace', message: `${n.status === 'running' ? '进行中' : n.status === 'completed' ? '已完成' : '失败'} · 已替换 ${n.changed} 个文件${n.error ? ` · ${n.error}` : ''}` }))
 ].filter(n => !dismissedKeys.value.includes(n.key))))
 const readKeys = ref([])
@@ -75,7 +74,7 @@ function markRead() {
 }
 function openNotifications() { notificationMenu.value = !notificationMenu.value; accountMenu.value = false; if (notificationMenu.value) markRead() }
 function openNotice(t) {
-  router.push(['emby', 'replace'].includes(t.kind) ? '/tools' : `/tasks/${['cas', 'cache', 'ed2k'].includes(t.kind) ? t.kind : 'strm'}`)
+  router.push({ path: '/logs', query: { module: t.kind === 'emby' ? 'links' : t.kind === 'replace' ? 'files' : 'tasks', notice: t.id, q: t.logQuery || t.name, fallback: t.legacyQuery || t.name, time: t.lastRun } })
   closeMenus()
 }
 watch(taskNotices, () => { if (notificationMenu.value) markRead() })

@@ -5,6 +5,11 @@ import { api, state, bytes, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
+import ImageViewer from '../components/ImageViewer.vue'
+import VideoViewer from '../components/VideoViewer.vue'
+import VideoThumbnail from '../components/VideoThumbnail.vue'
+import AudioPlayer from '../components/AudioPlayer.vue'
+import SecretInput from '../components/SecretInput.vue'
 import TaskSourcePicker from '../components/TaskSourcePicker.vue'
 import { copyText } from '../clipboard'
 import FileTabs from '../components/FileTabs.vue'
@@ -30,7 +35,16 @@ const current = ref('/'), history = ref([]), files = ref([]), busy = ref(false),
 const searchInput = ref('')
 const viewport = ref(null), draft = ref(false), confirmRename = ref(false), details = ref(false), createMenu = ref(false)
 const toolPosition = ref(null)
-function transferChanged(event) { if (event.detail?.storageId === selected.value) load(true) }
+function transferChanged(event) {
+  const result = event.detail
+  if (result?.storageId !== selected.value) return
+  if (typeof result.destination === 'string' && result.owner === state.username && state.authenticated) {
+    cancelEdit(); draft.value = false; selection.value = []; anchor.value = ''; query.value = ''; searchInput.value = ''
+    current.value = result.destination; history.value = (result.history || []).map(c => ({ ...c }))
+    resetScroll()
+  }
+  load(true)
+}
 onMounted(() => window.addEventListener('aether-files-changed', transferChanged))
 onUnmounted(() => window.removeEventListener('aether-files-changed', transferChanged))
 function blankTools(event) {
@@ -43,14 +57,38 @@ function blankTools(event) {
 const workbenchFiles = ref(null), detailBusy = ref(false), detailError = ref('')
 const offlineSupported = computed(() => !!selected.value)
 const shareTransfer = ref(false)
-const preview = ref(null), previewError = ref(false)
+const preview = ref(null)
 const imageFile = f => !f.isDir && /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(f.name)
 const videoFile = f => !f.isDir && /\.(?:mp4|webm|m4v|mov|mkv|avi|ts)$/i.test(f.name)
+const audioFile = f => !f.isDir && /\.(?:mp3|m4a|m4b|aac|flac|wav|ogg|oga|opus|wma|aiff|aif|alac)$/i.test(f.name)
+const archiveFile = f => !f.isDir && /\.(?:zip|7z|rar|tar|tar\.gz|tar\.bz2|tar\.xz|tgz|tbz2|txz)$/i.test(f.name)
+const fileIcon = f => f.isDir ? 'Folder' : audioFile(f) ? 'FileAudio2' : archiveFile(f) ? 'FileArchive' : imageFile(f) ? 'Image' : 'FileVideo'
+const extractable = computed(() => detailFiles.value.length === 1 && archiveFile(detailFiles.value[0]))
+const extracting = ref(null), extractPassword = ref(''), extractFolder = ref(''), extractBusy = ref(false), extractError = ref('')
+function closeExtract() { if (!extractBusy.value) { extracting.value = null; extractPassword.value = '' } }
+function showExtract() {
+  const file = detailFiles.value[0]
+  extracting.value = { ...file, storage: selected.value, parent: current.value }
+  extractPassword.value = ''; extractError.value = ''
+  extractFolder.value = file.name.replace(/\.(?:tar\.(?:gz|bz2|xz)|zip|7z|rar|tar|tgz|tbz2|txz)$/i, '')
+  closeMenu()
+}
+async function extract() {
+  if (extractBusy.value || !extractFolder.value.trim()) return
+  extractBusy.value = true; extractError.value = ''
+  try {
+    const result = await api('/files/extract', 'POST', { storageId: extracting.value.storage, parent: extracting.value.parent, id: extracting.value.id, name: extractFolder.value.trim(), password: extractPassword.value })
+    extracting.value = null; extractPassword.value = ''; await load(true); notify(`解压完成，共 ${result.processed} 个文件`)
+  } catch (e) { extractError.value = e.message }
+  finally { extractBusy.value = false }
+}
+const previewImages = ref([])
 function openFile(event, file) {
   if (renameID.value) return
   if (file.isDir) return enter(file)
-  if (file.url && (imageFile(file) || videoFile(file))) {
-    closeMenu(); previewError.value = false; preview.value = file
+  if (file.url && (imageFile(file) || videoFile(file) || audioFile(file))) {
+    if (imageFile(file)) previewImages.value = visible.value.filter(f => imageFile(f) && f.url).map(f => ({ ...f }))
+    closeMenu(); preview.value = file
   } else context(event, file)
 }
 function openWorkbench() { workbenchFiles.value = [...(selection.value.length ? detailFiles.value : files.value)]; createMenu.value = false; closeMenu() }
@@ -139,7 +177,7 @@ function select(event, f) {
 function context(event, f) {
   if (renameID.value || f.id === '__new__') return
   if (!selection.value.includes(f.id)) selection.value = [f.id]
-  menu.value = { x: Math.max(8,Math.min(event.clientX,window.innerWidth-160)), y: Math.max(8,Math.min(event.clientY,window.innerHeight-260)) }
+  menu.value = { x: Math.max(8,Math.min(event.clientX,window.innerWidth-160)), y: Math.max(8,Math.min(event.clientY,window.innerHeight-(extractable.value ? 302 : 260))) }
 }
 function closeMenu() { menu.value = null }
 async function rename() {
@@ -197,6 +235,7 @@ async function upload(event) {
   finally { uploadBusy.value = false; uploadProgress.value = ''; await load(true) }
 }
 function keys(e) {
+  if (preview.value || extracting.value) return
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && selection.value.length && !document.querySelector('.modal') && !e.target.isContentEditable && !['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
     e.preventDefault(); selection.value = visible.value.map(f => f.id)
   }
@@ -265,23 +304,27 @@ watch(selected, () => { current.value = '/'; history.value = []; selection.value
   <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>
   <div v-else-if="mode === 'grid'" class="file-grid" :style="{ gridTemplateColumns: `repeat(${gridColumns},minmax(0,1fr))` }">
     <div v-if="top" :style="{ height: `${top}px`, gridColumn: '1 / -1' }" aria-hidden="true" />
-    <article v-for="f in shown" :key="f.id" class="file-grid-item" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><button class="file-grid-name" :aria-label="f.name"><img v-if="imageFile(f) && f.url" class="file-thumbnail" :src="f.url" :alt="f.name" loading="lazy" /><Icon v-else :name="f.isDir ? 'Folder' : 'FileVideo'" :size="38" :class="{ 'folder-color': f.isDir }" /><strong v-if="renameID !== f.id" :data-tooltip="f.name">{{ f.name }}</strong></button><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><small>{{ f.isDir && !f.sizeKnown ? '文件夹' : bytes(f.size) }}</small></article>
+    <article v-for="f in shown" :key="f.id" class="file-grid-item" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><button class="file-grid-name" :aria-label="f.name"><img v-if="imageFile(f) && f.url" class="file-thumbnail" @click.stop="openFile($event, f)" @dblclick.stop :src="f.url" :alt="f.name" loading="lazy" /><VideoThumbnail v-else-if="videoFile(f) && f.url" :url="f.url" /><Icon v-else :name="fileIcon(f)" :size="38" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" /><strong v-if="renameID !== f.id" :data-tooltip="f.name">{{ f.name }}</strong></button><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><small>{{ f.isDir && !f.sizeKnown ? '文件夹' : bytes(f.size) }}</small></article>
     <div v-if="bottom" :style="{ height: `${bottom}px`, gridColumn: '1 / -1' }" aria-hidden="true" />
   </div>
   <div v-else class="table-wrap"><table><colgroup><col style="width:48%" /><col style="width:13%" /><col style="width:13%" /><col style="width:26%" /></colgroup><thead><tr><th v-for="col in columns" :key="col.key" :aria-sort="sortKey === col.key ? ascending ? 'ascending' : 'descending' : 'none'"><button class="file-sort" :disabled="!!renameID" @click="sort(col.key)">{{ col.label }}<span class="sort-triangles" :class="{ ascending: sortKey === col.key && ascending, descending: sortKey === col.key && !ascending }"><i /><i /></span></button></th></tr></thead><tbody>
     <tr v-if="top" class="file-spacer" :style="{ height: `${top}px` }" aria-hidden="true"><td colspan="4" /></tr>
-    <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name"><Icon :name="f.isDir ? 'Folder' : 'FileVideo'" :class="{ 'folder-color': f.isDir }" :size="21" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
+    <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name"><Icon :name="fileIcon(f)" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" :size="21" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
     <tr v-if="bottom" class="file-spacer" :style="{ height: `${bottom}px` }" aria-hidden="true"><td colspan="4" /></tr>
   </tbody></table></div>
   </section></div></div>
   <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
     <button :disabled="!downloadable" @click="downloadFile"><Icon name="Download" />下载</button>
+    <button v-if="extractable" @click="showExtract"><Icon name="ArchiveRestore" />解压</button>
     <button v-if="selection.length === 1" @click="rename"><Icon name="Pencil" />重命名</button>
     <button @click="operation = 'move'; closeMenu()"><Icon name="FolderInput" />移动到</button><button @click="operation = 'copy'; closeMenu()"><Icon name="Copy" />复制到</button>
     <button class="danger-text" @click="deleting = true; closeMenu()"><Icon name="Trash2" />删除</button>
     <button @click="showDetails"><Icon name="Info" />查看详情</button>
   </div></Teleport>
-  <Modal v-if="preview" :title="preview.name" wide @close="preview = null"><div class="modal-body media-preview"><p v-if="previewError" class="error-message">浏览器无法预览此文件，请下载后使用兼容的播放器打开。</p><img v-if="imageFile(preview)" :src="preview.url" :alt="preview.name" @error="previewError = true" /><video v-else :src="preview.url" controls playsinline preload="metadata" @error="previewError = true" /></div></Modal>
+  <ImageViewer v-if="preview && imageFile(preview)" :images="previewImages" :initial="preview.id" @close="preview = null" />
+  <VideoViewer v-else-if="preview && videoFile(preview)" :file="preview" @close="preview = null" />
+  <AudioPlayer v-else-if="preview" :file="preview" @close="preview = null" />
+  <Modal v-if="extracting" title="解压压缩包" compact @close="closeExtract"><form @submit.prevent="extract"><div class="modal-body extract-form"><p class="muted">{{ extracting.name }}</p><label>解压目录<input v-model="extractFolder" required maxlength="255" :disabled="extractBusy" /></label><label>解压密码<SecretInput v-model="extractPassword" aria-label="解压密码" autocomplete="off" :disabled="extractBusy" /></label><p v-if="extractError" class="error-message" role="alert">{{ extractError }}</p><p v-if="extractBusy" class="muted" role="status">正在解压并写入存储，请保持窗口打开…</p></div><footer class="modal-footer"><button class="btn primary" :disabled="extractBusy || !extractFolder.trim()"><Icon :name="extractBusy ? 'LoaderCircle' : 'ArchiveRestore'" :class="{ spin: extractBusy }" />{{ extractBusy ? '解压中…' : '确认解压' }}</button><button class="btn" type="button" :disabled="extractBusy" @click="closeExtract">取消</button></footer></form></Modal>
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
   <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body">将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</div><footer class="modal-footer"><button class="btn" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })">确认修改</button></footer></Modal>
@@ -296,6 +339,6 @@ watch(selected, () => { current.value = '/'; history.value = []; selection.value
     <template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></Modal>
   <Modal v-if="folderDownload" title="下载文件夹" confirmation @close="folderDownload = null"><div class="modal-body">确认将「{{ folderDownload.name }}」打包为 ZIP 下载？打包将通过以太传输，目录较大时需要较长时间。</div><footer class="modal-footer"><button class="btn primary" @click="confirmFolderDownload">确认下载</button><button class="btn" @click="folderDownload = null">取消</button></footer></Modal>
   <OfflineDownload v-if="offline" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="offline = false" />
-  <ShareTransfer v-if="shareTransfer" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="shareTransfer = false" @changed="load(true)" />
+  <ShareTransfer v-if="shareTransfer" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="shareTransfer = false" />
   </template>
 </template>

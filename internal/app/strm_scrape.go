@@ -387,14 +387,19 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TaskID    string   `json:"taskId"`
-		Path      string   `json:"path"`
-		TMDB      int      `json:"tmdb"`
-		Kind      string   `json:"kind"`
-		Group     bool     `json:"group"`
-		Confirmed bool     `json:"confirmed"`
-		Scope     string   `json:"scope"`
-		Scopes    []string `json:"scopes"`
+		TaskID         string   `json:"taskId"`
+		Path           string   `json:"path"`
+		TMDB           int      `json:"tmdb"`
+		Kind           string   `json:"kind"`
+		Group          bool     `json:"group"`
+		Confirmed      bool     `json:"confirmed"`
+		Scope          string   `json:"scope"`
+		Scopes         []string `json:"scopes"`
+		ExcludedScopes []string `json:"excludedScopes"`
+		Paths          []string `json:"paths"`
+		DeleteFiles    bool     `json:"deleteFiles"`
+		Scrape         bool     `json:"scrape"`
+		Reidentify     bool     `json:"reidentify"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -403,13 +408,19 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("无效的库目录"))
 		return
 	}
-	if len(in.Scopes) > 1000 {
+	if len(in.Scopes) > 1000 || len(in.ExcludedScopes) > 1000 || len(in.Paths) > 10000 {
 		fail(w, 400, errors.New("目录范围过多"))
 		return
 	}
 	for _, scope := range in.Scopes {
 		if !fs.ValidPath(scope) || scope == "." {
 			fail(w, 400, errors.New("无效的库目录"))
+			return
+		}
+	}
+	for _, scope := range in.ExcludedScopes {
+		if !fs.ValidPath(scope) {
+			fail(w, 400, errors.New("无效的排除目录"))
 			return
 		}
 	}
@@ -420,13 +431,32 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	}
 	index := a.loadScrapeIndex(in.TaskID, rootName)
 	selectedWork := ""
+	selectedWorks := map[string]bool{}
+	requestedPaths := map[string]bool{}
+	for _, p := range in.Paths {
+		requestedPaths[p] = false
+	}
 	for _, item := range index.Items {
+		if _, ok := requestedPaths[item.Path]; ok {
+			requestedPaths[item.Path] = true
+			selectedWorks[scrapeWorkKey(item)] = true
+		}
 		if item.Path == in.Path {
 			selectedWork = scrapeWorkKey(item)
-			break
+		}
+	}
+	for _, found := range requestedPaths {
+		if !found {
+			fail(w, 400, errors.New("所选作品已变化，请刷新后重试"))
+			return
 		}
 	}
 	selected := func(item scrapeItem) bool {
+		for _, excluded := range in.ExcludedScopes {
+			if excluded == "." || strings.HasPrefix(item.Path, excluded+"/") {
+				return false
+			}
+		}
 		if len(in.Scopes) > 0 {
 			matched := false
 			for _, scope := range in.Scopes {
@@ -442,12 +472,30 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		if in.Scope != "" && !strings.HasPrefix(item.Path, in.Scope+"/") {
 			return false
 		}
+		if len(in.Paths) > 0 {
+			return selectedWorks[scrapeWorkKey(item)]
+		}
 		return in.Path == "" || item.Path == in.Path || (in.Group && selectedWork != "" && scrapeWorkKey(item) == selectedWork)
 	}
 	if action == "reset" {
-		if !in.Confirmed || in.Path == "" || selectedWork == "" {
+		if !in.Confirmed || (selectedWork == "" && len(selectedWorks) == 0) {
 			fail(w, 400, errors.New("请确认要重置的作品"))
 			return
+		}
+		if in.DeleteFiles {
+			a.runMu.Lock()
+			if len(a.running) != 0 {
+				a.runMu.Unlock()
+				fail(w, 409, errors.New("有任务正在执行，请等待完成后重置"))
+				return
+			}
+			removed, err := resetScrapeFiles(r.Context(), rootName, index.Items, selected)
+			a.runMu.Unlock()
+			if err != nil {
+				fail(w, 400, err)
+				return
+			}
+			a.store.event("info", "tasks", fmt.Sprintf("STRM作品重置：删除%d个非STRM文件", removed))
 		}
 		for i := range index.Items {
 			if selected(index.Items[i]) {
@@ -489,8 +537,17 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, err)
 			return
 		}
-		jsonResponse(w, 200, map[string]bool{"ok": true})
-		return
+		if !in.Scrape {
+			jsonResponse(w, 200, map[string]bool{"ok": true})
+			return
+		}
+		action = "run"
+		for _, item := range index.Items {
+			if item.Path == in.Path {
+				selectedWork = scrapeWorkKey(item)
+				break
+			}
+		}
 	}
 	root, err := os.OpenRoot(rootName)
 	if err != nil {
@@ -515,9 +572,19 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		items, runErr := scanSTRM(ctx, root, index, cfg)
 		if runErr == nil {
 			index.Items = items
+			if in.Reidentify {
+				for i := range index.Items {
+					if selected(index.Items[i]) {
+						index.Items[i].TMDB = 0
+						index.Items[i].Manual = false
+						index.Items[i].Status = "pending"
+						index.Items[i].Poster = ""
+					}
+				}
+			}
 			a.scrapeMu.Lock()
 			a.scrapeProgress.Total = len(items)
-			if in.Path != "" || in.Scope != "" || len(in.Scopes) > 0 {
+			if in.Path != "" || in.Scope != "" || len(in.Scopes) > 0 || len(in.ExcludedScopes) > 0 || len(in.Paths) > 0 {
 				a.scrapeProgress.Total = 0
 				for _, item := range items {
 					if selected(item) {
@@ -562,6 +629,9 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 								}
 							}
 						} else {
+							e = scrapeOne(ctx, root, client, tmdb, cfg, item)
+						}
+						if action == "identify" && in.Scrape && e == nil && item.TMDB > 0 {
 							e = scrapeOne(ctx, root, client, tmdb, cfg, item)
 						}
 						if e != nil {

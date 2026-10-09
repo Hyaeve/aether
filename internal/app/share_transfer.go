@@ -46,6 +46,28 @@ var shareURLPattern = regexp.MustCompile(`https?://[^\s<>，。]+`)
 var shareCodePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 var sharePasswordPattern = regexp.MustCompile(`(?:提取码|访问码|密码)\s*[:：]?\s*([a-zA-Z0-9]{4,8})`)
 
+const pan115ShareUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+
+type shareHTTPError struct {
+	status  int
+	message string
+}
+
+func (e *shareHTTPError) Error() string { return e.message }
+
+func read115Share(ctx context.Context, s Storage, query url.Values, out any) error {
+	err := shareRequest(ctx, s, http.MethodGet, driver115.ApiShareSnap+"?"+query.Encode(), nil, out)
+	var failure *shareHTTPError
+	if errors.As(err, &failure) && failure.status == http.StatusMethodNotAllowed && ctx.Err() == nil {
+		// Only retry a read on the fixed legacy API, never replay a transfer or follow a Location.
+		err = shareRequest(ctx, s, http.MethodGet, "https://webapi.115.com/share/snap?"+query.Encode(), nil, out)
+		if err != nil {
+			return fmt.Errorf("115 分享预览主接口返回405，备用接口也未成功：%w", err)
+		}
+	}
+	return err
+}
+
 func parseShareLink(raw, password string) (provider, code, pass string, err error) {
 	if len(raw) > 4096 || len(password) > 32 {
 		return "", "", "", errors.New("分享链接或提取码过长")
@@ -128,6 +150,7 @@ func shareConfig(s Storage) [32]byte {
 func shareRequest(ctx context.Context, s Storage, method, address string, body any, out any) error {
 	headers := cloudHeaders(s)
 	if s.Type == "115" {
+		headers.Set("User-Agent", pan115ShareUA)
 		endpoint, err := url.Parse(address)
 		if err != nil {
 			return err
@@ -182,7 +205,7 @@ func shareRequest(ctx context.Context, s Storage, method, address string, body a
 			if method == http.MethodPost {
 				stage = "转存"
 			}
-			return fmt.Errorf("115 分享%s失败（%s %s，HTTP %d）；上游拒绝请求，可能是接口限制或风控，请检查CK及设备类型；转存不会自动重试", stage, method, req.URL.Host+req.URL.Path, res.StatusCode)
+			return &shareHTTPError{status: res.StatusCode, message: fmt.Sprintf("115 分享%s失败（%s %s，HTTP %d）；上游未接受请求，不能据此判断CK是否失效；转存写请求不会自动重试", stage, method, req.URL.Host+req.URL.Path, res.StatusCode)}
 		}
 		return fmt.Errorf("分享服务 HTTP %d，请检查授权或网络", res.StatusCode)
 	}
@@ -252,7 +275,7 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 				} `json:"data"`
 			}
 			q := url.Values{"share_code": {code}, "receive_code": {pass}, "cid": {"0"}, "offset": {strconv.Itoa(page * 100)}, "limit": {"100"}, "asc": {"0"}, "format": {"json"}}
-			if err := shareRequest(ctx, s, "GET", driver115.ApiShareSnap+"?"+q.Encode(), nil, &result); err != nil {
+			if err := read115Share(ctx, s, q, &result); err != nil {
 				return "", nil, err
 			}
 			total = result.Data.Count

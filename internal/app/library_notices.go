@@ -58,7 +58,7 @@ func mergeLibraryNotice(st *State, incoming LibraryNotice) bool {
 		if incoming.Time.Sub(n.Time) > 10*time.Minute || incoming.Time.Before(n.Time) || n.ServerID != incoming.ServerID {
 			continue
 		}
-		if len(incoming.ItemIDs) > 0 && slices.Contains(n.ItemIDs, incoming.ItemIDs[0]) {
+		if normalizedNoticeEvent(incoming.Event) == "library.new" && len(incoming.ItemIDs) > 0 && slices.Contains(n.ItemIDs, incoming.ItemIDs[0]) {
 			return false
 		}
 		if normalizedNoticeEvent(incoming.Event) == "library.new" && incoming.MediaType == "episode" && n.MediaType == "episode" && incoming.Series != "" && n.Series == incoming.Series && n.SeriesID == incoming.SeriesID && n.Season != nil && incoming.Season != nil && *n.Season == *incoming.Season && len(n.Episodes) > 0 && len(incoming.Episodes) > 0 && len(n.ItemIDs) < 1000 && len(n.Episodes)+len(incoming.Episodes) <= 1000 {
@@ -70,10 +70,11 @@ func mergeLibraryNotice(st *State, incoming LibraryNotice) bool {
 			n.ItemIDs = append(n.ItemIDs, incoming.ItemIDs...)
 			if changed {
 				n.Time = incoming.Time
+				n.ID = incoming.ID
 			}
 			return changed
 		}
-		if len(incoming.ItemIDs) == 0 && len(n.ItemIDs) == 0 && incoming.MediaType != "episode" && n.MediaType == incoming.MediaType && n.Name == incoming.Name && incoming.Time.Sub(n.Time) < time.Minute {
+		if normalizedNoticeEvent(incoming.Event) == "library.new" && len(incoming.ItemIDs) == 0 && len(n.ItemIDs) == 0 && incoming.MediaType != "episode" && n.MediaType == incoming.MediaType && n.Name == incoming.Name && incoming.Time.Sub(n.Time) < time.Minute {
 			return false
 		}
 	}

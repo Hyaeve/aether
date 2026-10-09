@@ -13,6 +13,14 @@ import (
 func openScrapeCover(root *os.Root, item scrapeItem) (*os.File, os.FileInfo) {
 	dir := scrapeWorkDir(item.Path)
 	names := []string{}
+	stem := strings.TrimSuffix(item.Path, path.Ext(item.Path))
+	if item.Status == "ok" && item.TMDB > 0 {
+		if item.Kind == "tv" {
+			names = append(names, path.Join(dir, "poster.jpg"))
+		} else {
+			names = append(names, stem+"-poster.jpg")
+		}
+	}
 	if !genericMediaDir(path.Base(dir)) {
 		for _, base := range []string{"cover", "poster", "folder"} {
 			for _, ext := range []string{".jpg", ".jpeg", ".png", ".webp"} {
@@ -20,7 +28,6 @@ func openScrapeCover(root *os.Root, item scrapeItem) (*os.File, os.FileInfo) {
 			}
 		}
 	}
-	stem := strings.TrimSuffix(item.Path, path.Ext(item.Path))
 	for _, suffix := range []string{"-poster.jpg", "-poster.png", "-cover.jpg", "-cover.png"} {
 		names = append(names, stem+suffix)
 	}

@@ -14,8 +14,9 @@ test('episode ranges preserve gaps and meteor batches cover the right side', () 
     expect(batch.at(-1).x - batch[0].x).toBeGreaterThan(.4)
   }
   const first = rockPosition(0, 0, 1000, 800), later = rockPosition(0, 30, 1000, 800)
-  expect(later.x - first.x).toBe(90)
+  expect(later.x).not.toBe(first.x)
   expect(later.y).toBeGreaterThan(first.y)
+  for(let i=0;i<7;i++) for(const time of [0,30,1000]) { const p=rockPosition(i,time,1000,800);expect(p.x).toBeLessThan(400);expect(p.y).toBeGreaterThan(550);expect(p.y).toBeLessThan(800) }
 })
 
 test('activity popover shows media season and compact episode ranges', async ({ page }, info) => {

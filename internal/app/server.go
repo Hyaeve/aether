@@ -73,6 +73,7 @@ type App struct {
 	downloaded     atomic.Int64
 	uploaded       atomic.Int64
 	offlineBatches atomic.Int32
+	extracting     atomic.Int32
 	started        time.Time
 	dav            *webdav.Handler
 }
@@ -262,6 +263,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/directory-size", a.protected(http.HandlerFunc(a.directorySize)))
 	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
+	mux.Handle("POST /api/files/extract", a.protected(http.HandlerFunc(a.fileExtract)))
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
 	mux.Handle("POST /api/files/share/{action}", a.protected(http.HandlerFunc(a.shareTransfer)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
