@@ -9,6 +9,7 @@ import (
 )
 
 type shareBatch struct {
+	Source    string
 	Directory string
 	Items     []shareEntry
 }
@@ -16,8 +17,8 @@ type shareBatch struct {
 func (a *App) planShare(ctx context.Context, s Storage, code, pass string, items []shareEntry) ([]shareBatch, error) {
 	result := []shareBatch{}
 	seen, count := map[string]bool{}, 0
-	var walk func([]shareEntry, string, int) error
-	walk = func(entries []shareEntry, directory string, depth int) error {
+	var walk func([]shareEntry, string, string, int) error
+	walk = func(entries []shareEntry, directory, source string, depth int) error {
 		if depth > 32 {
 			return errors.New("分享目录层级超过32层")
 		}
@@ -26,9 +27,6 @@ func (a *App) planShare(ctx context.Context, s Storage, code, pass string, items
 			return errors.New("分享文件总数超过5000，请缩小分享范围")
 		}
 		limit := 100
-		if nativeMobile(s) {
-			limit = 1000
-		}
 		files := []shareEntry{}
 		names := map[string]bool{}
 		for _, item := range entries {
@@ -39,16 +37,20 @@ func (a *App) planShare(ctx context.Context, s Storage, code, pass string, items
 				return errors.New("分享文件缺少转存凭据，请重新解析")
 			}
 			names[item.Name] = true
-			if nativeMobile(s) && item.IsDir {
+			if item.IsDir {
 				if seen[item.ID] {
 					return errors.New("分享目录循环或重复")
 				}
 				seen[item.ID] = true
-				_, children, err := a.readShareAt(ctx, s, code, pass, item.ID)
+				childSource := item.ID
+				if nativeMobile(s) && item.Token != "" {
+					childSource = item.Token
+				}
+				_, children, err := a.readShareAt(ctx, s, code, pass, childSource)
 				if err != nil {
 					return err
 				}
-				if err := walk(children, path.Join(directory, item.Name), depth+1); err != nil {
+				if err := walk(children, path.Join(directory, item.Name), item.ID, depth+1); err != nil {
 					return err
 				}
 			} else {
@@ -59,11 +61,11 @@ func (a *App) planShare(ctx context.Context, s Storage, code, pass string, items
 			result = append(result, shareBatch{Directory: directory})
 		}
 		for start := 0; start < len(files); start += limit {
-			result = append(result, shareBatch{Directory: directory, Items: files[start:min(start+limit, len(files))]})
+			result = append(result, shareBatch{Directory: directory, Source: source, Items: files[start:min(start+limit, len(files))]})
 		}
 		return nil
 	}
-	err := walk(items, "", 0)
+	err := walk(items, "", "root", 0)
 	return result, err
 }
 
@@ -86,21 +88,6 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	// Consume before any directory creation or upstream write; never replay an uncertain result.
 	defer func() { a.shareMu.Lock(); p.BatchBusy = false; a.shareMu.Unlock() }()
 	failure := func(err error) { a.shareMu.Lock(); p.Used = true; a.shareMu.Unlock(); fail(w, 400, err) }
-	if index == 0 {
-		entries, err := a.rawList(ctx, s, parent)
-		if err != nil {
-			failure(errors.New("转存目录不可访问"))
-			return
-		}
-		for _, existing := range entries {
-			for _, item := range preview.Items {
-				if existing.Name == item.Name {
-					failure(errors.New("转存目录有同名项目，请更换目录"))
-					return
-				}
-			}
-		}
-	}
 	current, err := a.store.storage(s.ID)
 	if err != nil || shareConfig(current) != preview.Config {
 		failure(errors.New("存储配置已变化"))
@@ -116,6 +103,26 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 			return
 		}
 	}
+	existing, err := a.rawList(ctx, s, parent)
+	if err != nil {
+		failure(errors.New("转存目录不可访问"))
+		return
+	}
+	names := map[string]bool{}
+	for _, item := range existing {
+		names[item.Name] = true
+	}
+	filtered := []shareEntry{}
+	skipped := 0
+	for _, item := range batch.Items {
+		if names[item.Name] {
+			skipped++
+		} else {
+			filtered = append(filtered, item)
+		}
+	}
+	batch.Items = filtered
+	preview.SourceParent = batch.Source
 	task := ""
 	if len(batch.Items) > 0 {
 		task, err = submitShare(ctx, s, preview, parent, batch.Items)
@@ -126,8 +133,9 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	}
 	a.shareMu.Lock()
 	p.TaskID = task
+	p.Skipped += skipped
 	p.Expires = time.Now().Add(10 * time.Minute)
 	a.shareMu.Unlock()
 	a.cache.clear()
-	jsonResponse(w, 200, map[string]any{"status": "submitted", "taskId": task, "message": "本批次已提交", "done": index + 1, "total": len(preview.Batches)})
+	jsonResponse(w, 200, map[string]any{"status": "submitted", "taskId": task, "message": "本批次已提交", "skipped": skipped, "done": index + 1, "total": len(preview.Batches)})
 }

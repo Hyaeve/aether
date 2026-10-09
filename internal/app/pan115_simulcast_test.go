@@ -198,8 +198,8 @@ func TestPan115SimulcastRegisteredSettingsAndToolsRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reopened.state.Simulcast) != 0 || reopened.state.ToolsRevision == "" {
-		t.Fatal("configuration embedded in main state instead of tool snapshot")
+	if reopened.state.Modules["tool/config"] == "" {
+		t.Fatal("configuration missing from encrypted tool module")
 	}
 	if err = reopened.initTools(filepath.Join(a.dataDir, "tools")); err != nil {
 		t.Fatal(err)

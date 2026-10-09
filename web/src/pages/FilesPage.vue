@@ -33,6 +33,41 @@ const route = useRoute()
 const selected = ref([route.query.storage, saved.storage].find(id => state.storages.some(s => s.enabled && s.id === id)) || state.storages.find(s => s.enabled)?.id || '')
 const current = ref('/'), history = ref([]), files = ref([]), busy = ref(false), error = ref(''), query = ref('')
 const searchInput = ref('')
+const searchResults = ref(null), searching = ref(false), searchError = ref('')
+const activeFiles = computed(() => searchResults.value || files.value)
+let searchController, searchGeneration = 0
+function clearDeepSearch() {
+  searchGeneration++; searchController?.abort(); searchController = null
+  searching.value = false; searchResults.value = null; searchError.value = ''
+}
+watch(searchInput, value => { clearDeepSearch(); query.value = value; selection.value = []; anchor.value = ''; closeMenu() }, { flush: 'sync' })
+async function deepSearch(event) {
+  if (event?.isComposing || renameID.value || !selected.value || busy.value) return
+  event?.preventDefault()
+  clearDeepSearch()
+  const term = searchInput.value.trim()
+  if (!term) return
+  const generation = searchGeneration, storage = selected.value, parent = current.value
+  const trail = history.value.map(h => ({ ...h }))
+  searchController = new AbortController(); searching.value = true
+  selection.value = []; anchor.value = ''; closeMenu()
+  try {
+    const response = await fetch('/api/files/search?' + new URLSearchParams({ storage, path: parent, q: term }), { credentials: 'same-origin', signal: searchController.signal })
+    const data = await response.json()
+    if (generation !== searchGeneration) return
+    if (!response.ok) { if (response.status === 401) state.authenticated = false; throw new Error(data.error || '深度搜索失败') }
+    if (generation === searchGeneration) { searchResults.value = data.map(f => ({ ...f, trail: [...trail, ...(f.trail || [])] })); resetScroll() }
+  } catch (e) { if (generation === searchGeneration && e.name !== 'AbortError') searchError.value = e.message }
+  finally { if (generation === searchGeneration) searching.value = false }
+}
+function resultPath(file) { return ['根目录', ...(file.trail || history.value).map(h => h.name)].join(' / ') }
+async function locate(file) {
+  const storage = selected.value
+  const parent = file.parent, trail = (file.trail || []).map(h => ({ ...h }))
+  clearDeepSearch(); searchInput.value = ''; query.value = ''; selection.value = []; anchor.value = ''
+  current.value = parent; history.value = trail; resetScroll(); await load()
+  return storage === selected.value && current.value === parent ? files.value.find(f => f.id === file.id) : null
+}
 const viewport = ref(null), draft = ref(false), confirmRename = ref(false), details = ref(false), createMenu = ref(false)
 const toolPosition = ref(null)
 function transferChanged(event) {
@@ -57,6 +92,7 @@ function blankTools(event) {
 const workbenchFiles = ref(null), detailBusy = ref(false), detailError = ref('')
 const offlineSupported = computed(() => !!selected.value)
 const shareTransfer = ref(false)
+const shareSupported = computed(() => { const s=state.storages.find(s=>s.id===selected.value); return s && (['115','quark'].includes(s.type) || s.type==='mobile' && s.config?.mode==='native') })
 const preview = ref(null)
 const imageFile = f => !f.isDir && /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(f.name)
 const videoFile = f => !f.isDir && /\.(?:mp4|webm|m4v|mov|mkv|avi|ts)$/i.test(f.name)
@@ -88,15 +124,17 @@ function openFile(event, file) {
   if (file.isDir) return enter(file)
   if (file.url && (imageFile(file) || videoFile(file) || audioFile(file))) {
     if (audioFile(file)) {
-      const context = { storage: selected.value, parent: current.value, companions: files.value.filter(f => !f.isDir).map(f => ({ id: f.id, name: f.name })) }
-      closeMenu(); openAudio({ ...file, ...context }, visible.value.filter(f => audioFile(f) && f.url).map(f => ({ ...f, ...context })))
+      const parent = file.parent ?? current.value
+      const companions = activeFiles.value.filter(f => !f.isDir && (f.parent ?? current.value) === parent).map(f => ({ id: f.id, name: f.name }))
+      const context = { storage: selected.value, parent, companions }
+      closeMenu(); openAudio({ ...file, ...context }, visible.value.filter(f => audioFile(f) && f.url && (f.parent ?? current.value) === parent).map(f => ({ ...f, ...context })))
       return
     }
     if (imageFile(file)) previewImages.value = visible.value.filter(f => imageFile(f) && f.url).map(f => ({ ...f }))
-    closeMenu(); preview.value = { ...file, storage: selected.value, parent: current.value, companions: files.value.filter(f => !f.isDir).map(f => ({ id: f.id, name: f.name })) }
+    closeMenu(); preview.value = { ...file, storage: selected.value, parent: file.parent ?? current.value, companions: [] }
   } else context(event, file)
 }
-function openWorkbench() { workbenchFiles.value = [...(selection.value.length ? detailFiles.value : files.value)]; createMenu.value = false; closeMenu() }
+function openWorkbench() { if (searchResults.value) return; workbenchFiles.value = [...(selection.value.length ? detailFiles.value : files.value)]; createMenu.value = false; closeMenu() }
 function clearSelection(event) {
   if (renameID.value || details.value || workbenchFiles.value || event.target.closest('button,input,select,textarea,a,[role=option],.file-row,.file-grid-item,.modal,.context-menu,.rename-workbench')) return
   selection.value = []; anchor.value = ''
@@ -120,7 +158,7 @@ watch([favoritesOpen, favorites, selected, sortKey, ascending], () => {
 const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'type', label: '类型' }, { key: 'modified', label: '修改时间' }]
 const type = f => f.isDir ? '文件夹' : f.name.split('.').at(-1).toUpperCase()
 const fileSize = f => f.isDir && !f.sizeKnown ? '—' : bytes(f.size)
-const visible = computed(() => files.value.filter(f => f.name.toLowerCase().includes(query.value.toLowerCase())).sort((a, b) => {
+const visible = computed(() => activeFiles.value.filter(f => f.name.toLowerCase().includes(query.value.trim().toLowerCase())).sort((a, b) => {
   const value = f => sortKey.value === 'type' ? type(f) : sortKey.value === 'size' ? f.size : f[sortKey.value] || ''
   const av = value(a), bv = value(b)
   return (ascending.value ? 1 : -1) * (typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv), 'zh-CN', { numeric: true }))
@@ -129,7 +167,7 @@ const displayItems = computed(() => draft.value ? [{ id: '__new__', name: '', is
 const gridMode = computed(() => mode.value === 'grid')
 const { shown, top, bottom, columns: gridColumns, reset: resetScroll, reveal } = useVirtualList(displayItems, viewport, { rowHeight: computed(() => gridMode.value ? 148 : 52), header: computed(() => gridMode.value ? 0 : 44), grid: gridMode })
 watch([query, sortKey, ascending, mode], resetScroll)
-const detailFiles = computed(() => files.value.filter(f => selection.value.includes(f.id)))
+const detailFiles = computed(() => activeFiles.value.filter(f => selection.value.includes(f.id)))
 const detailSummary = computed(() => ({
   folders: detailFiles.value.reduce((n, f) => n + (f.isDir ? 1 + (f.folderCount || 0) : 0), 0),
   files: detailFiles.value.reduce((n, f) => n + (f.isDir ? f.fileCount || 0 : 1), 0),
@@ -179,8 +217,9 @@ function select(event, f) {
   } else selection.value = [f.id]
   anchor.value = f.id
 }
-function context(event, f) {
+async function context(event, f) {
   if (renameID.value || f.id === '__new__') return
+  if (searchResults.value) { const found = await locate(f); if (found) context(event, found); return }
   if (!selection.value.includes(f.id)) selection.value = [f.id]
   menu.value = { x: Math.max(8,Math.min(event.clientX,window.innerWidth-160)), y: Math.max(8,Math.min(event.clientY,window.innerHeight-(extractable.value ? 302 : 260))) }
 }
@@ -245,10 +284,10 @@ function keys(e) {
     e.preventDefault(); selection.value = visible.value.map(f => f.id)
   }
   if (e.key === 'Escape') { closeMenu(); createMenu.value = false; if (!confirmRename.value) cancelEdit() }
-  if (e.key === 'F2' && !document.querySelector('.modal') && !['INPUT','TEXTAREA'].includes(e.target.tagName)) { e.preventDefault(); rename() }
+  if (e.key === 'F2' && !document.querySelector('.modal') && !['INPUT','TEXTAREA'].includes(e.target.tagName)) { e.preventDefault(); if (searchResults.value && detailFiles.value.length === 1) { const f = detailFiles.value[0]; locate(f).then(found => { if (found) { selection.value = [found.id]; rename() } }) } else rename() }
 }
 onMounted(() => { document.addEventListener('click', clearSelection); document.addEventListener('click', closeMenu); document.addEventListener('pointerdown', outsideEdit); document.addEventListener('click', outsideCreate); document.addEventListener('keydown', keys) })
-onUnmounted(() => { document.removeEventListener('click', clearSelection); document.removeEventListener('click', closeMenu); document.removeEventListener('pointerdown', outsideEdit); document.removeEventListener('click', outsideCreate); document.removeEventListener('keydown', keys); requestId++ })
+onUnmounted(() => { clearDeepSearch(); document.removeEventListener('click', clearSelection); document.removeEventListener('click', closeMenu); document.removeEventListener('pointerdown', outsideEdit); document.removeEventListener('click', outsideCreate); document.removeEventListener('keydown', keys); requestId++ })
 const poolFavorites = computed(() => favorites.value.filter(f => f.storage === selected.value && f.id !== '/' && f.history?.length))
 const isFavorite = computed(() => poolFavorites.value.some(f => f.id === current.value))
 function star() {
@@ -259,6 +298,7 @@ function star() {
 function jump(index) {
   if (renameID.value || uploadBusy.value) return
   selection.value = []; renameID.value = ''
+  clearDeepSearch(); searchInput.value = ''; query.value = ''
   current.value = index < 0 ? '/' : index === history.value.length - 1 ? current.value : history.value[index + 1].id
   history.value = history.value.slice(0, index + 1); resetScroll(); load()
 }
@@ -275,6 +315,7 @@ function favoriteJump(item) {
 }
 let requestId = 0
 async function load(refresh = false) {
+  clearDeepSearch()
   const id = ++requestId
   if (!selected.value) { files.value = []; return }
   busy.value = true; error.value = ''
@@ -284,37 +325,39 @@ async function load(refresh = false) {
   } catch (e) { if (id === requestId) { error.value = e.message; files.value = [] } }
   finally { if (id === requestId) busy.value = false }
 }
-function enter(f) { if (renameID.value || uploadBusy.value) return; if (f.isDir) { query.value = ''; searchInput.value = ''; selection.value = []; history.value.push({ id: current.value, name: f.name }); current.value = f.id; resetScroll(); load() } }
-watch(selected, () => { current.value = '/'; history.value = []; selection.value = []; cancelEdit(); resetScroll(); load() }, { immediate: true })
+function enter(f) { if (renameID.value || uploadBusy.value) return; if (f.isDir) { const trail = searchResults.value ? [...f.trail, { id: f.parent, name: f.name }] : [...history.value, { id: current.value, name: f.name }]; clearDeepSearch(); query.value = ''; searchInput.value = ''; selection.value = []; history.value = trail; current.value = f.id; resetScroll(); load() } }
+watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value = ''; current.value = '/'; history.value = []; selection.value = []; cancelEdit(); resetScroll(); load() }, { immediate: true })
 </script>
 <template>
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
-    <div class="search-field"><Icon name="Search" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="query = searchInput" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
+    <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
-      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
+      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
     </div>
   </div></div>
   <input ref="fileUpload" type="file" multiple hidden @change="upload" /><input ref="folderUpload" type="file" webkitdirectory multiple hidden @change="upload" />
   <p v-if="uploadProgress" class="upload-progress" role="status">{{ uploadProgress }}</p>
+  <p v-if="searching || searchResults" class="file-search-status" role="status">{{ searching ? '正在深度搜索…' : `深度搜索 · ${searchResults.length} 个结果` }}</p>
+  <p v-if="searchError" class="error-message" role="alert">{{ searchError }}</p>
   <div class="file-browser">
   <div class="file-toolbar"><button class="icon-btn" aria-label="展开收藏栏" :aria-expanded="favoritesOpen" @click="favoritesOpen = !favoritesOpen"><Icon name="PanelLeft" /></button><RoundedSelect v-model="selected" label="选择存储池" :disabled="!!renameID || uploadBusy" :options="state.storages.filter(s => s.enabled).map(s => ({ value: s.id, label: s.name }))" /><div class="path-bar"><PathBreadcrumbs :entries="history" :disabled="busy || !!renameID || uploadBusy" @jump="jump" /></div><button class="icon-btn" :disabled="!!renameID" :aria-label="mode === 'list' ? '当前列表视图，切换网格' : '当前网格视图，切换列表'" @click="mode = mode === 'list' ? 'grid' : 'list'"><Icon :name="mode === 'list' ? 'List' : 'LayoutGrid'" /></button></div>
   <div class="file-workspace" :class="{ 'with-favorites': favoritesOpen }">
   <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="!selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div><p v-if="!poolFavorites.length" class="muted">暂无收藏</p></aside>
-  <section ref="viewport" class="file-view" @contextmenu="blankTools">
+  <section ref="viewport" class="file-view" :class="{ 'deep-search-results': !!searchResults }" @contextmenu="blankTools">
   <div v-if="error" class="error-message" role="alert">{{ error }}</div>
   <div v-if="busy" class="empty-state"><Icon name="LoaderCircle" class="spin" :size="30" /><p>正在读取目录…</p></div>
-  <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>
+  <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : searchInput ? '没有匹配结果' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>
   <div v-else-if="mode === 'grid'" class="file-grid" :style="{ gridTemplateColumns: `repeat(${gridColumns},minmax(0,1fr))` }">
     <div v-if="top" :style="{ height: `${top}px`, gridColumn: '1 / -1' }" aria-hidden="true" />
-    <article v-for="f in shown" :key="f.id" class="file-grid-item" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><button class="file-grid-name" :aria-label="f.name"><img v-if="imageFile(f) && f.url" class="file-thumbnail" @click.stop="openFile($event, f)" @dblclick.stop :src="f.url" :alt="f.name" loading="lazy" /><VideoThumbnail v-else-if="videoFile(f) && f.url" :url="f.url" /><Icon v-else :name="fileIcon(f)" :size="38" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" /><strong v-if="renameID !== f.id" :data-tooltip="f.name">{{ f.name }}</strong></button><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><small>{{ f.isDir && !f.sizeKnown ? '文件夹' : bytes(f.size) }}</small></article>
+    <article v-for="f in shown" :key="f.id" class="file-grid-item" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><button class="file-grid-name" :aria-label="f.name"><img v-if="imageFile(f) && f.url" class="file-thumbnail" @click.stop="openFile($event, f)" @dblclick.stop :src="f.url" :alt="f.name" loading="lazy" /><VideoThumbnail v-else-if="videoFile(f) && f.url" :url="f.url" /><Icon v-else :name="fileIcon(f)" :size="38" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" /><strong v-if="renameID !== f.id" :data-tooltip="f.name">{{ f.name }}</strong></button><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button><small v-else>{{ f.isDir && !f.sizeKnown ? '文件夹' : bytes(f.size) }}</small></article>
     <div v-if="bottom" :style="{ height: `${bottom}px`, gridColumn: '1 / -1' }" aria-hidden="true" />
   </div>
   <div v-else class="table-wrap"><table><colgroup><col style="width:48%" /><col style="width:13%" /><col style="width:13%" /><col style="width:26%" /></colgroup><thead><tr><th v-for="col in columns" :key="col.key" :aria-sort="sortKey === col.key ? ascending ? 'ascending' : 'descending' : 'none'"><button class="file-sort" :disabled="!!renameID" @click="sort(col.key)">{{ col.label }}<span class="sort-triangles" :class="{ ascending: sortKey === col.key && ascending, descending: sortKey === col.key && !ascending }"><i /><i /></span></button></th></tr></thead><tbody>
     <tr v-if="top" class="file-spacer" :style="{ height: `${top}px` }" aria-hidden="true"><td colspan="4" /></tr>
-    <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name"><Icon :name="fileIcon(f)" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" :size="21" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
+    <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name"><Icon :name="fileIcon(f)" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" :size="21" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
     <tr v-if="bottom" class="file-spacer" :style="{ height: `${bottom}px` }" aria-hidden="true"><td colspan="4" /></tr>
   </tbody></table></div>
   </section></div></div>
@@ -346,3 +389,11 @@ watch(selected, () => { current.value = '/'; history.value = []; selection.value
   <ShareTransfer v-if="shareTransfer" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="shareTransfer = false" />
   </template>
 </template>
+<style scoped>
+.file-search-status { margin:0 0 10px; color:var(--muted); font-size:12px; }
+.file-result-path { display:block; padding:0; margin:4px 0 0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:none; color:var(--muted); font-size:11px; text-align:left; }
+.file-result-path:hover { color:var(--primary); }
+.deep-search-results .file-name { gap:8px; }
+.deep-search-results .file-name strong { font-size:14px; }
+.file-grid-item .file-result-path { width:100%; text-align:center; margin-top:8px; }
+</style>

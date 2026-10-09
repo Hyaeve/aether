@@ -168,7 +168,7 @@ async function toggle(t) {
         <div v-if="kind === 'cas'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
         <div v-if="kind === 'cas'" class="field"><label for="cas-retention">还原文件保留时间</label><NumberInput id="cas-retention" v-model="form.retentionHours" aria-label="还原文件保留时间" unit="h" min="1" max="8760" required /></div>
-        <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" placeholder="0 2 * * *" /></label>
+        <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" /></label>
         <div v-else class="field"><label for="task-cache">缓存期</label><NumberInput id="task-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
         <label v-if="kind === 'strm' && storage(form.storageId)?.type === 'openlist'" class="toggle-line full"><span>编码路径</span><input v-model="form.encodePath" type="checkbox" role="switch" class="switch" /></label>
         <div v-for="field in kind === 'cache' ? [] : [{ key: 'mediaExtensions', id: 'task-media-extensions', label: '媒体扩展名', groups: ['video', 'audio'] }, { key: 'metadataExtensions', id: 'task-metadata-extensions', label: '元数据扩展名', groups: ['image', 'data'] }]" :key="field.key" class="field full extension-field">

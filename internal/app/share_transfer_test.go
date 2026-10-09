@@ -249,10 +249,15 @@ func TestShareAPIReplayConflictAndStatus(t *testing.T) {
 	}
 	input = map[string]any{"storageId": "q", "preview": preview.Preview, "parent": "0", "ids": []string{"f"}}
 	conflict = true
-	if w = request(t, h, "POST", "/api/files/share/save", input, cookie); w.Code != 409 || saves != 0 {
+	if w = request(t, h, "POST", "/api/files/share/save", input, cookie); w.Code != 200 || saves != 0 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	conflict = false
+	w = request(t, h, "POST", "/api/files/share/preview", map[string]any{"storageId": "q", "url": "https://pan.quark.cn/s/abc"}, cookie)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &preview) != nil {
+		t.Fatal(w.Body.String())
+	}
+	input["preview"] = preview.Preview
 	if w = request(t, h, "POST", "/api/files/share/save", input, cookie); w.Code != 200 || saves != 1 || !strings.Contains(w.Body.String(), "submitted") {
 		t.Fatal(w.Code, w.Body.String())
 	}

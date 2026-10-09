@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	automationMu     sync.Mutex
+	automationRuns   map[string]context.CancelFunc
 	fuseReadOnce     sync.Once
 	fuseReadRevision atomic.Uint64
 	fuseReads        *fuseReadCache
@@ -109,7 +111,12 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	if err != nil {
 		return nil, err
 	}
-	if err := store.initTools(filepath.Join(dataDir, "tools")); err != nil {
+	if !store.modular && store.state.ToolsRevision != "" {
+		if err := store.initTools(filepath.Join(dataDir, "tools")); err != nil {
+			return nil, err
+		}
+	}
+	if err := store.initModules(); err != nil {
 		return nil, err
 	}
 	if err := applyPendingConfig(store); err != nil {
@@ -265,6 +272,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
 	mux.Handle("POST /api/files/extract", a.protected(http.HandlerFunc(a.fileExtract)))
 	mux.Handle("GET /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
+	mux.Handle("GET /api/files/search", a.protected(http.HandlerFunc(a.fileSearch)))
 	mux.Handle("HEAD /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
 	mux.Handle("POST /api/files/share/{action}", a.protected(http.HandlerFunc(a.shareTransfer)))
@@ -278,6 +286,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
 	mux.Handle("/api/files", a.protected(http.HandlerFunc(a.files)))
 	mux.Handle("/api/tasks", a.protected(http.HandlerFunc(a.tasks)))
+	mux.Handle("/api/automations", a.protected(http.HandlerFunc(a.automationAPI)))
+	mux.Handle("/api/automations/{id}", a.protected(http.HandlerFunc(a.automationAPI)))
+	mux.Handle("POST /api/automations/{id}/{action}", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("/api/strm-scrape/{action}", a.protected(http.HandlerFunc(a.strmScrape)))
 	mux.Handle("/api/tasks/{id}", a.protected(http.HandlerFunc(a.taskItem)))
 	mux.Handle("/api/tasks/{id}/{action}", a.protected(http.HandlerFunc(a.taskAction)))
@@ -883,6 +894,7 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) validateTask(t *Task) error {
+	t.Cron = strings.TrimSpace(t.Cron)
 	var extensionErr error
 	if t.RetainedExtensions != nil {
 		value, err := normalizeExtensions(*t.RetainedExtensions)
@@ -981,7 +993,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created := time.Now()
-	defaultTaskCron(&t, created)
+	t.Cron = strings.TrimSpace(t.Cron)
 	if err := a.validateTask(&t); err != nil {
 		fail(w, 400, err)
 		return

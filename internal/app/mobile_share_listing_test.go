@@ -38,7 +38,7 @@ func TestMobileShareDirectoryResponse(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Fatal(err)
 				}
-				if r.Method != "POST" || r.URL.String() != mobileShareBase+"IOutLink/getOutLinkInfoV6" || len(body.Request) != 4 || body.Request["pCaID"] != "folder" || body.Request["account"] != "account" || body.Request["linkID"] != "link" || body.Request["passwd"] != "pass" {
+				if r.Method != "POST" || r.URL.String() != mobileShareBase+"IOutLink/getOutLinkInfoV6" || len(body.Request) != 9 || body.Request["bNum"] != float64(1) || body.Request["eNum"] != float64(100) || body.Request["pCaID"] != "folder" || body.Request["account"] != "account" || body.Request["linkID"] != "link" || body.Request["passwd"] != "pass" {
 					t.Fatalf("unexpected protocol: %s %v", r.URL, body.Request)
 				}
 				if tc.missingData {

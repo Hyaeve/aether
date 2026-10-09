@@ -108,7 +108,7 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   const tabY = await page.locator('.task-heading .content-tabs').evaluate(el => el.getBoundingClientRect().top)
   const actionY = await page.getByRole('button', { name: '添加任务', exact: true }).evaluate(el => el.getBoundingClientRect().top)
   expect(Math.abs(tabY - actionY)).toBeLessThan(20)
-  await expect(page.getByRole('navigation', { name: '任务栏目' }).getByRole('link')).toHaveCount(6)
+  await expect(page.getByRole('navigation', { name: '任务栏目' }).getByRole('link')).toHaveCount(7)
   await page.getByRole('button', { name: '添加任务', exact: true }).click()
   await page.getByLabel('任务名称').fill('电影增量同步')
   await page.getByRole('button', { name: '选择目录', exact: true }).click()

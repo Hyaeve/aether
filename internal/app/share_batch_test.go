@@ -34,10 +34,10 @@ func TestMobileShareNestedBatchLimit(t *testing.T) {
 		return string(data)
 	})
 	plan, err := a.planShare(context.Background(), s, "link", "", []shareEntry{{ID: "directory", Name: "Show", IsDir: true}})
-	if err != nil || len(plan) != 2 {
+	if err != nil || len(plan) != 11 {
 		t.Fatal(len(plan), err)
 	}
-	if len(plan[0].Items) != 1000 || len(plan[1].Items) != 1 {
+	if len(plan[0].Items) != 100 || len(plan[10].Items) != 1 {
 		t.Fatal("incorrect batches")
 	}
 	for _, batch := range plan {

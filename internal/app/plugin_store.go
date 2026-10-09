@@ -22,6 +22,9 @@ type toolSettings struct {
 func (s *Store) initTools(dir string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.modular {
+		return nil
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}

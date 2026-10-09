@@ -30,7 +30,7 @@ async function clear() {
 <template>
   <section v-if="section === 'cache'" class="task-heading"><button class="btn" @click="$router.push('/tasks/cache')"><Icon name="ArrowLeft" />返回缓存任务</button><div class="toolbar-right"><button class="btn danger-outline" @click="clearConfirm = true"><Icon name="Trash2" />清空缓存</button><button class="btn primary" form="cache-settings-form" :disabled="busy"><Icon name="Save" />保存设置</button></div></section>
   <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about', 'logs'].includes(section) }">
-  <nav v-if="['account', 'general', 'about', 'logs'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
+  <nav v-tab-scroll v-if="['account', 'general', 'about', 'logs'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
     <RouterLink to="/settings/account" :class="{ active: section === 'account' }"><Icon name="UserRound" />账号与安全</RouterLink>
     <RouterLink to="/settings/logs" :class="{ active: section === 'logs' }"><Icon name="FileClock" />日志管理</RouterLink>
     <RouterLink to="/settings/about" :class="{ active: section === 'about' }"><Icon name="Info" />关于以太</RouterLink>

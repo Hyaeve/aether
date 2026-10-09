@@ -11,6 +11,9 @@ test('dashboard wraps long names and logs without horizontal scrolling', async (
   } }))
   await page.goto('/dashboard')
   await expect(page.locator('.activity-row')).toContainText(message)
+  await expect(page.locator('.activity-message')).toHaveCSS('-webkit-line-clamp','2')
+  await page.locator('.activity-message').hover()
+  await expect(page.getByRole('tooltip')).toHaveText(message)
   for (const width of [1920, 1440, 1024, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
     await expect(page.locator('.dashboard-page')).toBeVisible()

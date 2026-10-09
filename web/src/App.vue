@@ -17,6 +17,7 @@ import FileTabs from './components/FileTabs.vue'
 import LoginPage from './pages/LoginPage.vue'
 import StoragePage from './pages/StoragePage.vue'
 import TasksPage from './pages/TasksPage.vue'
+import AutomationPage from './pages/AutomationPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
 import FilesPage from './pages/FilesPage.vue'
 import DashboardPage from './pages/DashboardPage.vue'
@@ -159,7 +160,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
       <main class="page-content">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />
-        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/ed2k', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
+        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/ed2k', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />
         <TransfersPage v-else-if="currentPath.startsWith('/transfer') || currentPath === '/backup'" :rules="currentPath === '/transfer/backup' || currentPath === '/backup'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
@@ -167,6 +168,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <MountsPage v-else-if="currentPath === '/files/mounts'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas', '/tasks/ed2k'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <ScrapePage v-else-if="currentPath === '/tasks/scrape'" />
+        <AutomationPage v-else-if="currentPath === '/tasks/automation'" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : 'account'" />

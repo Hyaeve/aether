@@ -95,6 +95,7 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	b := configBundle{State: a.store.snapshot(), Files: map[string]json.RawMessage{}}
 	b.State.Logs = nil
 	b.State.ToolsRevision = ""
+	b.State.Modules = nil
 	var total int64
 	err := filepath.WalkDir(a.store.dir, func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -267,9 +268,15 @@ func applyPendingConfig(s *Store) error {
 	}
 	before := s.state
 	s.state = b.State
+	s.state.Modules = before.Modules
 	for i := range s.state.Tasks {
 		s.state.Tasks[i].Status = "idle"
 		s.state.Tasks[i].NextRun = nextRun(s.state.Tasks[i], time.Now())
+	}
+	for i := range s.state.Automations {
+		s.state.Automations[i].Status = "idle"
+		s.state.Automations[i].Message = ""
+		s.state.Automations[i].NextRun = automationNext(s.state.Automations[i], time.Now())
 	}
 	if err = s.saveLocked(); err != nil {
 		s.state = before

@@ -31,6 +31,8 @@ func TestConfigBackup(t *testing.T) {
 		st.Storages = append(st.Storages, Storage{ID: "saved-pool", Name: "saved", Type: "local", Enabled: true, Config: map[string]string{"root": t.TempDir()}})
 		st.Links = append(st.Links, MediaLink{ID: "saved-link", Name: "saved", APIKey: "backup-private-key"})
 		st.Simulcast = map[string]SimulcastConfig{"pan": {Enabled: true, Directory: "99"}}
+		st.Tasks = []Task{{ID: "manual", Kind: "strm", Cron: ""}}
+		st.Automations = []Automation{{ID: "rule", Name: "Rule", Enabled: true, Trigger: "manual", Steps: []AutomationStep{{Kind: "refresh", Condition: "always"}}}}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -109,6 +111,9 @@ func TestConfigBackup(t *testing.T) {
 	}
 	if reloaded.snapshot().Simulcast["pan"].Directory != "99" {
 		t.Fatal("simulcast snapshot not persisted")
+	}
+	if got := reloaded.snapshot(); len(got.Automations) != 1 || len(got.Tasks) != 1 || got.Tasks[0].Cron != "" || !got.Tasks[0].NextRun.IsZero() {
+		t.Fatal("automation or manual task lost in backup")
 	}
 	bundle.Files["../escape.json"] = json.RawMessage("{}")
 	if validateBundle(bundle) == nil {

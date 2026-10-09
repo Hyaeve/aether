@@ -26,20 +26,22 @@ type shareEntry struct {
 }
 
 type sharePreview struct {
-	Owner     [32]byte
-	Config    [32]byte
-	Storage   string
-	Code      string
-	Pass      string
-	Token     string
-	Items     []shareEntry
-	Expires   time.Time
-	Used      bool
-	TaskID    string
-	Batches   []shareBatch
-	Next      int
-	BatchBusy bool
-	Parent    string
+	SourceParent string
+	Skipped      int
+	Owner        [32]byte
+	Config       [32]byte
+	Storage      string
+	Code         string
+	Pass         string
+	Token        string
+	Items        []shareEntry
+	Expires      time.Time
+	Used         bool
+	TaskID       string
+	Batches      []shareBatch
+	Next         int
+	BatchBusy    bool
+	Parent       string
 }
 
 var shareURLPattern = regexp.MustCompile(`https?://[^\s<>，。]+`)
@@ -214,13 +216,17 @@ func shareRequest(ctx context.Context, s Storage, method, address string, body a
 		return errors.New("分享服务响应过大或不完整")
 	}
 	var envelope struct {
-		State *bool           `json:"state"`
-		Code  json.RawMessage `json:"code"`
+		State      *bool           `json:"state"`
+		Code       json.RawMessage `json:"code"`
+		ResultCode json.RawMessage `json:"resultCode"`
 	}
 	if json.Unmarshal(b, &envelope) != nil {
 		return errors.New("分享服务响应格式异常")
 	}
 	code := strings.Trim(string(envelope.Code), `"`)
+	if s.Type == "mobile" && code == "" {
+		code = strings.Trim(string(envelope.ResultCode), `"`)
+	}
 	if s.Type == "115" {
 		if envelope.State == nil || !*envelope.State {
 			return errors.New("115 拒绝分享请求，请检查提取码、链接有效期和账号权限")
@@ -262,6 +268,7 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 		}
 		batch := []shareEntry{}
 		total := 0
+		mobileMore := false
 		switch s.Type {
 		case "115":
 			var result struct {
@@ -275,6 +282,9 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 				} `json:"data"`
 			}
 			q := url.Values{"share_code": {code}, "receive_code": {pass}, "cid": {"0"}, "offset": {strconv.Itoa(page * 100)}, "limit": {"100"}, "asc": {"0"}, "format": {"json"}}
+			if parent != "root" {
+				q.Set("cid", parent)
+			}
 			if err := read115Share(ctx, s, q, &result); err != nil {
 				return "", nil, err
 			}
@@ -301,6 +311,9 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 				} `json:"metadata"`
 			}
 			q := url.Values{"pr": {"ucpro"}, "fr": {"pc"}, "pwd_id": {code}, "stoken": {token}, "pdir_fid": {"0"}, "_page": {strconv.Itoa(page + 1)}, "_size": {"100"}, "_fetch_total": {"1"}}
+			if parent != "root" {
+				q.Set("pdir_fid", parent)
+			}
 			if err := shareRequest(ctx, s, "GET", "https://drive.quark.cn/1/clouddrive/share/sharepage/detail?"+q.Encode(), nil, &result); err != nil {
 				return "", nil, err
 			}
@@ -328,14 +341,15 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 					Dirs  []entry `json:"caLst"`
 				} `json:"data"`
 			}
-			// V6 returns the current share directory in one response, not a paged cloud listing.
-			body := map[string]any{"getOutLinkInfoReq": map[string]any{"account": account, "linkID": code, "passwd": pass, "pCaID": parent}}
+			// Match the official share page, not the personal-cloud listing protocol.
+			body := map[string]any{"getOutLinkInfoReq": map[string]any{"account": account, "linkID": code, "passwd": pass, "pCaID": parent, "bNum": page*100 + 1, "eNum": (page + 1) * 100, "caSrt": 1, "coSrt": 1, "srtDr": 0}}
 			if err := shareRequest(ctx, s, "POST", mobileShareBase+"IOutLink/getOutLinkInfoV6", body, &result); err != nil {
 				return "", nil, err
 			}
 			if result.Data == nil {
 				return "", nil, errors.New("分享服务未返回目录数据，请重新解析")
 			}
+			mobileMore = len(result.Data.Files)+len(result.Data.Dirs) == 100
 			for _, f := range result.Data.Dirs {
 				p := f.Path
 				if p == "" {
@@ -361,8 +375,11 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 		if total > 5000 || len(items) > 5000 {
 			return "", nil, errors.New("分享根目录最多支持 5000 项")
 		}
-		if s.Type == "mobile" {
+		if s.Type == "mobile" && !mobileMore {
 			return token, items, nil
+		}
+		if s.Type == "mobile" {
+			continue
 		}
 		if len(batch) == 0 && total > len(items) {
 			return "", nil, errors.New("分享列表分页不完整，请重新解析")
@@ -529,15 +546,21 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if names[item.Name] {
-			fail(w, 409, errors.New("目标目录或选择中有同名项目，请更换目录或调整选择"))
-			return
+			continue
 		}
-		names[item.Name] = true
 		if s.Type != "115" && item.Token == "" {
 			fail(w, 400, errors.New("分享缺少转存凭据或路径，请重新解析"))
 			return
 		}
 	}
+	filtered := chosen[:0]
+	for _, item := range chosen {
+		if !names[item.Name] {
+			filtered = append(filtered, item)
+			names[item.Name] = true
+		}
+	}
+	chosen = filtered
 	current, err := a.store.storage(s.ID)
 	if err != nil || shareConfig(current) != preview.Config {
 		fail(w, 409, errors.New("存储配置已变化，请重新解析"))
@@ -552,7 +575,10 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	p.Used = true
 	a.shareMu.Unlock()
 	// A lost response may still have created an upstream job. Do not automatically retry.
-	taskID, err := submitShare(ctx, s, preview, in.Parent, chosen)
+	taskID := ""
+	if len(chosen) > 0 {
+		taskID, err = submitShare(ctx, s, preview, in.Parent, chosen)
+	}
 	a.cache.clear()
 	if err != nil {
 		fail(w, 502, fmt.Errorf("%s；如已提交请求，请先检查目标网盘，勿直接重复转存", err))
@@ -585,7 +611,11 @@ func submitShare(ctx context.Context, s Storage, p sharePreview, parent string, 
 	case "115":
 		err = shareRequest(ctx, s, "POST", "https://webapi.115.com/share/receive", url.Values{"share_code": {p.Code}, "receive_code": {p.Pass}, "file_id": {strings.Join(ids, ",")}, "cid": {parent}}, &result)
 	case "quark":
-		err = shareRequest(ctx, s, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/save?pr=ucpro&fr=pc", map[string]any{"fid_list": ids, "fid_token_list": tokens, "to_pdir_fid": parent, "pwd_id": p.Code, "stoken": p.Token, "pdir_fid": "0", "scene": "link"}, &result)
+		source := p.SourceParent
+		if source == "" || source == "root" {
+			source = "0"
+		}
+		err = shareRequest(ctx, s, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/save?pr=ucpro&fr=pc", map[string]any{"fid_list": ids, "fid_token_list": tokens, "to_pdir_fid": parent, "pwd_id": p.Code, "stoken": p.Token, "pdir_fid": source, "scene": "link"}, &result)
 	case "mobile":
 		account, _, e := mobileAccount(s)
 		if e != nil {

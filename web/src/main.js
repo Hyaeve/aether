@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './style.css'
 import { preloadLogos } from './assets-preload'
+import { tabScroll } from './tab-scroll'
 preloadLogos()
 
 const router = createRouter({
@@ -15,4 +16,4 @@ const router = createRouter({
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
   ]
 })
-createApp(App).use(router).mount('#app')
+createApp(App).directive('tab-scroll', tabScroll).use(router).mount('#app')

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -105,6 +106,9 @@ type LogEntry struct {
 }
 
 type State struct {
+	TaskOrder      []string                   `json:"taskOrder,omitempty"`
+	Modules        map[string]string          `json:"modules,omitempty"`
+	Automations    []Automation               `json:"automations,omitempty"`
 	ToolsRevision  string                     `json:"toolsRevision,omitempty"`
 	Simulcast      map[string]SimulcastConfig `json:"simulcast,omitempty"`
 	Plugins        map[string]PluginConfig    `json:"plugins,omitempty"`
@@ -125,6 +129,7 @@ type State struct {
 }
 
 type Store struct {
+	modular  bool
 	toolsDir string
 	logDir   string
 	mu       sync.RWMutex
@@ -182,10 +187,26 @@ func NewStore(dir string) (*Store, error) {
 		if e = json.Unmarshal(plain, &s.state); e != nil {
 			return nil, e
 		}
+		if len(s.state.Modules) > 0 {
+			if e := s.readModulesLocked(); e != nil {
+				return nil, e
+			}
+			s.modular = true
+		}
 		for i := range s.state.Tasks {
+			if s.state.Tasks[i].Kind != "cache" && strings.TrimSpace(s.state.Tasks[i].Cron) == "" {
+				s.state.Tasks[i].Cron = ""
+				s.state.Tasks[i].NextRun = time.Time{}
+			}
 			if s.state.Tasks[i].Status == "running" {
 				s.state.Tasks[i].Status = "interrupted"
 				s.state.Tasks[i].Message = "服务重启，任务已中断"
+			}
+		}
+		for i := range s.state.Automations {
+			if s.state.Automations[i].Status == "running" {
+				s.state.Automations[i].Status = "interrupted"
+				s.state.Automations[i].Message = "服务重启，联动已中断"
 			}
 		}
 	} else if !os.IsNotExist(err) {
@@ -221,6 +242,9 @@ func atomicWrite(name string, data []byte) error {
 }
 
 func (s *Store) saveLocked() error {
+	if s.modular {
+		return s.saveModulesLocked()
+	}
 	persisted := s.state
 	if s.toolsDir != "" {
 		revision, err := s.writeToolsLocked()

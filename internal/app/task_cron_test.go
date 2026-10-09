@@ -6,31 +6,20 @@ import (
 	"time"
 )
 
-func TestDefaultTaskCron(t *testing.T) {
-	zone := time.FixedZone("CST", 8*3600)
+func TestEmptyTaskCronIsManual(t *testing.T) {
 	for _, kind := range []string{"strm", "cas", "ed2k"} {
-		for _, minute := range []int{0, 5, 59} {
-			now := time.Date(2026, 10, 8, 14, minute, 0, 0, zone)
-			task := Task{Kind: kind, Cron: " \t", Enabled: true}
-			defaultTaskCron(&task, now)
-			if task.Cron != "0 14 * * *" {
-				t.Fatal(task.Cron)
-			}
-			if got := nextRun(task, now); !got.Equal(time.Date(2026, 10, 9, 14, 0, 0, 0, zone)) {
-				t.Fatal(got)
-			}
+		if got := nextRun(Task{Kind: kind, Enabled: true}, time.Now()); !got.IsZero() {
+			t.Fatal(kind, got)
 		}
 	}
-	for _, task := range []Task{{Kind: "cache", Interval: 60}, {Kind: "strm", Cron: "15 3 * * *"}} {
-		before := task.Cron
-		defaultTaskCron(&task, time.Now())
-		if task.Cron != before {
-			t.Fatal(task)
-		}
+	if nextRun(Task{Kind: "strm", Enabled: true, Cron: "0 14 * * *"}, time.Now()).IsZero() {
+		t.Fatal("explicit cron lost")
+	}
+	if nextRun(Task{Kind: "cache", Enabled: true, Interval: 60}, time.Now()).IsZero() {
+		t.Fatal("cache interval lost")
 	}
 }
-
-func TestTaskCreatePersistsDefaultCron(t *testing.T) {
+func TestTaskCreatePersistsEmptyCron(t *testing.T) {
 	a := testApp(t)
 	if err := a.store.update(func(st *State) error {
 		st.Storages = append(st.Storages, Storage{ID: "cron-local", Name: "Local", Type: "local", Enabled: true, Config: map[string]string{"root": t.TempDir()}})
@@ -40,9 +29,7 @@ func TestTaskCreatePersistsDefaultCron(t *testing.T) {
 	}
 	h := a.Handler(t.TempDir())
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
-	before := time.Now()
-	w := request(t, h, "POST", "/api/tasks", Task{Name: "default cron", Kind: "strm", StorageID: "cron-local", Mode: "incremental", Enabled: true}, cookie)
-	after := time.Now()
+	w := request(t, h, "POST", "/api/tasks", Task{Name: "manual cron", Kind: "strm", StorageID: "cron-local", Mode: "incremental", Enabled: true, Cron: " \t"}, cookie)
 	if w.Code != 201 {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -50,22 +37,21 @@ func TestTaskCreatePersistsDefaultCron(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &task); err != nil {
 		t.Fatal(err)
 	}
-	first, last := Task{Kind: "strm"}, Task{Kind: "strm"}
-	defaultTaskCron(&first, before)
-	defaultTaskCron(&last, after)
-	if (task.Cron != first.Cron && task.Cron != last.Cron) || task.NextRun.IsZero() {
+	if task.Cron != "" || !task.NextRun.IsZero() {
 		t.Fatal(task)
 	}
-	store, err := NewStore(a.store.dir)
+	reopened, err := NewStore(a.store.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if store.snapshot().Tasks[0].Cron != task.Cron {
-		t.Fatal("cron not persisted")
+	if reopened.snapshot().Tasks[0].Cron != "" || !reopened.snapshot().Tasks[0].NextRun.IsZero() {
+		t.Fatal("empty cron changed after restart")
 	}
-	task.Cron = ""
-	w = request(t, h, "PUT", "/api/tasks/"+task.ID, task, cookie)
-	if w.Code != 200 || a.store.snapshot().Tasks[0].Cron != "" {
-		t.Fatal("editing unexpectedly filled cron", w.Body.String())
+	for _, cron := range []string{"0 14 * * *", ""} {
+		task.Cron = cron
+		w = request(t, h, "PUT", "/api/tasks/"+task.ID, task, cookie)
+		if w.Code != 200 || a.store.snapshot().Tasks[0].Cron != cron {
+			t.Fatal(w.Body.String())
+		}
 	}
 }

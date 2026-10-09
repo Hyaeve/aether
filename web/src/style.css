@@ -1316,4 +1316,10 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .file-browser { --favorites-width:176px; }
 .file-browser .file-workspace.with-favorites { grid-template-columns:var(--favorites-width) minmax(0,1fr); }
 .file-favorites > * { min-width:0; }
+.content-tabs, .settings-navigation { flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; min-width:0; overscroll-behavior-x:contain; scrollbar-width:none; }
+.task-heading, .files-heading, .link-heading, .mount-heading { flex-wrap:nowrap; min-width:0; }
+.task-heading .content-tabs, .files-heading .file-tabs, .link-heading .content-tabs, .mount-heading .file-tabs { flex:1 1 0; flex-basis:0; flex-wrap:nowrap; min-width:0; }
+.task-heading .toolbar-right, .files-heading-actions, .link-heading .playback-toolbar, .mount-heading > .btn { flex-shrink:0; }
+.task-heading .toolbar-right { flex-direction:row; }
+.task-heading > .transfer-actions { flex-shrink:0; }
 @media(max-width:760px) { .file-browser { --favorites-width:134px; } }

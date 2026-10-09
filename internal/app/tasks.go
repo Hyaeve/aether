@@ -20,12 +20,6 @@ import (
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
-func defaultTaskCron(t *Task, created time.Time) {
-	if (t.Kind == "strm" || t.Kind == "cas" || t.Kind == "ed2k") && strings.TrimSpace(t.Cron) == "" {
-		t.Cron = fmt.Sprintf("0 %d * * *", created.Hour())
-	}
-}
-
 func nextRun(t Task, now time.Time) time.Time {
 	if !t.Enabled {
 		return time.Time{}
@@ -110,6 +104,10 @@ func (a *App) taskUpdate(taskID string, fn func(*Task)) {
 }
 
 func (a *App) startTask(taskID string, reset ...bool) error {
+	return a.startTaskContext(a.ctx, taskID, nil, reset...)
+}
+
+func (a *App) startTaskContext(parent context.Context, taskID string, done chan<- error, reset ...bool) error {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	var task Task
@@ -146,7 +144,7 @@ func (a *App) startTask(taskID string, reset ...bool) error {
 		}
 		task.Mode = "full"
 	}
-	ctx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(parent)
 	a.running[taskID] = cancel
 	a.runningStorage[taskID] = task.StorageID
 	a.gateMu.Lock()
@@ -177,6 +175,11 @@ func (a *App) startTask(taskID string, reset ...bool) error {
 		delete(a.running, taskID)
 		delete(a.runningStorage, taskID)
 		a.runMu.Unlock()
+		if done != nil {
+			done <- err
+		} else if err == nil {
+			a.triggerAutomations(taskID)
+		}
 	}()
 	return nil
 }
@@ -508,6 +511,13 @@ func (a *App) scheduler() {
 				cancel()
 			}
 			st := a.store.snapshot()
+			for _, rule := range st.Automations {
+				if rule.Enabled && rule.Trigger == "cron" && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
+					if err := a.startAutomation(rule.ID); err != nil {
+						a.automationUpdate(rule.ID, func(r *Automation) { r.NextRun = now.Add(time.Minute) })
+					}
+				}
+			}
 			for _, t := range st.Tasks {
 				if t.Enabled && !t.NextRun.IsZero() && !now.Before(t.NextRun) {
 					if err := a.startTask(t.ID); err != nil {

@@ -142,7 +142,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
 </script>
 <template>
   <div class="link-heading">
-    <nav class="content-tabs" aria-label="以太链接栏目"><RouterLink to="/links/manage" :class="{ active: tab === 'manage' }"><Icon name="Waypoints" :size="17" />以链管理</RouterLink><RouterLink to="/links/cache" :class="{ active: tab === 'cache' }"><Icon name="ListVideo" :size="17" />直链缓存</RouterLink></nav>
+    <nav v-tab-scroll class="content-tabs" aria-label="以太链接栏目"><RouterLink to="/links/manage" :class="{ active: tab === 'manage' }"><Icon name="Waypoints" :size="17" />以链管理</RouterLink><RouterLink to="/links/cache" :class="{ active: tab === 'cache' }"><Icon name="ListVideo" :size="17" />直链缓存</RouterLink></nav>
     <div v-if="tab === 'cache'" class="playback-toolbar"><button class="icon-btn" aria-label="刷新播放流水" @click="loadPlayback"><Icon name="RefreshCw" /></button><RoundedSelect v-model="outcome" label="筛选播放类型" :options="outcomes" /><div class="toolbar-right"><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div></div></div>
   </div>
   <div v-if="tab === 'manage'" class="link-grid">
