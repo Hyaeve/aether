@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, useId } from 'vue'
 import Icon from './Icon.vue'
-const props = defineProps({ modelValue: String, label: String, placeholder: { type: String, default: '' }, disabled: Boolean, upward: Boolean, options: { type: Array, required: true } })
+const props = defineProps({ modelValue: String, label: String, icon: String, placeholder: { type: String, default: '' }, disabled: Boolean, upward: Boolean, options: { type: Array, required: true } })
 const emit = defineEmits(['update:modelValue'])
 const root = ref(null), trigger = ref(null), opened = ref(false), active = ref(0)
 const id = useId()
@@ -30,7 +30,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside))
 </script>
 <template>
   <div ref="root" class="rounded-select" :class="{ 'opens-up': upward }">
-    <button ref="trigger" type="button" class="rounded-select-trigger" :disabled="disabled || !options.length" :aria-label="label" aria-haspopup="listbox" :aria-expanded="opened" :aria-controls="id" @click="opened ? close() : show()" @keydown.down.prevent="show" @keydown.up.prevent="show"><span class="select-label"><Icon v-if="selected?.icon" :name="selected.icon" :size="15" />{{ selected?.label || placeholder }}</span><Icon name="ChevronDown" :size="16" :class="{ expanded: opened }" /></button>
+    <button ref="trigger" type="button" class="rounded-select-trigger" :disabled="disabled || !options.length" :aria-label="label" aria-haspopup="listbox" :aria-expanded="opened" :aria-controls="id" @click="opened ? close() : show()" @keydown.down.prevent="show" @keydown.up.prevent="show"><Icon v-if="icon" :name="icon" :size="18" /><template v-else><span class="select-label"><Icon v-if="selected?.icon" :name="selected.icon" :size="15" />{{ selected?.label || placeholder }}</span><Icon name="ChevronDown" :size="16" :class="{ expanded: opened }" /></template></button>
     <Transition name="select-popup">
       <div v-if="opened" :id="id" role="listbox" :aria-label="`${label}选项`" :aria-activedescendant="`${id}-${active}`" tabindex="-1" class="rounded-select-popup" @keydown="keydown">
         <div v-for="(option, index) in options" :id="`${id}-${index}`" :key="option.value" role="option" :aria-selected="option.value === modelValue" class="rounded-select-option" :class="{ focused: index === active }" @pointermove="active = index" @click="choose(index)"><span class="select-label"><Icon v-if="option.icon" :name="option.icon" :size="15" />{{ option.label }}</span><Icon v-if="option.value === modelValue" name="Check" :size="16" /></div>

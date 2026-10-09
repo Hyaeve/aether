@@ -66,14 +66,14 @@ const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成'
 const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
-const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 368, columnWidth: 155, maxColumns: 6, grid: ref(true), window: true })
+const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 314, columnWidth: 155, maxColumns: 6, grid: ref(true), window: true })
 watch([query, status, task, excludedScopes], reset)
 const candidateQuery = ref(''), candidateBusy = ref(false), candidateError = ref('')
 let alive = true, timer, request = 0, candidateRequest = 0
-async function load() {
+async function load(cached = false) {
   const id = task.value, run = ++request
   if (!id) { items.value = []; return }
-  try { const result = await api(`/strm-scrape/items?taskId=${encodeURIComponent(id)}&group=true`); if (alive && run === request) { items.value = result; const paths = new Set(result.map(i=>i.path)); selection.value = selection.value.filter(p=>paths.has(p)) } }
+  try { const result = await api(`/strm-scrape/items?taskId=${encodeURIComponent(id)}&group=true&cached=${cached}`); if (alive && run === request) { items.value = result; const paths = new Set(result.map(i=>i.path)); selection.value = selection.value.filter(p=>paths.has(p)) } }
   catch (e) { if (alive) notify(e.message, true) }
 }
 async function poll() {
@@ -126,7 +126,7 @@ watch(task, value => {
   excludedScopes.value = []; exitSelection()
   libraryRoot.value = ''; directoryRequest++
   if (value) { try { localStorage.setItem(preferenceKey.value, value) } catch {} }
-  load()
+  load(true)
   if (value) loadDirectories('')
 })
 watch([tasks, preferenceKey], ([options, key], previous) => {
@@ -163,8 +163,8 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
         <article v-for="item in shown" :key="item.path" class="scrape-card" :class="{selected:selection.includes(item.path)}" @click="selectionMode && choose($event,item)" @contextmenu.prevent="choose($event,item)">
           <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :aria-pressed="selectionMode ? selection.includes(item.path) : undefined" :disabled="progress.running || busy" @click.stop="choose($event,item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '电视剧' : '电影' }}</span></template><span v-if="selectionMode" class="poster-selection"><Icon :name="selection.includes(item.path) ? 'CircleCheck' : 'Circle'" :size="22" /></span></button>
-          <div class="scrape-card-body"><strong :data-tooltip="item.title">{{ item.title }}</strong><small :data-tooltip="item.path">{{ item.kind === 'tv' ? '剧集' : '电影' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.kind === 'tv'"> · {{ item.count || 1 }} 集</template></small></div>
-          <div v-if="!selectionMode" class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" /></button><button class="icon-btn" aria-label="识别作品" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" /></button></div>
+          <div class="scrape-card-body"><div class="scrape-title"><strong :data-tooltip="item.title">{{ item.title }}</strong><span class="work-star" :class="itemStatus(item)" :aria-label="statuses[itemStatus(item)]" :data-tooltip="statuses[itemStatus(item)]" data-tooltip-always /></div><small :data-tooltip="item.path">{{ item.kind === 'tv' ? '剧集' : '电影' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.kind === 'tv'"> · {{ item.count || 1 }} 集</template></small></div>
+          <div v-if="!selectionMode" class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" :size="16" />重置</button><button class="icon-btn" aria-label="识别作品" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" :size="16" />识别</button></div>
         </article>
         <div v-if="bottom" :style="{height: `${bottom}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
       </div>
@@ -172,10 +172,10 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     </div>
     <footer>{{ filtered.length }} 部作品</footer>
   </section>
-  <Teleport to="body"><div v-if="selectionMode" class="scrape-dock" role="toolbar" aria-label="所选作品操作"><strong>已选 {{ selection.length }} 项</strong><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" />全选</button><button class="btn" @click="selection = []; selectionAnchor = ''"><Icon name="X" />清空</button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" />重置</button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" />识别</button></div></Teleport>
+  <Teleport to="body"><div v-if="selectionMode" class="scrape-dock" role="toolbar" aria-label="所选作品操作"><strong>已选 {{ selection.length }} 项</strong><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" />全选</button><button class="btn" @click="exitSelection"><Icon name="X" />清空</button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" />重置</button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" />识别</button></div></Teleport>
   <Modal v-if="confirmation" :title="confirmation.action === 'reset' ? '重置所选作品' : '确认识别刮削'" compact confirmation @close="!busy && (confirmation = null)"><div class="modal-body"><p v-if="confirmation.action === 'reset'">将删除所选 {{ confirmation.paths.length }} 部作品目录下的所有非 STRM 文件，包括封面、NFO 和其他文件，并清除匹配记录。STRM 与目录保留，此操作不可撤销。</p><p v-else>将按刮削设置重新识别并刮削{{ confirmation.paths?.length ? `所选 ${confirmation.paths.length} 部作品` : '当前范围内的 STRM 库' }}，确认继续？</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="confirmAction">{{ confirmation.action === 'reset' ? '确认重置' : '确认识别' }}</button><button class="btn" :disabled="busy" @click="confirmation = null">取消</button></footer></Modal>
   <Modal v-if="resetting" title="重置作品元数据" compact confirmation @close="!busy && (resetting = null)"><div class="modal-body"><p>重置「{{ resetting.title }}」的识别结果、匹配信息和刮削状态？磁盘上的 NFO、封面和 STRM 文件会保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="resetMetadata">确认重置</button><button class="btn" :disabled="busy" @click="resetting = null">取消</button></footer></Modal>
-  <Modal v-if="settingsOpen" title="STRM 刮削设置" compact @close="settingsOpen = false"><form @submit.prevent="saveSettings"><div class="modal-body scrape-settings">
+  <Modal v-if="settingsOpen" title="STRM 刮削设置" compact wide @close="settingsOpen = false"><form @submit.prevent="saveSettings"><div class="modal-body scrape-settings">
     <div class="field"><label>写入策略</label><RoundedSelect v-model="settings.writeMode" label="写入策略" :options="[{value:'missing',label:'仅补缺'}, {value:'overwrite',label:'覆盖已有'}]" /></div>
     <label class="toggle-line"><span>分集 NFO 与预览图</span><input v-model="settings.episodes" type="checkbox" /></label>
     <label class="toggle-line"><span>背景图</span><input v-model="settings.fanart" type="checkbox" /></label>
@@ -205,12 +205,15 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-head { background: var(--bg); color: var(--muted); font-size: 13px; }
 .scrape-row { height: 66px; box-sizing: border-box; border-bottom: 1px solid color-mix(in srgb,var(--border) 50%,transparent); font-size: 14px; }
 .scrape-wall { display: grid; padding: 0 12px; column-gap: 12px; }
-.scrape-card { position: relative; min-width: 0; height: 356px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
-.scrape-poster { width: 100%; height: 256px; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
+.scrape-card { position: relative; min-width: 0; height: 302px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.scrape-poster { width: 100%; height: 238px; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
 .scrape-poster img { width: 100%; height: 100%; object-fit: cover; }
 .scrape-poster span { font-size: 12px; }
 .scrape-card-body { min-width: 0; padding: 9px 10px; font-size: 14px; }
-.scrape-card-body > strong, .scrape-card-body > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scrape-title { display:flex; gap:7px; align-items:flex-start; }.scrape-title strong { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.work-star { --status-color:#8b93a4; width:6px; height:6px; flex:none; margin-top:3px; border-radius:50%; background:var(--status-color); box-shadow:0 0 5px 1px color-mix(in srgb,var(--status-color) 55%,transparent); }
+.work-star.pending { --status-color:#6e78d4; }.work-star.ok { --status-color:var(--green); }.work-star.miss,.work-star.doubt { --status-color:var(--amber); }.work-star.error { --status-color:var(--red); }
+.scrape-card-body > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scrape-card-body > small { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .scrape-status { display: inline-flex; gap: 8px; margin-top: 7px; font-size: 12px; color: var(--muted); }
 .scrape-status.ok { color: var(--success); }.scrape-status.error { color: var(--danger); }
@@ -220,16 +223,17 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-name strong, .scrape-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .scrape-status.ok strong { color: var(--success); }
 .scrape-status.error strong { color: var(--danger); }
-.scrape-actions { display: flex; gap:6px; position: absolute; left: 6px; right: 6px; top: 212px; opacity:0; pointer-events:none; transform:translateY(5px); transition:opacity .18s,transform .18s; }
+.scrape-actions { display: flex; gap:6px; position: absolute; left: 6px; right: 6px; top: 194px; opacity:0; pointer-events:none; transform:translateY(5px); transition:opacity .18s,transform .18s; }
 .scrape-card:hover .scrape-actions, .scrape-card:focus-within .scrape-actions { opacity:1; pointer-events:auto; transform:none; }
 .scrape-actions :deep(button) { background:var(--surface); border-radius:10px; box-shadow:0 2px 8px #0002; }
 @media(hover:none) { .scrape-actions { opacity:1; pointer-events:auto; transform:none; } }
-.scrape-actions :deep(button) { width: 50%; height: 38px; border-radius:8px; background:color-mix(in srgb,var(--surface) 92%,transparent); box-shadow:0 2px 8px #0002; transition:transform .18s,background .18s; }
-.scrape-actions :deep(button:hover:not(:disabled)) { transform:translateY(-3px); background:var(--primary-soft); }
-.scrape-card.selected { border-color:var(--primary); box-shadow:none; }
+.scrape-actions :deep(button) { display:flex; gap:6px; justify-content:center; width: 50%; height: 38px; border-radius:8px; color:#fff; font-size:12px; background:#222633ba; backdrop-filter:blur(12px); box-shadow:0 2px 8px #0002; transition:transform .18s,background .18s; }
+.scrape-actions :deep(button:last-child) { background:#4c438cbd; }
+.scrape-actions :deep(button:hover:not(:disabled)) { transform:translateY(-3px); background:#323947df; }.scrape-actions :deep(button:last-child:hover:not(:disabled)) { background:#6457a9e6; }
+.scrape-card.selected { border-color:#8585e1; box-shadow:inset 0 0 0 1px #8585e1,0 0 12px #7872d84d; }
 .selecting .scrape-card { transition:transform .2s ease, border-color .2s ease; overflow:visible; }
 .selecting .scrape-card:hover { transform:scale(1.025); z-index:2; }
-.scrape-poster { position:relative; border-radius:15px 15px 0 0; overflow:hidden; }.poster-selection { position:absolute; left:9px; top:9px; color:var(--primary); background:var(--surface); border-radius:50%; width:24px; height:24px; }
+.scrape-poster { position:relative; border-radius:7px 7px 0 0; overflow:hidden; }.poster-selection { position:absolute; left:9px; top:9px; color:var(--primary); background:var(--surface); border-radius:50%; width:24px; height:24px; }
 .scrape-dock { position:fixed; z-index:140; bottom:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:6px; max-width:calc(100vw - 24px); padding:8px 16px; border:1px solid color-mix(in srgb,var(--primary) 18%,var(--border)); border-radius:999px; background:color-mix(in srgb,var(--primary) 12%,var(--surface)); box-shadow:var(--shadow); font-size:13px; }
 .scrape-dock strong { white-space:nowrap; font-size:13px; }.scrape-dock .btn { font-size:13px; border:0; background:transparent; color:var(--text); box-shadow:none; padding:8px; border-radius:0; }
 .scrape-dock .btn:hover:not(:disabled), .scrape-dock .btn:focus-visible { background:transparent; color:var(--primary); }

@@ -81,7 +81,7 @@ func (a *App) tianyiTokenSession(ctx context.Context, s Storage, client *http.Cl
 func (a *App) tianyiQRStart(w http.ResponseWriter, r *http.Request) {
 	client := tianyiClient()
 	raw, final, err := tianyiHTTP(r.Context(), client, "GET", "https://cloud.189.cn/api/portal/unifyLoginForPC.action",
-		url.Values{"appId": {tianyiAppID}, "clientType": {"10020"}, "returnURL": {tianyiReturn}}, nil)
+		url.Values{"appId": {tianyiAppID}, "clientType": {"10020"}, "returnURL": {tianyiReturn}, "timeStamp": {strconv.FormatInt(time.Now().UnixMilli(), 10)}}, nil)
 	if err != nil {
 		fail(w, 502, err)
 		return
@@ -96,7 +96,8 @@ func (a *App) tianyiQRStart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	headers := http.Header{"Lt": {values["lt"]}, "Reqid": {values["reqId"]}, "Referer": {final.String()}}
+	values["finger"] = strconv.FormatInt(time.Now().UnixNano()%9000000000+1000000000, 10)
+	headers := http.Header{"Lt": {values["lt"]}, "Reqid": {values["reqId"]}, "Referer": {final.String()}, "User-Finger": {values["finger"]}}
 	if values["paramId"] == "" {
 		raw, _, err = tianyiHTTP(r.Context(), client, "POST", tianyiAuth+"/api/logbox/oauth2/appConf.do", url.Values{"version": {"2.0"}, "appKey": {tianyiAppID}}, headers)
 		var conf struct {
@@ -164,7 +165,7 @@ func (a *App) tianyiQRPoll(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	raw, _, err := tianyiHTTP(r.Context(), client, "POST", tianyiAuth+"/api/logbox/oauth2/qrcodeLoginState.do",
 		url.Values{"appId": {tianyiAppID}, "clientType": {"1"}, "returnUrl": {tianyiReturn}, "paramId": {v["paramId"]}, "uuid": {v["uuid"]}, "encryuuid": {v["encrypted"]}, "cb_SaveName": {"3"}, "isOauth2": {"false"}, "state": {""}, "date": {now.Format("2006-01-0215:04:05.000")}, "timeStamp": {strconv.FormatInt(now.UnixMilli(), 10)}},
-		http.Header{"Lt": {v["lt"]}, "Reqid": {v["reqId"]}, "Referer": {v["referer"]}})
+		http.Header{"Lt": {v["lt"]}, "Reqid": {v["reqId"]}, "Referer": {v["referer"]}, "User-Finger": {v["finger"]}})
 	var result struct {
 		Status   *int   `json:"status"`
 		Redirect string `json:"redirectUrl"`

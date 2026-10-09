@@ -106,6 +106,8 @@ type LogEntry struct {
 }
 
 type State struct {
+	ModuleVersion  int                        `json:"moduleVersion,omitempty"`
+	BackupRules    []BackupRule               `json:"backupRules,omitempty"`
 	TaskOrder      []string                   `json:"taskOrder,omitempty"`
 	Modules        map[string]string          `json:"modules,omitempty"`
 	Automations    []Automation               `json:"automations,omitempty"`
@@ -208,6 +210,13 @@ func NewStore(dir string) (*Store, error) {
 				s.state.Automations[i].Status = "interrupted"
 				s.state.Automations[i].Message = "服务重启，联动已中断"
 			}
+		}
+		for i := range s.state.BackupRules {
+			rule := &s.state.BackupRules[i]
+			if rule.Status == "running" {
+				rule.Status, rule.Message = "interrupted", "服务重启，备份已中断"
+			}
+			rule.NextRun = backupNext(*rule, time.Now())
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err

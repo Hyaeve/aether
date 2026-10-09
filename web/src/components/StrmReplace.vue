@@ -68,8 +68,8 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
             <button type="button" class="icon-btn" title="选择容器目录" aria-label="选择容器目录" :disabled="busy || running" @click="picker = true"><Icon name="Folder" /></button>
           </span>
         </label>
-        <label>匹配字段<textarea v-model="form.find" required rows="3" maxlength="16384" :disabled="busy || running" /></label>
-        <label>替换字段<textarea v-model="form.replace" rows="3" maxlength="16384" :disabled="busy || running" /></label>
+        <label>匹配字段<input v-model="form.find" required maxlength="16384" :disabled="busy || running" /></label>
+        <label>替换字段<input v-model="form.replace" maxlength="16384" :disabled="busy || running" /></label>
         <section v-if="task" class="strm-replace-status" role="status" aria-live="polite" aria-atomic="true" :aria-busy="running">
           <strong>{{ labels[task.status] || task.status }}</strong>
           <progress v-if="running" aria-label="STRM 替换进度" />

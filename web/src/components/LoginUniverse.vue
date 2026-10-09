@@ -239,7 +239,7 @@ function paint(time) {
       ctx.beginPath(); ctx.arc(x * width, y * height, 1.2, 0, Math.PI * 2); ctx.fill()
     }
   }
-  // Small cached rocks drift gently through the lower-left field.
+  // Cached rocks drift along the left, lower and right edges.
   for (let i = 0; i < rocks.length; i++) {
     ctx.save()
     const position = rockPosition(i, time, width, height)

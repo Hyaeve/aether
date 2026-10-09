@@ -50,3 +50,6 @@ async function submit() {
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="[storage]" :storage="storage.id" :initial="target" :initial-label="targetLabel" @close="picker = false" @select="target = $event.source; targetLabel = $event.sourceLabel; picker = false" />
 </template>
+<style scoped>
+.offline-form .segmented button { font-size:15px; line-height:1.4; min-height:36px; }
+</style>

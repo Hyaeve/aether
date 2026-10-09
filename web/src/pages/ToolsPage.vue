@@ -73,7 +73,7 @@ const tools = [
   { name: '识别规则', icon: 'ListFilter', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
   { name: 'TMDB 配置', kind: 'tmdb', icon: 'TMDB', detail: '配置影视元数据接口、图片域名与语言偏好' },
   { name: '代理配置', kind: 'proxy', icon: 'Network', detail: '管理 TMDB 与 AI 请求使用的网络代理' },
-  { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', detail: '接收 Emby 中勾选的入库、播放及系统事件，保留媒体名称与季集信息' },
+  { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', detail: '接收 Emby 中勾选的入库、播放及系统事件' },
   { name: '配置备份', icon: 'FileArchive', detail: '加密导入导出系统、存储池、以链与规则配置' }
 ]
 tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', detail: '批量替换容器目录内 STRM 文件内容，保留文件名与目录结构' })
@@ -105,10 +105,11 @@ tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', de
 .plugin-card .simulcast-symbol { position:relative; background:transparent; border-radius:50%; }
 .simulcast-symbol :deep(.provider-icon) { width:44px; height:44px; background:transparent; border-radius:50%; }
 .simulcast-symbol :deep(.provider-logo) { width:100%; height:100%; }
-.simulcast-symbol > svg { position:absolute; right:-3px; bottom:-3px; color:var(--primary); background:var(--surface); border-radius:4px; }
+.simulcast-symbol > svg { position:absolute; right:1px; bottom:1px; color:var(--primary); background:var(--surface); border-radius:4px; }
 .plugin-toggle { border: 0; padding: 0; }
 .plugin-toggle[aria-pressed=false] { opacity: .5; }
-.quark-takeover-symbol :deep(.provider-icon), .quark-takeover-symbol :deep(.provider-logo) { width: 100%; height: 100%; padding: 0; border-radius: 8px; }
+.quark-takeover-symbol :deep(.provider-icon), .quark-takeover-symbol :deep(.provider-logo) { width: 100%; height: 100%; padding: 0; border-radius: 0; background:transparent; border:0; }
+.plugin-card .plugin-symbol:has(.emby-notice-icon) { background:transparent; border:0; padding:0; }.plugin-symbol :deep(.emby-notice-icon) { width:44px; height:44px; }
 .quark-takeover-symbol[aria-pressed=false] { opacity: .55; }
 .plugin-subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; }
 .plugin-card:has(.quark-takeover-symbol) { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 5px 14px; cursor: pointer; }

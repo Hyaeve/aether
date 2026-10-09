@@ -22,6 +22,12 @@ const pan115UA = "Mozilla/5.0 115Browser/27.0.5.7"
 // The SDK's errors can contain entire API bodies and its headers contain the
 // login Cookie. Keep diagnostics numeric and CDN credentials response-scoped.
 func download115(ctx context.Context, s Storage, pick, ua string) (*driver.DownloadInfo, error) {
+	return download115API(ctx, s, pick, ua, false)
+}
+
+// A rejected CDN read must change the ticket endpoint rather than repeat the
+// same Chrome ticket. This is a read-only fallback, never a write retry.
+func download115API(ctx context.Context, s Storage, pick, ua string, alternate bool) (*driver.DownloadInfo, error) {
 	if strings.TrimSpace(ua) == "" {
 		ua = pan115UA
 	}
@@ -29,8 +35,12 @@ func download115(ctx context.Context, s Storage, pick, ua string) (*driver.Downl
 	if err != nil {
 		return nil, err
 	}
+	android := s.Config["device"] == "android" || s.Config["device"] == "qandroid"
+	if alternate {
+		android = !android
+	}
 	endpoint := "chrome/downurl"
-	if s.Config["device"] == "android" {
+	if android {
 		endpoint = "android/2.0/ufile/download"
 	}
 	status, code := 0, int64(0)
@@ -59,13 +69,13 @@ func download115(ctx context.Context, s Storage, pick, ua string) (*driver.Downl
 		return nil
 	})
 	var info *driver.DownloadInfo
-	if s.Config["device"] == "android" {
+	if android {
 		info, err = c.DownloadWithUAByAndroidAPI(pick, ua)
 	} else {
 		info, err = c.DownloadWithUA(pick, ua)
 		// The Chrome endpoint can redirect instead of returning its JSON envelope.
 		// Never forward login cookies to that Location; retry the read-only Android API once.
-		if err != nil && status == http.StatusFound && ctx.Err() == nil {
+		if err != nil && status == http.StatusFound && ctx.Err() == nil && !alternate {
 			endpoint = "android/2.0/ufile/download（chrome返回302后备用）"
 			status, code = 0, 0
 			info, err = c.DownloadWithUAByAndroidAPI(pick, ua)

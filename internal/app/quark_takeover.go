@@ -205,6 +205,12 @@ func quarkTVJSON(ctx context.Context, method, address string, headers http.Heade
 	if decodeErr != nil {
 		return errors.New("夸克 TV 响应无效")
 	}
+	var env struct {
+		Errno int `json:"errno"`
+	}
+	if json.Unmarshal(data, &env) == nil && env.Errno != 0 {
+		return &quarkTVHTTPError{res.StatusCode, env.Errno, env.Errno == 10001 || env.Errno == 11001}
+	}
 	return nil
 }
 
@@ -424,8 +430,12 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 			Token string `json:"query_token"`
 		}
 		err = quarkTVRequest(r.Context(), b, "/oauth/authorize", url.Values{"client_id": {quarkTVClient}, "auth_type": {"code"}, "scope": {"netdisk"}, "qrcode": {"1"}, "qr_width": {"460"}, "qr_height": {"460"}}, &result)
-		if err != nil || result.QR == "" || result.Token == "" {
-			fail(w, 502, errors.New("获取 TV 授权二维码失败"))
+		if err != nil {
+			fail(w, 502, fmt.Errorf("获取 TV 授权二维码失败：%w", err))
+			return
+		}
+		if result.QR == "" || result.Token == "" {
+			fail(w, 502, errors.New("夸克 TV 未返回完整二维码和扫码令牌"))
 			return
 		}
 		if b.CookieHash != quarkCookieHash(s) {

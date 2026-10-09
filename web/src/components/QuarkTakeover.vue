@@ -16,7 +16,7 @@ const busy = ref(false)
 const consent = ref(false)
 const image = ref('')
 const error = ref('')
-const form = reactive({})
+const form = reactive({ quality: '4k', allowDolby: false, mode: 'adaptive', uaListMode: 'proxy_list', ua: '' })
 const original = ref('')
 const removing = ref(null)
 const selectedBinding = computed(() => bindings.value.find(b => b.id === editing.value))
@@ -54,11 +54,13 @@ async function load() {
 }
 
 function add() {
+  if (!pools.value.length) { notify(state.storages.some(s => s.type === 'quark' && s.enabled) ? '所有夸克存储均已绑定' : '请先添加并启用夸克存储池', true); return }
   stop()
   error.value = ''
-  storage.value = ''
-  consent.value = false
+  storage.value = pools.value[0].id
+  consent.value = true
   adding.value = true
+  qr()
 }
 
 async function edit(binding) {
@@ -139,6 +141,8 @@ async function qr() {
           adding.value = false
           stop()
           await load()
+          const binding = bindings.value.find(b => b.id === id)
+          if (binding) await edit(binding)
           notify('夸克存储已绑定')
           return
         }
@@ -157,7 +161,7 @@ async function qr() {
   }
 }
 
-watch([storage, consent], () => { stop(); if (storage.value && consent.value) qr() })
+watch([storage, consent], () => { if (adding.value) { stop(); if (storage.value && consent.value) qr() } }, { flush: 'sync' })
 onMounted(load)
 onUnmounted(stop)
 </script>
@@ -171,8 +175,8 @@ onUnmounted(stop)
         <span class="binding-status" :class="{on:binding.enabled && binding.valid}" />
       </div>
       <p v-if="!bindings.length" class="muted">暂无绑定账号</p>
-      </div><button class="btn binding-add" :disabled="!pools.length || busy" @click="add"><Icon name="Plus" />添加绑定</button>
-    </aside><form class="takeover-settings" @submit.prevent="save"><header class="takeover-account"><div><h3>{{ selectedBinding?.name || '播放设置' }}</h3><p v-if="selectedBinding">TV 账号：{{ selectedBinding.nickname || '已绑定' }} · {{ selectedBinding.valid ? '已授权' : '凭据已变更' }}</p></div><button v-if="selectedBinding" type="button" class="binding-remove" :aria-label="`解除绑定 ${selectedBinding.name}`" :disabled="busy" @click="removing = selectedBinding">解绑</button></header><p v-if="!editing" class="muted takeover-empty">选择或添加绑定账号</p><fieldset v-else :disabled="busy">
+      </div><small class="broker-disclosure">添加绑定将通过 extscreen 换取 TV 授权凭据。</small><button class="btn binding-add" :disabled="busy" @click="add"><Icon name="Plus" />添加绑定</button>
+    </aside><form class="takeover-settings" @submit.prevent="save"><header class="takeover-account"><div><h3>{{ selectedBinding?.name || '播放设置' }}</h3><p v-if="selectedBinding">TV 账号：{{ selectedBinding.nickname || '已绑定' }} · {{ selectedBinding.valid ? '已授权' : '凭据已变更' }}</p></div><button v-if="selectedBinding" type="button" class="binding-remove" :aria-label="`解除绑定 ${selectedBinding.name}`" :disabled="busy" @click="removing = selectedBinding">解绑</button></header><fieldset :disabled="busy || !editing">
       <div class="field"><label>清晰度偏好</label><RoundedSelect v-model="form.quality" label="最高画质" :options="['low','normal','high','super','2k','4k','dolby_vision'].map((v,i) => ({ value:v, label:['流畅','标清','高清','超清','2K','4K','杜比视界'][i] }))" /></div>
       <label class="takeover-dolby"><span><strong>杜比视界</strong><small>SVIP 限额</small></span><input v-model="form.allowDolby" aria-label="允许杜比视界" type="checkbox" role="switch" class="switch" /></label>
       <div class="field"><label>接管模式</label><RoundedSelect v-model="form.mode" label="接管模式" :options="[{ value: 'adaptive', label: '智能变轨' }, { value: 'direct', label: '强制直连' }, { value: 'split', label: '策略分流' }]" /></div>
@@ -218,6 +222,7 @@ onUnmounted(stop)
 .binding-row > div { flex: 1; min-width: 0; }
 .binding-row small { display: block; color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
 .binding-add { width:100%; margin-top:auto; border-style:dashed; background:transparent; }
+.broker-disclosure { color:var(--muted); font-size:11px; line-height:1.5; }
 .consent { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; margin-top: 18px; font-size: 13px; }
 .consent input { width: 16px; height: 16px; flex-shrink: 0; }
 .qr-area { min-height: 230px; display: grid; place-items: center; }

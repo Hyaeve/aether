@@ -216,10 +216,19 @@ func TestTianyiQRCodeReturnsTokens(t *testing.T) {
 		body := ""
 		switch r.URL.Path {
 		case "/api/portal/unifyLoginForPC.action":
+			if r.URL.Query().Get("timeStamp") == "" {
+				t.Fatal("missing QR login timestamp")
+			}
 			body = `lt="lt"; reqId="req"; paramId="param";`
 		case "/api/logbox/oauth2/getUUID.do":
+			if len(r.Header.Get("User-Finger")) != 10 {
+				t.Fatal("missing QR device fingerprint")
+			}
 			body = `{"uuid":"https://open.e.189.cn/qr/test","encryuuid":"encrypted"}`
 		case "/api/logbox/oauth2/qrcodeLoginState.do":
+			if len(r.Header.Get("User-Finger")) != 10 {
+				t.Fatal("poll lost device fingerprint")
+			}
 			body = `{"status":0,"redirectUrl":"https://cloud.189.cn/return"}`
 		case "/getSessionForPC.action":
 			body = `{"accessToken":"access","refreshToken":"refresh"}`

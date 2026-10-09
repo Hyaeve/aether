@@ -16,7 +16,7 @@ const ignored = ref([]), naming = ref(false), editing = ref(null), editName = re
 const originals = () => sourceFiles.value.map(f => ({ id: f.id, name: f.name, newName: f.name, isDir: f.isDir }))
 const sets = ref([]), chosen = ref(''), setName = ref(''), items = ref([]), error = ref(''), busy = ref(false), loading = ref(false), saveBusy = ref(false)
 const viewport = ref(null)
-const { shown, top, bottom, reset } = useVirtualList(items, viewport, { rowHeight: 92 })
+const { shown, top, bottom, reset } = useVirtualList(items, viewport, { rowHeight: 72 })
 let timer, generation = 0, disposed = false
 items.value = originals()
 const payload = () => ({ storageId: props.storage, source: props.source, ids: sourceFiles.value.filter(f => !ignored.value.includes(f.id)).map(f => f.id), rules: rules.value.filter(r => r.find.trim()) })
@@ -97,7 +97,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
     <header class="rename-heading"><button class="icon-btn" aria-label="返回文件管理" :disabled="busy" @click="emit('close')"><Icon name="ArrowLeft" /></button><h2>重命名工作台</h2><span>{{ files.length }} 个项目</span><button class="btn primary" :disabled="invalid || busy" @click="execute">{{ busy ? '正在重命名…' : '确认重命名' }}</button></header>
     <div class="rename-columns">
       <section class="rename-comparison">
-        <ThinScroll :ref="el => viewport = el?.element || null" class="rename-preview-scroll" content-class="rename-preview">
+        <ThinScroll :ref="el => viewport = el?.element || null" :thickness="2" class="rename-preview-scroll" content-class="rename-preview">
           <p v-if="loading" class="small-empty">正在预览…</p><p v-else-if="!items.length" class="small-empty">{{ error || '等待应用规则' }}</p>
           <div :style="{ height: `${top}px` }" />
           <article v-for="item in shown" :key="item.id" class="rename-preview-row" :class="{ignored: ignored.includes(item.id)}">
@@ -108,7 +108,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
         </ThinScroll><p v-if="error && items.length" class="error-message">{{ error }}</p>
       </section>
       <aside class="rename-rules">
-        <ThinScroll class="rename-rules-scroll">
+        <ThinScroll :thickness="2" class="rename-rules-scroll">
         <fieldset :disabled="busy">
           <article v-for="(rule, index) in rules" :key="index" class="rename-rule" :class="{collapsed: expanded !== index}">
             <header><strong>规则 {{ index + 1 }}</strong><button v-if="index > 0" class="icon-btn" aria-label="删除规则" @click="removeRule(index)"><Icon name="Trash2" /></button><button class="icon-btn" :aria-label="`规则 ${index + 1}`" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" /></button></header>
@@ -132,15 +132,17 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 <style scoped>
 .rename-preview-scroll { flex:1; min-height:0; }
 .rename-preview-scroll :deep(.rename-preview) { border:0; border-radius:0; padding-right:6px; }
-.rename-preview-row { position: relative; grid-template-columns: minmax(0,1fr); gap: 6px; padding-right: 92px; font-size:12px; height:84px; margin-bottom:8px; border:1px solid color-mix(in srgb,var(--border) 65%,transparent); border-radius:8px; background:var(--surface); }
+.rename-preview-row { position: relative; grid-template-columns: minmax(0,1fr); gap: 2px; padding:8px 92px 8px 12px; font-size:12px; height:66px; margin-bottom:6px; border:1px solid color-mix(in srgb,var(--border) 65%,transparent); border-radius:8px; background:var(--input); }
+.rename-comparison, .rename-rules { padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.rename-preview-row > div:first-child { color:var(--muted); }
 .rename-preview-row small { flex-shrink: 0; color: var(--muted); }
 .rename-preview-row.ignored > div:not(.rename-item-actions) { opacity: .45; }
-.rename-preview-row .rename-item-actions { position: absolute; right: 8px; top: 28px; opacity: 0; }
+.rename-preview-row .rename-item-actions { position: absolute; right: 8px; top: 18px; opacity: 0; }
 .rename-preview-row:hover .rename-item-actions, .rename-preview-row:focus-within .rename-item-actions { opacity: 1; }
 .rename-rules { display: flex; flex-direction: column; overflow:hidden; }
 .rename-rules-scroll { flex:1; min-height:0; }
 .rename-rules-scroll :deep(.thin-scroll-area) { padding-right:6px; }
-.rename-save { flex-shrink:0; margin-top:0; padding-top:10px; background:var(--bg); }
+.rename-save { flex-shrink:0; margin-top:0; padding-top:10px; background:var(--surface); }
 .rename-rule.collapsed { padding: 4px 12px; margin-bottom: 6px; }
 .rename-rule.collapsed header { margin: 0; }
 .rule-collapse { display:grid; grid-template-rows:1fr; opacity:1; }.rule-fields { min-height:0; }.rule-expand-enter-active .rule-fields, .rule-expand-leave-active .rule-fields { overflow:hidden; }.rule-expand-enter-active, .rule-expand-leave-active { transition:grid-template-rows .24s ease, opacity .2s ease; }.rule-expand-enter-from, .rule-expand-leave-to { grid-template-rows:0fr; opacity:0; }
@@ -148,9 +150,9 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 .rename-rule label:not(.rename-check), .rule-inline { display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:8px; margin-top:8px; }.rule-inline { margin-bottom:8px; }
 .rename-rule input:not([type=checkbox]), .rename-rules :deep(.rounded-select-trigger), .rename-rules .btn { min-height:28px; height:28px; padding-top:3px; padding-bottom:3px; }
 .rule-checks { display:flex; gap:18px; }.rule-checks label { margin:10px 0 2px; }
-.rename-rule { padding:10px; margin-bottom:8px; }.rename-rule header { margin-bottom:6px; }.rename-rule .icon-btn { width:28px; height:28px; min-height:28px; }
-.rename-changed small, .rename-changed > span { color:var(--green); }.rename-changed mark { color:#cf7510; background:#df921c20; border-radius:3px; }
-[data-theme=dark] .rename-changed mark { color:#f4b45a; }
+.rename-rule { padding:10px; margin-bottom:8px; background:color-mix(in srgb,var(--surface) 60%,var(--input)); }.rename-rule header { margin-bottom:6px; }.rename-rule .icon-btn { width:28px; height:28px; min-height:28px; }
+.rename-changed small { color:var(--green); }.rename-changed > span { color:var(--text); }.rename-changed mark { color:#bf690b; background:#df921c12; border-radius:3px; }
+:global([data-theme=dark] .rename-changed mark) { color:#f4b45a; }
 @media(prefers-reduced-motion:reduce) { .rule-expand-enter-active, .rule-expand-leave-active { transition:none; } }
 @media (hover: none) { .rename-preview-row .rename-item-actions { opacity: 1; } }
 @media (max-width:760px) { .rename-preview-scroll { height:350px; flex:auto; }.rename-preview-scroll :deep(.rename-preview) { max-height:none; }.rename-rules { height:380px; } }

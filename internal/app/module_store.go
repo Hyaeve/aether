@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-var moduleNames = []string{"storage/storage", "task/strm", "task/cas", "task/ed2k", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "file/webdav", "file/mount"}
+var moduleNames = []string{"storage/storage", "task/strm", "task/cas", "task/ed2k", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "file/webdav", "file/mount", "transfer/backup"}
 
 type storageModule struct {
 	Storages []Storage `json:"storages"`
@@ -43,6 +43,7 @@ func (s *Store) moduleValues() map[string]any {
 	settings.WebDAVEnabled = false
 	settings.WebDAVCache = false
 	v := map[string]any{
+		"transfer/backup": s.state.BackupRules,
 		"storage/storage": storageModule{s.state.Storages, settings},
 		"task/automation": s.state.Automations,
 		"link/links":      s.state.Links,
@@ -102,9 +103,11 @@ func (s *Store) saveModulesLocked() error {
 		p.TaskOrder = append(p.TaskOrder, t.ID)
 	}
 	p.Modules, p.ToolsRevision = refs, ""
+	p.ModuleVersion = 2
 	p.Storages, p.Tasks, p.Automations, p.Links, p.Mounts, p.DAVUsers = nil, nil, nil, nil, nil, nil
 	p.Plugins, p.QuarkTV, p.QuarkTVEnabled, p.Simulcast = nil, nil, nil, nil
 	p.Settings = Settings{}
+	p.BackupRules = nil
 	if s.logDir != "" {
 		p.Logs = nil
 	}
@@ -121,6 +124,7 @@ func (s *Store) saveModulesLocked() error {
 	}
 	previous := s.state.Modules
 	s.state.Modules, s.state.ToolsRevision = refs, ""
+	s.state.ModuleVersion = 2
 	s.state.TaskOrder = p.TaskOrder
 	for _, key := range moduleNames {
 		if previous[key] == refs[key] {
@@ -137,11 +141,18 @@ func (s *Store) saveModulesLocked() error {
 	return nil
 }
 func (s *Store) readModulesLocked() error {
-	if len(s.state.Modules) != len(moduleNames) {
+	// v0.3.9 has all original modules but no transfer module. Only that exact
+	// schema may migrate; a missing module from a new schema remains an error.
+	legacy := s.state.ModuleVersion < 2 && s.state.Modules["transfer/backup"] == "" && len(s.state.Modules) == len(moduleNames)-1
+	if len(s.state.Modules) != len(moduleNames) && !legacy {
 		return errors.New("模块配置索引不完整")
 	}
 	s.state.Tasks = nil
 	for _, key := range moduleNames {
+		if legacy && key == "transfer/backup" {
+			s.state.BackupRules = nil
+			continue
+		}
 		rev := s.state.Modules[key]
 		if raw, err := hex.DecodeString(rev); err != nil || len(raw) != 32 {
 			return fmt.Errorf("模块 %s 索引无效", key)
@@ -186,6 +197,8 @@ func (s *Store) readModulesLocked() error {
 			target = &s.state.Links
 		case "task/automation":
 			target = &s.state.Automations
+		case "transfer/backup":
+			target = &s.state.BackupRules
 		default:
 			target = &tasks
 		}

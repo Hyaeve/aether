@@ -18,6 +18,7 @@ import RenameWorkbench from '../components/RenameWorkbench.vue'
 import OfflineDownload from '../components/OfflineDownload.vue'
 import ShareTransfer from '../components/ShareTransfer.vue'
 import { useVirtualList } from '../virtual-list'
+import { rememberVisit, validVisits } from '../visit-history'
 const preferenceKey = `aether-files:${state.username}`
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch {}
@@ -32,6 +33,20 @@ watch(mode, value => {
 const route = useRoute()
 const selected = ref([route.query.storage, saved.storage].find(id => state.storages.some(s => s.enabled && s.id === id)) || state.storages.find(s => s.enabled)?.id || '')
 const current = ref('/'), history = ref([]), files = ref([]), busy = ref(false), error = ref(''), query = ref('')
+const visitKey = `aether-file-history:${state.username}`
+let previousVisits = []
+try { previousVisits = validVisits(JSON.parse(localStorage.getItem(visitKey) || '[]')) } catch {}
+const visits = ref(previousVisits), visitChoice = ref('')
+const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => ({ value: String(v.index), icon: 'Folder', label: `${state.storages.find(s => s.id === v.storage)?.name} / ${v.history.at(-1)?.name || '根目录'}` })))
+async function visitJump(value) {
+  const item = visits.value[Number(value)]
+  if (!item || renameID.value || uploadBusy.value) return
+  selected.value = item.storage
+  await nextTick()
+  selection.value = []; anchor.value = ''; query.value = ''; searchInput.value = ''
+  current.value = item.id; history.value = item.history.map(h => ({ ...h }))
+  visitChoice.value = ''; resetScroll(); load()
+}
 const searchInput = ref('')
 const searchResults = ref(null), searching = ref(false), searchError = ref('')
 const activeFiles = computed(() => searchResults.value || files.value)
@@ -321,7 +336,11 @@ async function load(refresh = false) {
   busy.value = true; error.value = ''
   try {
     const result = await api(`/files?storage=${encodeURIComponent(selected.value)}&path=${encodeURIComponent(current.value)}&refresh=${refresh}`)
-    if (id === requestId) files.value = result
+    if (id === requestId) {
+      files.value = result
+      visits.value = rememberVisit(visits.value, { storage: selected.value, id: current.value, history: history.value })
+      try { localStorage.setItem(visitKey, JSON.stringify(visits.value)) } catch {}
+    }
   } catch (e) { if (id === requestId) { error.value = e.message; files.value = [] } }
   finally { if (id === requestId) busy.value = false }
 }
@@ -332,6 +351,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
+    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="FileClock" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump" />
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
@@ -390,6 +410,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
   </template>
 </template>
 <style scoped>
+.file-visit-history { min-width:34px; width:34px; }.file-visit-history :deep(.rounded-select-trigger) { width:34px; padding:0; justify-content:center; border:0; background:transparent; }.file-visit-history :deep(.rounded-select-popup) { right:0; left:auto; width:280px; max-width:80vw; }.file-visit-history :deep(.select-label) { overflow:hidden; text-overflow:ellipsis; }
 .file-search-status { margin:0 0 10px; color:var(--muted); font-size:12px; }
 .file-result-path { display:block; padding:0; margin:4px 0 0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:none; color:var(--muted); font-size:11px; text-align:left; }
 .file-result-path:hover { color:var(--primary); }

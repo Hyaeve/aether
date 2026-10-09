@@ -1,5 +1,14 @@
 # Protocol References
 
+## Directory Backup Rules
+
+The local Nestify backup models and rule editor were inspected for basic
+source/target directory, skip/overwrite, scheduling and filtering behavior.
+Aether independently implements these concepts with its own encrypted module
+store, storage adapters, cancellation and UI. No Nestify source file or runtime
+dependency is bundled. No license or endorsement is inferred from the local
+reference checkout.
+
 ## Audio Metadata
 
 The browser audio drawer dynamically loads `music-metadata` 12.1.0,

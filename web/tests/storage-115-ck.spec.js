@@ -134,7 +134,9 @@ test('cache text and account surface remain scoped and theme aware', async ({ pa
     await expect(page.getByLabel(label, { exact: true })).toHaveCSS('font-size', '16px')
   }
   await page.goto('/settings/account')
-  await expect(page.locator('.account-settings')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(page.locator('.account-settings')).toHaveCSS('background-color', 'rgb(250, 251, 252)')
+  await expect(page.getByRole('textbox',{name:'账号',exact:true})).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+  await expect(page.locator('.account-settings .credential-input').first()).toHaveCSS('background-color','rgb(255, 255, 255)')
   expect(await page.locator('.account-settings').evaluate(el => el.clientWidth)).toBeLessThanOrEqual(380)
   expect(await page.locator('.account-settings').evaluate(el => {
     const fields = [...el.querySelectorAll('.credential-input, .number-control')].map(n => n.getBoundingClientRect())
@@ -142,6 +144,6 @@ test('cache text and account surface remain scoped and theme aware', async ({ pa
   })).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('account-light.png'), fullPage: true })
   await page.getByRole('button', { name: '主题：日光', exact: true }).click()
-  await expect(page.locator('.account-settings')).toHaveCSS('background-color', 'rgb(30, 33, 40)')
+  await expect(page.locator('.account-settings')).toHaveCSS('background-color', 'rgb(27, 29, 35)')
   await page.screenshot({ path: testInfo.outputPath('account-dark.png'), fullPage: true })
 })

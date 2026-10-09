@@ -23,7 +23,7 @@ func Test115ReadEndpointAndPrivateDiagnostics(t *testing.T) {
 			apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
 				calls++
 				want := "/app/chrome/downurl"
-				if device == "android" {
+				if device == "android" || device == "qandroid" {
 					want = "/android/2.0/ufile/download"
 				}
 				if r.URL.Path != want || r.UserAgent() != "Reader/1" || !strings.Contains(r.Header.Get("Cookie"), "CID=cid") {
@@ -99,5 +99,30 @@ func Test115ChromeRedirectUsesBoundedFallbackWithoutFollowingLocation(t *testing
 	_, err := download115(context.Background(), Storage{Type: "115", Config: map[string]string{"cookie": test115Cookie, "device": "web"}}, "pick", "Reader/1")
 	if calls != 2 || err == nil || !strings.Contains(err.Error(), "未携带CK跟随") || strings.Contains(err.Error(), "do-not-log") {
 		t.Fatal(calls, err)
+	}
+}
+
+func Test115RejectedReadSwitchesDeviceEndpoint(t *testing.T) {
+	original := apiClient
+	t.Cleanup(func() { apiClient = original })
+	for _, device := range []string{"web", "android", "qandroid"} {
+		t.Run(device, func(t *testing.T) {
+			calls := 0
+			apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				want := "/android/2.0/ufile/download"
+				if device == "android" || device == "qandroid" {
+					want = "/app/chrome/downurl"
+				}
+				if r.URL.Path != want || r.UserAgent() != pan115UA {
+					t.Fatal("read fallback did not switch interface", r.URL.Path)
+				}
+				return &http.Response{StatusCode: 302, Header: http.Header{"Location": {"https://untrusted.invalid/?private-token"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+			})}
+			_, err := download115API(context.Background(), Storage{Type: "115", Config: map[string]string{"cookie": test115Cookie, "device": device}}, "pick", pan115UA, true)
+			if calls != 1 || err == nil || strings.Contains(err.Error(), "private-token") {
+				t.Fatal("fallback loop or unsafe error", calls, err)
+			}
+		})
 	}
 }

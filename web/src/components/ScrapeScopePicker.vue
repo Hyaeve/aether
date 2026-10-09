@@ -45,7 +45,7 @@ onMounted(async () => { try { const result = await children(''); if(alive) nodes
 onUnmounted(() => { alive = false })
 </script>
 <template>
-  <Modal title="刮削范围" compact @close="emit('close')">
+  <Modal title="刮削范围" compact wide @close="emit('close')">
     <div class="modal-body scope-tree">
       <label class="scope-all"><input type="checkbox" :checked="!excluded.length" :indeterminate="!!excluded.length && nodes.some(n=>isChecked(n.path))" :disabled="loading" @change="toggle('', $event.target.checked)" />全部目录</label>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p><p v-if="loading" class="muted">读取目录中…</p>

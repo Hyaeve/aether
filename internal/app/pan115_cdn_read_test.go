@@ -155,7 +155,7 @@ func Test115DAVAndMountUseProductionRefresh(t *testing.T) {
 					raw = `{"state":true,"cid":"0","count":1,"data":[{"fid":"file","cid":"0","n":"book.epub","s":"8","pc":"pick"}]}`
 				case "/book":
 					status = 403
-				case "/app/chrome/downurl":
+				case "/android/2.0/ufile/download":
 					refreshes++
 					if !strings.Contains(r.Header.Get("Cookie"), "CID=cid") || r.UserAgent() != pan115UA {
 						t.Fatal("refresh lost storage credentials or bound UA")

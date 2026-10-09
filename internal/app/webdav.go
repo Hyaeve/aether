@@ -317,7 +317,11 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	}
 	if s.Type == "115" {
 		df.refreshDownload = func() (Download, error) {
-			return d.a.download(ctx, s, f.ID, f.PickCode)
+			info, err := download115API(ctx, s, f.PickCode, pan115UA, true)
+			if err != nil {
+				return Download{}, err
+			}
+			return Download{URL: info.Url.Url, Headers: info.Header}, nil
 		}
 	}
 	return df, nil

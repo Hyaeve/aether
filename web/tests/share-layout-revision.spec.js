@@ -23,8 +23,8 @@ test('rename virtual row frames and rule footer remain visible while both panes 
   await expect(rows.first()).toBeVisible()
   expect(await rows.count()).toBeLessThan(40)
   const sizes=await rows.evaluateAll(el=>el.slice(0,2).map(e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height}}))
-  expect(sizes[0].height).toBe(84)
-  expect(sizes[1].top-sizes[0].bottom).toBe(8)
+  expect(sizes[0].height).toBe(66)
+  expect(sizes[1].top-sizes[0].bottom).toBe(6)
   await expect(rows.first()).toHaveCSS('border-radius','8px')
   for(let i=0;i<18;i++)await page.getByRole('button',{name:'添加规则',exact:true}).click()
   const save=page.getByRole('button',{name:'保存为规则集',exact:true}), sets=page.getByRole('button',{name:'常用规则集',exact:true})
@@ -37,10 +37,12 @@ test('rename virtual row frames and rule footer remain visible while both panes 
   await expect(rows.last()).toContainText('目录299')
   for(const pane of ['.rename-preview-scroll','.rename-rules-scroll']){
     await expect(page.locator(`${pane} .thin-scroll-rail`)).toBeVisible()
-    expect(await page.locator(`${pane} .thin-scroll-thumb`).evaluate(el=>parseFloat(getComputedStyle(el,'::after').width)*devicePixelRatio)).toBeCloseTo(1,1)
+    expect(await page.locator(`${pane} .thin-scroll-thumb`).evaluate(el=>parseFloat(getComputedStyle(el,'::after').width)*devicePixelRatio)).toBeCloseTo(2,1)
   }
   await page.screenshot({path:info.outputPath('rename-footer-day.png')})
   await page.getByRole('button',{name:'主题：日光',exact:true}).click()
+  await expect(page.locator('.rename-rule').last().locator('.rounded-select-trigger').first()).toHaveCSS('background-color','rgb(41, 44, 52)')
+  await expect(rows.last().locator('.rename-changed > span')).toHaveCSS('color','rgb(227, 230, 237)')
   await page.screenshot({path:info.outputPath('rename-footer-night.png')})
   await page.setViewportSize({width:390,height:844})
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
@@ -73,10 +75,10 @@ test('old persisted log filters are ignored on refresh and navigation',async({pa
   await expect(page.locator('.log-entry')).toHaveCount(1)
 })
 
-test('rocks drift within the lower left without leaving the canvas',()=>{
+test('rocks drift along the left bottom and right without leaving the canvas',()=>{
   for(let i=0;i<7;i++){
     expect(rockPosition(i,0,1000,1000)).not.toEqual(rockPosition(i,30,1000,1000))
-    for(let t=0;t<=1000;t+=10){const p=rockPosition(i,t,1000,1000);expect(p.x).toBeGreaterThan(0);expect(p.x).toBeLessThan(400);expect(p.y).toBeGreaterThan(700);expect(p.y).toBeLessThan(950)}
+    for(let t=0;t<=1000;t+=10){const p=rockPosition(i,t,1000,1000);expect(p.x).toBeGreaterThan(0);expect(p.x).toBeLessThan(1000);expect(p.y).toBeGreaterThan(0);expect(p.y).toBeLessThan(1000);if(i%3===0)expect(p.x).toBeLessThan(250);if(i%3===1)expect(p.y).toBeGreaterThan(800);if(i%3===2)expect(p.x).toBeGreaterThan(750)}
   }
 })
 

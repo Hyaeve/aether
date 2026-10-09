@@ -32,6 +32,7 @@ func TestConfigBackup(t *testing.T) {
 		st.Links = append(st.Links, MediaLink{ID: "saved-link", Name: "saved", APIKey: "backup-private-key"})
 		st.Simulcast = map[string]SimulcastConfig{"pan": {Enabled: true, Directory: "99"}}
 		st.Tasks = []Task{{ID: "manual", Kind: "strm", Cron: ""}}
+		st.BackupRules = []BackupRule{{ID: "backup-rule", Name: "备份规则", SourceID: "saved-pool", Source: "/", TargetID: "saved-pool", Target: "/other", Replace: "skip"}}
 		st.Automations = []Automation{{ID: "rule", Name: "Rule", Enabled: true, Trigger: "manual", Steps: []AutomationStep{{Kind: "refresh", Condition: "always"}}}}
 		return nil
 	}); err != nil {
@@ -95,6 +96,9 @@ func TestConfigBackup(t *testing.T) {
 	}
 	if a.store.snapshot().Username != "admin" {
 		t.Fatal("restore failed")
+	}
+	if len(a.store.snapshot().BackupRules) != 1 || a.store.snapshot().BackupRules[0].Name != "备份规则" {
+		t.Fatal("backup rules not restored")
 	}
 	if cfg := a.store.snapshot().Simulcast["pan"]; !cfg.Enabled || cfg.Directory != "99" {
 		t.Fatal("simulcast config missing from backup restore")

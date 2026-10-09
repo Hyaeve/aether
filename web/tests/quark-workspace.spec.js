@@ -47,3 +47,22 @@ test('Quark workspace has a binding sidebar, per-account settings and confirmed 
   expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
   await page.screenshot({path:info.outputPath('quark-workspace-mobile.png')})
 })
+
+test('empty Quark workspace keeps settings visible and explains missing storage',async({page})=>{
+  await page.route('**/api/**',r=>{
+    const path=new URL(r.request().url()).pathname
+    let json={}
+    if(path==='/api/auth/status')json={initialized:true,authenticated:true}
+    if(path==='/api/state')json={storages:[],tasks:[],settings:{},cache:{},traffic:{}}
+    if(path==='/api/quark-takeover')json={bindings:[],broker:'https://broker.example'}
+    return r.fulfill({json})
+  })
+  await page.goto('/tools')
+  await page.getByRole('button',{name:'夸克 STRM 接管',exact:true}).getByText('夸克 STRM 接管',{exact:true}).click()
+  const dialog=page.getByRole('dialog',{name:'夸克 STRM 接管',exact:true})
+  await expect(dialog.getByRole('button',{name:'最高画质',exact:true})).toBeVisible()
+  await expect(dialog.getByRole('button',{name:'接管模式',exact:true})).toBeVisible()
+  await dialog.getByRole('button',{name:'添加绑定',exact:true}).click()
+  await expect(page.getByText('请先添加并启用夸克存储池',{exact:true})).toBeVisible()
+  await expect(page.getByRole('dialog',{name:'选择绑定的存储'})).toHaveCount(0)
+})

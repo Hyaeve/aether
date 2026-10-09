@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	backupMu         sync.Mutex
+	backupRuns       map[string]context.CancelFunc
 	automationMu     sync.Mutex
 	automationRuns   map[string]context.CancelFunc
 	fuseReadOnce     sync.Once
@@ -287,6 +289,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/files", a.protected(http.HandlerFunc(a.files)))
 	mux.Handle("/api/tasks", a.protected(http.HandlerFunc(a.tasks)))
 	mux.Handle("/api/automations", a.protected(http.HandlerFunc(a.automationAPI)))
+	mux.Handle("/api/backup-rules", a.protected(http.HandlerFunc(a.backupRulesAPI)))
+	mux.Handle("/api/backup-rules/{id}", a.protected(http.HandlerFunc(a.backupRulesAPI)))
+	mux.Handle("POST /api/backup-rules/{id}/{action}", a.protected(http.HandlerFunc(a.backupRulesAPI)))
 	mux.Handle("/api/automations/{id}", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("POST /api/automations/{id}/{action}", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("/api/strm-scrape/{action}", a.protected(http.HandlerFunc(a.strmScrape)))

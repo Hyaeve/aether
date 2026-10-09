@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -65,11 +66,13 @@ func tianyiClient() *http.Client {
 	return &http.Client{Transport: apiClient.Transport, Jar: jar, Timeout: 20 * time.Second,
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
 			if len(via) >= 8 || !trustedTianyi(r.URL.String()) {
-				return errors.New("天翼登录返回非可信跳转")
+				return errTianyiRedirect
 			}
 			return nil
 		}}
 }
+
+var errTianyiRedirect = errors.New("天翼登录返回非可信跳转")
 
 func tianyiHTTP(ctx context.Context, client *http.Client, method, address string, values url.Values, headers http.Header) ([]byte, *url.URL, error) {
 	if !trustedTianyi(address) {
@@ -104,6 +107,13 @@ func tianyiHTTP(ctx context.Context, client *http.Client, method, address string
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
+		}
+		if errors.Is(err, errTianyiRedirect) {
+			return nil, nil, errors.New("天翼登录跳转被拒绝，请重新获取二维码；不会向非HTTPS或非天翼地址传递凭据")
+		}
+		var network net.Error
+		if errors.As(err, &network) && network.Timeout() {
+			return nil, nil, errors.New("天翼接口连接超时，请检查容器到天翼服务的网络")
 		}
 		return nil, nil, errors.New("天翼连接失败，请检查网络")
 	}

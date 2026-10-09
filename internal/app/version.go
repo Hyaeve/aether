@@ -15,7 +15,7 @@ import (
 )
 
 // Version may be set by the image build with -ldflags.
-var Version = "0.3.9"
+var Version = "0.4.0"
 var Revision = ""
 
 func (a *App) version(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +75,7 @@ func (a *App) checkVersion(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	result, err := checkImage(ctx, &http.Client{Timeout: 12 * time.Second})
 	if err != nil {
-		fail(w, 502, err)
+		fail(w, 502, fmt.Errorf("%s · 当前版本 v%s", err, strings.TrimPrefix(Version, "v")))
 		return
 	}
 	a.versionResult, a.versionExpiry = result, time.Now().Add(5*time.Minute)

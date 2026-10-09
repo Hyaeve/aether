@@ -51,8 +51,11 @@ type scrapeProgress struct {
 	Message   string `json:"message"`
 }
 type scrapeIndex struct {
-	Root  string       `json:"root"`
-	Items []scrapeItem `json:"items"`
+	Root       string            `json:"root"`
+	Items      []scrapeItem      `json:"items"`
+	ScannedAt  time.Time         `json:"scannedAt,omitempty"`
+	Covers     map[string]string `json:"covers,omitempty"`
+	TaskStatus string            `json:"taskStatus,omitempty"`
 }
 
 var scrapeEpisode = regexp.MustCompile(`(?i)S(\d{1,3})[ ._-]*E(\d{1,4})(?:$|[^0-9])`)
@@ -332,8 +335,23 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		index := a.loadScrapeIndex(task, root)
+		cached := r.URL.Query().Get("cached") == "true" && !index.ScannedAt.IsZero() && time.Since(index.ScannedAt) < 5*time.Minute
+		if r.URL.Query().Get("group") == "true" && index.Covers == nil {
+			cached = false
+		}
+		for _, t := range a.store.snapshotWithLogLimit(0).Tasks {
+			if t.ID == task {
+				if t.LastRun.After(index.ScannedAt) || t.Status == "running" || index.TaskStatus != t.Status {
+					cached = false
+				}
+				index.TaskStatus = t.Status
+			}
+		}
+		if info, err := os.Stat(filepath.Join(a.store.dir, "organize", "strm-scrape.json")); err == nil && info.ModTime().After(index.ScannedAt) {
+			cached = false
+		}
 		// Discover generated files without requiring TMDB or overwriting an active scrape.
-		if !a.scrapeProgress.Running {
+		if !a.scrapeProgress.Running && !cached {
 			dir, openErr := os.OpenRoot(root)
 			if openErr != nil && !errors.Is(openErr, os.ErrNotExist) {
 				fail(w, 500, errors.New("无法读取 STRM 生成目录"))
@@ -347,22 +365,54 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				index.Items = items
-				if err := a.saveScrapeIndex(task, index); err != nil {
-					fail(w, 500, err)
-					return
-				}
 			} else {
 				index.Items = []scrapeItem{}
 			}
 		}
 		items := append([]scrapeItem(nil), index.Items...)
-		if dir, err := os.OpenRoot(root); err == nil {
-			localScrapePosters(dir, task, items)
-			dir.Close()
-		}
 		if r.URL.Query().Get("group") == "true" {
-			jsonResponse(w, 200, scrapeWorks(items))
+			works := scrapeWorks(items)
+			if cached {
+				for i := range works {
+					if poster := index.Covers[works[i].Path]; poster != "" {
+						works[i].Poster = poster
+					}
+				}
+			} else if dir, err := os.OpenRoot(root); err == nil {
+				// Probe artwork once per work, not once per episode.
+				posters := make([]scrapeItem, len(works))
+				for i := range works {
+					posters[i] = works[i].scrapeItem
+				}
+				localScrapePosters(dir, task, posters)
+				dir.Close()
+				index.Covers = map[string]string{}
+				for i := range works {
+					works[i].Poster = posters[i].Poster
+					index.Covers[works[i].Path] = posters[i].Poster
+				}
+			}
+			if !cached && !a.scrapeProgress.Running {
+				index.ScannedAt = time.Now()
+				if err := a.saveScrapeIndex(task, index); err != nil {
+					fail(w, 500, err)
+					return
+				}
+			}
+			jsonResponse(w, 200, works)
 		} else {
+			if dir, err := os.OpenRoot(root); err == nil {
+				localScrapePosters(dir, task, items)
+				dir.Close()
+			}
+			if !a.scrapeProgress.Running && !cached {
+				index.ScannedAt = time.Now()
+				index.Covers = nil
+				if err := a.saveScrapeIndex(task, index); err != nil {
+					fail(w, 500, err)
+					return
+				}
+			}
 			jsonResponse(w, 200, items)
 		}
 		return
@@ -430,6 +480,8 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	index := a.loadScrapeIndex(in.TaskID, rootName)
+	index.ScannedAt = time.Time{}
+	index.Covers = nil
 	selectedWork := ""
 	selectedWorks := map[string]bool{}
 	requestedPaths := map[string]bool{}

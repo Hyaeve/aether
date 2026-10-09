@@ -511,6 +511,13 @@ func (a *App) scheduler() {
 				cancel()
 			}
 			st := a.store.snapshot()
+			for _, rule := range st.BackupRules {
+				if rule.Enabled && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
+					if err := a.startBackup(rule.ID); err != nil {
+						_ = a.backupUpdate(rule.ID, func(r *BackupRule) { r.NextRun = now.Add(time.Minute) })
+					}
+				}
+			}
 			for _, rule := range st.Automations {
 				if rule.Enabled && rule.Trigger == "cron" && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
 					if err := a.startAutomation(rule.ID); err != nil {

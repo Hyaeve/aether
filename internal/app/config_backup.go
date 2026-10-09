@@ -269,6 +269,11 @@ func applyPendingConfig(s *Store) error {
 	before := s.state
 	s.state = b.State
 	s.state.Modules = before.Modules
+	for i := range s.state.BackupRules {
+		s.state.BackupRules[i].Status = "idle"
+		s.state.BackupRules[i].Message = ""
+		s.state.BackupRules[i].NextRun = backupNext(s.state.BackupRules[i], time.Now())
+	}
 	for i := range s.state.Tasks {
 		s.state.Tasks[i].Status = "idle"
 		s.state.Tasks[i].NextRun = nextRun(s.state.Tasks[i], time.Now())

@@ -85,8 +85,8 @@ function select(value) {
 .simulcast-settings { min-width: 0; }
 .simulcast-list { display: grid; gap: 12px; }
 .simulcast-row { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); min-width: 0; }
-.simulcast-name { flex: 1; min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
-.simulcast-name span { color: var(--muted); font-size: 13px; }
+.simulcast-name { flex: 1; min-width: 0; display: flex; flex-direction:column; align-items:flex-start; gap: 4px; overflow-wrap: anywhere; }
+.simulcast-name span { color: var(--text); font-size: 14px; font-weight:500; opacity:.8; }
 .simulcast-toggle { padding:0; border:0; background:transparent; flex:0 0 40px; width:40px; height:40px; }
 .simulcast-toggle[aria-pressed=false] { opacity:.45; }
 .simulcast-toggle :deep(.provider-icon) { width:40px; height:40px; background:transparent; border-radius:0; }

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 async function mock(page) {
+	await page.route('**/api/backup-rules', r => r.fulfill({ json: [] }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'transfer-test', storages: [{ id: 'local', type: 'local', name: '本地资料', enabled: true, config: {} }], tasks: [], settings: {}, traffic: {}, cache: {} } }))
 }
