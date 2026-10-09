@@ -25,6 +25,7 @@ function choose(event, item) {
   }
 }
 function selectionKey(event) { if(event.key === 'Escape' && !document.querySelector('.modal')) exitSelection() }
+function overlayFocus(event) { if (selectionMode.value && event.target.closest?.('.modal')) exitSelection() }
 async function confirmAction() {
   const command = confirmation.value
   busy.value = true
@@ -52,6 +53,7 @@ const workPath = computed(() => {
 const settings = reactive({ writeMode: 'missing', episodes: true, fanart: false, actors: false, excluded: '' })
 const match = reactive({ tmdb: '', kind: 'movie' })
 const resetting = ref(null)
+watch([matching, scopeOpen, settingsOpen, resetting, confirmation], values => { if (values.some(Boolean)) exitSelection() }, { flush: 'sync' })
 async function resetMetadata() {
   busy.value = true
   try {
@@ -138,10 +140,11 @@ watch(() => state.tasks.find(t => t.id === task.value)?.status, (current, previo
 })
 onMounted(async () => {
   document.addEventListener('keydown', selectionKey)
+  document.addEventListener('focusin', overlayFocus)
   poll()
   try { Object.assign(settings, await api('/strm-scrape/settings')) } catch (e) { notify(e.message, true) }
 })
-onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequest++; directoryRequest++; document.removeEventListener('keydown',selectionKey) })
+onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequest++; directoryRequest++; document.removeEventListener('keydown',selectionKey); document.removeEventListener('focusin',overlayFocus) })
 </script>
 <template>
   <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button class="btn" @click="settingsOpen = true"><Icon name="Settings2" />刮削设置</button><button v-if="progress.running" class="btn" :disabled="busy" @click="action('stop')"><Icon name="Square" />停止</button></div></section>
@@ -160,8 +163,8 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
         <article v-for="item in shown" :key="item.path" class="scrape-card" :class="{selected:selection.includes(item.path)}" @click="selectionMode && choose($event,item)" @contextmenu.prevent="choose($event,item)">
           <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :aria-pressed="selectionMode ? selection.includes(item.path) : undefined" :disabled="progress.running || busy" @click.stop="choose($event,item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '电视剧' : '电影' }}</span></template><span v-if="selectionMode" class="poster-selection"><Icon :name="selection.includes(item.path) ? 'CircleCheck' : 'Circle'" :size="22" /></span></button>
-          <div class="scrape-card-body"><strong :data-tooltip="item.title">{{ item.title }}</strong><small :data-tooltip="item.path">{{ item.kind === 'tv' ? '剧集' : '电影' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.kind === 'tv'"> · {{ item.count || 1 }} 集</template></small><span class="scrape-status" :class="item.status">{{ statuses[itemStatus(item)] }}</span></div>
-          <div class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" /></button><button class="icon-btn" aria-label="识别作品" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" /></button></div>
+          <div class="scrape-card-body"><strong :data-tooltip="item.title">{{ item.title }}</strong><small :data-tooltip="item.path">{{ item.kind === 'tv' ? '剧集' : '电影' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.kind === 'tv'"> · {{ item.count || 1 }} 集</template></small></div>
+          <div v-if="!selectionMode" class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" /></button><button class="icon-btn" aria-label="识别作品" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" /></button></div>
         </article>
         <div v-if="bottom" :style="{height: `${bottom}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
       </div>
@@ -223,10 +226,13 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 @media(hover:none) { .scrape-actions { opacity:1; pointer-events:auto; transform:none; } }
 .scrape-actions :deep(button) { width: 50%; height: 38px; border-radius:8px; background:color-mix(in srgb,var(--surface) 92%,transparent); box-shadow:0 2px 8px #0002; transition:transform .18s,background .18s; }
 .scrape-actions :deep(button:hover:not(:disabled)) { transform:translateY(-3px); background:var(--primary-soft); }
-.scrape-card.selected { border-color:var(--primary); box-shadow:inset 0 0 0 2px var(--primary); }
-.scrape-poster { position:relative; }.poster-selection { position:absolute; right:9px; top:9px; color:var(--primary); background:var(--surface); border-radius:50%; width:24px; height:24px; }
-.scrape-dock { position:fixed; z-index:140; bottom:20px; left:calc(50% + 118px); transform:translateX(-50%); display:flex; align-items:center; gap:10px; max-width:calc(100vw - 24px); padding:10px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:var(--shadow); font-size:13px; }
-.scrape-dock strong { white-space:nowrap; font-size:13px; }.scrape-dock .btn { font-size:13px; }
+.scrape-card.selected { border-color:var(--primary); box-shadow:none; }
+.selecting .scrape-card { transition:transform .2s ease, border-color .2s ease; overflow:visible; }
+.selecting .scrape-card:hover { transform:scale(1.025); z-index:2; }
+.scrape-poster { position:relative; border-radius:15px 15px 0 0; overflow:hidden; }.poster-selection { position:absolute; left:9px; top:9px; color:var(--primary); background:var(--surface); border-radius:50%; width:24px; height:24px; }
+.scrape-dock { position:fixed; z-index:140; bottom:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:6px; max-width:calc(100vw - 24px); padding:8px 16px; border:1px solid color-mix(in srgb,var(--primary) 18%,var(--border)); border-radius:999px; background:color-mix(in srgb,var(--primary) 12%,var(--surface)); box-shadow:var(--shadow); font-size:13px; }
+.scrape-dock strong { white-space:nowrap; font-size:13px; }.scrape-dock .btn { font-size:13px; border:0; background:transparent; color:var(--text); box-shadow:none; padding:8px; border-radius:0; }
+.scrape-dock .btn:hover:not(:disabled), .scrape-dock .btn:focus-visible { background:transparent; color:var(--primary); }
 .match-source-path { padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; font-size:14px; overflow-wrap:anywhere; }.match-source-path small { display:block; color:var(--muted); font-size:12px; margin-bottom:7px; }
 .scrape-body { min-height: 0; overflow-anchor: none; }
 .scrape-body::-webkit-scrollbar { display: none; }
@@ -244,6 +250,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .candidate-search :deep(.rounded-select-trigger) { min-width: 0; width: 100%; }
 @media(max-width:900px) { .candidate-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .candidate-grid { grid-template-columns: minmax(0,1fr); }.scrape-dock { left:50%; flex-wrap:wrap; justify-content:center; width:calc(100% - 24px); bottom:10px; }.candidate-search { grid-template-columns:90px minmax(0,1fr); }.candidate-search > button { grid-column:2; justify-self:end; }.scrape-actions { gap:4px; left:4px; right:4px; } }
-@media(prefers-reduced-motion:reduce) { .scrape-actions, .scrape-actions :deep(button) { transition:none; } }
+@media(max-width:600px) { .scrape-dock { gap:2px; padding:8px; }.scrape-dock strong, .scrape-dock .btn { font-size:12px; }.scrape-dock .btn { padding:6px; gap:5px; } }
+@media(prefers-reduced-motion:reduce) { .scrape-actions, .scrape-actions :deep(button), .selecting .scrape-card { transition:none; } }
 @media(max-width:760px) { .scrape-toolbar { flex-wrap: wrap; }.scrape-toolbar .search-field { margin-left: 0; width: 160px; }.scrape-head,.scrape-row { grid-template-columns: minmax(0,1fr) 70px 80px; gap: 6px; }.scrape-head > :nth-child(2),.scrape-row > :nth-child(2) { display: none; } }
 </style>

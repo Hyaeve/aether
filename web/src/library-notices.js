@@ -31,3 +31,10 @@ export function embyNoticeDisplay(notice) {
   }
   return { name, message: `${labels[notice.event || 'library.new'] || notice.event} · ${libraryNoticeText(notice)}` }
 }
+
+export function noticeTime(value) {
+  const time = new Date(value)
+  if (!value || !Number.isFinite(time.getTime())) return ''
+  const pad = n => String(n).padStart(2, '0')
+  return `${pad(time.getMonth() + 1)}-${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}`
+}

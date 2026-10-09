@@ -4,6 +4,7 @@ import { api, notify, state } from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
+import ThinScroll from './ThinScroll.vue'
 import { useVirtualList } from '../virtual-list'
 import { changedNameParts } from '../name-diff'
 const props = defineProps({ storage: String, source: String, files: Array })
@@ -96,7 +97,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
     <header class="rename-heading"><button class="icon-btn" aria-label="返回文件管理" :disabled="busy" @click="emit('close')"><Icon name="ArrowLeft" /></button><h2>重命名工作台</h2><span>{{ files.length }} 个项目</span><button class="btn primary" :disabled="invalid || busy" @click="execute">{{ busy ? '正在重命名…' : '确认重命名' }}</button></header>
     <div class="rename-columns">
       <section class="rename-comparison">
-        <div ref="viewport" class="rename-preview">
+        <ThinScroll :ref="el => viewport = el?.element || null" class="rename-preview-scroll" content-class="rename-preview">
           <p v-if="loading" class="small-empty">正在预览…</p><p v-else-if="!items.length" class="small-empty">{{ error || '等待应用规则' }}</p>
           <div :style="{ height: `${top}px` }" />
           <article v-for="item in shown" :key="item.id" class="rename-preview-row" :class="{ignored: ignored.includes(item.id)}">
@@ -104,9 +105,10 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
             <div class="rename-changed" :class="{ 'error-message': item.error }"><small>新：</small><span :data-tooltip="item.error || item.newName"><template v-if="item.error">{{ item.error }}</template><template v-else><template v-for="(part, index) in nameParts(item)" :key="index"><mark v-if="part.changed">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></template></span></div>
             <div class="rename-item-actions"><button class="icon-btn" :aria-label="ignored.includes(item.id) ? '取消忽略' : '忽略'" :data-tooltip="ignored.includes(item.id) ? '取消忽略' : '忽略'" data-tooltip-always :disabled="busy" @click="toggleIgnore(item)"><Icon :name="ignored.includes(item.id) ? 'RotateCcw' : 'X'" /></button><button class="icon-btn" aria-label="修改" data-tooltip="修改" data-tooltip-always :disabled="busy" @click="editing = item; editName = item.name"><Icon name="Pencil" /></button></div>
           </article><div :style="{ height: `${bottom}px` }" />
-        </div><p v-if="error && items.length" class="error-message">{{ error }}</p>
+        </ThinScroll><p v-if="error && items.length" class="error-message">{{ error }}</p>
       </section>
       <aside class="rename-rules">
+        <ThinScroll class="rename-rules-scroll">
         <fieldset :disabled="busy">
           <article v-for="(rule, index) in rules" :key="index" class="rename-rule" :class="{collapsed: expanded !== index}">
             <header><strong>规则 {{ index + 1 }}</strong><button v-if="index > 0" class="icon-btn" aria-label="删除规则" @click="removeRule(index)"><Icon name="Trash2" /></button><button class="icon-btn" :aria-label="`规则 ${index + 1}`" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" /></button></header>
@@ -119,7 +121,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
           </article>
           <button class="btn rename-add-rule" :disabled="rules.length >= 30" @click="addRule"><Icon name="Plus" />添加规则</button>
         </fieldset>
-        <div class="rename-save"><div v-if="sets.length" class="rename-set-picker"><RoundedSelect upward :model-value="chosen" label="选择规则集" :options="[{ value: '', label: '选择规则集' }, ...sets.map(s => ({ value: s.id, label: s.name }))]" :disabled="busy" @update:model-value="applySet" /><button class="icon-btn" aria-label="删除规则集" :disabled="!chosen || busy || saveBusy" @click="deleteSet"><Icon name="X" /></button></div><button class="btn" :disabled="busy || saveBusy || !validRules" @click="naming = true"><Icon name="Save" />保存规则集</button></div>
+        </ThinScroll>
+        <div class="rename-save"><div v-if="sets.length" class="rename-set-picker"><RoundedSelect upward :model-value="chosen" label="常用规则集" :options="[{ value: '', label: '常用规则集' }, ...sets.map(s => ({ value: s.id, label: s.name }))]" :disabled="busy" @update:model-value="applySet" /><button class="icon-btn" aria-label="删除规则集" :disabled="!chosen || busy || saveBusy" @click="deleteSet"><Icon name="X" /></button></div><button class="btn" :disabled="busy || saveBusy || !validRules" @click="naming = true"><Icon name="Save" />保存为规则集</button></div>
       </aside>
     </div>
   </section>
@@ -127,13 +130,17 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
   <Modal v-if="editing" title="重命名" compact @close="!busy && (editing = null)"><form @submit.prevent="renameOne"><div class="modal-body"><label>新名称<input v-model="editName" required maxlength="255" :disabled="busy" /></label></div><footer class="modal-footer"><button type="button" class="btn cancel" :disabled="busy" @click="editing = null">取消</button><button class="btn primary" :disabled="busy || !editName.trim()">确认修改</button></footer></form></Modal>
 </template>
 <style scoped>
-.rename-preview-row { position: relative; grid-template-columns: minmax(0,1fr); gap: 6px; padding-right: 92px; font-size:12px; }
+.rename-preview-scroll { flex:1; min-height:0; }
+.rename-preview-scroll :deep(.rename-preview) { border:0; border-radius:0; padding-right:6px; }
+.rename-preview-row { position: relative; grid-template-columns: minmax(0,1fr); gap: 6px; padding-right: 92px; font-size:12px; height:84px; margin-bottom:8px; border:1px solid color-mix(in srgb,var(--border) 65%,transparent); border-radius:8px; background:var(--surface); }
 .rename-preview-row small { flex-shrink: 0; color: var(--muted); }
 .rename-preview-row.ignored > div:not(.rename-item-actions) { opacity: .45; }
 .rename-preview-row .rename-item-actions { position: absolute; right: 8px; top: 28px; opacity: 0; }
 .rename-preview-row:hover .rename-item-actions, .rename-preview-row:focus-within .rename-item-actions { opacity: 1; }
-.rename-rules { display: flex; flex-direction: column; }
-.rename-save { margin-top: auto; padding-top: 18px; }
+.rename-rules { display: flex; flex-direction: column; overflow:hidden; }
+.rename-rules-scroll { flex:1; min-height:0; }
+.rename-rules-scroll :deep(.thin-scroll-area) { padding-right:6px; }
+.rename-save { flex-shrink:0; margin-top:0; padding-top:10px; background:var(--bg); }
 .rename-rule.collapsed { padding: 4px 12px; margin-bottom: 6px; }
 .rename-rule.collapsed header { margin: 0; }
 .rule-collapse { display:grid; grid-template-rows:1fr; opacity:1; }.rule-fields { min-height:0; }.rule-expand-enter-active .rule-fields, .rule-expand-leave-active .rule-fields { overflow:hidden; }.rule-expand-enter-active, .rule-expand-leave-active { transition:grid-template-rows .24s ease, opacity .2s ease; }.rule-expand-enter-from, .rule-expand-leave-to { grid-template-rows:0fr; opacity:0; }
@@ -146,4 +153,5 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 [data-theme=dark] .rename-changed mark { color:#f4b45a; }
 @media(prefers-reduced-motion:reduce) { .rule-expand-enter-active, .rule-expand-leave-active { transition:none; } }
 @media (hover: none) { .rename-preview-row .rename-item-actions { opacity: 1; } }
+@media (max-width:760px) { .rename-preview-scroll { height:350px; flex:auto; }.rename-preview-scroll :deep(.rename-preview) { max-height:none; }.rename-rules { height:380px; } }
 </style>

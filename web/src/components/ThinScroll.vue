@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-const props = defineProps({ contentClass: String })
+const props = defineProps({ contentClass: String, thickness: { type: Number, default: 1 } })
 const area = ref(null), thumb = ref(null), visible = ref(false)
+defineExpose({ element: area })
 let observer, mutations, frame = 0, drag
 function update() {
   cancelAnimationFrame(frame)
@@ -13,7 +14,7 @@ function update() {
     const size = Math.min(h, Math.max(24, h * h / total))
     const top = total > h ? el.scrollTop / (total - h) * (h - size) : 0
     const scale = (window.devicePixelRatio || 1) * (window.visualViewport?.scale || 1)
-    thumb.value?.style.setProperty('--hairline', `${1 / scale}px`)
+    thumb.value?.style.setProperty('--hairline', `${props.thickness / scale}px`)
     if (thumb.value) Object.assign(thumb.value.style, { height: `${size}px`, transform: `translateY(${top}px)` })
   })
 }

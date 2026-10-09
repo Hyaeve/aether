@@ -1,5 +1,15 @@
 # Protocol References
 
+## Audio Metadata
+
+The browser audio drawer dynamically loads `music-metadata` 12.1.0,
+`@tokenizer/http` 0.9.2 and `@tokenizer/range` 0.12.0 to parse embedded
+audio tags via bounded HTTP ranges. These packages are MIT licensed by
+Borewit and their contributors; their transitive dependencies retain their
+own licenses recorded in `web/package-lock.json`. Aether does not bundle an
+online artwork or lyrics search service. Metadata parsing does not provide
+additional audio decoders.
+
 ## TMDB Logo
 
 The TMDB settings button references the official TMDB blue-square SVG supplied

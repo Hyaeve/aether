@@ -79,11 +79,17 @@ onUnmounted(() => generation++)
 .picker-create-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
 .picker-create-form input { flex: 1; min-width: 100px; width: 0; }
 .picker-create-form .error-message { flex-basis: 100%; margin: 0; }
-.source-toolbar { flex-wrap: wrap; }
+.source-toolbar { flex-wrap: nowrap; margin-bottom:10px; }
+.source-toolbar .directory-crumbs { margin:0; }
 .source-toolbar .directory-crumbs { flex:1; min-width:0; }
+.source-toolbar .search-field { flex:0 1 190px; margin:0; }
+.source-toolbar .search-field input { margin:0; }
 .source-toolbar > .icon-btn { flex: 0 0 36px; }
+.source-columns { padding:8px 14px; font-size:12px; color:var(--text); }
+.source-directory time { font-size:14px; }
 @media (max-width: 700px) {
-  .source-toolbar .search-field { order: 1; }
-  .source-toolbar > .icon-btn:last-child { margin-left: auto; }
+  .source-toolbar { flex-wrap:wrap; }
+  .source-toolbar .directory-crumbs { flex-basis:calc(100% - 46px); }
+  .source-toolbar .search-field { order:1; flex-basis:100%; }
 }
 </style>

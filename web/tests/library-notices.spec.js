@@ -20,10 +20,11 @@ test('episode ranges preserve gaps and meteor batches cover the right side', () 
 })
 
 test('activity popover shows media season and compact episode ranges', async ({ page }, info) => {
+  const now = Date.now()
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'notices', storages: [], tasks: [], settings: {}, cache: {}, traffic: {}, logs: [], libraryNotices: [
-    { id: 'show', name: '单集名', series: '漫长的季节', mediaType: 'episode', season: 1, episodes: [1, 3, 4, 5, 7], time: '2026-10-08T12:00:00Z' },
-    { id: 'film', name: '降临', mediaType: 'movie', time: '2026-10-08T11:00:00Z' }
+    { id: 'show', name: '单集名', series: '漫长的季节', mediaType: 'episode', season: 1, episodes: [1, 3, 4, 5, 7], time: new Date(now - 60000).toISOString() },
+    { id: 'film', name: '降临', mediaType: 'movie', time: new Date(now - 120000).toISOString() }
   ] } }))
   await page.goto('/dashboard')
   await page.getByRole('button', { name: '任务通知', exact: true }).click()

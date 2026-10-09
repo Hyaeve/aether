@@ -1,5 +1,6 @@
 <script setup>
 import {
+  ListOrdered, Repeat, Shuffle, SkipBack, SkipForward,
   ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
   FilePenLine, FileJson, FileAudio2,
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
@@ -8,7 +9,7 @@ import {
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
   Bell, Box, Check, CheckCheck, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
-  CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
+  CircleCheck, CircleDashed, Cloud, Database, Download, Upload, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
   Moon, Network, Pause, Pencil, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,
@@ -17,6 +18,7 @@ import {
 import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 const icons = {
+  ListOrdered, Repeat, Shuffle, SkipBack, SkipForward,
   ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
   FilePenLine, FileJson, FileAudio2,
   EmbyNotice: EmbyNoticeIcon,
@@ -27,7 +29,7 @@ const icons = {
   Gauge, UserPlus, FolderPlus, Sparkles, BrainCircuit, Tags, Film, ListFilter, Share2, ArrowLeftRight,
   Activity, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight,
   Bell, Box, Check, CheckCheck, ChevronDown, ChevronUp, ChevronRight, ChevronsUpDown, Circle, CircleAlert,
-  CircleCheck, CircleDashed, Cloud, Database, Download, Ellipsis, Eye, EyeOff,
+  CircleCheck, CircleDashed, Cloud, Database, Download, Upload, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
   Moon, Network, Pause, Pencil, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,

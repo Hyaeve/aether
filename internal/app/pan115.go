@@ -84,7 +84,8 @@ func download115(ctx context.Context, s Storage, pick, ua string) (*driver.Downl
 		}
 		return nil, fmt.Errorf("115 获取下载链接失败（接口 %s，HTTP %d，错误码 %d）：%s", endpoint, status, code, reason)
 	}
-	// The download API issues host-only CDN tickets for its returned URL.
+	// The download API issues CDN tickets for its returned URL, which can be
+	// outside the response cookie's API domain.
 	// Bind only response tickets to that URL, never the SDK's merged login CK.
 	bind115CDNTickets(info, jar, downloadCookies)
 	return finish115Download(info, jar, ua, endpoint)
@@ -99,8 +100,9 @@ func bind115CDNTickets(info *driver.DownloadInfo, jar http.CookieJar, cookies []
 		return
 	}
 	for _, cookie := range cookies {
-		if cookie != nil && cookie.Domain == "" {
+		if cookie != nil {
 			copy := *cookie
+			copy.Domain = ""
 			copy.Path = "/"
 			set115DownloadCookies(jar, target, []*http.Cookie{&copy})
 		}
@@ -130,7 +132,12 @@ func finish115Download(info *driver.DownloadInfo, jar http.CookieJar, ua, endpoi
 	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") {
 		return nil, fmt.Errorf("115 下载接口 %s 未返回有效链接", endpoint)
 	}
-	info.Header = http.Header{"User-Agent": {ua}}
+	info.Header = http.Header{
+		"User-Agent": {ua}, "Referer": {"https://115.com/"},
+		"Accept": {"*/*"}, "Accept-Language": {"zh-CN,zh;q=0.9,en;q=0.8"},
+		"Accept-Encoding": {"identity"}, "Cache-Control": {"no-cache"},
+		"Pragma": {"no-cache"}, "Connection": {"keep-alive"},
+	}
 	req := &http.Request{Header: info.Header}
 	for _, cookie := range jar.Cookies(u) {
 		req.AddCookie(cookie)

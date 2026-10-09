@@ -13,7 +13,7 @@ async function control(action) {
   closeMenu()
   try { await api('/transfers/action', 'POST', { id, action }); notify({ pause: '传输已暂停', resume: '传输已继续', delete: '传输已删除' }[action]); await load() } catch (e) { notify(e.message, true) }
 }
-const modes = [{ id: 'copy', name: '复制', icon: 'Copy' }, { id: 'upload', name: '上传', icon: 'ArrowUp' }, { id: 'download', name: '下载', icon: 'Download' }]
+const modes = [{ id: 'copy', name: '复制', icon: 'Copy' }, { id: 'upload', name: '上传', icon: 'Upload' }, { id: 'download', name: '下载', icon: 'Download' }]
 const filtered = computed(() => items.value.filter(i => i.kind === selected.value && [i.name, i.storage, i.source, status(i)].some(v => String(v || '').toLowerCase().includes(query.value.trim().toLowerCase()))))
 let timer, alive = true
 async function clearFailed() {

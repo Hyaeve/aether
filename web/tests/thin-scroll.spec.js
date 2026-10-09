@@ -14,7 +14,9 @@ test('workspace scroll starts below header and hairline survives device/pinch sc
     await expect(page.locator('.notice-scroll .thin-scroll-thumb')).toBeVisible()
     for (const selector of ['.page-scroll', '.notice-scroll']) {
       const thumb = page.locator(`${selector} .thin-scroll-thumb`)
-      await expect.poll(() => thumb.evaluate(el => parseFloat(getComputedStyle(el, '::after').width) * devicePixelRatio)).toBeLessThanOrEqual(1.05)
+      const target = selector === '.notice-scroll' ? 2 : 1
+      await expect.poll(() => thumb.evaluate(el => parseFloat(getComputedStyle(el, '::after').width) * devicePixelRatio)).toBeGreaterThanOrEqual(target - .05)
+      await expect.poll(() => thumb.evaluate(el => parseFloat(getComputedStyle(el, '::after').width) * devicePixelRatio)).toBeLessThanOrEqual(target + .05)
     }
     await page.locator('.page-scroll > .thin-scroll-area').evaluate(el => { el.scrollTop = 900 })
     expect(await page.evaluate(() => window.scrollY)).toBe(0)
@@ -22,7 +24,7 @@ test('workspace scroll starts below header and hairline survives device/pinch sc
     if (scale === 2) await page.screenshot({ path: info.outputPath('thin-scroll-2x.png') })
     const cdp = await context.newCDPSession(page)
     await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 })
-    await expect.poll(() => page.locator('.notice-scroll .thin-scroll-thumb').evaluate(el => parseFloat(getComputedStyle(el, '::after').width) * devicePixelRatio * visualViewport.scale)).toBeLessThanOrEqual(1.05)
+    await expect.poll(() => page.locator('.notice-scroll .thin-scroll-thumb').evaluate(el => parseFloat(getComputedStyle(el, '::after').width) * devicePixelRatio * visualViewport.scale)).toBeLessThanOrEqual(2.05)
     await context.close()
   }
 })

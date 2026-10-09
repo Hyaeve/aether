@@ -323,17 +323,19 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 				CaPath string `json:"caPath"`
 			}
 			var result struct {
-				Data struct {
-					Total int     `json:"nodNum"`
+				Data *struct {
 					Files []entry `json:"coLst"`
 					Dirs  []entry `json:"caLst"`
 				} `json:"data"`
 			}
-			body := map[string]any{"getOutLinkInfoReq": map[string]any{"account": account, "linkID": code, "passwd": pass, "pCaID": parent, "caSrt": 0, "coSrt": 0, "srtDr": 1, "bNum": page*100 + 1, "eNum": (page + 1) * 100}}
+			// V6 returns the current share directory in one response, not a paged cloud listing.
+			body := map[string]any{"getOutLinkInfoReq": map[string]any{"account": account, "linkID": code, "passwd": pass, "pCaID": parent}}
 			if err := shareRequest(ctx, s, "POST", mobileShareBase+"IOutLink/getOutLinkInfoV6", body, &result); err != nil {
 				return "", nil, err
 			}
-			total = result.Data.Total
+			if result.Data == nil {
+				return "", nil, errors.New("分享服务未返回目录数据，请重新解析")
+			}
 			for _, f := range result.Data.Dirs {
 				p := f.Path
 				if p == "" {
@@ -356,8 +358,11 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 			seen[item.ID] = true
 			items = append(items, item)
 		}
-		if total > 5000 {
+		if total > 5000 || len(items) > 5000 {
 			return "", nil, errors.New("分享根目录最多支持 5000 项")
+		}
+		if s.Type == "mobile" {
+			return token, items, nil
 		}
 		if len(batch) == 0 && total > len(items) {
 			return "", nil, errors.New("分享列表分页不完整，请重新解析")

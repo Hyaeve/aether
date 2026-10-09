@@ -8,7 +8,7 @@ import Modal from '../components/Modal.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 import VideoViewer from '../components/VideoViewer.vue'
 import VideoThumbnail from '../components/VideoThumbnail.vue'
-import AudioPlayer from '../components/AudioPlayer.vue'
+import { openAudio } from '../audio-session'
 import SecretInput from '../components/SecretInput.vue'
 import TaskSourcePicker from '../components/TaskSourcePicker.vue'
 import { copyText } from '../clipboard'
@@ -87,8 +87,13 @@ function openFile(event, file) {
   if (renameID.value) return
   if (file.isDir) return enter(file)
   if (file.url && (imageFile(file) || videoFile(file) || audioFile(file))) {
+    if (audioFile(file)) {
+      const context = { storage: selected.value, parent: current.value, companions: files.value.filter(f => !f.isDir).map(f => ({ id: f.id, name: f.name })) }
+      closeMenu(); openAudio({ ...file, ...context }, visible.value.filter(f => audioFile(f) && f.url).map(f => ({ ...f, ...context })))
+      return
+    }
     if (imageFile(file)) previewImages.value = visible.value.filter(f => imageFile(f) && f.url).map(f => ({ ...f }))
-    closeMenu(); preview.value = file
+    closeMenu(); preview.value = { ...file, storage: selected.value, parent: current.value, companions: files.value.filter(f => !f.isDir).map(f => ({ id: f.id, name: f.name })) }
   } else context(event, file)
 }
 function openWorkbench() { workbenchFiles.value = [...(selection.value.length ? detailFiles.value : files.value)]; createMenu.value = false; closeMenu() }
@@ -323,7 +328,6 @@ watch(selected, () => { current.value = '/'; history.value = []; selection.value
   </div></Teleport>
   <ImageViewer v-if="preview && imageFile(preview)" :images="previewImages" :initial="preview.id" @close="preview = null" />
   <VideoViewer v-else-if="preview && videoFile(preview)" :file="preview" @close="preview = null" />
-  <AudioPlayer v-else-if="preview" :file="preview" @close="preview = null" />
   <Modal v-if="extracting" title="解压压缩包" compact @close="closeExtract"><form @submit.prevent="extract"><div class="modal-body extract-form"><p class="muted">{{ extracting.name }}</p><label>解压目录<input v-model="extractFolder" required maxlength="255" :disabled="extractBusy" /></label><label>解压密码<SecretInput v-model="extractPassword" aria-label="解压密码" autocomplete="off" :disabled="extractBusy" /></label><p v-if="extractError" class="error-message" role="alert">{{ extractError }}</p><p v-if="extractBusy" class="muted" role="status">正在解压并写入存储，请保持窗口打开…</p></div><footer class="modal-footer"><button class="btn primary" :disabled="extractBusy || !extractFolder.trim()"><Icon :name="extractBusy ? 'LoaderCircle' : 'ArchiveRestore'" :class="{ spin: extractBusy }" />{{ extractBusy ? '解压中…' : '确认解压' }}</button><button class="btn" type="button" :disabled="extractBusy" @click="closeExtract">取消</button></footer></form></Modal>
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>

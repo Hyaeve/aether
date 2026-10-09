@@ -1,14 +1,11 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
-import { api, state, date, notify } from '../lib'
+import { api, date, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import { useRoute } from 'vue-router'
 const route = useRoute()
-const key = `aether-log-filters:${state.username}`
-let saved = {}
-try { saved = JSON.parse(localStorage.getItem(key) || '{}') || {} } catch {}
-const filters = reactive({ query: typeof saved.query === 'string' ? saved.query : '', level: saved.level || 'all', module: saved.module || 'all', view: saved.view === 'raw' ? 'raw' : 'structured' })
+const filters = reactive({ query: '', level: 'all', module: 'all', view: 'structured' })
 const modules = { audit: '操作审计', files: '文件与备份', storage: '存储与服务', tasks: '任务管理', links: '以太链接', system: '系统' }
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试' }
 if (!modules[filters.module]) filters.module = 'all'
@@ -47,7 +44,7 @@ function setRow(el, index) {
   if (el && filters.view === 'raw') { rowNodes.set(index, el); rowObserver?.observe(el) } else rowNodes.delete(index)
 }
 function resetRows() { rowHeights.clear(); scroll.value = 0; if (viewport.value) viewport.value.scrollTop = 0 }
-watch(filters, () => { localStorage.setItem(key, JSON.stringify(filters)); resetRows() })
+watch(filters, resetRows)
 async function load() {
   if (busy.value) return
   busy.value = true
@@ -60,7 +57,11 @@ function applyNotice() {
   const exact = String(route.query.q || '')
   filters.query = entries.value.some(l => l.message.includes(exact)) ? exact : String(route.query.fallback || exact)
 }
-watch(() => route.fullPath, () => { applyNotice(); resetRows() })
+watch(() => route.fullPath, () => {
+  if (route.path !== '/logs') return
+  Object.assign(filters, { query: '', level: 'all', module: 'all' })
+  applyNotice(); resetRows()
+})
 let observer, rowObserver, previousWidth = 0
 onMounted(() => {
   rowObserver = new ResizeObserver(rows => {
@@ -97,7 +98,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
       <div :style="{ height: `${totalHeight}px`, position: 'relative' }">
         <div :style="{ transform: `translateY(${offsetAt(start)}px)` }">
           <div v-for="(entry, index) in visible" :key="`${filters.view}:${start + index}`" :ref="el => setRow(el, start + index)" :data-index="start + index" :data-level="entry.level" class="log-entry" :class="{ raw: filters.view === 'raw' }">
-            <template v-if="filters.view === 'raw'"><strong class="raw-level">{{ entry.level.toUpperCase() }}</strong><code>{{ entry.time }} {{ JSON.stringify({ module: entry.module, message: entry.message }) }}</code></template>
+            <template v-if="filters.view === 'raw'"><strong class="raw-level">{{ entry.level.toUpperCase() }}</strong><code><time class="raw-time">{{ entry.time }}</time> {{ JSON.stringify({ module: entry.module, message: entry.message }) }}</code></template>
             <template v-else><time>{{ date(entry.time) }}</time><span class="log-level" :data-level="entry.level">{{ levels[entry.level] || entry.level }}</span><span class="log-module">{{ modules[entry.module] || '系统' }}</span><span class="log-message">{{ entry.message }}</span></template>
           </div>
         </div>

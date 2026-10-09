@@ -71,17 +71,17 @@ function buildGalaxy(random, scale) {
   if (!dust) return
   dust.scale(scale, scale)
   // A cached band of tiny stellar particles forms a textured galaxy, not blurred blobs.
-  const count = Math.min(42000, Math.floor(width * height / 18))
+  const count = Math.min(62000, Math.floor(width * height / 12))
   for (let i = 0; i < count; i++) {
     const along = random()
     const spread = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
-    const x = width * (1.12 - along * 1.3) + spread * width * .18
+    const x = width * (.94 - along * .88) + spread * width * .14
     const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .095
     // Dark lanes break up the star cloud, giving the band an irregular structure.
-    if (Math.abs(spread + .24 * Math.sin(along * 26)) < .15) continue
-    const core = Math.exp(-spread * spread * .7)
-    const alpha = (.06 + random() * .28) * core
-    dust.fillStyle = i % 7 === 0 ? `rgba(220,194,163,${alpha})` : `rgba(158,178,222,${alpha})`
+    const lane = Math.abs(spread + .3 * Math.sin(along * 26))
+    const core = Math.exp(-spread * spread * .55)
+    const alpha = (.08 + random() * .34) * core * (.12 + .88 * Math.min(1, lane / .28))
+    dust.fillStyle = i % 4 === 0 ? `rgba(232,218,204,${alpha})` : `rgba(173,185,234,${alpha})`
     const radius = .4 + random() * 1.1
     dust.fillRect(x, y, radius, radius)
   }
@@ -92,15 +92,16 @@ function buildGalaxy(random, scale) {
   if (!disk) return
   disk.translate(320, 320)
   for (let i = 0; i < 68000; i++) {
-    const core = i < 24000
-    const r = core ? random() ** 1.7 * 115 : (random() ** .75) * 302
+    const core = i < 12000
+    const r = core ? random() ** 1.6 * 125 : Math.sqrt(random()) * 312
     const scatter = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
-    const angle = core || i % 3 !== 0 ? random() * Math.PI * 2 : i % 4 * Math.PI / 2 + 3.1 * Math.sqrt(r / 286) + scatter * .85
+    const angle = core || i % 3 === 0 ? random() * Math.PI * 2 : i % 4 * Math.PI / 2 + 3.1 * Math.sqrt(r / 286) + scatter * .65
     const distance = Math.max(0, r + (core ? 0 : scatter * 30))
-    const radial = Math.min(1, distance / 320)
-    const fade = (1 - radial * radial * (3 - 2 * radial)) ** 1.15
-    const alpha = (.16 + random() * .42) * fade * (.5 + 1.7 * Math.exp(-distance / 65))
-    disk.fillStyle = core || i % 9 === 0 ? `rgba(255,231,193,${alpha})` : `rgba(174,207,249,${alpha})`
+    const edge = Math.min(1, Math.max(0, (distance - 250) / 70))
+    const fade = Math.exp(-distance / 125) * (1 - edge * edge * (3 - 2 * edge))
+    const alpha = (.14 + random() * .42) * fade * (1 + 1.3 * Math.exp(-distance / 40))
+    const warmth = Math.exp(-distance / 110)
+    disk.fillStyle = `rgba(${174 + Math.round(81 * warmth)},${207 + Math.round(30 * warmth)},${249 - Math.round(40 * warmth)},${alpha})`
     const size = .5 + random() * 1.3
     disk.fillRect(Math.cos(angle) * distance, Math.sin(angle) * distance, size, size)
   }
@@ -113,10 +114,10 @@ function buildRocks(random) {
     for(let j=0;j<24;j++) { const a=j*Math.PI/12, r=43+random()*12; const x=Math.cos(a)*r,y=Math.sin(a)*r*.85; if(j)c.lineTo(x,y); else c.moveTo(x,y) }
     c.closePath(); c.clip()
     const shade=c.createRadialGradient(-24,-28,2,18,22,82)
-    shade.addColorStop(0,'#aaa8a0'); shade.addColorStop(.45,'#595b5e'); shade.addColorStop(1,'#111624')
+    shade.addColorStop(0,'#777a80'); shade.addColorStop(.45,'#353b46'); shade.addColorStop(1,'#090e1b')
     c.fillStyle=shade; c.fillRect(-64,-64,128,128)
-    for(let j=0;j<7000;j++) { const x=random()*128-64,y=random()*128-64; c.fillStyle=random()>.5?'#d7cbbc18':'#070b1428'; c.fillRect(x,y,.5+random()*1.4,.5+random()*1.4) }
-    for(let j=0;j<45;j++) { const x=random()*104-52,y=random()*104-52,r=1+random()**2*10; const crater=c.createRadialGradient(x-r*.3,y-r*.3,0,x,y,r); crater.addColorStop(0,'#0b101ab0'); crater.addColorStop(.7,'#1c223069'); crater.addColorStop(.88,'#d6c9b656'); crater.addColorStop(1,'#0000'); c.fillStyle=crater;c.beginPath();c.ellipse(x,y,r,r*.8,.3,0,Math.PI*2);c.fill() }
+    for(let j=0;j<7000;j++) { const x=random()*128-64,y=random()*128-64; c.fillStyle=random()>.5?'#b8bfc818':'#070b1438'; c.fillRect(x,y,.5+random()*1.4,.5+random()*1.4) }
+    for(let j=0;j<45;j++) { const x=random()*104-52,y=random()*104-52,r=1+random()**2*10; const crater=c.createRadialGradient(x-r*.3,y-r*.3,0,x,y,r); crater.addColorStop(0,'#080d18b0'); crater.addColorStop(.7,'#151c2869'); crater.addColorStop(.88,'#a5aeba40'); crater.addColorStop(1,'#0000'); c.fillStyle=crater;c.beginPath();c.ellipse(x,y,r,r*.8,.3,0,Math.PI*2);c.fill() }
     return texture
   })
 }

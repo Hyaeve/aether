@@ -264,6 +264,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
 	mux.Handle("POST /api/files/extract", a.protected(http.HandlerFunc(a.fileExtract)))
+	mux.Handle("GET /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
+	mux.Handle("HEAD /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
 	mux.Handle("POST /api/files/share/{action}", a.protected(http.HandlerFunc(a.shareTransfer)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))

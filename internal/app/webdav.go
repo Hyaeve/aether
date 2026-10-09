@@ -315,20 +315,27 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 		df.download = download
 		return nil
 	}
+	if s.Type == "115" {
+		df.refreshDownload = func() (Download, error) {
+			return d.a.download(ctx, s, f.ID, f.PickCode)
+		}
+	}
 	return df, nil
 }
 
 type davFile struct {
-	ctx      context.Context
-	info     os.FileInfo
-	entries  []os.FileInfo
-	index    int
-	local    *os.File
-	download Download
-	body     io.ReadCloser
-	offset   int64
-	open     func() error
-	progress *transferProgress
+	ctx             context.Context
+	info            os.FileInfo
+	entries         []os.FileInfo
+	index           int
+	local           *os.File
+	download        Download
+	body            io.ReadCloser
+	offset          int64
+	open            func() error
+	progress        *transferProgress
+	refreshDownload func() (Download, error)
+	refreshed       bool
 }
 
 func (f *davFile) Stat() (os.FileInfo, error) { return f.info, nil }
@@ -411,7 +418,7 @@ func (f *davFile) Read(b []byte) (int, error) {
 		}
 		return n, err
 	}
-	if f.body == nil {
+	for f.body == nil {
 		req, err := http.NewRequestWithContext(f.ctx, "GET", f.download.URL, nil)
 		if err != nil {
 			return 0, err
@@ -450,7 +457,23 @@ func (f *davFile) Read(b []byte) (int, error) {
 		}
 		if (res.StatusCode != 200 && res.StatusCode != 206) || (f.offset > 0 && res.StatusCode != 206) {
 			res.Body.Close()
+			// Only retry a rejected read, never writes or a partially read body.
+			// One refresh per open handle bounds retries across repeated seeks.
+			if (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) && f.refreshDownload != nil && !f.refreshed && f.ctx.Err() == nil {
+				f.refreshed = true
+				download, err := f.refreshDownload()
+				if err != nil {
+					err = fmt.Errorf("115 读取票据刷新失败（偏移 %d）：%w", f.offset, err)
+					f.progress.finish(err)
+					return 0, err
+				}
+				f.download = download
+				continue
+			}
 			err := fmt.Errorf("上游读取返回 HTTP %d（偏移 %d）", res.StatusCode, f.offset)
+			if f.refreshed && (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) {
+				err = fmt.Errorf("115 上游拒绝读取 HTTP %d（偏移 %d，已重新获取下载票据；非本地权限错误）", res.StatusCode, f.offset)
+			}
 			f.progress.finish(err)
 			return 0, err
 		}

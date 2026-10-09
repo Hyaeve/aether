@@ -23,7 +23,7 @@ function wav() {
   return b
 }
 
-test('audio uses the native browser player in a right sliding drawer', async ({ page }, info) => {
+test('audio uses the native browser engine with custom controls in a right sliding drawer', async ({ page }, info) => {
   await workspace(page)
   await page.route('**/sample-audio.wav', r => r.fulfill({ contentType: 'audio/wav', body: wav() }))
   await page.goto('/files')
@@ -31,7 +31,8 @@ test('audio uses the native browser player in a right sliding drawer', async ({ 
   await expect(row.locator('.audio-file-icon')).toHaveCount(1)
   await row.getByRole('button', { name: '星际漫游.wav' }).dblclick()
   const drawer = page.getByRole('dialog', { name: '星际漫游.wav' }), audio = drawer.locator('audio')
-  await expect(audio).toHaveAttribute('controls', '')
+  await expect(audio).not.toHaveAttribute('controls')
+  await expect(drawer.getByRole('slider', { name: '播放进度' })).toBeVisible()
   await expect.poll(() => audio.evaluate(a => a.readyState)).toBeGreaterThanOrEqual(2)
   await audio.evaluate(async a => { await a.play() })
   await expect.poll(() => audio.evaluate(a => a.currentTime)).toBeGreaterThan(0)
@@ -43,7 +44,7 @@ test('audio uses the native browser player in a right sliding drawer', async ({ 
     const rect = await drawer.boundingBox()
     expect(rect.x + rect.width).toBeCloseTo(width, 0); expect(rect.y).toBe(48)
     expect(rect.width).toBeLessThanOrEqual(width)
-    const bounds = await audio.boundingBox()
+    const bounds = await drawer.getByRole('slider', { name: '播放进度' }).boundingBox()
     expect(bounds.x).toBeGreaterThanOrEqual(rect.x); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
     await page.screenshot({ path: info.outputPath(`audio-${width}.png`) })
   }

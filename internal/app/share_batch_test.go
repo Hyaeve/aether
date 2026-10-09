@@ -18,7 +18,6 @@ func TestMobileShareNestedBatchLimit(t *testing.T) {
 		var body struct {
 			Request struct {
 				Parent string `json:"pCaID"`
-				Start  int    `json:"bNum"`
 			} `json:"getOutLinkInfoReq"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -28,7 +27,7 @@ func TestMobileShareNestedBatchLimit(t *testing.T) {
 			t.Fatalf("parent: %s", body.Request.Parent)
 		}
 		files := []map[string]string{}
-		for i := body.Request.Start; i < min(body.Request.Start+100, 1002); i++ {
+		for i := 1; i <= 1001; i++ {
 			files = append(files, map[string]string{"coID": fmt.Sprint(i), "coName": fmt.Sprintf("%d.mkv", i), "coPath": fmt.Sprintf("root/directory/%d", i)})
 		}
 		data, _ := json.Marshal(map[string]any{"code": "0", "data": map[string]any{"nodNum": 1001, "coLst": files}})

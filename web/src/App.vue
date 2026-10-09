@@ -1,10 +1,14 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, state, reload, notify, notices, bytes, date } from './lib'
+import { api, state, reload, notify, notices, bytes } from './lib'
 import Icon from './components/Icon.vue'
 import ThinScroll from './components/ThinScroll.vue'
-import { embyNoticeDisplay } from './library-notices'
+import AudioPlayer from './components/AudioPlayer.vue'
+import { audioSession, closeAudio } from './audio-session'
+import { embyNoticeDisplay, noticeTime } from './library-notices'
+import ShareTransfer from './components/ShareTransfer.vue'
+import { watchShareClipboard } from './share-clipboard'
 import { replacementJobs, refreshReplacementNotices } from './replacement-notices'
 import { recentNotices, noticeResult } from './task-notices'
 import ProviderIcon from './components/ProviderIcon.vue'
@@ -27,6 +31,13 @@ import TransfersPage from './pages/TransfersPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
+const clipboardShare = ref(null)
+watch(() => [state.authenticated, state.username], () => closeAudio(), { flush: 'sync' })
+let stopClipboard
+watch(() => [state.loaded && state.authenticated, state.username], ([ready]) => {
+  stopClipboard?.(); clipboardShare.value = null
+  if (ready) stopClipboard = watchShareClipboard({ ready: () => state.loaded && state.authenticated, open: share => { clipboardShare.value = share; closeMenus() } })
+}, { flush: 'post' })
 const theme = ref(localStorage.getItem('aether-theme') || 'light')
 const themes = [{ id: 'light', label: '日光', icon: 'Sun' }, { id: 'dark', label: '夜间', icon: 'Moon' }, { id: 'system', label: '跟随系统', icon: 'Monitor' }]
 const activeTheme = computed(() => themes.find(t => t.id === theme.value) || themes[0])
@@ -114,7 +125,7 @@ onMounted(() => {
   document.addEventListener('click', closeMenus); document.addEventListener('keydown', escapeMenus)
   timer = setInterval(async () => { if (state.authenticated) { refreshReplacementNotices(); try { await reload(); online.value = true } catch { online.value = false } } }, 5000)
 })
-onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInterval(timer); media.removeEventListener('change', applyTheme); document.removeEventListener('click', closeMenus); document.removeEventListener('keydown', escapeMenus) })
+onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(trafficTimer); clearInterval(timer); media.removeEventListener('change', applyTheme); document.removeEventListener('click', closeMenus); document.removeEventListener('keydown', escapeMenus) })
 </script>
 <template>
   <OverflowTooltip />
@@ -136,7 +147,7 @@ onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInter
           <button class="icon-btn theme-toggle" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
           <div class="notification-control" @click.stop>
             <button class="icon-btn notification-button" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
-            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><header><h2>最近通知</h2><button class="icon-btn notice-clear" aria-label="清除通知" :disabled="!taskNotices.length" @click="clearNotifications"><Icon name="Trash2" :size="15" /></button></header><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><ThinScroll v-else class="notice-scroll" content-class="notification-list"><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><span v-if="t.taskIcon" class="notice-provider"><ProviderIcon :type="t.provider" /><Icon :name="t.taskIcon" /></span><Icon v-else :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'running' ? 'LoaderCircle' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : t.status === 'running' ? 'spin' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.message || (t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断') }} · {{ date(t.lastRun) }}</small></span></button></ThinScroll></section>
+            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><header><h2>最近通知</h2><button class="icon-btn notice-clear" aria-label="清除通知" :disabled="!taskNotices.length" @click="clearNotifications"><Icon name="Trash2" :size="15" /></button></header><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><ThinScroll v-else class="notice-scroll" content-class="notification-list" :thickness="2"><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><span v-if="t.taskIcon" class="notice-provider"><ProviderIcon :type="t.provider" /><Icon :name="t.taskIcon" /></span><Icon v-else :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'running' ? 'LoaderCircle' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : t.status === 'running' ? 'spin' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.message || (t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断') }} · <time :datetime="t.lastRun">{{ noticeTime(t.lastRun) }}</time></small></span></button></ThinScroll></section>
           </div>
           <div class="account-control" @click.stop>
             <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
@@ -168,5 +179,7 @@ onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInter
       </ThinScroll>
     </div>
   </div>
+  <ShareTransfer v-if="clipboardShare && state.authenticated" :provider="clipboardShare.provider" :initial-links="clipboardShare.links" @close="clipboardShare = null" />
+  <AudioPlayer v-if="audioSession.file && state.authenticated" :file="audioSession.file" :queue="audioSession.queue" :activation="audioSession.activation" @change="audioSession.file = $event" @close="closeAudio" />
   <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : n.progress !== undefined && n.progress < 1 ? 'LoaderCircle' : 'Check'" :size="15" /></span><span>{{ n.message }}<progress v-if="n.progress !== undefined" :value="n.progress" max="1" aria-label="转存提交进度" style="display:block;width:100%;height:4px;margin-top:6px;accent-color:var(--primary)" /></span><button class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>
 </template>
