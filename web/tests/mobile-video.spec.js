@@ -33,6 +33,9 @@ test('mobile QR fills Authorization and ignores a closed scan response', async (
   await expect(page.getByLabel('Authorization', { exact: true })).toHaveValue('cGM6MTM5MDAwMDAwMDA6cXJ0b2tlbg==')
 })
 
+for (const scale of [1, 2, 3]) {
+test.describe(`video geometry DPR ${scale}`, () => {
+test.use({ deviceScaleFactor: scale })
 test('video grid extracts a real frame and player follows only the video boundary', async ({ page }, info) => {
   const encoded = await page.evaluate(async () => {
     const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180
@@ -66,19 +69,38 @@ test('video grid extracts a real frame and player follows only the video boundar
   await expect(page.locator('.video-viewer video')).toHaveAttribute('controls', '')
   await expect.poll(() => page.locator('.video-viewer video').evaluate(v => v.videoWidth)).toBe(320)
   await page.locator('.video-viewer video').evaluate(async video => { await video.play(); video.pause() })
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 780 }]) {
+  await page.locator('.video-viewer').evaluate(async el => { await Promise.allSettled(el.getAnimations({ subtree: true }).map(a => a.finished)) })
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 780 }, { width: 780, height: 390 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport)
-    const rects = await page.locator('.video-viewer').evaluate(el => { const a = el.getBoundingClientRect(), b = el.querySelector('video').getBoundingClientRect(); return { width: a.width, height: a.height, videoWidth: b.width, videoHeight: b.height } })
+    // Viewport emulation can finish before resize dispatch and Vue's layout update.
+    // DOM rectangles and innerWidth are CSS pixels regardless of device scale.
+    const readRects = () => page.locator('.video-viewer').evaluate(el => {
+      const video = el.querySelector('video'), a = el.getBoundingClientRect(), b = video.getBoundingClientRect()
+      const ratio = video.videoWidth / video.videoHeight
+      const expectedWidth = Math.max(1, Math.min(1080, innerWidth - 32, (innerHeight - 48) * ratio))
+      return { width: a.width, height: a.height, videoWidth: b.width, videoHeight: b.height, viewportWidth: innerWidth, viewportHeight: innerHeight, scale: devicePixelRatio, expectedWidth, expectedHeight: expectedWidth / ratio, x: a.x, y: a.y }
+    })
+    await expect.poll(async () => {
+      const r = await readRects()
+      return r.viewportWidth === viewport.width && r.viewportHeight === viewport.height && Math.abs(r.width - r.expectedWidth) < 1 && Math.abs(r.height - r.expectedHeight) < 1
+    }).toBe(true)
+    const rects = await readRects()
+    expect(rects.scale).toBe(scale)
     expect(rects.width).toBeLessThan(viewport.width); expect(rects.height).toBeLessThan(viewport.height)
     expect(rects.width).toBeCloseTo(rects.videoWidth, 0); expect(rects.height).toBeCloseTo(rects.videoHeight, 0)
+    expect(rects.x).toBeGreaterThanOrEqual(0); expect(rects.y).toBeGreaterThanOrEqual(0)
+    expect(rects.x + rects.width).toBeLessThanOrEqual(viewport.width)
+    expect(rects.y + rects.height).toBeLessThanOrEqual(viewport.height)
     await expect.poll(() => page.locator('.video-viewer video').evaluate(video => video.readyState)).toBeGreaterThanOrEqual(2)
     await page.locator('.video-viewer').evaluate(async el => { await Promise.allSettled(el.getAnimations({ subtree: true }).map(a => a.finished)) })
-    await page.screenshot({ path: info.outputPath(`video-${viewport.width}.png`) })
+    await page.screenshot({ path: info.outputPath(`video-${viewport.width}x${viewport.height}.png`) })
   }
   await page.keyboard.press('Escape')
   await expect(page.locator('.video-viewer')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '预览.webm', exact: true })).toBeFocused()
 })
+})
+}
 
 test('task scan time leaves a wider gap before run controls', async ({ page }) => {
   await workspace(page, [{ id: 's', type: 'mobile', name: '移动', enabled: true, config: {} }], [{ id: 't', storageId: 's', name: '每日任务', kind: 'strm', lastRun: '2026-10-09T12:00:00+08:00', enabled: true }])

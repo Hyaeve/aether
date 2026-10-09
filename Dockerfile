@@ -11,12 +11,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-ARG AETHER_VERSION=0.3.6
+ARG AETHER_VERSION=0.3.7
 ARG AETHER_REVISION
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X aether/internal/app.Version=${AETHER_VERSION} -X aether/internal/app.Revision=${AETHER_REVISION}" -o /aether ./cmd/aether
 
 FROM alpine:3.23
-ARG AETHER_VERSION=0.3.6
+ARG AETHER_VERSION=0.3.7
 ARG AETHER_REVISION
 LABEL org.opencontainers.image.version="${AETHER_VERSION}" org.opencontainers.image.revision="${AETHER_REVISION}"
 RUN apk add --no-cache ca-certificates tzdata fuse3 ffmpeg \
