@@ -97,7 +97,8 @@ function buildGalaxy(random, scale) {
     const scatter = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
     const angle = core || i % 3 !== 0 ? random() * Math.PI * 2 : i % 4 * Math.PI / 2 + 3.1 * Math.sqrt(r / 286) + scatter * .85
     const distance = Math.max(0, r + (core ? 0 : scatter * 30))
-    const alpha = core ? .2 + random() * .45 : (.12 + random() * .4) * (1 - r / 360)
+    const fade = Math.max(0, 1 - distance / 310) ** 2.4
+    const alpha = (core ? .55 + random() * .4 : .18 + random() * .55) * fade
     disk.fillStyle = core || i % 9 === 0 ? `rgba(255,231,193,${alpha})` : `rgba(174,207,249,${alpha})`
     const size = .5 + random() * 1.3
     disk.fillRect(Math.cos(angle) * distance, Math.sin(angle) * distance, size, size)
@@ -185,8 +186,8 @@ function paint(time) {
   }
   if (spiral) {
     for (const [x, y, size, inclination, phase, speed, alpha] of [
-      [.72, .24, 1, -.35, 0, .035, 1],
-      [.22, .76, .62, .5, 1.8, -.022, .78]
+      [.76, .77, 1, -.35, 0, .035, 1],
+      [.22, .88, .62, .5, 1.8, -.022, .9]
     ]) {
       const radius = Math.min(width * .2, height * .23, 210) * size
       ctx.save()

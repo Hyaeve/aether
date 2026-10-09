@@ -6,6 +6,7 @@ import Modal from './Modal.vue'
 import SecretInput from './SecretInput.vue'
 import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
+import NumberInput from './NumberInput.vue'
 import { readPlugin, invalidatePlugin } from '../plugin-config'
 const props = defineProps({ kind: String, title: String })
 const emit = defineEmits(['close', 'changed'])
@@ -49,7 +50,7 @@ onMounted(load)
           <label>API 密钥<SecretInput v-model="form.apiKey" :secret-path="`/plugins/${kind}/secret`" secret-field="apiKey" autocomplete="off" /></label>
           <div class="field"><label>匹配语言</label><RoundedSelect upward v-model="form.language" label="匹配语言" :options="[{ value: 'zh-CN', label: '简体中文' }, { value: 'zh-TW', label: '繁体中文' }, { value: 'en-US', label: 'English' }]" /></div>
           </div>
-          <label>请求间隔<div class="unit-input"><input v-model.number="form.requestInterval" aria-label="请求间隔" type="number" min="1" max="60000" required /><span>ms</span></div></label>
+          <label>请求间隔<NumberInput v-model="form.requestInterval" aria-label="请求间隔" unit="ms" min="1" max="60000" required /></label>
         </template>
         <template v-else-if="kind === 'ai'">
           <label>API 地址<input v-model="form.apiURL" type="url" required /></label>

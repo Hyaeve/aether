@@ -58,11 +58,16 @@ func TestEmbyEpisodeWebhookMetadata(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
+	body["Library"] = map[string]string{"Name": "剧集库"}
+	body["Server"] = map[string]string{"Id": "home", "Name": "家庭影院"}
 	w := send()
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	n := a.store.snapshot().LibraryNotices[0]
+	if n.LibraryName != "剧集库" || n.ServerName != "家庭影院" {
+		t.Fatal(n)
+	}
 	if n.Series != "Show" || n.Season == nil || *n.Season != 1 || len(n.Episodes) != 4 || n.Episodes[3] != 5 {
 		t.Fatal(n)
 	}

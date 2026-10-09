@@ -11,6 +11,11 @@ import NumberInput from '../components/NumberInput.vue'
 import CacheOverview from '../components/CacheOverview.vue'
 import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 const targetPicker = ref(false)
+const resetTask = ref(null)
+async function resetOutput() {
+  busy.value = true
+  try { await api(`/tasks/${resetTask.value.id}/reset`, 'POST', { confirm: true }); resetTask.value = null; await reload(); notify('生成库已清除，全量任务已启动') } catch (e) { notify(e.message, true) } finally { busy.value = false }
+}
 const props = defineProps({ kind: { default: 'strm' } })
 const taskTitle = computed(() => props.kind === 'cas' ? 'CAS' : props.kind === 'strm' ? 'STRM' : props.kind === 'ed2k' ? 'ED2K' : '缓存')
 const bindingStorages = computed(() => state.storages.filter(s => s.enabled && ['mobile', 'tianyi'].includes(s.type) && s.config.mode === 'native'))
@@ -146,8 +151,9 @@ async function toggle(t) {
     <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
     <div class="task-last-scan" tabindex="0" :aria-label="`${scanTime(t.lastRun)}，${taskResult(t)}`" :title="taskResult(t)"><time>{{ scanTime(t.lastRun) }}</time><span class="task-result">{{ taskResult(t) }}</span></div>
     <button class="icon-btn task-run" :aria-label="t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id)" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.status === 'running' ? 'Square' : 'Play'" /></button>
-    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
+    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button v-if="kind !== 'cache'" :disabled="t.status === 'running' || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
   </article></div>
+  <Modal v-if="resetTask" title="全量重置" confirmation @close="!busy && (resetTask = null)"><div class="modal-body">将清除任务「{{ resetTask.name }}」对应的生成库及其中元数据，再重新全量生成。此操作不可撤销，不删除源文件。公共根目录和重叠任务目录不能重置。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="resetOutput">确认重置</button><button class="btn" :disabled="busy" @click="resetTask = null">取消</button></footer></Modal>
   <Modal v-if="modal" :title="`${editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />{{ kind === 'cas' ? '需要本地、原生移动或天翼个人云存储池。' : '请先添加并启用一个存储池。' }}<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
       <div class="form-grid">

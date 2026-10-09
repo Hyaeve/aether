@@ -109,7 +109,7 @@ func (a *App) taskUpdate(taskID string, fn func(*Task)) {
 	}
 }
 
-func (a *App) startTask(taskID string) error {
+func (a *App) startTask(taskID string, reset ...bool) error {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	var task Task
@@ -136,6 +136,15 @@ func (a *App) startTask(taskID string) error {
 	s, err := a.store.storage(task.StorageID)
 	if err != nil {
 		return err
+	}
+	if len(reset) > 0 && reset[0] {
+		if err := a.validateTask(&task); err != nil {
+			return err
+		}
+		if err := a.resetTaskOutput(task, s); err != nil {
+			return err
+		}
+		task.Mode = "full"
 	}
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.running[taskID] = cancel
@@ -207,6 +216,15 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		}
 	}()
 	count := 0
+	var skippedCAS []string
+	flushSkippedCAS := func() {
+		if len(skippedCAS) == 0 {
+			return
+		}
+		a.store.event("warn", "tasks", fmt.Sprintf("CAS任务 %s：本批跳过 %d 个缺少有效哈希的文件：%s", t.Name, len(skippedCAS), strings.Join(skippedCAS, "；")))
+		skippedCAS = nil
+	}
+	defer flushSkippedCAS()
 	var binding Storage
 	if t.Kind == "cas" {
 		var err error
@@ -355,6 +373,14 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			if generateCAS {
 				info, err := a.generateCASInfo(ctx, s, f)
+				if errors.Is(err, errCASMissingHash) {
+					delete(outputs, strings.ToLower(filename))
+					skippedCAS = append(skippedCAS, child)
+					if len(skippedCAS) >= 50 {
+						flushSkippedCAS()
+					}
+					continue
+				}
 				if err != nil {
 					return fmt.Errorf("%s: %w", f.Name, err)
 				}

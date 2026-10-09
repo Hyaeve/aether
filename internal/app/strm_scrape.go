@@ -86,7 +86,10 @@ func recognizeSTRM(name string) scrapeItem {
 		item.Year = m[1]
 		title = title[:yearStart+scrapeYear.FindStringIndex(title[yearStart:])[0]]
 	}
-	title = scrapeSuffix.ReplaceAllString(title, "")
+	// A quality token preceding a Chinese title is not a release suffix.
+	if suffix := scrapeSuffix.FindStringIndex(title); suffix != nil && !strings.ContainsFunc(title[suffix[0]:], func(r rune) bool { return r >= '\u3400' && r <= '\u9fff' }) {
+		title = title[:suffix[0]]
+	}
 	item.Title = strings.Trim(strings.NewReplacer(".", " ", "_", " ").Replace(title), " -()[]")
 	return item
 }
@@ -198,9 +201,6 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 			}
 			return nil
 		}
-		if len(items) >= 10000 {
-			return errors.New("单次刮削最多扫描 10000 个 STRM")
-		}
 		item := recognizeSTRMPath(name)
 		item.Path = name
 		items = append(items, item)
@@ -231,6 +231,10 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 }
 func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	action := r.PathValue("action")
+	if action == "directories" && r.Method == "GET" {
+		a.scrapeDirectories(w, r)
+		return
+	}
 	if action == "cover" && (r.Method == "GET" || r.Method == "HEAD") {
 		a.scrapeCover(w, r)
 		return
@@ -383,13 +387,14 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TaskID    string `json:"taskId"`
-		Path      string `json:"path"`
-		TMDB      int    `json:"tmdb"`
-		Kind      string `json:"kind"`
-		Group     bool   `json:"group"`
-		Confirmed bool   `json:"confirmed"`
-		Scope     string `json:"scope"`
+		TaskID    string   `json:"taskId"`
+		Path      string   `json:"path"`
+		TMDB      int      `json:"tmdb"`
+		Kind      string   `json:"kind"`
+		Group     bool     `json:"group"`
+		Confirmed bool     `json:"confirmed"`
+		Scope     string   `json:"scope"`
+		Scopes    []string `json:"scopes"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -397,6 +402,16 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	if in.Scope != "" && (!fs.ValidPath(in.Scope) || in.Scope == ".") {
 		fail(w, 400, errors.New("无效的库目录"))
 		return
+	}
+	if len(in.Scopes) > 1000 {
+		fail(w, 400, errors.New("目录范围过多"))
+		return
+	}
+	for _, scope := range in.Scopes {
+		if !fs.ValidPath(scope) || scope == "." {
+			fail(w, 400, errors.New("无效的库目录"))
+			return
+		}
 	}
 	rootName, err := a.scrapeRoot(in.TaskID)
 	if err != nil {
@@ -412,6 +427,18 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	selected := func(item scrapeItem) bool {
+		if len(in.Scopes) > 0 {
+			matched := false
+			for _, scope := range in.Scopes {
+				if strings.HasPrefix(item.Path, scope+"/") {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+		}
 		if in.Scope != "" && !strings.HasPrefix(item.Path, in.Scope+"/") {
 			return false
 		}
@@ -490,7 +517,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			index.Items = items
 			a.scrapeMu.Lock()
 			a.scrapeProgress.Total = len(items)
-			if in.Path != "" || in.Scope != "" {
+			if in.Path != "" || in.Scope != "" || len(in.Scopes) > 0 {
 				a.scrapeProgress.Total = 0
 				for _, item := range items {
 					if selected(item) {
@@ -498,8 +525,12 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			selectedCount := a.scrapeProgress.Total
 			a.scrapeMu.Unlock()
-			if action == "run" || action == "identify" {
+			if (action == "run" || action == "identify") && selectedCount > 10000 {
+				runErr = errors.New("索引已完整刷新；单次自动刮削最多处理 10000 个 STRM，请选择子目录分批处理")
+			}
+			if runErr == nil && (action == "run" || action == "identify") {
 				client, closeIdle, clientErr := pluginClient(st.Plugins["proxy"])
 				if clientErr != nil {
 					runErr = clientErr

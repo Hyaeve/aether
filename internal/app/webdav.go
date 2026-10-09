@@ -387,6 +387,9 @@ func (f *davFile) Seek(offset int64, whence int) (int64, error) {
 	return offset, nil
 }
 func (f *davFile) Read(b []byte) (int, error) {
+	if err := f.progress.wait(); err != nil {
+		return 0, err
+	}
 	if f.info.IsDir() {
 		return 0, os.ErrInvalid
 	}

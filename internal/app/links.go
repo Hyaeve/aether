@@ -105,7 +105,15 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 	// Old snapshots may contain unprobed STRM URLs instead of resolved download URLs.
 	r := resolver.NewWithPersistence(cfg.Cache, cfg.Redirect, filepath.Join(a.dataDir, "cache", "link", link.ID+"-direct-v2.json"))
 	handler := proxy.NewWithAudioCache(provider, r, a.links.stats, cfg.Redirect, a.links.audio)
-	service := &linkService{resolver: r, server: &http.Server{Handler: authorizeLinkPlayer(provider, handler), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}}
+	authorized := authorizeLinkPlayer(provider, handler)
+	metered := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_, media := provider.Match(request)
+		if media && request.Method == http.MethodGet {
+			w = &transferResponse{ResponseWriter: w, successOnly: true, progress: &transferProgress{meter: &a.traffic, kind: "download"}}
+		}
+		authorized.ServeHTTP(w, request)
+	})
+	service := &linkService{resolver: r, server: &http.Server{Handler: metered, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}}
 	go func() {
 		if err := service.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			a.store.event("error", "links", "以链监听异常："+link.Name)

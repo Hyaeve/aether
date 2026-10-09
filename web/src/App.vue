@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, state, reload, notify, notices, bytes, date } from './lib'
 import Icon from './components/Icon.vue'
+import ThinScroll from './components/ThinScroll.vue'
 import { libraryNoticeText } from './library-notices'
 import { replacementJobs, refreshReplacementNotices } from './replacement-notices'
 import { recentNotices, noticeResult } from './task-notices'
@@ -55,7 +56,7 @@ const dismissedKeys = ref([])
 const embyEventLabel = event => ({ 'library.new': '入库', 'playback.start': '开始播放', 'playback.stop': '停止播放', 'playback.pause': '暂停播放', 'playback.unpause': '继续播放', 'system.notificationtest': '测试通知' }[event || 'library.new'] || event)
 const taskNotices = computed(() => recentNotices([
   ...state.tasks.filter(t => ['success', 'error', 'cancelled', 'interrupted'].includes(t.status) && t.lastRun && !t.lastRun.startsWith('0001')).map(t => ({ ...t, message: noticeResult(t), provider: state.storages.find(s => s.id === t.storageId)?.type, taskIcon: ({cache:'Database',strm:'FileVideo',cas:'Layers3',ed2k:'Link',organize:'FolderTree'})[t.kind] || 'ListTodo', key: `${t.id}:${t.lastRun}:${t.status}` })),
-  ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}:${n.time}`, name: `Emby ${embyEventLabel(n.event)} · ${libraryNoticeText(n)}`, lastRun: n.time, status: 'success', kind: 'emby', message: embyEventLabel(n.event) })),
+  ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}:${n.time}`, name: n.serverName || n.libraryName || 'Emby', lastRun: n.time, status: 'success', kind: 'emby', message: `${n.event === 'scheduledtasks.completed' ? '计划任务完成' : embyEventLabel(n.event)} · ${libraryNoticeText(n)}` })),
   ...replacementJobs.value.map(n => ({ key: `replace:${n.id}:${n.status}`, id: n.id, name: 'STRM 替换', lastRun: n.updatedAt || n.time, status: n.status === 'completed' ? 'success' : n.status === 'failed' ? 'error' : 'running', kind: 'replace', message: `${n.status === 'running' ? '进行中' : n.status === 'completed' ? '已完成' : '失败'} · 已替换 ${n.changed} 个文件${n.error ? ` · ${n.error}` : ''}` }))
 ].filter(n => !dismissedKeys.value.includes(n.key))))
 const readKeys = ref([])
@@ -136,7 +137,7 @@ onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInter
           <button class="icon-btn theme-toggle" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
           <div class="notification-control" @click.stop>
             <button class="icon-btn notification-button" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
-            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><header><h2>最近通知</h2><button class="icon-btn notice-clear" aria-label="清除通知" :disabled="!taskNotices.length" @click="clearNotifications"><Icon name="Trash2" :size="15" /></button></header><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><div v-else class="notification-list"><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><span v-if="t.taskIcon" class="notice-provider"><ProviderIcon :type="t.provider" /><Icon :name="t.taskIcon" /></span><Icon v-else :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'running' ? 'LoaderCircle' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : t.status === 'running' ? 'spin' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.message || (t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断') }} · {{ date(t.lastRun) }}</small></span></button></div></section>
+            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><header><h2>最近通知</h2><button class="icon-btn notice-clear" aria-label="清除通知" :disabled="!taskNotices.length" @click="clearNotifications"><Icon name="Trash2" :size="15" /></button></header><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><ThinScroll v-else class="notice-scroll" content-class="notification-list"><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><span v-if="t.taskIcon" class="notice-provider"><ProviderIcon :type="t.provider" /><Icon :name="t.taskIcon" /></span><Icon v-else :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'running' ? 'LoaderCircle' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : t.status === 'running' ? 'spin' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.message || (t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断') }} · {{ date(t.lastRun) }}</small></span></button></ThinScroll></section>
           </div>
           <div class="account-control" @click.stop>
             <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
@@ -144,7 +145,8 @@ onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInter
           </div>
         </div>
       </header>
-      <main class="page-content" :key="currentPath">
+      <ThinScroll class="page-scroll" :key="currentPath">
+      <main class="page-content">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />
         <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/ed2k', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
@@ -164,6 +166,7 @@ onUnmounted(() => { trafficGeneration++; clearInterval(trafficTimer); clearInter
         <PlannedPage v-else-if="planned" v-bind="planned" />
         <div v-else class="empty-state"><h1>页面不存在</h1><RouterLink class="btn" to="/storage">返回存储管理</RouterLink></div>
       </main>
+      </ThinScroll>
     </div>
   </div>
   <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : n.progress !== undefined && n.progress < 1 ? 'LoaderCircle' : 'Check'" :size="15" /></span><span>{{ n.message }}<progress v-if="n.progress !== undefined" :value="n.progress" max="1" aria-label="转存提交进度" style="display:block;width:100%;height:4px;margin-top:6px;accent-color:var(--primary)" /></span><button class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>

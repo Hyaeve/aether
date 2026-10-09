@@ -5,6 +5,7 @@ import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import VirtualList from './VirtualList.vue'
+import PathBreadcrumbs from './PathBreadcrumbs.vue'
 const props = defineProps({ storages: Array, storage: String, initial: String, initialLabel: String, initialTrail: Array, allowAll: Boolean })
 const emit = defineEmits(['select', 'close'])
 const selected = ref(props.storage || '')
@@ -60,7 +61,7 @@ onUnmounted(() => generation++)
     <div class="task-source-picker">
       <aside class="source-accounts"><h3>选择存储</h3><button v-if="allowAll" type="button" :class="{ active: !selected }" @click="choose('')"><Icon name="Layers" /><span>所有存储池</span></button><button v-for="s in storages" :key="s.id" type="button" :class="{ active: selected === s.id }" :aria-pressed="selected === s.id" @click="choose(s.id)"><ProviderIcon :type="s.type" small /><span><strong>{{ s.name }}</strong><small>{{ driverOf(s.type).name }}</small></span></button><p v-if="!storages.length" class="small-empty">暂无可用存储池</p></aside>
       <section class="source-directories">
-        <div class="source-toolbar"><nav class="directory-crumbs" aria-label="存储目录路径"><template v-for="(c,i) in crumbs" :key="c.id"><Icon v-if="i" name="ChevronRight" :size="14" /><button type="button" :disabled="busy || creating" :aria-current="i === crumbs.length-1 ? 'location' : undefined" @click="jump(i)">{{ c.name }}</button></template></nav><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选当前目录文件夹" /></div><button type="button" class="icon-btn" aria-label="新建文件夹" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" /></button></div>
+        <div class="source-toolbar"><PathBreadcrumbs class="directory-crumbs" aria-label="存储目录路径" :entries="crumbs.slice(1)" :disabled="busy || creating" @jump="jump($event + 1)" /><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选当前目录文件夹" /></div><button type="button" class="icon-btn" aria-label="新建文件夹" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" :size="23" /></button></div>
         <div class="source-list" :aria-busy="busy">
           <div class="source-columns"><span>名称</span><span>修改时间</span></div>
           <p v-if="error" class="error-message" role="alert">{{ error }}</p>

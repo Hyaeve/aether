@@ -65,8 +65,6 @@ async function backup() {
 const selected = ref(null)
 const tools = [
   { name: '115 同播复制', icon: 'Copy', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
-  { name: '115 STRM 增强', icon: 'Sparkles', detail: '增强 115 媒体链接生成与播放解析' },
-  { name: '115 分享 STRM', icon: 'Share2', detail: '从 115 分享目录生成媒体播放链接' },
   { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '让夸克 STRM 改走 TV 版 302 直链；转码画质和字幕受影响且部分第三方播放器不兼容。' },
   { name: '整理规则', icon: 'FolderTree', file: 'organize-rules.json', detail: '配置媒体命名、目录结构和整理规则' },
   { name: '二级分类', icon: 'Tags', file: 'categories.json', detail: '按媒体类型、地区和分类归档文件' },
@@ -104,7 +102,9 @@ tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', de
 </template>
 <style scoped>
 .quark-takeover-symbol { position: relative; background: transparent; padding: 0; border: 0; }
-.simulcast-symbol { position:relative; background:transparent; }
+.plugin-card .simulcast-symbol { position:relative; background:transparent; border-radius:50%; }
+.simulcast-symbol :deep(.provider-icon) { width:44px; height:44px; background:transparent; border-radius:50%; }
+.simulcast-symbol :deep(.provider-logo) { width:100%; height:100%; }
 .simulcast-symbol > svg { position:absolute; right:-3px; bottom:-3px; color:var(--primary); background:var(--surface); border-radius:4px; }
 .plugin-toggle { border: 0; padding: 0; }
 .plugin-toggle[aria-pressed=false] { opacity: .5; }

@@ -4,6 +4,7 @@ import { api } from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import VirtualList from './VirtualList.vue'
+import PathBreadcrumbs from './PathBreadcrumbs.vue'
 const props = defineProps({ initial: { type: String, default: '' } })
 const emit = defineEmits(['select', 'close'])
 const directory = ref({ path: '', items: [] }), busy = ref(false), error = ref('')
@@ -47,7 +48,7 @@ onUnmounted(() => generation++)
 <template>
   <Modal title="选择容器目录" compact wide @close="emit('close')">
     <div class="modal-body local-directory-picker">
-      <div class="picker-toolbar"><nav class="directory-crumbs" aria-label="容器目录路径"><template v-for="(crumb, i) in crumbs" :key="crumb.path"><Icon v-if="i" name="ChevronRight" :size="14" /><button type="button" :disabled="busy || creating" :aria-current="i === crumbs.length - 1 ? 'location' : undefined" @click="load(crumb.path)">{{ crumb.label }}</button></template><button v-if="!crumbs.length && error" class="text-btn" @click="load('')">根目录</button></nav><button type="button" class="icon-btn" aria-label="新建文件夹" :aria-expanded="createOpen" :disabled="!directory.path || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" /></button></div>
+      <div class="picker-toolbar"><PathBreadcrumbs class="directory-crumbs" aria-label="容器目录路径" :entries="crumbs.slice(1).map(c => ({ name: c.label }))" :disabled="busy || creating" @jump="load(crumbs[$event + 1]?.path || '')" /><button type="button" class="icon-btn" aria-label="新建文件夹" :aria-expanded="createOpen" :disabled="!directory.path || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" :size="23" /></button></div>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       <div class="container-directory-list" :aria-busy="busy">
         <p v-if="busy" class="small-empty">正在读取目录…</p>

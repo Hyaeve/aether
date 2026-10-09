@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+var errCASMissingHash = errors.New("云端目录接口未返回有效文件哈希，无法生成 CAS")
+
 func (a *App) casBinding(t Task, source Storage) (Storage, error) {
 	bindingID := t.CASBindingID
 	if bindingID == "" && casStorage(source) {
@@ -41,8 +43,16 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 		if !casStorage(s) {
 			return info, errors.New("不支持此存储生成 CAS")
 		}
+		value, size := info.SHA256, 32
+		if nativeTianyi(s) {
+			value, size = info.MD5, 16
+		}
+		hash, err := hex.DecodeString(value)
+		if err != nil || len(hash) != size {
+			return info, errCASMissingHash
+		}
 		if err := validateCASFor(s, info); err != nil {
-			return info, errors.New("云端目录接口未返回有效文件哈希，无法生成 CAS")
+			return info, err
 		}
 		return info, nil
 	}

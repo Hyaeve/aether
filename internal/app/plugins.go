@@ -30,17 +30,19 @@ type PluginConfig struct {
 	Password        string `json:"password"`
 }
 type LibraryNotice struct {
-	Event     string    `json:"event,omitempty"`
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Time      time.Time `json:"time"`
-	MediaType string    `json:"mediaType,omitempty"`
-	Series    string    `json:"series,omitempty"`
-	SeriesID  string    `json:"seriesId,omitempty"`
-	ServerID  string    `json:"serverId,omitempty"`
-	Season    *int      `json:"season,omitempty"`
-	Episodes  []int     `json:"episodes,omitempty"`
-	ItemIDs   []string  `json:"itemIds,omitempty"`
+	LibraryName string    `json:"libraryName,omitempty"`
+	ServerName  string    `json:"serverName,omitempty"`
+	Event       string    `json:"event,omitempty"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Time        time.Time `json:"time"`
+	MediaType   string    `json:"mediaType,omitempty"`
+	Series      string    `json:"series,omitempty"`
+	SeriesID    string    `json:"seriesId,omitempty"`
+	ServerID    string    `json:"serverId,omitempty"`
+	Season      *int      `json:"season,omitempty"`
+	Episodes    []int     `json:"episodes,omitempty"`
+	ItemIDs     []string  `json:"itemIds,omitempty"`
 }
 
 func pluginDefaults(kind string, p PluginConfig) PluginConfig {
@@ -404,18 +406,24 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		Event       string `json:"Event"`
 		Title       string `json:"Title"`
 		Description string `json:"Description"`
-		Server      struct {
-			ID string `json:"Id"`
+		LibraryName string `json:"LibraryName"`
+		Library     struct {
+			Name string `json:"Name"`
+		} `json:"Library"`
+		Server struct {
+			ID   string `json:"Id"`
+			Name string `json:"Name"`
 		} `json:"Server"`
 		Item struct {
-			ID         string `json:"Id"`
-			Name       string `json:"Name"`
-			Type       string `json:"Type"`
-			SeriesName string `json:"SeriesName"`
-			SeriesID   string `json:"SeriesId"`
-			Season     *int   `json:"ParentIndexNumber"`
-			Episode    *int   `json:"IndexNumber"`
-			End        *int   `json:"IndexNumberEnd"`
+			LibraryName string `json:"LibraryName"`
+			ID          string `json:"Id"`
+			Name        string `json:"Name"`
+			Type        string `json:"Type"`
+			SeriesName  string `json:"SeriesName"`
+			SeriesID    string `json:"SeriesId"`
+			Season      *int   `json:"ParentIndexNumber"`
+			Episode     *int   `json:"IndexNumber"`
+			End         *int   `json:"IndexNumberEnd"`
 		} `json:"Item"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&input) != nil {
@@ -449,6 +457,17 @@ func (a *App) embyWebhook(w http.ResponseWriter, r *http.Request) {
 		input.Item.Type = "Episode"
 	}
 	notice := LibraryNotice{Event: input.Event, ID: id(), Name: name, Time: time.Now(), MediaType: strings.ToLower(input.Item.Type), Series: strings.TrimSpace(input.Item.SeriesName), SeriesID: input.Item.SeriesID, ServerID: input.Server.ID, Season: input.Item.Season}
+	notice.ServerName = strings.TrimSpace(input.Server.Name)
+	for _, candidate := range []string{input.Library.Name, input.LibraryName, input.Item.LibraryName} {
+		if candidate = strings.TrimSpace(candidate); candidate != "" {
+			notice.LibraryName = candidate
+			break
+		}
+	}
+	if len(notice.LibraryName) > 256 || len(notice.ServerName) > 256 || strings.ContainsAny(notice.LibraryName+notice.ServerName, "\r\n\x00") {
+		fail(w, 400, errors.New("媒体库名称无效"))
+		return
+	}
 	if len(notice.Series) > 1000 || len(notice.SeriesID) > 256 || len(input.Item.ID) > 256 || len(notice.ServerID) > 256 {
 		fail(w, 400, errors.New("通知字段过长"))
 		return

@@ -109,7 +109,7 @@ test('task buttons have no title, menu omits ordering, keyboard still reorders',
   await expect(rows).toHaveCount(2)
   await expect(rows.locator('button[title]')).toHaveCount(0)
   await rows.first().getByRole('button', { name: '任务操作 任务 1' }).click()
-  await expect(page.locator('.task-menu button')).toHaveCount(2)
+  await expect(page.locator('.task-menu button')).toHaveCount(3)
   await expect(page.getByRole('button', { name: /^(上移|下移)$/ })).toHaveCount(0)
   await rows.first().focus()
   await page.keyboard.press('Alt+ArrowDown')

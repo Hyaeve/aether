@@ -82,6 +82,7 @@ type transferProgress struct {
 	log   *transferLog
 	id    string
 	once  sync.Once
+	ctx   context.Context
 }
 
 func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name string, total int64) *transferProgress {
@@ -102,7 +103,7 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 	if len(l.items) >= 500 {
 		oldest := ""
 		for key, item := range l.items {
-			if item.Status != "running" && (oldest == "" || item.Updated.Before(l.items[oldest].Updated)) {
+			if item.Status != "running" && item.Status != "paused" && (oldest == "" || item.Updated.Before(l.items[oldest].Updated)) {
 				oldest = key
 			}
 		}
@@ -115,7 +116,81 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 	}
 	l.items[entry.ID] = entry
 	l.mu.Unlock()
-	return &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind}
+	return &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind, ctx: ctx}
+}
+
+// Pause at IO boundaries without buffering the remaining file in memory.
+func (p *transferProgress) wait() error {
+	if p == nil {
+		return nil
+	}
+	return p.waitContext(p.ctx)
+}
+
+func (p *transferProgress) waitContext(ctx context.Context) error {
+	if p == nil || p.log == nil {
+		return nil
+	}
+	for {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		p.log.mu.Lock()
+		entry, ok := p.log.items[p.id]
+		p.log.mu.Unlock()
+		if !ok {
+			return context.Canceled
+		}
+		if entry.Status != "paused" {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID     string `json:"id"`
+		Action string `json:"action"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	l := &a.transfers
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entry, ok := l.items[in.ID]
+	if !ok {
+		fail(w, 404, errors.New("传输任务不存在"))
+		return
+	}
+	switch in.Action {
+	case "pause", "resume":
+		if entry.Kind == "copy" || (entry.Status != "running" && entry.Status != "paused") {
+			fail(w, 409, errors.New("此任务不支持暂停或继续，请重新发起失败的传输"))
+			return
+		}
+		entry.Status = "paused"
+		if in.Action == "resume" {
+			entry.Status = "running"
+		}
+		entry.Updated = time.Now()
+		l.items[in.ID] = entry
+	case "delete":
+		if entry.Kind == "copy" && entry.Status == "running" {
+			fail(w, 409, errors.New("云端复制提交后不能中断，请等待结束"))
+			return
+		}
+		delete(l.items, in.ID)
+		if err := l.saveFailures(); err != nil {
+			fail(w, 500, errors.New("保存传输记录失败"))
+			return
+		}
+	default:
+		fail(w, 400, errors.New("无效的传输操作"))
+		return
+	}
+	jsonResponse(w, 200, map[string]bool{"ok": true})
 }
 func (p *transferProgress) add(n int) {
 	if p != nil && p.meter != nil {
@@ -127,7 +202,7 @@ func (p *transferProgress) add(n int) {
 	p.log.mu.Lock()
 	defer p.log.mu.Unlock()
 	entry, ok := p.log.items[p.id]
-	if !ok || entry.Status != "running" {
+	if !ok || (entry.Status != "running" && entry.Status != "paused") {
 		return
 	}
 	entry.Done += int64(n)
@@ -196,20 +271,29 @@ type transferReader struct {
 
 type transferResponse struct {
 	http.ResponseWriter
-	progress *transferProgress
-	failure  error
+	progress    *transferProgress
+	failure     error
+	successOnly bool
+	status      int
 }
 
 func (w *transferResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func (w *transferResponse) WriteHeader(status int) {
+	w.status = status
 	if status >= 400 {
 		w.failure = errors.New("download failed")
 	}
 	w.ResponseWriter.WriteHeader(status)
 }
 func (w *transferResponse) Write(b []byte) (int, error) {
+	if err := w.progress.wait(); err != nil {
+		w.failure = err
+		return 0, err
+	}
 	n, err := w.ResponseWriter.Write(b)
-	w.progress.add(n)
+	if !w.successOnly || w.status == 0 || w.status >= 200 && w.status < 300 {
+		w.progress.add(n)
+	}
 	if err != nil {
 		w.failure = err
 	}
@@ -217,6 +301,9 @@ func (w *transferResponse) Write(b []byte) (int, error) {
 }
 
 func (r transferReader) Read(b []byte) (int, error) {
+	if err := r.progress.wait(); err != nil {
+		return 0, err
+	}
 	n, err := r.Reader.Read(b)
 	r.progress.add(n)
 	return n, err
@@ -228,6 +315,9 @@ type transferWriter struct {
 }
 
 func (w transferWriter) Write(b []byte) (int, error) {
+	if err := w.progress.wait(); err != nil {
+		return 0, err
+	}
 	n, err := w.Writer.Write(b)
 	w.progress.add(n)
 	return n, err
@@ -241,6 +331,10 @@ type transferFile struct {
 }
 
 func (f *transferFile) Read(b []byte) (int, error) {
+	if err := f.progress.wait(); err != nil {
+		f.failure = err
+		return 0, err
+	}
 	n, err := f.File.Read(b)
 	if !f.write {
 		f.progress.add(n)
@@ -252,6 +346,10 @@ func (f *transferFile) Read(b []byte) (int, error) {
 	return n, err
 }
 func (f *transferFile) Write(b []byte) (int, error) {
+	if err := f.progress.wait(); err != nil {
+		f.failure = err
+		return 0, err
+	}
 	n, err := f.File.Write(b)
 	f.progress.add(n)
 	if err != nil {
@@ -261,6 +359,14 @@ func (f *transferFile) Write(b []byte) (int, error) {
 	return n, err
 }
 func (f *transferFile) Close() error {
+	if f.write {
+		if err := f.progress.wait(); err != nil {
+			f.failure = err
+		}
+		if staged, ok := f.File.(*cloudWriteFile); ok && f.failure != nil {
+			staged.writeErr = f.failure
+		}
+	}
 	err := f.File.Close()
 	if err == nil {
 		err = f.failure

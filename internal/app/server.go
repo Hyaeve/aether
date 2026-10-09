@@ -268,6 +268,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/tasks/reorder", a.protected(http.HandlerFunc(a.reorderTask)))
 	mux.Handle("GET /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
 	mux.Handle("DELETE /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
+	mux.Handle("POST /api/transfers/action", a.protected(http.HandlerFunc(a.transferAction)))
 	mux.Handle("GET /api/traffic", a.protected(http.HandlerFunc(a.trafficRates)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
@@ -983,6 +984,8 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	}
 	t.ID, t.Status, t.Message, t.Processed, t.LastRun = id(), "idle", "等待执行", 0, time.Time{}
 	t.NextRun = nextRun(t, created)
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
 	if err := a.store.update(func(st *State) error { st.Tasks = append(st.Tasks, t); return nil }); err != nil {
 		fail(w, 500, err)
 		return
@@ -1041,6 +1044,21 @@ func (a *App) taskAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.PathValue("action") {
+	case "reset":
+		var in struct {
+			Confirm bool `json:"confirm"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		if !in.Confirm {
+			fail(w, 400, errors.New("请确认清除生成库并重新生成"))
+			return
+		}
+		if err := a.startTask(r.PathValue("id"), true); err != nil {
+			fail(w, 409, err)
+			return
+		}
 	case "run":
 		if err := a.startTask(r.PathValue("id")); err != nil {
 			fail(w, 409, err)

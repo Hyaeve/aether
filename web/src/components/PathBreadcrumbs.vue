@@ -20,9 +20,9 @@ onUnmounted(() => observer?.disconnect())
 </script>
 <template>
   <nav ref="root" class="file-breadcrumbs compact-path" aria-label="文件路径">
-    <button :disabled="disabled" @click="emit('jump', -1)">根目录</button>
+    <button :disabled="disabled" :aria-current="!entries.length ? 'location' : undefined" @click="emit('jump', -1)">根目录</button>
     <div v-if="hidden" class="path-overflow"><button :disabled="disabled" aria-label="展开省略路径" :aria-expanded="menu" @click="menu = !menu"><Icon name="Ellipsis" :size="16" /></button><div v-if="menu" class="path-overflow-menu"><button v-for="(entry, index) in entries.slice(0,hidden)" :key="index" @click="emit('jump', index); menu = false">{{ entry.name }}</button></div></div>
-    <template v-for="entry in displayed" :key="entry.index"><Icon name="ChevronRight" :size="12" /><button :disabled="disabled" :data-tooltip="entry.name" @click="emit('jump', entry.index)">{{ entry.name }}</button></template>
+    <template v-for="entry in displayed" :key="entry.index"><Icon name="ChevronRight" :size="12" /><button :disabled="disabled" :aria-current="entry.index === entries.length - 1 ? 'location' : undefined" :data-tooltip="entry.name" @click="emit('jump', entry.index)">{{ entry.name }}</button></template>
     <div ref="measure" class="path-measure" aria-hidden="true"><span v-for="(entry,index) in entries" :key="index">{{ entry.name }}</span></div>
   </nav>
 </template>

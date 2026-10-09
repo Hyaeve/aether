@@ -22,6 +22,9 @@ const pan115UA = "Mozilla/5.0 115Browser/27.0.5.7"
 // The SDK's errors can contain entire API bodies and its headers contain the
 // login Cookie. Keep diagnostics numeric and CDN credentials response-scoped.
 func download115(ctx context.Context, s Storage, pick, ua string) (*driver.DownloadInfo, error) {
+	if strings.TrimSpace(ua) == "" {
+		ua = pan115UA
+	}
 	c, err := client115(ctx, s)
 	if err != nil {
 		return nil, err
@@ -31,9 +34,11 @@ func download115(ctx context.Context, s Storage, pick, ua string) (*driver.Downl
 		endpoint = "android/2.0/ufile/download"
 	}
 	status, code := 0, int64(0)
+	var downloadCookies []*http.Cookie
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	c.Client.OnAfterResponse(func(_ *resty.Client, r *resty.Response) error {
 		status = r.StatusCode()
+		downloadCookies = r.Cookies()
 		var envelope struct {
 			Errno json.Number `json:"errno"`
 			Code  json.Number `json:"code"`
@@ -79,7 +84,27 @@ func download115(ctx context.Context, s Storage, pick, ua string) (*driver.Downl
 		}
 		return nil, fmt.Errorf("115 获取下载链接失败（接口 %s，HTTP %d，错误码 %d）：%s", endpoint, status, code, reason)
 	}
+	// The download API issues host-only CDN tickets for its returned URL.
+	// Bind only response tickets to that URL, never the SDK's merged login CK.
+	bind115CDNTickets(info, jar, downloadCookies)
 	return finish115Download(info, jar, ua, endpoint)
+}
+
+func bind115CDNTickets(info *driver.DownloadInfo, jar http.CookieJar, cookies []*http.Cookie) {
+	if info == nil {
+		return
+	}
+	target, err := url.Parse(info.Url.Url)
+	if err != nil || target.Host == "" || target.User != nil || (target.Scheme != "https" && target.Scheme != "http") {
+		return
+	}
+	for _, cookie := range cookies {
+		if cookie != nil && cookie.Domain == "" {
+			copy := *cookie
+			copy.Path = "/"
+			set115DownloadCookies(jar, target, []*http.Cookie{&copy})
+		}
+	}
 }
 
 func set115DownloadCookies(jar http.CookieJar, origin *url.URL, cookies []*http.Cookie) {

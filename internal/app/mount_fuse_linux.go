@@ -482,6 +482,9 @@ type nativeFuseHandle struct {
 }
 
 func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+	if err := h.progress.waitContext(ctx); err != nil {
+		return nil, fuseErr(err)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -531,6 +534,9 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 }
 
 func (h *nativeFuseHandle) Write(ctx context.Context, data []byte, off int64) (uint32, syscall.Errno) {
+	if err := h.progress.waitContext(ctx); err != nil {
+		return 0, fuseErr(err)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -553,6 +559,9 @@ func (h *nativeFuseHandle) Write(ctx context.Context, data []byte, off int64) (u
 }
 
 func (h *nativeFuseHandle) Flush(ctx context.Context) syscall.Errno {
+	if err := h.progress.waitContext(ctx); err != nil {
+		return fuseErr(err)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.dirty || h.file == nil {

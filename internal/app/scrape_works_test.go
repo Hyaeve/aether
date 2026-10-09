@@ -52,7 +52,7 @@ func TestScrapeWorksGroupSeasonsWithoutMixingLibraries(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatal("invalid scope accepted", w.Code)
 	}
-	w = request(t, h, "POST", "/api/strm-scrape/reset", map[string]any{"taskId": task.ID, "path": items[0].Path, "group": true, "scope": "Show/Season 2", "confirmed": true}, cookie)
+	w = request(t, h, "POST", "/api/strm-scrape/reset", map[string]any{"taskId": task.ID, "path": items[0].Path, "group": true, "scopes": []string{"Show/Season 2", "Other"}, "confirmed": true}, cookie)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

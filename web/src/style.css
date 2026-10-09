@@ -409,12 +409,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .number-control input { width: 100%; min-width: 0; padding: 8px 46px 8px 12px; border: 0; background: transparent; border-radius: inherit; }
 .number-control input::-webkit-inner-spin-button, .number-control input::-webkit-outer-spin-button { appearance: none; margin: 0; }
 .number-accessory { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 40px; display: grid; place-items: center; }
-.number-unit { font-size: 12px; color: var(--muted); }
+.number-unit { font-size: 14px; color: var(--muted); }
+.number-control input { font-size:14px; }
 .number-steppers { display: flex; flex-direction: column; position: absolute; inset: 0; opacity: 0; pointer-events: none; }
 .number-steppers button { display: grid; place-items: center; min-height: 0; flex: 1; border: 0; background: transparent; border-radius: 3px; padding: 0; color: var(--muted); }
 .number-steppers button:hover { background: var(--primary-soft); color: var(--primary); }
-.number-control:hover .number-steppers, .number-control:focus-within .number-steppers { opacity: 1; pointer-events: auto; }
-.number-control:hover .number-unit, .number-control:focus-within .number-unit { opacity: 0; }
+.number-accessory:hover .number-steppers, .number-accessory:focus-within .number-steppers { opacity: 1; pointer-events: auto; }
+.number-accessory:hover .number-unit, .number-accessory:focus-within .number-unit { opacity: 0; }
 .field { display: flex; flex-direction: column; gap: 9px; }
 .field small { font-size: 12px; color: var(--muted); }
 .field .number-control { width: 100%; }
@@ -1039,7 +1040,10 @@ select { border-radius: 12px; }
 :root { --transfer-upload:#408ace; --transfer-download:#319181; }
 .traffic-stat.upload b, .traffic-stat.upload svg { color: var(--transfer-upload); }
 .traffic-stat.download b, .traffic-stat.download svg { color: var(--transfer-download); }
-.traffic-stat b { display: inline-block; min-width: 72px; margin-left: 0; font-variant-numeric: tabular-nums; }
+.traffic-stat b { display: inline-block; margin-left: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.file-thumbnail { width: 76px; height: 64px; object-fit: contain; border-radius: 6px; }
+.media-preview { display: grid; place-items: center; }
+.media-preview img, .media-preview video { max-width: 100%; max-height: 70vh; object-fit: contain; }
 [data-theme="dark"] .traffic-stat.upload b, [data-theme="dark"] .traffic-stat.upload svg,
 .main-shell:has(.about-page) .traffic-stat.upload b, .main-shell:has(.about-page) .traffic-stat.upload svg { color: var(--transfer-upload); }
 [data-theme="dark"] .traffic-stat.download b, [data-theme="dark"] .traffic-stat.download svg,
@@ -1233,10 +1237,12 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
 .notification-list > button { height:84px; align-items:center; scroll-snap-align:start; }
 .notification-list > button > svg { flex-shrink:0; }
 .notification-list .notice-provider { flex:0 0 36px; width:36px; height:36px; position:relative; }
-.notice-provider .provider-icon { width:32px; height:32px; background:transparent; }
+.notification-list .notice-provider .provider-icon { width:36px; height:36px; background:transparent; border-radius:0; }
+.notification-list .notice-provider .provider-icon > svg { width:36px; height:36px; }
+.notice-provider .provider-logo { width:100%; height:100%; }
 .notice-provider > svg { position:absolute; right:-2px; bottom:-2px; width:17px; height:17px; padding:2px; border-radius:5px; background:var(--surface); color:var(--primary); }
 .notification-list > button > span:not(.notice-provider):not(.emby-notice-icon) { min-width:0; flex:1; }
-.notification-list > button > .emby-notice-icon { flex:0 0 30px; width:30px; height:30px; }
+.notification-list > button > .emby-notice-icon { flex:0 0 36px; width:36px; height:36px; }
 .notification-list strong, .notification-list small { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 @supports selector(::-webkit-scrollbar) {
   .notification-list { scrollbar-width:auto !important; }
@@ -1244,11 +1250,17 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
   .notification-list::-webkit-scrollbar-thumb { border:0; background:color-mix(in srgb,var(--primary) 20%,transparent); border-radius:2px; }
   html { scrollbar-width:auto; }
   html::-webkit-scrollbar { width:3px; }
-  html::-webkit-scrollbar-track { margin-top:48px; background:transparent; }
+  html::-webkit-scrollbar-track { background:transparent; }
   html::-webkit-scrollbar-thumb { border:0; border-radius:3px; background:color-mix(in srgb,var(--primary) 20%,transparent); }
   html::-webkit-scrollbar-thumb:hover { background:color-mix(in srgb,var(--primary) 45%,transparent); }
 }
 .file-details { max-height: 65dvh; overflow: auto; }
+/* The workspace owns scrolling below the fixed breadcrumb header. */
+html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
+.main-shell { height: 100dvh; box-sizing: border-box; }
+.page-scroll { height: calc(100dvh - 48px); }
+.notice-scroll { max-height: 252px; }
+.notice-scroll .notification-list { height: auto; max-height: 252px; }
 .source-list { display: flex; flex-direction: column; overflow: hidden; }
 .source-list > .virtual-directory-list { flex: 1; }
 .source-columns { flex-shrink: 0; }

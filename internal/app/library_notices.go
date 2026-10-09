@@ -52,7 +52,7 @@ func libraryNoticeDescription(n LibraryNotice) string {
 func mergeLibraryNotice(st *State, incoming LibraryNotice) bool {
 	for i := len(st.LibraryNotices) - 1; i >= 0; i-- {
 		n := &st.LibraryNotices[i]
-		if normalizedNoticeEvent(n.Event) != normalizedNoticeEvent(incoming.Event) {
+		if n.LibraryName != incoming.LibraryName || n.ServerName != incoming.ServerName || normalizedNoticeEvent(n.Event) != normalizedNoticeEvent(incoming.Event) {
 			continue
 		}
 		if incoming.Time.Sub(n.Time) > 10*time.Minute || incoming.Time.Before(n.Time) || n.ServerID != incoming.ServerID {
