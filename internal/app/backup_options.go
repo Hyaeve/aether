@@ -58,6 +58,42 @@ func backupUnit(unit string) int64 {
 }
 
 func validateBackupOptions(r *BackupRule, st State) error {
+	if r.SyncMode == "" {
+		r.SyncMode = "one_way"
+	}
+	if r.SyncMode != "one_way" && r.SyncMode != "two_way" {
+		return errors.New("同步模式无效")
+	}
+	if r.DeletionRule == "" {
+		r.DeletionRule = "keep"
+	}
+	if r.DeletionRule != "keep" && r.DeletionRule != "trash" && r.DeletionRule != "delete" {
+		return errors.New("删除规则无效")
+	}
+	if r.ConflictRule == "" {
+		r.ConflictRule = "keep_both"
+	}
+	if r.ConflictRule != "keep_both" && r.ConflictRule != "source" && r.ConflictRule != "newest" {
+		return errors.New("冲突规则无效")
+	}
+	if r.ConflictMarker == "" {
+		r.ConflictMarker = "conflict copy"
+	}
+	if !safeName(r.ConflictMarker) || len(r.ConflictMarker) > 100 {
+		return errors.New("冲突副本标记无效")
+	}
+	if r.TargetOnly == "" {
+		r.TargetOnly = "copy"
+	}
+	if r.TargetOnly != "copy" && r.TargetOnly != "keep" {
+		return errors.New("目标独有文件规则无效")
+	}
+	if r.HistoryDays < 0 || r.HistoryDays > 36500 || r.DeleteLimit < 0 || r.DeleteLimit > 100 || r.FullScanEvery < 0 || r.FullScanEvery > 100000 || r.FullScanHours < 0 || r.FullScanHours > 876000 {
+		return errors.New("双向同步高级设置无效")
+	}
+	if r.SyncMode == "two_way" {
+		r.CompletionRule = "keep"
+	}
 	if r.CompletionRule == "" {
 		r.CompletionRule = "keep"
 	}
@@ -116,7 +152,11 @@ func validateBackupOptions(r *BackupRule, st State) error {
 	}
 	sources, targets := backupLocations(*r)
 	if r.MonitorEnabled || r.CompletionRule == "delete_source_dir" {
-		for _, loc := range sources {
+		monitored := sources
+		if r.SyncMode == "two_way" {
+			monitored = append(append([]BackupLocation{}, sources...), targets...)
+		}
+		for _, loc := range monitored {
 			s, err := backupStorage(st, loc.StorageID)
 			if err != nil {
 				return err

@@ -230,11 +230,11 @@ async function remove() {
       <div class="modal-body">
         <div class="selected-driver"><ProviderIcon :type="selected" small /><h3>{{ picked.name }}</h3></div>
         <div class="form-grid">
-          <label :class="{ full: !['115', 'tianyi'].includes(selected) }">存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" /></label>
+          <label :class="{ full: !['115', 'tianyi', 'mobile'].includes(selected) }">存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" /></label>
+          <label v-if="selected === 'mobile'">账号域 ID（可选）<input v-model.trim="form.config.userDomainId" aria-label="账号域 ID" autocomplete="off" maxlength="128" /></label>
           <div v-if="selected === '115'" class="field"><label>设备类型</label><RoundedSelect v-model="form.config.device" label="设备类型" :options="devices115" /></div>
           <div v-if="selected === 'tianyi'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'account'" @update:model-value="form.config.authMode = $event" label="天翼接入模式" :options="[{ value: 'account', label: '账号密码' }, { value: 'token', label: 'Token 令牌' }]" /></div>
           <label v-if="selected === 'mobile'" class="full">Authorization<SecretInput v-model="form.config.authorization" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="authorization" aria-label="Authorization" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
-          <label v-if="selected === 'mobile'" class="full">账号域 ID（可选）<input v-model.trim="form.config.userDomainId" aria-label="账号域 ID" autocomplete="off" maxlength="128" /></label>
           <template v-if="selected === '115'">
             <label class="full storage-cookie">CK <span class="required">*</span><SecretInput v-model="form.config.cookie" aria-label="CK" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" /></label>
           </template>

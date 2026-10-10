@@ -44,6 +44,7 @@ func backupPrefixes(sources []BackupLocation, st State) []string {
 func (a *App) backupProgress(rule *BackupRule, message string) error {
 	return a.backupUpdate(rule.ID, func(r *BackupRule) {
 		r.Scanned, r.Copied, r.Skipped = rule.Scanned, rule.Copied, rule.Skipped
+		r.Deleted = rule.Deleted
 		r.Phase, r.Total, r.Processed, r.Message = rule.Phase, rule.Total, rule.Processed, message
 	})
 }
@@ -55,6 +56,9 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 	st := a.store.snapshotWithLogLimit(0)
 	if err := validateBackup(rule, st); err != nil {
 		return err
+	}
+	if rule.SyncMode == "two_way" {
+		return a.executeBackupSync(ctx, rule, st)
 	}
 	sources, locations := backupLocations(*rule)
 	filters, err := compileBackupFilters(rule.Filters)
@@ -259,7 +263,12 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 		}
 	}
 	if rule.CompletionRule != "" && rule.CompletionRule != "keep" {
-		return a.cleanupBackup(ctx, rule, candidates, entries)
+		if err := a.cleanupBackup(ctx, rule, candidates, entries); err != nil {
+			return err
+		}
+	}
+	if rule.DeletionRule != "keep" {
+		return a.deleteOneWayExtras(ctx, rule, st, entries)
 	}
 	return nil
 }

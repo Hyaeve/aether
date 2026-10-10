@@ -63,11 +63,11 @@ test('backup standard editor exposes monitoring and source completion policies',
  await page.getByRole('button',{name:'添加备份',exact:true}).click()
  const modal=page.getByRole('dialog',{name:'添加备份规则',exact:true})
  expect((await modal.boundingBox()).width).toBe(640)
- await modal.getByRole('button',{name:'2 备份规则',exact:true}).click()
- await modal.getByRole('button',{name:'备份完成操作',exact:true}).click()
+ await modal.getByRole('button',{name:'备份规则',exact:true}).click()
+ await modal.getByRole('button',{name:'完成规则',exact:true}).click()
  await page.getByRole('option',{name:'删除已备份源文件和空文件夹',exact:true}).click()
- await modal.getByRole('button',{name:'3 扫描规则',exact:true}).click()
- await modal.getByRole('checkbox',{name:'文件系统监听',exact:true}).check()
+ await modal.getByRole('button',{name:'基本设置',exact:true}).click()
+ await modal.getByRole('switch',{name:'文件系统监听',exact:true}).check()
  await page.screenshot({path:info.outputPath('backup-monitor-light.png')})
  await page.evaluate(()=>document.documentElement.dataset.theme='dark')
  await page.screenshot({path:info.outputPath('backup-monitor-dark.png')})
@@ -80,5 +80,40 @@ test('both transfer tabs keep their framed content at the viewport bottom',async
   const content=page.locator('.transfer-content')
   await expect(content).toBeVisible()
   expect((await content.boundingBox()).y+(await content.boundingBox()).height).toBeGreaterThanOrEqual(980)
+ }
+})
+
+test('nested wheel smoothly consumes header and list distance, reverses and respects reduced motion',async({page})=>{
+ await setup(page)
+ for(const [url,selector] of [['/logs','.log-viewport'],['/links/cache','.playback-scroller']]){
+  await page.goto(url);const list=page.locator(selector)
+  await expect(list).toBeVisible()
+  const values=await list.evaluate(async el=>{
+   const page=el.closest('.page-scroll .thin-scroll-area'),samples=[]
+   const value=()=>page.scrollTop+el.scrollTop
+   el.dispatchEvent(new WheelEvent('wheel',{deltaY:500,bubbles:true,cancelable:true}))
+   for(let i=0;i<24;i++){await new Promise(requestAnimationFrame);samples.push(value())}
+   return samples
+  })
+  expect(values[0]).toBeLessThan(500);expect(values.some(v=>v>0&&v<450)).toBe(true)
+  expect(values.at(-1)).toBeCloseTo(500,0)
+  expect(values.every((v,i)=>!i||v>=values[i-1])).toBe(true)
+  await list.evaluate(el=>el.dispatchEvent(new WheelEvent('wheel',{deltaY:-300,bubbles:true,cancelable:true})))
+  await expect.poll(()=>list.evaluate(el=>el.scrollTop+el.closest('.page-scroll .thin-scroll-area').scrollTop)).toBeCloseTo(200,0)
+  await page.emulateMedia({reducedMotion:'reduce'})
+  await list.evaluate(el=>el.dispatchEvent(new WheelEvent('wheel',{deltaY:-200,bubbles:true,cancelable:true})))
+  expect(await list.evaluate(el=>el.scrollTop+el.closest('.page-scroll .thin-scroll-area').scrollTop)).toBe(0)
+  await page.emulateMedia({reducedMotion:'no-preference'})
+ }
+})
+
+test('mount switches stay adjacent to their labels',async({page})=>{
+ await setup(page);await page.route('**/api/mounts',r=>r.fulfill({json:[]}))
+ await page.goto('/files/mounts')
+ await page.getByRole('button',{name:'添加挂载',exact:true}).click()
+ for(const name of ['只读','自动挂载']){
+  const control=page.getByRole('switch',{name,exact:true})
+  const gap=await control.evaluate(el=>el.getBoundingClientRect().left-el.previousElementSibling.getBoundingClientRect().right)
+  expect(gap).toBeGreaterThanOrEqual(8);expect(gap).toBeLessThanOrEqual(12)
  }
 })

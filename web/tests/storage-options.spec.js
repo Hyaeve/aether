@@ -22,6 +22,12 @@ test('provider forms have aligned modes without an enabled switch', async ({ pag
       const mode = await dialog.getByRole('button', { name: kind === '115' ? '设备类型' : '天翼接入模式', exact: true }).boundingBox()
       expect(name.y).toBe(mode.y)
     }
+    if (kind === 'mobile') {
+      const name = await dialog.getByLabel('存储池名称').boundingBox()
+      const domain = await dialog.getByLabel('账号域 ID', { exact: true }).boundingBox()
+      expect(domain.y).toBe(name.y)
+      expect(domain.x).toBeGreaterThan(name.x)
+    }
     if (kind === 'openlist') {
       await expect(dialog.getByRole('button', {name:'透传 UA 给上游',exact:true})).toHaveText('是')
       await expect(dialog.getByRole('button', {name:'列目录时刷新上游',exact:true})).toHaveText('否')

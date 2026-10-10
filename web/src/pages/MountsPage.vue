@@ -62,14 +62,14 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
     <label class="full">挂载名称<input v-model="form.name" required maxlength="60" /></label>
     <div class="field full"><label>源目录</label><button type="button" class="source-trigger" aria-label="选择挂载源目录" @click="picker = true"><span>{{ sourceName(form) }}</span><Icon name="FolderOpen" /></button></div>
     <div class="field full"><label>挂载点</label><div class="directory-input mount-path-input"><div class="mount-path-scroll"><input v-model="form.mountPoint" :style="{ width: `${Math.max(4, [...form.mountPoint].reduce((n, c) => n + (c.charCodeAt(0) > 255 ? 2 : 1), 0)) + 1}ch` }" required aria-label="挂载点" /><span v-if="form.mountPoint" class="mount-path-suffix">{{ /[\\/]$/.test(form.mountPoint) ? '' : '/' }}AetherDrive</span></div><button type="button" class="icon-btn" aria-label="选择容器目录" @click="directoryPicker = true"><Icon name="FolderOpen" /></button></div></div>
-    <label class="toggle-line"><span>只读</span><input v-model="form.readOnly" type="checkbox" role="switch" class="switch" /></label>
-    <label class="toggle-line"><span>自动挂载</span><input v-model="form.automount" type="checkbox" role="switch" class="switch" /></label>
+    <div class="full mount-toggles"><label class="toggle-line"><span>只读</span><input v-model="form.readOnly" type="checkbox" role="switch" class="switch" /></label><label class="toggle-line"><span>自动挂载</span><input v-model="form.automount" type="checkbox" role="switch" class="switch" /></label></div>
   </div><details class="link-more"><summary>高级设置</summary><div class="mount-advanced"><label>UID<NumberInput v-model="form.uid" aria-label="UID" min="0" max="4294967295" /></label><label>GID<NumberInput v-model="form.gid" aria-label="GID" min="0" max="4294967295" /></label><label>权限<input v-model="permission" aria-label="权限" inputmode="numeric" pattern="0?[0-7]{3}" required /></label></div></details><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">取消</button><button class="btn primary" :disabled="busy">保存挂载</button></footer></form></Modal>
   <TaskSourcePicker v-if="picker" :storages="storages" :storage="form.storageId" :initial="form.source" :initial-label="form.sourceLabel" :initial-trail="form.sourceTrail" allow-all @select="selectSource" @close="picker = false" />
   <LocalDirectoryPicker v-if="directoryPicker" :initial="form.mountPoint" @close="directoryPicker = false" @select="form.mountPoint = $event; directoryPicker = false" />
   <Modal v-if="deleting" title="删除挂载" @close="deleting = null"><div class="modal-body">删除「{{ deleting.name }}」的配置？不会删除目录或源文件。</div><footer class="modal-footer"><button class="btn" @click="deleting = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除挂载</button></footer></Modal>
 </template>
 <style scoped>
+.mount-toggles { display:flex; flex-wrap:wrap; gap:24px; }.mount-toggles .toggle-line { justify-content:flex-start; gap:10px; }
 .mount-grid .mount-card { display: block; }
 .mount-card-top { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .mount-details { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid var(--border); display: grid; gap: 12px; }

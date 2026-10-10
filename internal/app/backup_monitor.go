@@ -15,7 +15,10 @@ import (
 func backupFingerprint(ctx context.Context, r BackupRule, st State) (string, error) {
 	h := sha256.New()
 	count := 0
-	sources, _ := backupLocations(r)
+	sources, targets := backupLocations(r)
+	if r.SyncMode == "two_way" {
+		sources = append(append([]BackupLocation{}, sources...), targets...)
+	}
 	for _, loc := range sources {
 		s, err := backupStorage(st, loc.StorageID)
 		if err != nil {
@@ -113,7 +116,7 @@ func (a *App) backupMonitor() {
 					seen[r.ID] = old
 					continue
 				}
-				if err := a.startBackup(r.ID); err == nil {
+				if err := a.startBackupScheduled(r.ID); err == nil {
 					seen[r.ID] = observation{digest, ""}
 				}
 			}

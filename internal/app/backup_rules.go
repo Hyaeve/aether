@@ -31,23 +31,38 @@ type BackupRule struct {
 	ScanInterval   int              `json:"scanInterval"`
 	MonitorEnabled bool             `json:"monitorEnabled"`
 	CompletionRule string           `json:"completionRule"`
-	Deleted        int              `json:"deleted"`
-	Replace        string           `json:"replace"`
-	Extensions     string           `json:"extensions"`
-	Exclude        string           `json:"exclude"`
-	MinSize        int64            `json:"minSize"`
-	MaxSize        int64            `json:"maxSize"`
-	Cron           string           `json:"cron"`
-	Status         string           `json:"status"`
-	Message        string           `json:"message"`
-	Scanned        int              `json:"scanned"`
-	Copied         int              `json:"copied"`
-	Skipped        int              `json:"skipped"`
-	Phase          string           `json:"phase"`
-	Total          int              `json:"total"`
-	Processed      int              `json:"processed"`
-	LastRun        time.Time        `json:"lastRun"`
-	NextRun        time.Time        `json:"nextRun"`
+	SyncMode       string           `json:"syncMode"`
+	DeletionRule   string           `json:"deletionRule"`
+	SyncDelete     bool             `json:"syncDelete"`
+	ConflictRule   string           `json:"conflictRule"`
+	ConflictMarker string           `json:"conflictMarker"`
+	HistoryDays    int              `json:"historyDays"`
+	DeleteLimit    int              `json:"deleteLimit"`
+	TargetOnly     string           `json:"targetOnly"`
+	SyncMarker     bool             `json:"syncMarker"`
+	FullScan       bool             `json:"fullScan"`
+	FullScanEvery  int              `json:"fullScanEvery"`
+	FullScanHours  int              `json:"fullScanHours"`
+	SyncPending    string           `json:"syncPending,omitempty"`
+	deleteApproval string
+	forceFullSync  bool
+	Deleted        int       `json:"deleted"`
+	Replace        string    `json:"replace"`
+	Extensions     string    `json:"extensions"`
+	Exclude        string    `json:"exclude"`
+	MinSize        int64     `json:"minSize"`
+	MaxSize        int64     `json:"maxSize"`
+	Cron           string    `json:"cron"`
+	Status         string    `json:"status"`
+	Message        string    `json:"message"`
+	Scanned        int       `json:"scanned"`
+	Copied         int       `json:"copied"`
+	Skipped        int       `json:"skipped"`
+	Phase          string    `json:"phase"`
+	Total          int       `json:"total"`
+	Processed      int       `json:"processed"`
+	LastRun        time.Time `json:"lastRun"`
+	NextRun        time.Time `json:"nextRun"`
 }
 
 func backupNext(r BackupRule, now time.Time) time.Time {
@@ -119,6 +134,17 @@ func validateBackup(r *BackupRule, st State) error {
 		return err
 	}
 	sources, targets := backupLocations(*r)
+	if r.SyncMode == "two_way" {
+		all := append(append([]BackupLocation{}, sources...), targets...)
+		for i := range all {
+			for j := i + 1; j < len(all); j++ {
+				pair := backupPair(*r, all[i], all[j])
+				if err := validateBackupPair(&pair, st); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	for _, source := range sources {
 		for _, target := range targets {
 			pair := backupPair(*r, source, target)
@@ -212,6 +238,8 @@ func (a *App) backupRulesAPI(w http.ResponseWriter, req *http.Request) {
 		switch action {
 		case "run":
 			err = a.startBackup(id)
+		case "confirm-deletions":
+			err = a.startBackupApproved(id)
 		case "stop":
 			a.backupMu.Lock()
 			if cancel := a.backupRuns[id]; cancel != nil {
@@ -265,7 +293,8 @@ func (a *App) backupRulesAPI(w http.ResponseWriter, req *http.Request) {
 				return errors.New("最多100条备份规则")
 			}
 			input.ID, input.Status, input.Message = newAutomationID(), "idle", ""
-			input.Scanned, input.Copied, input.Skipped = 0, 0, 0
+			input.SyncPending = ""
+			input.Scanned, input.Copied, input.Skipped, input.Deleted = 0, 0, 0, 0
 			input.Phase, input.Total, input.Processed = "", 0, 0
 			input.LastRun = time.Time{}
 			input.NextRun = backupNext(input, time.Now())
@@ -281,7 +310,9 @@ func (a *App) backupRulesAPI(w http.ResponseWriter, req *http.Request) {
 			} else {
 				input.ID, input.Status, input.Message, input.LastRun = id, old.Status, old.Message, old.LastRun
 				input.Scanned, input.Copied, input.Skipped = old.Scanned, old.Copied, old.Skipped
+				input.Deleted = old.Deleted
 				input.Phase, input.Total, input.Processed = old.Phase, old.Total, old.Processed
+				input.SyncPending = ""
 				input.NextRun = backupNext(input, time.Now())
 				st.BackupRules[i] = input
 			}
@@ -297,6 +328,18 @@ func (a *App) backupRulesAPI(w http.ResponseWriter, req *http.Request) {
 }
 
 func (a *App) startBackup(id string) error {
+	return a.startBackupWithApproval(id, false, true)
+}
+
+func (a *App) startBackupApproved(id string) error {
+	return a.startBackupWithApproval(id, true, true)
+}
+
+func (a *App) startBackupScheduled(id string) error {
+	return a.startBackupWithApproval(id, false, false)
+}
+
+func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 	a.backupMu.Lock()
 	defer a.backupMu.Unlock()
 	if a.ctx.Err() != nil {
@@ -316,8 +359,18 @@ func (a *App) startBackup(id string) error {
 	if rule.ID == "" {
 		return errors.New("备份规则不存在")
 	}
+	rule.forceFullSync = full
 	if !rule.Enabled {
 		return errors.New("备份规则已停用")
+	}
+	if approve {
+		if rule.SyncPending == "" {
+			return errors.New("没有待确认的同步删除计划")
+		}
+		rule.deleteApproval = rule.SyncPending
+	}
+	if rule.SyncPending != "" && !approve && !full {
+		return errors.New("同步删除等待手动确认")
 	}
 	if err := validateBackup(&rule, st); err != nil {
 		return err

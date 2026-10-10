@@ -12,7 +12,7 @@ import (
 var runtimeFields = map[string][]string{
 	"tasks":       {"status", "message", "processed", "lastRun", "nextRun"},
 	"automations": {"status", "message", "lastRun", "nextRun", "lastResult"},
-	"backupRules": {"status", "message", "scanned", "copied", "skipped", "deleted", "phase", "total", "processed", "lastRun", "nextRun"},
+	"backupRules": {"status", "message", "scanned", "copied", "skipped", "deleted", "phase", "total", "processed", "lastRun", "nextRun", "syncPending"},
 	"storages":    {"status", "lastError", "health", "usage"},
 	"mounts":      {"status", "lastError"},
 }

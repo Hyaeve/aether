@@ -43,6 +43,9 @@ test('cache ring uses live counters and supports no samples, all hits and all mi
 test('shortcut viewport exposes six pools, scrolls without a scrollbar and retains keyboard navigation', async ({page},info) => {
   await setup(page)
   const shortcuts = page.getByRole('region',{name:'存储快捷访问',exact:true})
+  await expect(shortcuts.locator('.provider-icon').first()).toHaveCSS('width','40px')
+  await expect(shortcuts.locator('.provider-icon').first()).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+  await expect(shortcuts.locator('.provider-icon').first()).toHaveCSS('border-top-width','0px')
   const visibleCount = () => shortcuts.evaluate(el=>{
     const bounds=el.getBoundingClientRect()
     return [...el.querySelectorAll('button')].filter(b=>{const r=b.getBoundingClientRect();return r.left>=bounds.left-1&&r.right<=bounds.right+1}).length

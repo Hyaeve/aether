@@ -32,7 +32,10 @@ test('scrape folders are virtual, searchable, persistent and preview editable li
   await expect(page.getByRole('button',{name:'文件夹视图',exact:true})).toBeVisible()
   await expect(page.locator('.scrape-file-row').first()).toContainText('Show')
   expect(await page.locator('.scrape-file-row').count()).toBeLessThan(60)
-  await page.locator('.page-scroll > .thin-scroll-area').evaluate(el=>el.scrollTop = el.scrollHeight)
+  await expect(page.locator('.scrape-progress')).toHaveCount(0)
+  await expect(page.locator('.scrape-panel')).toHaveCSS('border-radius','8px')
+  await expect.poll(async()=>{const r=await page.locator('.scrape-panel').boundingBox();return Math.round(1000-r.y-r.height)}).toBe(8)
+  await page.locator('.scrape-files').evaluate(el=>el.scrollTop = el.scrollHeight)
   await expect(page.locator('.scrape-file-row').last()).toContainText('Folder999')
   await page.getByRole('textbox',{name:'搜索刮削记录'}).fill('Show')
   await expect(page.locator('.scrape-file-row')).toHaveCount(1)
@@ -61,6 +64,8 @@ test('scrape folders are virtual, searchable, persistent and preview editable li
   await expect(page.getByRole('button',{name:'Show',exact:true})).toBeVisible()
   for (const theme of ['light','dark']) {
     await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
+    await expect(page.locator('.scrape-file-row .file-name').first()).toHaveCSS('color',theme==='dark'?'rgb(227, 230, 237)':'rgb(39, 49, 62)')
+    await expect(page.getByRole('button',{name:'STRM 任务',exact:true})).toHaveCSS('background-color',theme==='dark'?'rgb(41, 44, 52)':'rgb(255, 255, 255)')
     await page.screenshot({path:info.outputPath(`scrape-folder-${theme}.png`)})
   }
   await page.setViewportSize({width:390,height:844})

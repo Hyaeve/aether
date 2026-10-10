@@ -1363,6 +1363,8 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .transfer-content.has-transfers .transfer-table { height:calc(100dvh - 64px); flex-shrink:0; }
 .page-content:has(> .workspace-empty),.page-content:has(> .automation-list) { height:calc(100dvh - 48px); }
 .page-content:has(> .automation-list) { display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
+.page-content:has(> .scrape-panel) { height:calc(100dvh - 48px); display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
+.scrape-panel .scrape-body,.scrape-panel .scrape-files { min-height:0; height:100%; }
 .page-content:has(> .transfer-content:not(.backup-content)) { padding-bottom:var(--workspace-end-gap); }
 .log-list-shell,.playback-list-shell { height:calc(100dvh - 88px); }
 .page-content:has(> .log-panel),.page-content:has(> .link-playback) { padding-bottom:var(--workspace-end-gap); }

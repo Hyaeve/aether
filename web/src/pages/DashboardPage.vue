@@ -81,7 +81,8 @@ function scrollShortcuts(event) {
 .storage-shortcuts button:hover:not(:disabled) { background:var(--bg); }
 .storage-shortcuts button:disabled { opacity:.4; }
 .storage-shortcuts span { max-width:100%; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.storage-shortcuts :deep(.provider-icon) { flex-shrink:0; width:32px; height:32px; }
+.storage-shortcuts :deep(.provider-icon) { flex-shrink:0; width:40px; height:40px; padding:0; border:0; border-radius:0; background:none; }
+.storage-shortcuts :deep(.provider-logo),.storage-shortcuts :deep(.provider-icon > svg) { width:40px; height:40px; }
 .storage-shortcuts:focus-visible, .storage-shortcuts button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
 .dashboard-cache { --cache-chart-size:112px; --cache-hit-color:#55a78d; --cache-miss-color:#d5b578; }
 .dashboard-cache-body { display:flex; align-items:center; justify-content:center; gap:22px; min-height:156px; padding:18px; }

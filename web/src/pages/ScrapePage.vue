@@ -7,6 +7,7 @@ import TaskTabs from '../components/TaskTabs.vue'
 import Modal from '../components/Modal.vue'
 import ScrapeScopePicker from '../components/ScrapeScopePicker.vue'
 import ScrapeFiles from '../components/ScrapeFiles.vue'
+import ScrollRail from '../components/ScrollRail.vue'
 import { useVirtualList } from '../virtual-list'
 const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), settingsOpen = ref(false), matching = ref(null), candidates = ref([])
 const query = ref(''), status = ref('all')
@@ -72,7 +73,7 @@ const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成'
 const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
-const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 314, columnWidth: 155, maxColumns: 6, grid: ref(true), window: true })
+const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 314, columnWidth: 155, maxColumns: 6, grid: ref(true) })
 watch([query, status, task, excludedScopes], reset)
 const candidateQuery = ref(''), candidateBusy = ref(false), candidateError = ref('')
 let alive = true, timer, request = 0, candidateRequest = 0
@@ -164,9 +165,9 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索刮削记录" placeholder="搜索名称或路径" /></div>
       <button class="icon-btn" :aria-label="viewMode === 'poster' ? '海报墙视图' : '文件夹视图'" :aria-pressed="viewMode === 'folder'" @click="viewMode = viewMode === 'poster' ? 'folder' : 'poster'"><Icon :name="viewMode === 'poster' ? 'LayoutGrid' : 'List'" /></button>
     </div>
-    <div class="scrape-progress"><span>{{ progress.running ? progress.message : progress.message || '等待执行' }}</span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
+    <div v-if="progress.running" class="scrape-progress"><span>{{ progress.message }}</span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
     <ScrapeFiles v-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" @reset="resetting = $event" @identify="rematch" />
-    <div v-else ref="viewport" class="scrape-body">
+    <div v-else class="scrape-poster-shell"><div ref="viewport" class="scrape-body">
       <div v-if="filtered.length" class="scrape-wall" :style="{gridTemplateColumns: `repeat(${columns}, minmax(0,1fr))`}">
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
         <article v-for="item in shown" :key="item.path" class="scrape-card" :class="{selected:selection.includes(item.path)}" @click="selectionMode && choose($event,item)" @contextmenu.prevent="choose($event,item)">
@@ -178,6 +179,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
       </div>
       <div v-else class="small-empty">{{ task ? '暂无刮削记录' : '请选择 STRM 任务' }}</div>
     </div>
+    <ScrollRail :element="viewport" /></div>
     <footer>{{ filtered.length }} 部作品</footer>
   </section>
   <Teleport to="body"><div v-if="selectionMode" class="scrape-dock" role="toolbar" aria-label="所选作品操作"><strong>已选 {{ selection.length }} 项</strong><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" />全选</button><button class="btn" @click="exitSelection"><Icon name="X" />清空</button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" />重置</button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" />识别</button></div></Teleport>
@@ -199,7 +201,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     <label>TMDB ID<input v-model="match.tmdb" type="number" min="1" required /></label></div><footer class="modal-footer"><button class="btn primary" :disabled="busy || !match.tmdb">确认匹配</button></footer></form></Modal>
 </template>
 <style scoped>
-.scrape-panel { min-height: 320px; display: flex; flex-direction: column; background: var(--surface); }
+.scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .scrape-panel.selecting { padding-bottom:86px; }
 .scrape-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px; }
 .scrape-toolbar > .rounded-select:first-child { width: 170px; }
@@ -248,7 +250,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-dock strong { white-space:nowrap; font-size:13px; }.scrape-dock .btn { font-size:13px; border:0; background:transparent; color:var(--text); box-shadow:none; padding:8px; border-radius:0; }
 .scrape-dock .btn:hover:not(:disabled), .scrape-dock .btn:focus-visible { background:transparent; color:var(--primary); }
 .match-source-path { padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; font-size:14px; overflow-wrap:anywhere; }.match-source-path small { display:block; color:var(--muted); font-size:12px; margin-bottom:7px; }
-.scrape-body { min-height: 0; overflow-anchor: none; }
+.scrape-poster-shell{position:relative;flex:1;min-height:0}.scrape-body { height:100%; overflow:auto; scrollbar-width:none; min-height: 0; overflow-anchor: none; }
 .scrape-body::-webkit-scrollbar { display: none; }
 .scrape-panel > footer { padding: 8px 14px; color: var(--muted); font-size: 12px; }
 .scrape-settings { display: grid; gap: 16px; }

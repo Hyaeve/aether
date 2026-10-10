@@ -516,7 +516,7 @@ func (a *App) scheduler() {
 			st := a.store.snapshot()
 			for _, rule := range st.BackupRules {
 				if rule.Enabled && rule.Status != "running" && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
-					if err := a.startBackup(rule.ID); err != nil {
+					if err := a.startBackupScheduled(rule.ID); err != nil {
 						_ = a.backupUpdate(rule.ID, func(r *BackupRule) { r.NextRun = now.Add(time.Minute) })
 					}
 				}
