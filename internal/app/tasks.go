@@ -135,6 +135,9 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 	if err != nil {
 		return err
 	}
+	if err := storageAuthBlocked(s, time.Now()); err != nil {
+		return err
+	}
 	if len(reset) > 0 && reset[0] {
 		if err := a.validateTask(&task); err != nil {
 			return err

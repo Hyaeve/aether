@@ -37,13 +37,18 @@ func (a *App) tianyiTokenSession(ctx context.Context, s Storage, client *http.Cl
 		}
 		return session, err
 	}
-	if access != "" {
+	if access != "" && ctx.Value(forceTianyiRefreshKey{}) != true {
 		if session, err := fetch(); err == nil {
 			return session, nil
+		} else {
+			var auth *storageAuthError
+			if !errors.As(err, &auth) {
+				return tianyiSession{}, err
+			}
 		}
 	}
 	if refresh == "" {
-		return tianyiSession{}, errors.New("天翼访问令牌失效，请填写刷新令牌或重新扫码")
+		return tianyiSession{}, authStorageError(errors.New("天翼访问令牌失效，请填写刷新令牌或重新扫码"), true)
 	}
 	raw, _, err := tianyiHTTP(ctx, client, "POST", tianyiAuth+"/api/oauth2/refreshToken.do",
 		url.Values{"clientId": {tianyiAppID}, "refreshToken": {refresh}, "grantType": {"refresh_token"}, "format": {"json"}}, nil)
@@ -51,8 +56,21 @@ func (a *App) tianyiTokenSession(ctx context.Context, s Storage, client *http.Cl
 		Access  string `json:"accessToken"`
 		Refresh string `json:"refreshToken"`
 	}
-	if err != nil || json.Unmarshal(raw, &tokens) != nil || tokens.Access == "" {
-		return tianyiSession{}, errors.New("天翼刷新令牌失效，请重新扫码")
+	if err != nil {
+		return tianyiSession{}, err
+	}
+	if json.Unmarshal(raw, &tokens) != nil {
+		return tianyiSession{}, errors.New("天翼刷新响应格式异常")
+	}
+	if tokens.Access == "" {
+		var result struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &result)
+		if result.Error == "invalid_grant" || result.Error == "invalid_token" {
+			return tianyiSession{}, authStorageError(errors.New("天翼刷新令牌失效，请重新扫码"), true)
+		}
+		return tianyiSession{}, errors.New("天翼刷新未返回有效令牌")
 	}
 	access = tokens.Access
 	if tokens.Refresh != "" {
@@ -75,7 +93,13 @@ func (a *App) tianyiTokenSession(ctx context.Context, s Storage, client *http.Cl
 	if err != nil {
 		return tianyiSession{}, err
 	}
-	return fetch()
+	session, err := fetch()
+	if err == nil {
+		updated := s
+		updated.Config = map[string]string{"username": s.Config["username"], "password": s.Config["password"], "accessToken": access, "refreshToken": refresh}
+		session.Credentials = tianyiCredentials(updated)
+	}
+	return session, err
 }
 
 func (a *App) tianyiQRStart(w http.ResponseWriter, r *http.Request) {

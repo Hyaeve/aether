@@ -87,6 +87,9 @@ func download115API(ctx context.Context, s Storage, pick, ua string, alternate b
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		if errors.Is(err, driver.ErrNotLogin) || errors.Is(err, driver.ErrBadCookie) {
+			return nil, authStorageError(errors.New("115 CK已失效，请重新扫码"), true)
+		}
 		reason := "请求或响应解析失败"
 		if errors.Is(err, driver.ErrUnexpected) {
 			reason = "未知上游错误或空下载记录"
@@ -255,6 +258,9 @@ func (a *App) list115(ctx context.Context, s Storage, dir string) ([]File, error
 		}
 		page, err := driver.GetFiles(c.NewRequest().ForceContentType("application/json"), dir, driver.WithOffset(offset), driver.WithLimit(200))
 		if err != nil {
+			if errors.Is(err, driver.ErrNotLogin) || errors.Is(err, driver.ErrBadCookie) {
+				return nil, authStorageError(errors.New("115 CK已失效，请重新扫码"), true)
+			}
 			return nil, err
 		}
 		if string(page.CategoryID) != dir {

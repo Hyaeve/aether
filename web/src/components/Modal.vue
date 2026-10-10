@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import Icon from './Icon.vue'
-defineProps({ title: String, eyebrow: String, wide: Boolean, compact: Boolean, confirmation: Boolean })
+defineProps({ title: String, eyebrow: String, wide: Boolean, compact: Boolean, confirmation: Boolean, standard: Boolean })
 const emit = defineEmits(['close'])
 const panel = ref()
 let previous
@@ -30,10 +30,13 @@ onUnmounted(() => { if (!document.querySelector('.modal')) document.body.style.o
 <template>
   <Teleport to="body">
     <div class="modal-backdrop" :class="{ 'confirmation-backdrop': confirmation }" @mousedown.self="emit('close')">
-      <section ref="panel" tabindex="-1" role="dialog" aria-modal="true" :aria-label="title" class="modal" :class="{ wide, 'compact-modal': compact }">
+      <section ref="panel" tabindex="-1" role="dialog" aria-modal="true" :aria-label="title" class="modal" :class="{ wide, 'compact-modal': compact, 'standard-modal': standard }">
         <header class="modal-header"><div><span v-if="eyebrow" class="eyebrow">{{ eyebrow }}</span><h2>{{ title }}</h2></div><button class="icon-btn" aria-label="关闭" title="关闭" @click="emit('close')"><Icon name="X" /></button></header>
         <slot />
       </section>
     </div>
   </Teleport>
 </template>
+<style scoped>
+.standard-modal { width:min(640px,calc(100vw - 32px)); }
+</style>

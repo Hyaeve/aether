@@ -119,6 +119,9 @@ func tianyiHTTP(ctx context.Context, client *http.Client, method, address string
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
+		if res.StatusCode == 401 || res.StatusCode == 403 {
+			return nil, nil, authStorageError(fmt.Errorf("天翼认证或访问被拒绝（HTTP %d）", res.StatusCode), false)
+		}
 		return nil, nil, fmt.Errorf("天翼接口 HTTP %d", res.StatusCode)
 	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 8<<20+1))
@@ -135,8 +138,22 @@ func tianyiDecode(raw []byte, out any) error {
 		ErrorCode string      `json:"errorCode" xml:"errorCode"`
 		ResCode   json.Number `json:"res_code" xml:"res_code"`
 	}
+	invalidAuth := func() bool {
+		for _, code := range []string{"InvalidSessionKey", "UserInvalidOpenToken", "InvalidAccessToken", "InvalidRefreshToken", "InvalidToken"} {
+			if status.Code == code || status.ErrorCode == code || status.XMLName.Local == code {
+				return true
+			}
+		}
+		return false
+	}
 	if strings.HasPrefix(strings.TrimSpace(string(raw)), "<") {
-		if xml.Unmarshal(raw, &status) != nil || status.XMLName.Local == "error" ||
+		if xml.Unmarshal(raw, &status) != nil {
+			return errors.New("天翼响应格式异常")
+		}
+		if invalidAuth() {
+			return authStorageError(errors.New("天翼认证已失效"), false)
+		}
+		if status.XMLName.Local == "error" ||
 			(status.Code != "" && status.Code != "SUCCESS" && status.Code != "0") ||
 			status.ErrorCode != "" || (status.ResCode != "" && status.ResCode != "0") {
 			return errors.New("天翼拒绝请求，请检查账户、权限或会话")
@@ -145,6 +162,9 @@ func tianyiDecode(raw []byte, out any) error {
 	}
 	if json.Unmarshal(raw, &status) != nil {
 		return errors.New("天翼响应格式异常")
+	}
+	if invalidAuth() {
+		return authStorageError(errors.New("天翼认证已失效"), false)
 	}
 	if (status.Code != "" && status.Code != "SUCCESS" && status.Code != "0") || status.ErrorCode != "" || (status.ResCode != "" && status.ResCode != "0") {
 		return errors.New("天翼拒绝请求，请检查账户、权限或会话")
@@ -293,6 +313,9 @@ func (a *App) tianyiSessionFor(ctx context.Context, s Storage) (tianyiSession, e
 	if err != nil {
 		return tianyiSession{}, err
 	}
+	if session.Credentials != ([32]byte{}) {
+		digest = session.Credentials
+	}
 	session.Credentials, session.Expires = digest, time.Now().Add(time.Hour)
 	a.tianyiSessions[s.ID] = session
 	return session, nil
@@ -327,15 +350,17 @@ func (a *App) tianyiRequest(ctx context.Context, s Storage, method, address stri
 	if err != nil {
 		return err
 	}
-	if strings.Contains(string(raw), "InvalidSessionKey") || strings.Contains(string(raw), "userSessionBO is null") {
+	err = tianyiDecode(raw, out)
+	var auth *storageAuthError
+	if errors.As(err, &auth) || (err != nil && strings.Contains(string(raw), "userSessionBO is null")) {
 		a.tianyiMu.Lock()
 		if a.tianyiSessions[s.ID].Key == session.Key {
 			delete(a.tianyiSessions, s.ID)
 		}
 		a.tianyiMu.Unlock()
-		return errors.New("天翼会话已过期，请重试以重新登录")
+		return authStorageError(errors.New("天翼会话已过期，请重试以重新登录"), false)
 	}
-	return tianyiDecode(raw, out)
+	return err
 }
 
 func (a *App) tianyiList(ctx context.Context, s Storage, dir string) ([]File, error) {

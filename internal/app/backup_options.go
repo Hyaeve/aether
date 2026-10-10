@@ -58,6 +58,12 @@ func backupUnit(unit string) int64 {
 }
 
 func validateBackupOptions(r *BackupRule, st State) error {
+	if r.CompletionRule == "" {
+		r.CompletionRule = "keep"
+	}
+	if r.CompletionRule != "keep" && r.CompletionRule != "delete_source" && r.CompletionRule != "delete_source_dir" {
+		return errors.New("无效的备份完成操作")
+	}
 	if r.ScanInterval < 0 || r.ScanInterval > 31536000 || r.ScanInterval > 0 && r.ScanInterval < 60 {
 		return errors.New("扫描间隔须为0或60至31536000秒")
 	}
@@ -109,6 +115,17 @@ func validateBackupOptions(r *BackupRule, st State) error {
 		}
 	}
 	sources, targets := backupLocations(*r)
+	if r.MonitorEnabled || r.CompletionRule == "delete_source_dir" {
+		for _, loc := range sources {
+			s, err := backupStorage(st, loc.StorageID)
+			if err != nil {
+				return err
+			}
+			if s.Type != "local" {
+				return errors.New("文件系统监听及空目录安全清理仅支持本地源目录；云盘可使用定时扫描和删除源文件")
+			}
+		}
+	}
 	if len(sources) == 0 || len(targets) == 0 || len(sources) > 16 || len(targets) > 16 {
 		return errors.New("请选择源和目标目录，每类最多16个")
 	}

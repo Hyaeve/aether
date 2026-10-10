@@ -295,7 +295,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	}
 	df.open = func() error {
 		df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size)
-		download, err := d.a.download(ctx, s, f.ID, f.PickCode)
+		download, err := d.a.download(df.ctx, s, f.ID, f.PickCode)
 		if err != nil {
 			return fmt.Errorf("获取文件读取链接失败（存储类型 %s）：%w", s.Type, err)
 		}
@@ -317,7 +317,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	}
 	if s.Type == "115" {
 		df.refreshDownload = func() (Download, error) {
-			info, err := download115API(ctx, s, f.PickCode, pan115ReadUA, true)
+			info, err := download115API(df.ctx, s, f.PickCode, pan115ReadUA, true)
 			if err != nil {
 				return Download{}, err
 			}
@@ -340,6 +340,8 @@ type davFile struct {
 	progress        *transferProgress
 	refreshDownload func() (Download, error)
 	refreshed       bool
+	bounded         bool
+	rangeEnd        int64
 }
 
 func (f *davFile) Stat() (os.FileInfo, error) { return f.info, nil }
@@ -390,6 +392,9 @@ func (f *davFile) Seek(offset int64, whence int) (int64, error) {
 	if offset < 0 {
 		return 0, errors.New("negative seek")
 	}
+	if offset == f.offset {
+		return offset, nil
+	}
 	if f.body != nil {
 		f.body.Close()
 		f.body = nil
@@ -431,7 +436,9 @@ func (f *davFile) Read(b []byte) (int, error) {
 		if req.Header == nil {
 			req.Header = http.Header{}
 		}
-		if f.offset > 0 {
+		if f.bounded {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", f.offset, f.rangeEnd))
+		} else if f.offset > 0 {
 			req.Header.Set("Range", "bytes="+strconv.FormatInt(f.offset, 10)+"-")
 		}
 		client := &http.Client{Transport: apiClient.Transport, CheckRedirect: func(next *http.Request, via []*http.Request) error {
@@ -459,7 +466,7 @@ func (f *davFile) Read(b []byte) (int, error) {
 			f.progress.finish(err)
 			return 0, err
 		}
-		if (res.StatusCode != 200 && res.StatusCode != 206) || (f.offset > 0 && res.StatusCode != 206) {
+		if (res.StatusCode != 200 && res.StatusCode != 206) || (f.offset > 0 && res.StatusCode != 206) || (f.bounded && res.StatusCode == 200 && f.rangeEnd+1 < f.info.Size()) {
 			res.Body.Close()
 			// Only retry a rejected read, never writes or a partially read body.
 			// One refresh per open handle bounds retries across repeated seeks.
@@ -480,6 +487,14 @@ func (f *davFile) Read(b []byte) (int, error) {
 			}
 			f.progress.finish(err)
 			return 0, err
+		}
+		if f.bounded && res.StatusCode == http.StatusPartialContent {
+			var start, end, total int64
+			_, e := fmt.Sscanf(res.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total)
+			if e != nil || start != f.offset || end != f.rangeEnd || total != f.info.Size() {
+				res.Body.Close()
+				return 0, errors.New("上游未返回请求的文件分块范围")
+			}
 		}
 		f.body = res.Body
 	}

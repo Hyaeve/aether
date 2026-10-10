@@ -9,9 +9,10 @@ const emit = defineEmits(['close', 'change'])
 const panel = ref(null), player = ref(null), failed = ref(false), playing = ref(false)
 const cover = ref(''), metadata = ref({}), lyrics = ref([]), loading = ref(false), position = ref(0), duration = ref(0), lyricsPanel = ref(null)
 const expanded = ref(true), view = ref('cover'), mode = ref('order'), capsule = ref(null)
+const more = ref(false), volumeOpen = ref(false), volume = ref(1)
 const isDragging = ref(false)
 const dock = ref({ side: 'right', y: Math.max(56, window.innerHeight * .65), x: null })
-const modes = [{ value: 'order', label: '顺序', icon: 'ListOrdered' }, { value: 'loop', label: '循环', icon: 'Repeat' }, { value: 'shuffle', label: '随机', icon: 'Shuffle' }]
+const modes = [{ value: 'order', label: '顺序播放', icon: 'ListOrdered' }, { value: 'shuffle', label: '随机播放', icon: 'Shuffle' }, { value: 'loop', label: '列表循环', icon: 'Repeat' }, { value: 'single', label: '单曲循环', icon: 'Repeat1' }]
 const activeMode = computed(() => modes.find(item => item.value === mode.value))
 const tracks = computed(() => props.queue.length ? props.queue : [props.file])
 const trackIndex = computed(() => tracks.value.findIndex(file => file.id === props.file.id && file.storage === props.file.storage))
@@ -76,6 +77,8 @@ async function play() {
   try { await audio.play() } catch { if (current === generation) playing.value = !audio.paused }
 }
 function togglePlayback() { if (player.value?.paused) play(); else player.value?.pause() }
+function setVolume(value) { volume.value = Math.max(0, Math.min(1, Number(value))); if (player.value) player.value.volume = volume.value }
+function volumeWheel(event) { setVolume(volume.value + (event.deltaY < 0 ? .05 : -.05)) }
 function cycleMode() {
   mode.value = modes[(modes.findIndex(item => item.value === mode.value) + 1) % modes.length].value
   shuffleBag = []; shuffleHistory = []
@@ -87,8 +90,9 @@ function selectTrack(index) {
   emit('change', file)
 }
 function skip(direction, automatic = false) {
+  if (automatic && mode.value === 'single') { seek(0); play(); return }
   if (!canSkip.value) {
-    if (automatic && mode.value !== 'order') { seek(0); play() }
+    if (!automatic || mode.value !== 'order') { seek(0); play() }
     return
   }
   const current = Math.max(0, trackIndex.value), count = tracks.value.length
@@ -110,7 +114,7 @@ function skip(direction, automatic = false) {
   }
   selectTrack(next)
 }
-async function collapse(focus = true) { expanded.value = false; if (focus) { await nextTick(); capsule.value?.focus() } }
+async function collapse(focus = true) { more.value = false; volumeOpen.value = false; expanded.value = false; if (focus) { await nextTick(); capsule.value?.focus() } }
 async function reopen() { if (dragged) { dragged = false; return }; expanded.value = true; await nextTick(); panel.value?.focus() }
 function outside(event) { if (expanded.value && !event.target.closest('.audio-player, .audio-capsule')) collapse(false) }
 function key(event) {
@@ -120,7 +124,7 @@ function key(event) {
 }
 function constrainDock() { dock.value.y = Math.min(Math.max(56, dock.value.y), Math.max(56, window.innerHeight - 56)); dock.value.x = null }
 function startDrag(event) {
-  if (event.button !== 0) return
+  if (event.button !== 0 || event.target.closest('.capsule-toggle')) return
   const rect = capsule.value.getBoundingClientRect()
   drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, width: rect.width }
   isDragging.value = true
@@ -181,15 +185,15 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
             <div v-else key="queue" class="audio-queue-view"><button class="audio-view-back" @click="view = 'cover'"><Icon name="ChevronLeft" :size="17" />歌曲列表 · {{ tracks.length }}</button><VirtualList :items="tracks" :row-height="52" role="listbox" aria-label="歌曲列表"><template #default="{ item, index }"><button class="audio-track" role="option" :aria-selected="index === trackIndex" @click="selectTrack(index); view = 'cover'"><Icon :name="index === trackIndex && playing ? 'Music' : 'FileAudio2'" :size="19" /><span>{{ item.name }}</span><Icon v-if="index === trackIndex" name="Check" :size="16" /></button></template></VirtualList></div>
           </Transition>
         </div>
-        <div class="audio-info"><h2>{{ title }}</h2><p v-if="metadata.artist || metadata.album" class="audio-artist">{{ [metadata.artist, metadata.album].filter(Boolean).join(' · ') }}</p></div>
+        <div class="audio-info"><div><h2>{{ title }}</h2><p v-if="metadata.artist || metadata.album" class="audio-artist">{{ [metadata.artist, metadata.album].filter(Boolean).join(' · ') }}</p></div><div class="audio-more"><button class="icon-btn" aria-label="音频操作" :aria-expanded="more" @click="more = !more; volumeOpen = false"><Icon name="Ellipsis" /></button><div v-if="more" class="audio-popover" role="menu"><a role="menuitem" :href="`${file.url}${file.url.includes('?') ? '&' : '?'}download=1`" :download="file.name"><Icon name="Download" :size="18" />下载</a><button role="menuitem" @click="view = 'queue'; more = false"><Icon name="List" :size="18" />歌曲列表</button></div></div></div>
         <div class="audio-timeline"><input type="range" aria-label="播放进度" :aria-valuetext="`${time(position)} / ${time(duration)}`" min="0" :max="duration || 1" step="0.1" :value="position" :disabled="!seekable" :style="{ '--played': `${duration ? position / duration * 100 : 0}%` }" @input="seek($event.target.value)" /><div class="audio-time-row"><time>{{ time(position) }}</time><span class="audio-format">{{ file.name.split('.').at(-1).toUpperCase() }}<template v-if="bitrate"> · {{ bitrate }} kbps</template></span><time>{{ time(duration) }}</time></div></div>
-        <div class="audio-controls"><button class="icon-btn audio-mode" :aria-label="`播放模式：${activeMode.label}`" @click="cycleMode"><Icon :name="activeMode.icon" :size="22" /></button><button class="icon-btn" aria-label="上一首" :disabled="!canSkip" @click="skip(-1)"><Icon name="SkipBack" :size="25" /></button><button class="icon-btn audio-play-toggle" :aria-label="playing ? '暂停' : '播放'" :disabled="failed" @click="togglePlayback"><Icon :name="playing ? 'Pause' : 'Play'" :size="32" /></button><button class="icon-btn" aria-label="下一首" :disabled="!canSkip" @click="skip(1)"><Icon name="SkipForward" :size="25" /></button><button class="icon-btn" aria-label="歌曲列表" :aria-expanded="view === 'queue'" @click="view = view === 'queue' ? 'cover' : 'queue'"><Icon name="List" :size="23" /></button></div>
+        <div class="audio-controls"><button class="icon-btn audio-mode" :aria-label="`播放模式：${activeMode.label}`" @click="cycleMode"><Icon :name="activeMode.icon" :size="22" /></button><button class="icon-btn" aria-label="上一首" @click="skip(-1)"><Icon name="SkipBack" :size="25" /></button><button class="icon-btn audio-play-toggle" :aria-label="playing ? '暂停' : '播放'" :disabled="failed" @click="togglePlayback"><Icon :name="playing ? 'Pause' : 'Play'" :size="32" /></button><button class="icon-btn" aria-label="下一首" @click="skip(1)"><Icon name="SkipForward" :size="25" /></button><div class="audio-volume" @wheel.stop.prevent="volumeWheel"><button class="icon-btn" aria-label="音量" :aria-expanded="volumeOpen" @click="volumeOpen = !volumeOpen; more = false"><Icon :name="volume ? 'Volume2' : 'VolumeX'" :size="23" /></button><div v-if="volumeOpen" class="audio-popover volume-popover"><input type="range" aria-label="音量大小" min="0" max="1" step="0.01" :value="volume" @input="setVolume($event.target.value)" /><small>{{ Math.round(volume * 100) }}%</small></div></div></div>
         <p v-if="failed" class="audio-error" role="status">浏览器无法播放此格式，请下载后打开。</p>
         <a v-if="failed" :href="`${file.url}${file.url.includes('?') ? '&' : '?'}download=1`" :download="file.name" target="_blank" rel="noopener noreferrer"><Icon name="Download" :size="17" />下载音频</a>
         <audio ref="player" :src="file.url" class="audio-native" tabindex="-1" aria-hidden="true" preload="metadata" @timeupdate="syncTime" @seeked="syncTime" @loadedmetadata="syncDuration" @durationchange="syncDuration" @play="playing = true" @pause="playing = false" @ended="skip(1, true)" @error="failed = true; playing = false" />
       </section>
       </Transition>
-      <button v-if="!expanded" ref="capsule" class="audio-capsule" :class="{ dragging: isDragging, 'dock-left': dock.side === 'left' }" :style="dockStyle" :aria-label="`展开音乐播放器：${title}`" @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @keydown="dockKey" @click="reopen"><img v-if="cover" :src="cover" alt="" /><Icon v-else name="Music" :size="24" /><span>{{ title }}</span><Icon :name="playing ? 'Pause' : 'Play'" :size="15" /></button>
+      <div v-if="!expanded" ref="capsule" class="audio-capsule" :class="{ dragging: isDragging, 'dock-left': dock.side === 'left', 'has-artwork': cover, playing }" :style="dockStyle" role="button" tabindex="0" :aria-label="`展开音乐播放器：${title}`" @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @keydown="dockKey" @keydown.enter.prevent="reopen" @keydown.space.prevent="reopen" @click="reopen"><img v-if="cover" class="capsule-ambient" :src="cover" alt="" /><img v-if="cover" class="capsule-cover" :src="cover" alt="" /><Icon v-else name="Music" :size="24" /><span>{{ title }}{{ metadata.artist ? ` - ${metadata.artist}` : '' }}</span><button class="icon-btn capsule-toggle" :aria-label="playing ? '暂停' : '播放'" @click.stop="togglePlayback" @keydown.stop><Icon :name="playing ? 'Pause' : 'Play'" :size="19" /></button></div>
     </div>
   </Teleport>
 </template>
@@ -214,4 +218,13 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 .audio-slide-enter-active, .audio-slide-leave-active { transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .28s; }.audio-slide-enter-from, .audio-slide-leave-to { transform:translateX(100%); opacity:.6; }.audio-view-enter-active, .audio-view-leave-active { transition:opacity .15s,transform .15s; }.audio-view-enter-from { opacity:0; transform:translateY(6px); }.audio-view-leave-to { opacity:0; transform:translateY(-6px); }
 @media(max-height:700px) { .audio-player { gap:8px; padding:12px 20px; }.audio-art { max-width:220px; margin-inline:auto; }.audio-cover-lyrics .lyric-line { padding-block:5px; }.audio-controls .audio-play-toggle { height:48px; }.audio-player h2 { font-size:16px; } }
 @media(prefers-reduced-motion:reduce) { .audio-slide-enter-active, .audio-slide-leave-active, .audio-view-enter-active, .audio-view-leave-active { transition:none; } }
+.audio-player { border-radius:16px 0 0 16px; }
+.audio-info { display:flex; align-items:center; gap:8px; }.audio-info > div:first-child { flex:1; min-width:0; }.audio-more,.audio-volume { position:relative; flex:none; }.audio-more > button { width:44px; height:36px; }
+.audio-popover { position:absolute; right:0; bottom:100%; z-index:3; min-width:132px; padding:6px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px #0003; }.has-artwork .audio-popover { background:#253037ed; backdrop-filter:blur(18px); }.audio-popover > button,.audio-popover > a { display:flex; width:100%; gap:8px; justify-content:flex-start; align-items:center; padding:9px; background:none; border:0; color:inherit; font-size:13px; border-radius:5px; }.audio-popover > button:hover,.audio-popover > a:hover { background:var(--primary-soft); }
+.volume-popover { display:flex; flex-direction:column; align-items:center; gap:8px; min-width:56px; padding:14px 10px; }.volume-popover input { writing-mode:vertical-lr; direction:rtl; width:22px; height:110px; padding:0; accent-color:var(--primary); }.volume-popover small { font-size:12px; }
+.audio-cover-view :deep(.thin-scroll-area) { display:flex; flex-direction:column; align-items:center; overflow:hidden; }.audio-art { flex:1; min-height:0; max-height:calc(100% - 42px); aspect-ratio:auto; background:none; }.audio-art img { object-fit:contain; }.audio-cover-lyrics { flex:none; height:42px; padding-top:5px; overflow:hidden; width:100%; mask-image:linear-gradient(#000 65%,transparent); }.audio-cover-lyrics .lyric-line { padding:0; line-height:26px; }.audio-cover-lyrics .audio-lyrics-empty { margin:0; padding:5px; }
+.audio-capsule { isolation:isolate; overflow:hidden; width:min(260px,calc(100vw - 16px)); }.audio-capsule .capsule-ambient { position:absolute; inset:-20px; z-index:-1; width:calc(100% + 40px); height:calc(100% + 40px); border-radius:0; filter:blur(20px) brightness(.65); object-fit:cover; }.audio-capsule.has-artwork { color:#fff; background:#30343dcc; backdrop-filter:blur(18px); }.audio-capsule .capsule-cover { animation:disc-spin 16s linear infinite; animation-play-state:paused; }.audio-capsule.playing .capsule-cover { animation-play-state:running; }.capsule-toggle { flex:none; width:30px; height:30px; color:inherit; }
+@keyframes disc-spin { to { transform:rotate(360deg); } }
+@media(max-height:700px) { .audio-art { max-width:100%; }.audio-cover-lyrics .lyric-line { padding:0; } }
+@media(prefers-reduced-motion:reduce) { .audio-capsule .capsule-cover { animation:none; } }
 </style>

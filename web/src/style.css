@@ -1277,6 +1277,14 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
 html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .main-shell { height: 100dvh; box-sizing: border-box; }
 .page-scroll { height: calc(100dvh - 48px); }
+.page-scroll:has(.log-panel,.link-playback) > .thin-scroll-rail { display:none; }
+.page-content:has(> .log-panel),.page-content:has(> .link-playback) { height:auto; min-height:calc(100dvh - 48px); }
+.log-panel { flex:none; height:auto; }
+.log-list-shell,.playback-list-shell { position:relative; flex:none; height:calc(100dvh - 80px); min-height:240px; }
+.log-list-shell > .log-viewport,.playback-list-shell > .playback-scroller { height:100%; scrollbar-width:none; }
+.log-viewport::-webkit-scrollbar { display:none; }
+.link-playback { flex:none; }
+.log-panel > footer,.playback-count { flex:none; height:24px; padding:3px 16px; margin:0; font-size:12px; line-height:18px; }
 .notice-scroll { max-height: 252px; }
 .notice-scroll .notification-list { height: auto; max-height: 252px; }
 .source-list { display: flex; flex-direction: column; overflow: hidden; }

@@ -104,7 +104,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
     <header class="rename-heading"><button class="icon-btn" aria-label="返回文件管理" :disabled="busy" @click="emit('close')"><Icon name="ArrowLeft" /></button><h2>重命名工作台</h2><span>{{ files.length }} 个项目</span><button class="btn primary" :disabled="invalid || busy" @click="execute">{{ busy ? '正在重命名…' : '确认重命名' }}</button></header>
     <div class="rename-columns">
       <section class="rename-comparison">
-        <ThinScroll :ref="el => viewport = el?.element || null" :thickness="2" class="rename-preview-scroll" content-class="rename-preview">
+        <ThinScroll :ref="el => viewport = el?.element || null" :thickness="3" class="rename-preview-scroll" content-class="rename-preview">
           <p v-if="!items.length" class="small-empty">{{ error || '等待应用规则' }}</p>
           <div :style="{ height: `${top}px` }" />
           <article v-for="item in shown" :key="item.id" class="rename-preview-row" :class="{ignored: ignored.includes(item.id)}">
@@ -115,7 +115,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
         </ThinScroll><p v-if="error && items.length" class="error-message">{{ error }}</p>
       </section>
       <aside class="rename-rules">
-        <ThinScroll :thickness="2" class="rename-rules-scroll">
+        <ThinScroll :thickness="3" class="rename-rules-scroll">
         <fieldset :disabled="busy">
           <article v-for="(rule, index) in rules" :key="index" class="rename-rule" :class="{collapsed: expanded !== index}">
             <header><strong>规则 {{ index + 1 }}</strong><button v-if="index > 0" class="icon-btn" aria-label="删除规则" @click="removeRule(index)"><Icon name="Trash2" /></button><button class="icon-btn" :aria-label="`规则 ${index + 1}`" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" /></button></header>

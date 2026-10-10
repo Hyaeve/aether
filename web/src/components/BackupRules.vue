@@ -20,6 +20,7 @@ const blankLocation = () => ({storageId:'',path:'',label:''})
 const storages = computed(() => state.storages.filter(s => s.enabled))
 const storage = id => state.storages.find(s => s.id === id)
 const policies = [{value:'skip',label:'跳过同名文件'},{value:'overwrite',label:'覆盖同名文件'}]
+const completionPolicies = [{value:'keep',label:'保留源文件'},{value:'delete_source',label:'删除已备份源文件'},{value:'delete_source_dir',label:'删除已备份源文件和空文件夹'}]
 const statuses = {idle:'等待执行',running:'正在备份',completed:'备份完成',failed:'备份失败',stopped:'已停止',interrupted:'已中断'}
 let timer, alive = true, loading = false
 async function load() {
@@ -35,7 +36,7 @@ onMounted(() => { load(); document.addEventListener('click',closeMenu); document
 onUnmounted(() => { alive = false; clearTimeout(timer); document.removeEventListener('click',closeMenu); document.removeEventListener('keydown',escape) })
 function open(rule) {
   closeMenu(); editing.value = rule?.id || ''; error.value = ''; step.value=0
-  const defaults = {name:'',enabled:true,sourceId:'',source:'',sourceLabel:'',targetId:'',target:'',targetLabel:'',replace:'skip',extensions:'',exclude:'',minSize:0,maxSize:0,cron:'',scanInterval:0,filters:[]}
+  const defaults = {name:'',enabled:true,sourceId:'',source:'',sourceLabel:'',targetId:'',target:'',targetLabel:'',replace:'skip',completionRule:'keep',monitorEnabled:false,extensions:'',exclude:'',minSize:0,maxSize:0,cron:'',scanInterval:0,filters:[]}
   Object.keys(form).forEach(key=>delete form[key])
   Object.assign(form,defaults,rule ? JSON.parse(JSON.stringify(rule)) : {})
   form.sources = rule ? JSON.parse(JSON.stringify(locations(rule,'source'))) : [blankLocation()]
@@ -90,15 +91,15 @@ defineExpose({ open, load })
       <progress v-if="rule.status==='running'" aria-label="备份进度" :aria-valuetext="rule.phase==='scan' ? '正在扫描，已扫描'+rule.scanned+'个文件' : percent(rule)+'%'" :max="Math.max(1,rule.total || 0)" :value="rule.phase==='scan' ? undefined : (rule.processed || 0)" />
     </article>
   </div>
-  <Modal v-if="modal" :title="editing?'编辑备份规则':'添加备份规则'" @close="!busy && (modal=false)">
+  <Modal v-if="modal" standard :title="editing?'编辑备份规则':'添加备份规则'" @close="!busy && (modal=false)">
     <nav class="backup-steps" aria-label="备份配置步骤"><button v-for="(title,index) in steps" :key="title" type="button" :class="{active:step===index}" :aria-current="step===index?'step':undefined" @click="step=index"><span>{{index+1}}</span>{{title}}</button></nav>
     <form novalidate @submit.prevent="save"><ThinScroll class="backup-editor modal-body" content-class="backup-fields">
       <section v-show="step===0" class="backup-section">
       <label>备份名称<input v-model="form.name" :required="step===0" aria-required="true" maxlength="200" /></label>
       <div v-for="kind in ['source','target']" :key="kind" class="field"><div class="backup-field-heading"><label>{{kind==='source'?'源目录':'目标目录'}}</label><button class="icon-btn" type="button" :aria-label="kind==='source'?'添加源目录':'添加目标目录'" :disabled="form[kind+'s'].length>=16" @click="form[kind+'s'].push(blankLocation())"><Icon name="Plus" :size="18" /></button></div><div v-for="(loc,index) in form[kind+'s']" :key="index" class="backup-location"><button class="source-trigger" type="button" :aria-label="(kind==='source'?'选择备份源目录':'选择备份目标目录')+(index?' '+(index+1):'')" @click="pick(kind,index)"><span>{{directoryText(loc.storageId,loc.label) || '选择目录'}}</span><Icon name="FolderOpen" /></button><button v-if="form[kind+'s'].length>1" class="icon-btn danger-text" type="button" :aria-label="'移除'+(kind==='source'?'源':'目标')+'目录 '+(index+1)" @click="form[kind+'s'].splice(index,1)"><Icon name="X" :size="16" /></button></div></div>
       </section>
-      <section v-show="step===1" class="backup-section"><div class="field"><label>同名文件</label><RoundedSelect v-model="form.replace" label="同名文件策略" :options="policies" /></div></section>
-      <section v-show="step===2" class="backup-section"><label>Cron 表达式<input v-model="form.cron" aria-label="Cron 表达式" /></label><div class="field"><label>自动扫描间隔</label><NumberInput v-model="form.scanInterval" aria-label="自动扫描间隔" unit="秒" min="0" max="31536000" /></div></section>
+      <section v-show="step===1" class="backup-section"><div class="field"><label>同名文件</label><RoundedSelect v-model="form.replace" label="同名文件策略" :options="policies" /></div><div class="field"><label>备份完成后</label><RoundedSelect v-model="form.completionRule" label="备份完成操作" :options="completionPolicies" /></div></section>
+      <section v-show="step===2" class="backup-section"><label>Cron 表达式<input v-model="form.cron" aria-label="Cron 表达式" /></label><div class="field"><label>自动扫描间隔</label><NumberInput v-model="form.scanInterval" aria-label="自动扫描间隔" unit="秒" min="0" max="31536000" /></div><label class="backup-monitor"><input v-model="form.monitorEnabled" type="checkbox" />文件系统监听</label></section>
       <section v-show="step===3" class="backup-section">
       <article v-for="(filter,index) in form.filters" :key="index" class="backup-filter">
         <header><strong>规则 {{index+1}}</strong><button type="button" class="icon-btn danger-text" :aria-label="'删除筛选规则 '+(index+1)" @click="form.filters.splice(index,1)"><Icon name="Trash2" :size="16" /></button></header>
@@ -133,4 +134,5 @@ defineExpose({ open, load })
 .backup-section{display:grid;gap:14px;min-width:0}.backup-field-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}.backup-location{display:flex;align-items:center;gap:6px;margin:5px 0;min-width:0}.backup-location .source-trigger{flex:1;min-width:0}.backup-location .source-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.backup-filter{padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:grid;gap:10px;min-width:0}.backup-filter header{display:flex;align-items:center;justify-content:space-between}.backup-filter strong{font-size:13px;font-weight:500}.backup-filter-range{display:flex;gap:20px}.backup-filter-range label{display:flex;align-items:center;gap:6px}.backup-filter-range input[type=checkbox]{height:16px;min-height:16px;width:16px}.backup-size{display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;min-width:0}.backup-size>*{min-width:0}.backup-add-filter{width:100%;font-size:14px;min-height:36px}.backup-tags{display:flex;flex-wrap:wrap;gap:12px;color:var(--muted);font-size:12px;margin-top:10px}.backup-detail h3{font-size:16px;margin:0 0 16px}.backup-phase{display:flex;justify-content:space-between;font-size:14px}.backup-detail progress{width:100%;height:6px;accent-color:var(--primary)}.backup-detail dl{display:grid;grid-template-columns:1fr 1fr;gap:16px}.backup-detail dl div{display:grid;gap:6px}.backup-detail dt,.backup-detail time{font-size:13px;color:var(--muted)}.backup-detail dd{margin:0;font-size:18px}.backup-detail p{font-size:14px;overflow-wrap:anywhere}.backup-detail .backup-phase span{color:var(--primary)}
 @media(max-width:420px){.backup-steps{margin:0 16px;gap:0}.backup-steps button{font-size:12px;gap:3px}.backup-size{grid-template-columns:1fr 1fr}.backup-size>*:last-child{grid-column:1/-1}}
 @media(max-width:760px){.backup-grid{grid-template-columns:1fr}.backup-card footer{flex-wrap:wrap}.backup-editor{max-height:60dvh}}
+.backup-modal :deep(.modal) { width:min(640px,calc(100vw - 32px)); background:var(--surface); }.backup-editor :deep(.thin-scroll-rail) { display:none; }.backup-editor :deep(.backup-monitor) { flex-direction:row; align-items:center; gap:8px; }.backup-editor :deep(.backup-monitor input) { width:16px; height:16px; min-height:16px; }
 </style>

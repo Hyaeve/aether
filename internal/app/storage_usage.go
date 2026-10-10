@@ -15,6 +15,20 @@ type storageUsage struct {
 	Username string `json:"username,omitempty"`
 }
 
+type storageUsageState struct {
+	storageUsage
+	Stamp       string    `json:"stamp"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	AttemptedAt time.Time `json:"attemptedAt"`
+}
+
+func savedStorageUsage(s Storage) (storageUsage, bool) {
+	if s.Usage != nil && s.Usage.Stamp == storageRevision(s) {
+		return s.Usage.storageUsage, true
+	}
+	return storageUsage{}, false
+}
+
 type storageUsageEntry struct {
 	stamp   [32]byte
 	ready   chan struct{}
@@ -48,7 +62,10 @@ func (a *App) storageUsageAPI(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, storageUsage{})
 		return
 	}
-	value, err := a.cachedStorageUsage(r.Context(), s)
+	value, saved := savedStorageUsage(s)
+	if !saved && storageAuthBlocked(s, time.Now()) == nil {
+		value, err = a.cachedStorageUsage(r.Context(), s)
+	}
 	if err != nil {
 		return
 	}
@@ -62,19 +79,30 @@ func (a *App) storageUsageAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) cachedStorageUsage(ctx context.Context, s Storage) (storageUsage, error) {
+	if err := ctx.Err(); err != nil {
+		return storageUsage{}, err
+	}
 	stamp := usageStamp(s)
 	a.usageMu.Lock()
 	if a.usageCache == nil {
 		a.usageCache = make(map[string]*storageUsageEntry)
 	}
 	entry := a.usageCache[s.ID]
-	if entry != nil && entry.stamp == stamp && time.Now().Before(entry.expires) {
-		a.usageMu.Unlock()
+	if entry != nil && entry.stamp == stamp {
+		inFlight := false
 		select {
-		case <-ctx.Done():
-			return storageUsage{}, ctx.Err()
 		case <-entry.ready:
-			return entry.value, nil
+		default:
+			inFlight = true
+		}
+		if inFlight || time.Now().Before(entry.expires) {
+			a.usageMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return storageUsage{}, ctx.Err()
+			case <-entry.ready:
+				return entry.value, nil
+			}
 		}
 	}
 	// A single in-flight lookup per credential revision; no network work in /state.
@@ -93,6 +121,26 @@ func (a *App) cachedStorageUsage(ctx context.Context, s Storage) (storageUsage, 
 		value.Used, value.Total = 0, 0
 	}
 	value.Username = strings.TrimSpace(value.Username)
+	previous, hasPrevious := savedStorageUsage(s)
+	validQuota := usableStorageQuota(value)
+	if hasPrevious && !validQuota {
+		value = previous
+	}
+	if ctx.Err() == nil && (usableStorageQuota(value) || value.Username != "") {
+		_ = a.store.update(func(st *State) error {
+			for i := range st.Storages {
+				current := &st.Storages[i]
+				if current.ID == s.ID && current.Enabled && usageStamp(*current) == stamp {
+					updated := time.Now()
+					if hasPrevious && !validQuota {
+						updated = s.Usage.UpdatedAt
+					}
+					current.Usage = &storageUsageState{storageUsage: value, Stamp: storageRevision(s), UpdatedAt: updated, AttemptedAt: time.Now()}
+				}
+			}
+			return nil
+		})
+	}
 	a.usageMu.Lock()
 	entry.value = value
 	ttl := time.Minute
@@ -171,8 +219,20 @@ func (a *App) readStorageUsage(ctx context.Context, s Storage) storageUsage {
 			}
 		}
 	case "mobile":
-		// The current native protocol does not expose a verified quota endpoint.
 		value.Username, _, _ = mobileAccount(s)
+		if nativeMobile(s) && s.Config["userDomainId"] != "" {
+			var quota struct {
+				Total json.Number `json:"diskSize"`
+				Free  json.Number `json:"freeDiskSize"`
+			}
+			if a.mobilePost(ctx, s, "https://user-njs.yun.139.com/user/disk/quota/detail", map[string]string{"userDomainId": s.Config["userDomainId"]}, false, &quota) == nil {
+				total, e1 := quota.Total.Int64()
+				free, e2 := quota.Free.Int64()
+				if e1 == nil && e2 == nil && total > 0 && free >= 0 && free <= total && total <= int64(^uint64(0)>>1)/(1<<20) {
+					value.Total, value.Used = total*(1<<20), (total-free)*(1<<20)
+				}
+			}
+		}
 	}
 	return value
 }

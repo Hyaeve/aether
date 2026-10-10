@@ -13,6 +13,7 @@ type backupEntry struct {
 	source   Storage
 	file     File
 	relative string
+	parent   string
 }
 
 func backupPrefixes(sources []BackupLocation, st State) []string {
@@ -98,6 +99,9 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 				return err
 			}
 			for _, f := range files {
+				if source.Type == "local" && strings.HasPrefix(f.Name, ".aether-") {
+					continue
+				}
 				visited++
 				if visited > 100000 {
 					return errors.New("单次备份最多扫描100000项，请拆分规则")
@@ -113,14 +117,14 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 						return err
 					}
 					if allowed {
-						entries = append(entries, backupEntry{source, f, path.Join(prefixes[i], relative)})
+						entries = append(entries, backupEntry{source, f, path.Join(prefixes[i], relative), dir})
 					}
 				} else {
 					rule.Scanned++
 					if !allowed || !backupAccept(*rule, f) {
 						rule.Skipped++
 					} else {
-						entries = append(entries, backupEntry{source, f, path.Join(prefixes[i], relative)})
+						entries = append(entries, backupEntry{source, f, path.Join(prefixes[i], relative), dir})
 						rule.Total += len(targets)
 					}
 				}
@@ -137,7 +141,7 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 			return err
 		}
 		if prefixes[i] != "" {
-			entries = append(entries, backupEntry{source, File{IsDir: true}, prefixes[i]})
+			entries = append(entries, backupEntry{source, File{IsDir: true}, prefixes[i], ""})
 		}
 	}
 	// Check the reverse direction for remote trees, where paths may be opaque IDs.
@@ -191,7 +195,11 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 		return err
 	}
 	defer a.cache.clear()
+	candidates := []backupCleanupEntry{}
 	for _, item := range entries {
+		copiedAll := true
+		fingerprint := ""
+		destinations := []backupCleanupTarget{}
 		for j, target := range targets {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -224,11 +232,18 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 				return errors.New("目标同名项是文件夹：" + item.relative)
 			}
 			if existing != nil && rule.Replace == "skip" {
+				copiedAll = false
 				rule.Skipped++
 			} else {
-				if err := a.copyBackupFile(ctx, item.source, target, item.file, parent, name, rule.Replace); err != nil {
+				digest := ""
+				if err := a.copyBackupFile(ctx, item.source, target, item.file, parent, name, rule.Replace, &digest); err != nil {
 					return fmt.Errorf("备份 %s：%w", item.relative, err)
 				}
+				if fingerprint != "" && fingerprint != digest {
+					return errors.New("源文件在多个目标复制期间变化，未清理源文件")
+				}
+				fingerprint = digest
+				destinations = append(destinations, backupCleanupTarget{target, parent, name})
 				rule.Copied++
 			}
 			rule.Processed++
@@ -239,6 +254,12 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 				last = time.Now()
 			}
 		}
+		if !item.file.IsDir && copiedAll && fingerprint != "" {
+			candidates = append(candidates, backupCleanupEntry{item, fingerprint, destinations})
+		}
+	}
+	if rule.CompletionRule != "" && rule.CompletionRule != "keep" {
+		return a.cleanupBackup(ctx, rule, candidates, entries)
 	}
 	return nil
 }

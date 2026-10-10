@@ -22,7 +22,7 @@ const imageStyle = computed(() => ({
   transform: `translate(-50%, -50%) translate(${x.value}px, ${y.value}px) rotate(${rotation.value}deg) scale(${actualScale.value})`
 }))
 const percent = computed(() => Math.round(actualScale.value * 100))
-let previousFocus, previousOverflow, hideTimer, observer, gesture
+let previousFocus, previousOverflow, hideTimer, observer, gesture, closeTimer, moved = false
 const pointers = new Map()
 function reset() {
   scale.value = 1; rotation.value = 0; x.value = 0; y.value = 0; original.value = false
@@ -30,11 +30,13 @@ function reset() {
   smooth.value = false
   natural.value = { width: 0, height: 0 }; pointers.clear(); gesture = null
 }
-function scheduleHide() {
+function scheduleHide(delay = 3200) {
   clearTimeout(hideTimer)
-  hideTimer = setTimeout(() => { if (!panel.value?.querySelector('.viewer-dock:focus-within,.viewer-dock:hover')) dockVisible.value = false }, 3000)
+  hideTimer = setTimeout(() => { if (!panel.value?.querySelector('.viewer-dock:focus-within,.viewer-dock:hover')) dockVisible.value = false }, delay)
 }
-function showTools() { dockVisible.value = true; scheduleHide() }
+function showTools(autoHide = true) { clearTimeout(hideTimer); dockVisible.value = true; if (autoHide) scheduleHide() }
+function stageClick(event) { if (moved || event.target.closest('button')) return; clearTimeout(closeTimer); closeTimer = setTimeout(() => emit('close'), 280) }
+function stageDoubleClick() { clearTimeout(closeTimer); toggleOriginal() }
 function navigate(step) {
   if (props.images.length < 2) return
   panel.value?.focus({ preventScroll: true })
@@ -67,10 +69,12 @@ function pointerDown(event) {
   stage.value.setPointerCapture(event.pointerId)
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
   dragging.value = true; beginGesture()
+  moved = false
 }
 function pointerMove(event) {
   if (!pointers.has(event.pointerId) || !gesture) return
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+  if (pointers.size > 1 || Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 5) moved = true
   if (pointers.size > 1 && gesture.distance > 0) {
     scale.value = Math.max(.25, Math.min(8 / Math.max(.001, original.value ? 1 : fitScale.value), gesture.scale * pointDistance() / gesture.distance))
   } else { x.value = gesture.startX + event.clientX - gesture.x; y.value = gesture.startY + event.clientY - gesture.y }
@@ -103,21 +107,21 @@ onMounted(async () => {
   observer = new ResizeObserver(() => { if (stage.value) bounds.value = { width: stage.value.clientWidth, height: stage.value.clientHeight } })
   observer.observe(stage.value); scheduleHide()
 })
-onUnmounted(() => { clearTimeout(hideTimer); observer?.disconnect(); pointers.clear(); document.body.style.overflow = previousOverflow; previousFocus?.focus() })
+onUnmounted(() => { clearTimeout(hideTimer); clearTimeout(closeTimer); observer?.disconnect(); pointers.clear(); document.body.style.overflow = previousOverflow; previousFocus?.focus() })
 </script>
 <template>
   <Teleport to="body">
-    <section ref="panel" class="image-viewer" tabindex="-1" role="dialog" aria-modal="true" :aria-label="current?.name || '图片预览'" @keydown="key" @pointermove="showTools" @wheel.prevent="wheel">
-      <header class="viewer-heading"><span :data-tooltip="current?.name">{{ current?.name }}</span><button class="viewer-close" aria-label="关闭图片预览" @click="emit('close')"><Icon name="X" :size="23" /></button></header>
-      <div ref="stage" class="viewer-stage" :class="{ dragging }" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @lostpointercapture="pointerUp" @dblclick.prevent="toggleOriginal">
+    <section ref="panel" class="image-viewer" tabindex="-1" role="dialog" aria-modal="true" :aria-label="current?.name || '图片预览'" @keydown="key" @click.self="emit('close')" @wheel.prevent="wheel">
+      <header class="viewer-heading"><span :data-tooltip="current?.name">{{ current?.name }}</span><div class="viewer-close-hotspot"><button class="viewer-close" aria-label="关闭图片预览" @click="emit('close')"><Icon name="X" :size="23" /></button></div></header>
+      <div ref="stage" class="viewer-stage" :class="{ dragging }" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @lostpointercapture="pointerUp" @click="stageClick" @dblclick.prevent="stageDoubleClick">
         <img v-if="current" :key="current.id" ref="picture" :src="current.url" :alt="current.name" :style="imageStyle" :class="{ loaded, smooth }" draggable="false" @load="imageLoaded" @error="failed = true" />
         <div v-if="!loaded || failed" class="viewer-status" role="status"><Icon :name="failed ? 'CircleAlert' : 'LoaderCircle'" :class="{ spin: !failed }" :size="28" /><p>{{ failed ? '图片加载失败' : '正在读取图片…' }}</p><button v-if="failed" @click="download">下载图片</button></div>
       </div>
       <button v-if="images.length > 1" class="viewer-edge previous" aria-label="上一张图片" @click="navigate(-1)"><Icon name="ChevronLeft" :size="34" /></button>
       <button v-if="images.length > 1" class="viewer-edge next" aria-label="下一张图片" @click="navigate(1)"><Icon name="ChevronRight" :size="34" /></button>
-      <div class="viewer-dock-zone" @pointerenter="showTools" @pointerleave="scheduleHide">
+      <div class="viewer-dock-zone" @pointerenter="showTools(false)" @pointermove="showTools(false)" @pointerleave="scheduleHide(2400)">
         <div class="viewer-dock" :class="{ hidden: !dockVisible }" @focusin="showTools" @wheel.stop.prevent>
-          <span class="viewer-counter">{{ index + 1 }} / {{ images.length }}</span><i />
+          <button aria-label="上一张图片" :disabled="images.length < 2" @click="navigate(-1)"><Icon name="ChevronLeft" :size="24" /></button><span class="viewer-counter">{{ index + 1 }} / {{ images.length }}</span><button aria-label="下一张图片" :disabled="images.length < 2" @click="navigate(1)"><Icon name="ChevronRight" :size="24" /></button><i />
           <button aria-label="缩小图片" data-tooltip="缩小" :disabled="!loaded || failed" @click="zoom(1 / 1.2)"><Icon name="ZoomOut" :size="24" /></button>
           <span class="viewer-scale">{{ loaded ? `${percent}%` : '—' }}</span>
           <button aria-label="放大图片" data-tooltip="放大" :disabled="!loaded || failed" @click="zoom(1.2)"><Icon name="ZoomIn" :size="24" /></button><i />
@@ -159,4 +163,8 @@ onUnmounted(() => { clearTimeout(hideTimer); observer?.disconnect(); pointers.cl
 @keyframes viewer-in { from { opacity:0; } }
 @media(max-width:600px) { .viewer-heading { padding:8px 12px; height:56px; }.viewer-stage { margin:0 12px 94px; }.viewer-dock { padding:6px 7px; gap:0; }.viewer-dock button { width:36px; height:38px; }.viewer-counter,.viewer-scale { min-width:43px; font-size:13px; }.viewer-dock > i { margin:0 3px; }.viewer-edge { width:38px; top:56px; opacity:.65; }.viewer-dock-zone { height:88px; } }
 @media(prefers-reduced-motion:reduce) { .image-viewer,.viewer-stage img,.viewer-dock,.viewer-edge { animation:none; transition:none; } }
+.viewer-heading > span { opacity:0; pointer-events:none; }.viewer-close-hotspot { position:fixed; top:0; right:0; width:76px; height:76px; display:grid; place-items:center; z-index:2; }.viewer-close { opacity:0; border-radius:50%; transition:opacity .16s; }.viewer-close-hotspot:hover .viewer-close,.viewer-close:focus-visible { opacity:1; }.viewer-close:hover { background:none; transform:scale(1.08); }
+.viewer-edge { top:0; bottom:0; width:clamp(54px,7vw,108px); }.viewer-edge svg { transform:scale(.92); transition:transform .18s; }.viewer-edge:hover svg,.viewer-edge:focus-visible svg { transform:scale(1); }
+.viewer-dock-zone { left:50%; right:auto; width:min(680px,96vw); transform:translateX(-50%); pointer-events:auto; }.viewer-dock { min-height:58px; border-radius:29px; background:#17191de8; box-shadow:0 18px 48px #0008; transition:opacity .32s,transform .46s cubic-bezier(.18,.88,.25,1.12); }.viewer-dock.hidden { transform:translateY(22px) scale(.97); }.viewer-dock button { width:42px; height:42px; }.viewer-dock > i { height:32px; margin:0 7px; }
+@media(max-width:600px) { .viewer-close { opacity:1; }.viewer-dock { gap:0; padding:5px; }.viewer-dock button { width:29px; height:36px; }.viewer-dock button svg { width:20px; }.viewer-dock > i { margin:0 2px; }.viewer-counter,.viewer-scale { min-width:36px; font-size:11px; } }
 </style>

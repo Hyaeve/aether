@@ -67,6 +67,9 @@ func requestJSON(ctx context.Context, method, address string, headers http.Heade
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 400 {
+		if res.StatusCode == 401 || res.StatusCode == 403 {
+			return authStorageError(fmt.Errorf("上游认证或访问被拒绝（HTTP %d）", res.StatusCode), false)
+		}
 		return fmt.Errorf("上游返回 HTTP %d，请检查凭据及权限", res.StatusCode)
 	}
 	return json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out)
@@ -157,7 +160,25 @@ func (a *App) listFiles(ctx context.Context, s Storage, dir string, ttl int, fre
 	}
 	files, err = a.rawList(ctx, s, dir)
 	if err != nil {
-		return nil, err
+		var auth *storageAuthError
+		if errors.As(err, &auth) {
+			_ = a.recordStorageHealth(s, err)
+			if nativeTianyi(s) && !auth.fatal && ctx.Err() == nil {
+				current, e := a.store.storage(s.ID)
+				if e == nil && usageStamp(current) == usageStamp(s) {
+					files, err = a.rawList(ctx, current, dir)
+					if err == nil {
+						_ = a.recordStorageHealth(current, nil)
+					}
+				}
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	if s.Health != nil && s.Health.Stamp == storageRevision(s) && s.Health.State != "active" {
+		_ = a.recordStorageHealth(s, nil)
 	}
 	if ttl <= 0 {
 		ttl = s.CacheTTL
@@ -272,7 +293,10 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 				return nil, err
 			}
 			if res.Code != 0 || res.Status >= 400 {
-				return nil, errors.New("夸克授权已失效或接口访问被拒绝")
+				if res.Code == 41001 || res.Code == 31001 || res.Status == 401 || res.Status == 403 {
+					return nil, authStorageError(errors.New("夸克授权已失效或接口访问被拒绝"), true)
+				}
+				return nil, errors.New("夸克接口返回异常")
 			}
 			for _, f := range res.Data.List {
 				out = append(out, File{ID: f.ID, Name: f.Name, IsDir: f.Dir || f.Type == 0, Size: f.Size, Modified: f.Updated.Time, Created: f.Created.Time})
@@ -412,7 +436,15 @@ func (a *App) download(ctx context.Context, s Storage, fileID, pick string) (Dow
 	return a.downloadWithUA(ctx, s, fileID, pick, pan115UA)
 }
 
-func (a *App) downloadWithUA(ctx context.Context, s Storage, fileID, pick, userAgent string) (Download, error) {
+func (a *App) downloadWithUA(ctx context.Context, s Storage, fileID, pick, userAgent string) (result Download, err error) {
+	defer func() {
+		var auth *storageAuthError
+		if errors.As(err, &auth) {
+			_ = a.recordStorageHealth(s, err)
+		} else if err == nil && s.Health != nil && s.Health.Stamp == storageRevision(s) && s.Health.State != "active" {
+			_ = a.recordStorageHealth(s, nil)
+		}
+	}()
 	ctx = context.WithValue(ctx, downloadUAKey{}, userAgent)
 	if s.Type == "tianyi" {
 		return a.tianyiLink(ctx, s, fileID)

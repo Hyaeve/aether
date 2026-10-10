@@ -12,8 +12,8 @@ import (
 var runtimeFields = map[string][]string{
 	"tasks":       {"status", "message", "processed", "lastRun", "nextRun"},
 	"automations": {"status", "message", "lastRun", "nextRun"},
-	"backupRules": {"status", "message", "scanned", "copied", "skipped", "phase", "total", "processed", "lastRun", "nextRun"},
-	"storages":    {"status", "lastError"},
+	"backupRules": {"status", "message", "scanned", "copied", "skipped", "deleted", "phase", "total", "processed", "lastRun", "nextRun"},
+	"storages":    {"status", "lastError", "health", "usage"},
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}

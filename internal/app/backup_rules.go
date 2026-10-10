@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,35 +16,38 @@ import (
 )
 
 type BackupRule struct {
-	ID           string           `json:"id"`
-	Name         string           `json:"name"`
-	Enabled      bool             `json:"enabled"`
-	SourceID     string           `json:"sourceId"`
-	Source       string           `json:"source"`
-	SourceLabel  string           `json:"sourceLabel"`
-	TargetID     string           `json:"targetId"`
-	Target       string           `json:"target"`
-	TargetLabel  string           `json:"targetLabel"`
-	Sources      []BackupLocation `json:"sources,omitempty"`
-	Targets      []BackupLocation `json:"targets,omitempty"`
-	Filters      []BackupFilter   `json:"filters,omitempty"`
-	ScanInterval int              `json:"scanInterval"`
-	Replace      string           `json:"replace"`
-	Extensions   string           `json:"extensions"`
-	Exclude      string           `json:"exclude"`
-	MinSize      int64            `json:"minSize"`
-	MaxSize      int64            `json:"maxSize"`
-	Cron         string           `json:"cron"`
-	Status       string           `json:"status"`
-	Message      string           `json:"message"`
-	Scanned      int              `json:"scanned"`
-	Copied       int              `json:"copied"`
-	Skipped      int              `json:"skipped"`
-	Phase        string           `json:"phase"`
-	Total        int              `json:"total"`
-	Processed    int              `json:"processed"`
-	LastRun      time.Time        `json:"lastRun"`
-	NextRun      time.Time        `json:"nextRun"`
+	ID             string           `json:"id"`
+	Name           string           `json:"name"`
+	Enabled        bool             `json:"enabled"`
+	SourceID       string           `json:"sourceId"`
+	Source         string           `json:"source"`
+	SourceLabel    string           `json:"sourceLabel"`
+	TargetID       string           `json:"targetId"`
+	Target         string           `json:"target"`
+	TargetLabel    string           `json:"targetLabel"`
+	Sources        []BackupLocation `json:"sources,omitempty"`
+	Targets        []BackupLocation `json:"targets,omitempty"`
+	Filters        []BackupFilter   `json:"filters,omitempty"`
+	ScanInterval   int              `json:"scanInterval"`
+	MonitorEnabled bool             `json:"monitorEnabled"`
+	CompletionRule string           `json:"completionRule"`
+	Deleted        int              `json:"deleted"`
+	Replace        string           `json:"replace"`
+	Extensions     string           `json:"extensions"`
+	Exclude        string           `json:"exclude"`
+	MinSize        int64            `json:"minSize"`
+	MaxSize        int64            `json:"maxSize"`
+	Cron           string           `json:"cron"`
+	Status         string           `json:"status"`
+	Message        string           `json:"message"`
+	Scanned        int              `json:"scanned"`
+	Copied         int              `json:"copied"`
+	Skipped        int              `json:"skipped"`
+	Phase          string           `json:"phase"`
+	Total          int              `json:"total"`
+	Processed      int              `json:"processed"`
+	LastRun        time.Time        `json:"lastRun"`
+	NextRun        time.Time        `json:"nextRun"`
 }
 
 func backupNext(r BackupRule, now time.Time) time.Time {
@@ -317,12 +322,22 @@ func (a *App) startBackup(id string) error {
 	if err := validateBackup(&rule, st); err != nil {
 		return err
 	}
+	sources, targets := backupLocations(rule)
+	for _, location := range append(append([]BackupLocation{}, sources...), targets...) {
+		storage, err := backupStorage(st, location.StorageID)
+		if err != nil {
+			return err
+		}
+		if err = storageAuthBlocked(storage, time.Now()); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(a.ctx, 24*time.Hour)
-	rule.Scanned, rule.Copied, rule.Skipped = 0, 0, 0
+	rule.Scanned, rule.Copied, rule.Skipped, rule.Deleted = 0, 0, 0, 0
 	rule.Phase, rule.Total, rule.Processed = "scan", 0, 0
 	if err := a.backupUpdate(id, func(r *BackupRule) {
 		r.Status, r.Message, r.LastRun = "running", "扫描源目录", time.Now()
-		r.Scanned, r.Copied, r.Skipped = 0, 0, 0
+		r.Scanned, r.Copied, r.Skipped, r.Deleted = 0, 0, 0, 0
 		r.Phase, r.Total, r.Processed = "scan", 0, 0
 		r.NextRun = backupNext(*r, time.Now())
 	}); err != nil {
@@ -345,7 +360,7 @@ func (a *App) startBackup(id string) error {
 				status, level = "stopped", "warn"
 			}
 		}
-		message := fmt.Sprintf("扫描 %d · 备份 %d · 跳过 %d", rule.Scanned, rule.Copied, rule.Skipped)
+		message := fmt.Sprintf("扫描 %d · 备份 %d · 跳过 %d · 清理 %d", rule.Scanned, rule.Copied, rule.Skipped, rule.Deleted)
 		if err != nil {
 			message += "：" + err.Error()
 		}
@@ -354,6 +369,7 @@ func (a *App) startBackup(id string) error {
 		if e := a.backupUpdate(id, func(r *BackupRule) {
 			r.Status, r.Message = status, message
 			r.Scanned, r.Copied, r.Skipped = rule.Scanned, rule.Copied, rule.Skipped
+			r.Deleted = rule.Deleted
 			r.Phase, r.Total, r.Processed = status, rule.Total, rule.Processed
 			r.NextRun = backupNext(*r, time.Now())
 		}); e != nil {
@@ -392,7 +408,7 @@ func sameBackupStorage(a, b Storage) bool {
 	return true
 }
 
-func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File, parent, name, replace string) (resultErr error) {
+func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File, parent, name, replace string, digest ...*string) (resultErr error) {
 	const limit = int64(100 << 30)
 	if f.Size < 0 || f.Size > limit {
 		return errors.New("备份单文件上限100GiB")
@@ -443,12 +459,16 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	}
 	defer input.Close()
 	defer func() { downloadProgress.finish(resultErr) }()
-	n, err := io.Copy(staged, io.LimitReader(&cancelReader{ctx, input}, limit+1))
+	hash := sha256.New()
+	n, err := io.Copy(io.MultiWriter(staged, hash), io.LimitReader(&cancelReader{ctx, input}, limit+1))
 	if err != nil {
 		return err
 	}
 	if n != f.Size || n > limit {
 		return errors.New("源文件内容不完整或读取期间大小变化")
+	}
+	if len(digest) > 0 {
+		*digest[0] = hex.EncodeToString(hash.Sum(nil))
 	}
 	downloadProgress.finish(nil)
 	if err := staged.Close(); err != nil {

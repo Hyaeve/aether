@@ -31,13 +31,18 @@ import (
 type App struct {
 	usageMu          sync.Mutex
 	usageCache       map[string]*storageUsageEntry
+	healthMu         sync.Mutex
+	healthChecks     map[string]*storageHealthCheck
 	backupMu         sync.Mutex
+	textMu           sync.Mutex
 	backupRuns       map[string]context.CancelFunc
 	automationMu     sync.Mutex
 	automationRuns   map[string]context.CancelFunc
 	fuseReadOnce     sync.Once
 	fuseReadRevision atomic.Uint64
 	fuseReads        *fuseReadCache
+	mountReadMu      sync.Mutex
+	mountReadPools   map[string]*mountReadPool
 
 	simulcast      *pan115Simulcast
 	transfers      transferLog
@@ -176,6 +181,9 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	a.mounts.startAutomatic()
 	defer a.mounts.close()
 	go a.scheduler()
+	a.wg.Add(1)
+	go a.backupMonitor()
+	a.wg.Add(1)
 	go a.storageHealthLoop()
 	server := &http.Server{Handler: a.Handler(env("AETHER_WEB_DIR", "web/dist")), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
@@ -220,6 +228,7 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (a *App) Handler(webDir string) http.Handler {
+	trustedOrigins := linkTrustedProxies()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, map[string]string{"status": "ok", "name": "Aether"})
@@ -277,6 +286,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/directory-size", a.protected(http.HandlerFunc(a.directorySize)))
 	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
+	mux.Handle("GET /api/files/text", a.protected(http.HandlerFunc(a.fileText)))
+	mux.Handle("PUT /api/files/text", a.protected(http.HandlerFunc(a.fileText)))
 	mux.Handle("POST /api/files/extract", a.protected(http.HandlerFunc(a.fileExtract)))
 	mux.Handle("GET /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
 	mux.Handle("GET /api/files/search", a.protected(http.HandlerFunc(a.fileSearch)))
@@ -359,8 +370,7 @@ func (a *App) Handler(webDir string) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 			if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("Origin") != "" {
-				u, err := url.Parse(r.Header.Get("Origin"))
-				if err != nil || u.Host != r.Host {
+				if !a.acceptRequestOrigin(r, trustedOrigins) {
 					fail(w, 403, errors.New("跨站请求已拒绝"))
 					return
 				}
@@ -533,6 +543,18 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.store.snapshotWithLogLimit(30)
 	for i := range st.Storages {
+		if st.Storages[i].Usage != nil && st.Storages[i].Usage.Stamp != storageRevision(st.Storages[i]) {
+			st.Storages[i].Usage = nil
+		}
+		if st.Storages[i].Health != nil && st.Storages[i].Health.Stamp != storageRevision(st.Storages[i]) {
+			st.Storages[i].Health = nil
+		}
+		if st.Storages[i].Usage != nil {
+			st.Storages[i].Usage.Stamp = ""
+		}
+		if st.Storages[i].Health != nil {
+			st.Storages[i].Health.Stamp = ""
+		}
 		for _, key := range []string{"password", "token", "accessToken", "refreshToken", "cookie", "authorization"} {
 			if st.Storages[i].Config[key] != "" {
 				st.Storages[i].Config[key] = "********"
@@ -587,6 +609,9 @@ func validateStorage(s *Storage) error {
 		}
 	}
 	if nativeMobile(*s) {
+		if value := s.Config["userDomainId"]; len(value) > 128 || strings.ContainsAny(value, "\r\n\t /\\") {
+			return errors.New("移动账号域ID无效")
+		}
 		_, _, err := mobileAccount(*s)
 		return err
 	}
@@ -680,6 +705,7 @@ func (a *App) storages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ID, s.CreatedAt, s.Status, s.LastError = id(), time.Now(), "unchecked", ""
+	s.Health, s.Usage = nil, nil
 	err := a.store.update(func(st *State) error {
 		for _, v := range st.Storages {
 			if strings.EqualFold(v.Name, s.Name) {
@@ -815,6 +841,11 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			incoming.ID, incoming.CreatedAt, incoming.Status, incoming.LastError = sid, s.CreatedAt, "unchecked", ""
+			incoming.Health, incoming.Usage = nil, nil
+			if usageStamp(incoming) == usageStamp(s) {
+				incoming.Health, incoming.Usage = s.Health, s.Usage
+				incoming.Status, incoming.LastError = s.Status, s.LastError
+			}
 			st.Storages[i] = incoming
 			return nil
 		}
@@ -838,24 +869,7 @@ func (a *App) testStorage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, err)
 		return
 	}
-	_, testErr := a.listFiles(r.Context(), s, rootOf(s), 0, true)
-	status, message := "connected", ""
-	if testErr != nil {
-		status, message = "error", testErr.Error()
-	}
-	err = a.store.update(func(st *State) error {
-		for i := range st.Storages {
-			if st.Storages[i].ID == s.ID {
-				st.Storages[i].Status = status
-				st.Storages[i].LastError = message
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		fail(w, 500, err)
-		return
-	}
+	testErr := a.checkStorageHealth(r.Context(), s)
 	if testErr != nil {
 		fail(w, 400, testErr)
 		return

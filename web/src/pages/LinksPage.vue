@@ -6,6 +6,8 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import SecretInput from '../components/SecretInput.vue'
+import ScrollRail from '../components/ScrollRail.vue'
+import { listWheel } from '../nested-scroll'
 import { copyText } from '../clipboard'
 const types = [{ id: 'audiobookshelf', name: 'AudioBookShelf', icon: 'abs' }, { id: 'emby', name: 'Emby', icon: 'emby' }, { id: 'fnos', name: '飞牛影视', icon: 'fnmovie' }]
 const modes = [{ value: 'always', label: '始终跳转', icon: 'ExternalLink' }, { value: 'public', label: '公网跳转', icon: 'Globe' }, { value: 'private', label: '内网跳转', icon: 'House' }, { value: 'never', label: '始终中继', icon: 'CornerDownLeft' }]
@@ -153,7 +155,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <button class="add-storage-tile link-add" @click="open()"><Icon name="Plus" :size="28" /><strong>添加以太链接</strong></button>
   </div>
   <section v-else class="link-playback">
-    <div ref="playbackScroller" class="table-wrap playback-scroller" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:112px" /><col style="width:10%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:96px" /><col style="width:72px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
+    <div class="playback-list-shell"><div ref="playbackScroller" class="table-wrap playback-scroller" @wheel="listWheel" @scroll="scrollTop = $event.target.scrollTop"><table><colgroup><col style="width:132px" /><col style="width:112px" /><col style="width:10%" /><col style="width:62px" /><col /><col style="width:12%" /><col style="width:96px" /><col style="width:96px" /><col style="width:72px" /></colgroup><thead><tr><th>时间</th><th>上游</th><th>UA</th><th>模式</th><th>链接</th><th>请求 IP</th><th>缓存状态</th><th>缓存期</th><th>耗时</th></tr></thead><tbody>
       <tr v-if="start" class="playback-spacer" :style="{ height: `${start * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
       <tr v-for="(event, i) in shown" :key="start + i" class="playback-event">
         <td :data-tooltip="new Date(event.time).toLocaleString('zh-CN', { hour12: false })" data-tooltip-always tabindex="0">{{ clock(event.time) }}</td><td><span class="playback-pill playback-upstream" :data-tooltip="linkName(event.upstream)">{{ linkName(event.upstream) }}</span></td>
@@ -165,7 +167,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
         <td>{{ ttl(event) }}</td><td>{{ Math.round((event.durationMs || 0) / 1e6) }} ms</td>
       </tr>
       <tr v-if="displayed.length > start + shown.length" class="playback-spacer" :style="{ height: `${(displayed.length - start - shown.length) * 52}px` }" aria-hidden="true"><td colspan="9" /></tr>
-    </tbody></table><div v-if="!displayed.length" class="small-empty">暂无播放记录</div></div><footer class="playback-count">共 {{ displayed.length }} 条</footer>
+    </tbody></table><div v-if="!displayed.length" class="small-empty">暂无播放记录</div></div><ScrollRail :element="playbackScroller" /></div><footer class="playback-count">共 {{ displayed.length }} 条</footer>
   </section>
   <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop><button @click="open(menu.link)"><Icon name="Pencil" />编辑以链</button><button @click="testLink(menu.link)"><Icon name="Activity" />测试连接</button><button @click="update(menu.link, { enabled: !menu.link.enabled }); closeMenu()"><Icon name="Power" />{{ menu.link.enabled ? '停用链接' : '启用链接' }}</button><button class="danger-text" @click="deleting = menu.link; closeMenu()"><Icon name="Trash2" />删除链接</button></div></Teleport>
   <Modal v-if="modal" compact wide :title="form.id ? '编辑以太链接' : '添加以太链接'" @close="!busy && (modal = false)">

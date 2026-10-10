@@ -74,7 +74,7 @@ func TestMobileQRAuthorizationProtocolAndScope(t *testing.T) {
 	defer func() { apiClient.Transport = old }()
 	responses := []string{
 		`{"code":"200059541"}`, `{"code":"200059548"}`, `{"code":"200059542"}`, `{"code":"200059549"}`, `{"code":"9101"}`,
-		`{"code":"0","data":{"account":"13900000000","token":"private-token"}}`,
+		`{"code":"0","data":{"account":"13900000000","token":"private-token","userDomainId":"domain-123"}}`,
 		`{"code":"0","data":{"account":"13900000000"}}`,
 		`{"code":"unknown","message":"private-token","data":{"account":"13900000000","token":"private-token"}}`,
 	}
@@ -117,6 +117,9 @@ func TestMobileQRAuthorizationProtocolAndScope(t *testing.T) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 		if want == "success" {
+			if result["userDomainId"] != "domain-123" {
+				t.Fatal("missing quota account domain")
+			}
 			_, auth, err := mobileAccount(Storage{Config: map[string]string{"authorization": result["authorization"]}})
 			if err != nil || auth != base64.StdEncoding.EncodeToString([]byte("pc:13900000000:private-token")) {
 				t.Fatal("invalid authorization")

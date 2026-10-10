@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -136,8 +138,13 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 		t.Fatal(string(bytes), status)
 	}
 	before := reads.Load()
+	stream := reader.file.(*davFile)
+	streamBody, streamOffset := stream.body, stream.offset
 	if _, errno = reader.Read(ctx, make([]byte, 5), 0); errno != 0 || reads.Load() != before {
 		t.Fatal("cache miss", errno, reads.Load(), before)
+	}
+	if stream.body != streamBody || stream.offset != streamOffset || len(reader.hotBlock) != 10 {
+		t.Fatal("cache hit touched HTTP stream or lost verified hot block")
 	}
 	a.cache.clear()
 	if _, errno = reader.Read(ctx, make([]byte, 5), 0); errno != 0 || reads.Load() != before+1 {
@@ -160,5 +167,64 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 	data, _ = os.ReadFile(filepath.Join(root, "book.txt"))
 	if string(data) != "HELLOworl!" {
 		t.Fatal("partial write lost existing bytes", string(data))
+	}
+}
+
+func TestNativeFuse115BoundedCacheCallbacks(t *testing.T) {
+	a := testApp(t)
+	content := bytes.Repeat([]byte("x"), fuseBlockSize+100)
+	var reads atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reads.Add(1)
+		var start, end int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			t.Error("missing bounded range", r.Header)
+			w.WriteHeader(400)
+			return
+		}
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
+		w.WriteHeader(206)
+		w.Write(content[start : end+1])
+	}))
+	defer remote.Close()
+	s := Storage{ID: "115", Name: "115", Type: "115", Enabled: true, Config: map[string]string{}}
+	if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	node := &nativeFuseNode{backend: mountFS{app: a, config: MountConfig{StorageID: s.ID, Source: "/"}}}
+	fs.NewNodeFS(node, &fs.Options{})
+	file := &davFile{ctx: a.ctx, info: davInfo{File{Name: "book", Size: int64(len(content))}}, download: Download{URL: remote.URL}}
+	h := &nativeFuseHandle{node: node, file: file, cacheKey: "test", cacheSize: int64(len(content)), cacheConfig: shareConfig(s), cacheStorage: s.ID}
+	ctx := context.Background()
+	for i, off := range []int64{0, 128, 2000, fuseBlockSize, 0} {
+		result, errno := h.Read(ctx, make([]byte, 64), off)
+		if errno != 0 {
+			t.Fatal(errno)
+		}
+		b, status := result.Bytes(nil)
+		if status != fuse.OK || !bytes.Equal(b, content[off:off+64]) {
+			t.Fatal(status, string(b))
+		}
+		want := int32(1)
+		if i >= 3 {
+			want = 2
+		}
+		if reads.Load() != want || file.body != nil || len(a.mountReadPools) != 0 {
+			t.Fatal("cache/network slot regression", reads.Load(), want)
+		}
+	}
+	a.fuseReadRevision.Add(1)
+	if _, errno := h.Read(ctx, make([]byte, 64), 0); errno != 0 || reads.Load() != 3 {
+		t.Fatal("hot cache did not invalidate", errno, reads.Load())
+	}
+	if err := a.store.update(func(st *State) error { st.Storages[0].Config["cookie"] = "changed"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, errno := h.Read(ctx, make([]byte, 64), 0); errno != syscall.ESTALE {
+		t.Fatal("changed credentials served old hot cache", errno)
+	}
+	h.Release(ctx)
+	if h.hotBlock != nil {
+		t.Fatal("released hot block retained")
 	}
 }

@@ -37,7 +37,7 @@ test('rename virtual row frames and rule footer remain visible while both panes 
   await expect(rows.last()).toContainText('目录299')
   for(const pane of ['.rename-preview-scroll','.rename-rules-scroll']){
     await expect(page.locator(`${pane} .thin-scroll-rail`)).toBeVisible()
-    expect(await page.locator(`${pane} .thin-scroll-thumb`).evaluate(el=>parseFloat(getComputedStyle(el,'::after').width)*devicePixelRatio)).toBeCloseTo(2,1)
+    expect(await page.locator(`${pane} .thin-scroll-thumb`).evaluate(el=>parseFloat(getComputedStyle(el,'::after').width)*devicePixelRatio)).toBeCloseTo(3,1)
   }
   await page.screenshot({path:info.outputPath('rename-footer-day.png')})
   await page.getByRole('button',{name:'主题：日光',exact:true}).click()

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,15 +17,17 @@ import (
 )
 
 type Storage struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Type      string            `json:"type"`
-	Enabled   bool              `json:"enabled"`
-	CacheTTL  int               `json:"cacheTTL"`
-	Config    map[string]string `json:"config"`
-	Status    string            `json:"status"`
-	LastError string            `json:"lastError,omitempty"`
-	CreatedAt time.Time         `json:"createdAt"`
+	Health    *storageHealthState `json:"health,omitempty"`
+	Usage     *storageUsageState  `json:"usage,omitempty"`
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Type      string              `json:"type"`
+	Enabled   bool                `json:"enabled"`
+	CacheTTL  int                 `json:"cacheTTL"`
+	Config    map[string]string   `json:"config"`
+	Status    string              `json:"status"`
+	LastError string              `json:"lastError,omitempty"`
+	CreatedAt time.Time           `json:"createdAt"`
 }
 
 type MountConfig struct {
@@ -374,8 +377,19 @@ func (s *Store) log(level, message string) {
 }
 
 func (s *Store) storage(storageID string) (Storage, error) {
-	for _, v := range s.snapshot().Storages {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, v := range s.state.Storages {
 		if v.ID == storageID && v.Enabled {
+			v.Config = maps.Clone(v.Config)
+			if v.Health != nil {
+				copied := *v.Health
+				v.Health = &copied
+			}
+			if v.Usage != nil {
+				copied := *v.Usage
+				v.Usage = &copied
+			}
 			return v, nil
 		}
 	}

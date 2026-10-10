@@ -3,6 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, 
 import { api, date, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
+import ScrollRail from '../components/ScrollRail.vue'
+import { listWheel } from '../nested-scroll'
 import { useRoute } from 'vue-router'
 const route = useRoute()
 const filters = reactive({ query: '', level: 'all', module: 'all', view: 'structured' })
@@ -94,7 +96,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
       <button class="icon-btn" aria-label="刷新日志" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
       <div class="search-field"><Icon name="Search" :size="16" /><input v-model="filters.query" aria-label="搜索日志" placeholder="搜索日志…" /></div>
     </div>
-    <div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" @scroll="scroll = $event.target.scrollTop">
+    <div class="log-list-shell"><div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" @wheel="listWheel" @scroll="scroll = $event.target.scrollTop">
       <div :style="{ height: `${totalHeight}px`, position: 'relative' }">
         <div :style="{ transform: `translateY(${offsetAt(start)}px)` }">
           <div v-for="(entry, index) in visible" :key="`${filters.view}:${start + index}`" :ref="el => setRow(el, start + index)" :data-index="start + index" :data-level="entry.level" class="log-entry" :class="{ raw: filters.view === 'raw' }">
@@ -104,7 +106,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
         </div>
       </div>
       <div v-if="!logs.length" class="small-empty">{{ busy ? '正在读取…' : '暂无匹配日志' }}</div>
-    </div>
+    </div><ScrollRail :element="viewport" /></div>
     <footer>{{ logs.length }} 条记录</footer>
   </section>
 </template>

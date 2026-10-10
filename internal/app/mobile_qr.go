@@ -240,5 +240,5 @@ func (a *App) mobileQRPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth := base64.StdEncoding.EncodeToString([]byte("pc:" + account + ":" + token))
-	jsonResponse(w, 200, map[string]string{"status": "success", "authorization": auth})
+	jsonResponse(w, 200, map[string]string{"status": "success", "authorization": auth, "userDomainId": mobileQRField(credentials, "userDomainId", "ud_id")})
 }

@@ -1,6 +1,6 @@
 <script setup>
 import {
-  ListOrdered, Repeat, Shuffle, SkipBack, SkipForward,
+  ListOrdered, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
   ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
   FilePenLine, FileJson, FileAudio2, FileVideo2, FileText,
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
@@ -18,7 +18,7 @@ import {
 import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 const icons = {
-  ListOrdered, Repeat, Shuffle, SkipBack, SkipForward,
+  ListOrdered, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
   ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
   FilePenLine, FileJson, FileAudio2, FileVideo2, FileText,
   EmbyNotice: EmbyNoticeIcon,

@@ -7,6 +7,7 @@ import { documentIcon } from '../file-icon'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
 import ImageViewer from '../components/ImageViewer.vue'
+import TextFileEditor from '../components/TextFileEditor.vue'
 import VideoViewer from '../components/VideoViewer.vue'
 import VideoThumbnail from '../components/VideoThumbnail.vue'
 import { openAudio } from '../audio-session'
@@ -110,6 +111,17 @@ const offlineSupported = computed(() => !!selected.value)
 const shareTransfer = ref(false)
 const shareSupported = computed(() => { const s=state.storages.find(s=>s.id===selected.value); return s && (['115','quark'].includes(s.type) || s.type==='mobile' && s.config?.mode==='native') })
 const preview = ref(null)
+const textEditor = ref(null)
+let textRequest = 0
+onUnmounted(() => { textRequest++ })
+watch([selected,current],()=>{textRequest++;textEditor.value=null})
+async function openText(file) {
+  const request = ++textRequest, storage = selected.value, parent = file.parent ?? current.value
+  const endpoint = '/files/text?' + new URLSearchParams({ storage, parent, id:file.id })
+  closeMenu()
+  try { const data = await api(endpoint); if (request === textRequest && storage === selected.value && state.authenticated) textEditor.value = { ...data, file, endpoint } }
+  catch (e) { if (request === textRequest) notify(e.message,true) }
+}
 const imageFile = f => !f.isDir && /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(f.name)
 const videoFile = f => !f.isDir && /\.(?:mp4|webm|m4v|mov|mkv|avi|ts)$/i.test(f.name)
 const audioFile = f => !f.isDir && /\.(?:mp3|m4a|m4b|aac|flac|wav|ogg|oga|opus|wma|aiff|aif|alac)$/i.test(f.name)
@@ -138,6 +150,7 @@ const previewImages = ref([])
 function openFile(event, file) {
   if (renameID.value) return
   if (file.isDir) return enter(file)
+  if (/\.(strm|nfo)$/i.test(file.name)) return openText(file)
   if (file.url && (imageFile(file) || videoFile(file) || audioFile(file))) {
     if (audioFile(file)) {
       const parent = file.parent ?? current.value
@@ -393,6 +406,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
     <button @click="showDetails"><Icon name="Info" />查看详情</button>
   </div></Teleport>
   <ImageViewer v-if="preview && imageFile(preview)" :images="previewImages" :initial="preview.id" @close="preview = null" />
+  <TextFileEditor v-if="textEditor" v-bind="textEditor" @close="textEditor = null; textRequest++" @saved="load(true)" />
   <VideoViewer v-else-if="preview && videoFile(preview)" :file="preview" @close="preview = null" />
   <Modal v-if="extracting" title="解压压缩包" compact @close="closeExtract"><form @submit.prevent="extract"><div class="modal-body extract-form"><p class="muted">{{ extracting.name }}</p><label>解压目录<input v-model="extractFolder" required maxlength="255" :disabled="extractBusy" /></label><label>解压密码<SecretInput v-model="extractPassword" aria-label="解压密码" autocomplete="off" :disabled="extractBusy" /></label><p v-if="extractError" class="error-message" role="alert">{{ extractError }}</p><p v-if="extractBusy" class="muted" role="status">正在解压并写入存储，请保持窗口打开…</p></div><footer class="modal-footer"><button class="btn primary" :disabled="extractBusy || !extractFolder.trim()"><Icon :name="extractBusy ? 'LoaderCircle' : 'ArchiveRestore'" :class="{ spin: extractBusy }" />{{ extractBusy ? '解压中…' : '确认解压' }}</button><button class="btn" type="button" :disabled="extractBusy" @click="closeExtract">取消</button></footer></form></Modal>
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
@@ -413,7 +427,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
   </template>
 </template>
 <style scoped>
-.file-visit-history { min-width:34px; width:34px; }.file-visit-history :deep(.rounded-select-trigger) { width:34px; padding:0; justify-content:center; border:1px solid var(--border); background:var(--input); border-radius:8px; }.file-visit-history :deep(.rounded-select-popup) { right:-10px; left:auto; width:280px; max-width:80vw; }.file-visit-history :deep(.select-label) { overflow:hidden; text-overflow:ellipsis; }
+.file-visit-history { min-width:34px; width:34px; }.file-visit-history :deep(.rounded-select-trigger) { width:34px; padding:0; justify-content:center; border:0; background:none; border-radius:6px; }.file-visit-history :deep(.rounded-select-trigger:hover) { background:var(--primary-soft); color:var(--primary); }.file-visit-history :deep(.rounded-select-trigger svg) { width:20px; height:20px; }.file-visit-history :deep(.rounded-select-popup) { right:-10px; left:auto; width:280px; max-width:80vw; }.file-visit-history :deep(.select-label) { overflow:hidden; text-overflow:ellipsis; }
 .file-search-status { margin:0 0 10px; color:var(--muted); font-size:12px; }
 .file-result-path { display:block; padding:0; margin:4px 0 0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:none; color:var(--muted); font-size:11px; text-align:left; }
 .file-result-path:hover { color:var(--primary); }

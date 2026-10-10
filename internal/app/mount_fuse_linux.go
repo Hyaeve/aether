@@ -254,6 +254,7 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 				handle.cacheKey = fmt.Sprintf("%s\x00%s\x00%s\x00%x\x00%d\x00%d", s.ID, source, rel, shareConfig(s), info.Size(), info.ModTime().UnixNano())
 				handle.cacheSize = info.Size()
 				handle.cacheConfig = shareConfig(s)
+				handle.cacheStorage = s.ID
 			}
 		}
 	}
@@ -467,18 +468,22 @@ func (n *nativeFuseNode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse
 }
 
 type nativeFuseHandle struct {
-	mu          sync.Mutex
-	node        *nativeFuseNode
-	file        webdav.File
-	staged      *cloudWriteFile
-	writable    bool
-	dirty       bool
-	offset      int64
-	positioned  bool
-	progress    *transferProgress
-	cacheKey    string
-	cacheSize   int64
-	cacheConfig [32]byte
+	mu           sync.Mutex
+	node         *nativeFuseNode
+	file         webdav.File
+	staged       *cloudWriteFile
+	writable     bool
+	dirty        bool
+	offset       int64
+	positioned   bool
+	progress     *transferProgress
+	cacheKey     string
+	cacheSize    int64
+	cacheConfig  [32]byte
+	cacheStorage string
+	hotKey       string
+	hotStart     int64
+	hotBlock     []byte
 }
 
 func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fuse.ReadResult, syscall.Errno) {
@@ -493,7 +498,7 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 	if h.file == nil {
 		return nil, syscall.EBADF
 	}
-	if !h.positioned || h.offset != off {
+	if h.cacheKey == "" && (!h.positioned || h.offset != off) {
 		if _, err := h.file.Seek(off, io.SeekStart); err != nil {
 			return nil, fuseErr(err)
 		}
@@ -501,7 +506,7 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 	var n int
 	var err error
 	if h.cacheKey != "" && h.cacheSize > 0 {
-		s, _, _, e := h.node.backend.selectPath(h.node.name())
+		s, e := h.node.backend.app.store.storage(h.cacheStorage)
 		if e != nil {
 			return nil, fuseErr(e)
 		}
@@ -509,6 +514,13 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 			return nil, syscall.ESTALE
 		}
 		read := func(buf []byte, position int64) (int, error) {
+			if s.Type == "115" {
+				if file, ok := h.file.(*davFile); ok {
+					n, err := h.node.backend.app.readMount115(ctx, s.ID, file, buf, position)
+					h.progress.add(n)
+					return n, err
+				}
+			}
 			if _, e := h.file.Seek(position, io.SeekStart); e != nil {
 				return 0, e
 			}
@@ -517,7 +529,31 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 			return n, err
 		}
 		key := fmt.Sprintf("%s:%d:%d", h.cacheKey, h.node.backend.app.cache.revision(), h.node.backend.app.fuseReadRevision.Load())
-		n, err = h.node.backend.app.fuseCache().readAt(ctx, key, h.cacheSize, data, off, read)
+		if off < 0 {
+			return nil, syscall.EINVAL
+		}
+		// Keep one verified block per handle: small kernel reads must not reread
+		// and hash an entire disk block, or touch the upstream stream on a hit.
+		for n < len(data) && off+int64(n) < h.cacheSize {
+			position := off + int64(n)
+			start := position / fuseBlockSize * fuseBlockSize
+			if h.hotKey != key || h.hotStart != start || len(h.hotBlock) == 0 {
+				if h.hotKey != "" && h.hotKey != key {
+					if file, ok := h.file.(*davFile); ok && file.body != nil {
+						file.body.Close()
+						file.body = nil
+					}
+				}
+				h.hotBlock = nil
+				h.hotBlock, err = h.node.backend.app.fuseCache().block(ctx, key, start, int(min(int64(fuseBlockSize), h.cacheSize-start)), read)
+				if err != nil {
+					h.hotBlock = nil
+					break
+				}
+				h.hotKey, h.hotStart = key, start
+			}
+			n += copy(data[n:], h.hotBlock[position-start:])
+		}
 		h.positioned = false
 	} else {
 		n, err = h.file.Read(data)
@@ -604,6 +640,7 @@ func (h *nativeFuseHandle) Release(_ context.Context) syscall.Errno {
 		h.progress.finish(err)
 	}
 	h.file = nil
+	h.hotBlock = nil
 	if h.node.writer == h {
 		h.node.writer = nil
 	}

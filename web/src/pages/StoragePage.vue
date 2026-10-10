@@ -74,9 +74,9 @@ const usages = ref({}), usageRevision = ref(0)
 watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.storages.map(s => [s.id, s.type, s.enabled, s.config])]), async (_, __, cleanup) => {
   const controller = new AbortController()
   cleanup(() => controller.abort())
-  usages.value = {}
-  if (!state.authenticated) return
+  if (!state.authenticated) { usages.value = {}; return }
   const pools = state.storages.filter(s => s.enabled && cloudTypes.includes(s.type))
+  usages.value = Object.fromEntries(pools.filter(s => s.usage).map(s => [s.id, s.usage]))
   let index = 0
   const loadUsage = async () => {
     while (index < pools.length && !controller.signal.aborted) {
@@ -85,12 +85,19 @@ watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.stor
         const response = await fetch(`/api/storages/${encodeURIComponent(pool.id)}/usage`, { credentials:'same-origin', signal:controller.signal })
         if (!response.ok) continue
         const value = await response.json()
-        if (!controller.signal.aborted) usages.value[pool.id] = value
+        if (!controller.signal.aborted) {
+          usages.value[pool.id] = value
+          const current=state.storages.find(s=>s.id===pool.id)
+          if (current) current.usage=value
+        }
       } catch { /* Optional quota lookup must not hide a storage card. */ }
     }
   }
   await Promise.all(Array.from({length:Math.min(3,pools.length)}, loadUsage))
 }, { immediate:true })
+watch(() => state.storages.map(s=>[s.id,s.usage]), () => {
+  usages.value = Object.fromEntries(state.storages.filter(s => s.usage && s.enabled && state.authenticated && cloudTypes.includes(s.type)).map(s => [s.id, s.usage]))
+}, {deep:true})
 const quotaPercent = id => Math.min(100, Math.max(0, (usages.value[id]?.used || 0) / usages.value[id].total * 100))
 const downloadOptions = computed(() => selected.value === 'quark' ? [{ value: 'proxy', label: '本机代理' }] : [{ value: 'redirect', label: '302 重定向' }, { value: 'proxy', label: '本机代理' }])
 function open(storage) {
@@ -161,6 +168,7 @@ async function requestAuthorization() {
         if (provider === 'mobile' && result.status === 'success') {
           if (typeof result.authorization !== 'string' || !result.authorization.trim()) throw new Error('授权未返回有效 Authorization')
           form.config.authorization = result.authorization
+          form.config.userDomainId = result.userDomainId || ''
           closeAuthorization(); notify('Authorization 已填入，请保存存储池'); return
         }
         if (provider === 'tianyi' && result.status === 'success') {
@@ -226,6 +234,7 @@ async function remove() {
           <div v-if="selected === '115'" class="field"><label>设备类型</label><RoundedSelect v-model="form.config.device" label="设备类型" :options="devices115" /></div>
           <div v-if="selected === 'tianyi'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'account'" @update:model-value="form.config.authMode = $event" label="天翼接入模式" :options="[{ value: 'account', label: '账号密码' }, { value: 'token', label: 'Token 令牌' }]" /></div>
           <label v-if="selected === 'mobile'" class="full">Authorization<SecretInput v-model="form.config.authorization" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="authorization" aria-label="Authorization" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
+          <label v-if="selected === 'mobile'" class="full">账号域 ID（可选）<input v-model.trim="form.config.userDomainId" aria-label="账号域 ID" autocomplete="off" maxlength="128" /></label>
           <template v-if="selected === '115'">
             <label class="full storage-cookie">CK <span class="required">*</span><SecretInput v-model="form.config.cookie" aria-label="CK" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" /></label>
           </template>

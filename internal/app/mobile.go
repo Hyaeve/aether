@@ -106,9 +106,13 @@ func (a *App) mobilePost(ctx context.Context, s Storage, address string, payload
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
+		if response.StatusCode == 401 || response.StatusCode == 403 {
+			return authStorageError(errors.New("移动Authorization失效或访问被拒绝"), false)
+		}
 		return fmt.Errorf("移动云盘 HTTP %d，请检查授权或网络", response.StatusCode)
 	}
 	var result struct {
+		Code    json.RawMessage `json:"code"`
 		Success bool            `json:"success"`
 		Data    json.RawMessage `json:"data"`
 	}
@@ -116,6 +120,10 @@ func (a *App) mobilePost(ctx context.Context, s Storage, address string, payload
 		return errors.New("移动云盘响应格式异常")
 	}
 	if !result.Success {
+		code := mobileQRString(result.Code)
+		if code == "401" || code == "403" || code == "10010001" {
+			return authStorageError(errors.New("移动Authorization已失效，请重新扫码"), true)
+		}
 		return errors.New("移动云盘拒绝请求，请检查授权有效期、账号权益或目录权限")
 	}
 	if out == nil {
