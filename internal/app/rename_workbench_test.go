@@ -95,7 +95,7 @@ func TestDirectorySizeCachedAndInvalidated(t *testing.T) {
 	list := func() File {
 		t.Helper()
 		var files []File
-		result := request(t, h, "GET", "/api/files?storage="+s.ID+"&path=/&refresh=true", nil, cookie)
+		result := request(t, h, "GET", "/api/files?storage="+s.ID+"&path=/", nil, cookie)
 		if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &files) != nil {
 			t.Fatal(result.Body.String())
 		}
@@ -124,6 +124,19 @@ func TestDirectorySizeCachedAndInvalidated(t *testing.T) {
 	a.cache.restore(a.dataDir, a.store.snapshot().Settings)
 	if f := list(); !f.SizeKnown {
 		t.Fatal("size not restored")
+	}
+	if result := request(t, h, "GET", "/api/files?storage="+s.ID+"&path=/&refresh=true", nil, cookie); result.Code != 200 {
+		t.Fatal(result.Body.String())
+	}
+	if f := list(); f.SizeKnown || f.CountsKnown {
+		t.Fatal("refresh retained computed directory size", f)
+	}
+	result = request(t, h, "POST", "/api/files/directory-size", map[string]string{"storageId": s.ID, "parent": "/", "id": "/folder"}, cookie)
+	if result.Code != 200 {
+		t.Fatal(result.Body.String())
+	}
+	if f := list(); !f.SizeKnown || f.Size != 8 {
+		t.Fatal("details did not recalculate size", f)
 	}
 	a.cache.clear()
 	if f := list(); f.SizeKnown {

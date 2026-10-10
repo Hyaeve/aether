@@ -23,6 +23,7 @@ func TestRuntimeMigrationAndConfigIsolation(t *testing.T) {
 		st.BackupRules = []BackupRule{{ID: "backup", Name: "Backup", Status: "running", MinSize: 9007199254740993, Copied: 12}}
 		st.Storages = []Storage{{ID: "pool", Name: "Pool", Status: "error", LastError: "private-error", Config: map[string]string{"cookie": "secret-ck"}}}
 		st.LibraryNotices = []LibraryNotice{{ID: "notice", Name: "private-notice"}}
+		st.Automations = []Automation{{ID: "rule", Name: "Rule", LastResult: "success"}}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -35,7 +36,7 @@ func TestRuntimeMigrationAndConfigIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, text := range []string{"private-result", "private-error", "private-notice", `"processed"`, `"lastRun"`, `"lastError"`, `"copied"`} {
+		for _, text := range []string{"private-result", "private-error", "private-notice", `"processed"`, `"lastRun"`, `"lastError"`, `"copied"`, `"lastResult"`} {
 			if bytes.Contains(raw, []byte(text)) {
 				t.Fatal("runtime field in configuration", module, text)
 			}
@@ -60,6 +61,9 @@ func TestRuntimeMigrationAndConfigIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := reopened.snapshot()
+	if len(state.Automations) != 1 || state.Automations[0].LastResult != "success" {
+		t.Fatal("automation result not restored", state.Automations)
+	}
 	if state.Tasks[0].Processed != 57 || state.Tasks[0].Message != "new-result" || !state.Tasks[0].LastRun.Equal(stamp) || state.Storages[0].Config["cookie"] != "secret-ck" || state.LibraryNotices[0].ID != "notice" || state.BackupRules[0].Status != "interrupted" || state.BackupRules[0].MinSize != 9007199254740993 {
 		t.Fatal("runtime migration lost values", state)
 	}

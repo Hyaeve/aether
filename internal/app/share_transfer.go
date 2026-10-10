@@ -28,6 +28,8 @@ type shareEntry struct {
 type sharePreview struct {
 	SourceParent string
 	Skipped      int
+	Submitted    int
+	Failed       bool
 	Owner        [32]byte
 	Config       [32]byte
 	Storage      string
@@ -490,10 +492,15 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 				if p.TaskID == task {
 					p.TaskID = ""
 				}
+				finished := *p
 				a.shareMu.Unlock()
+				a.recordShareNotice(in.Preview, s, finished)
 			}
 			if result.Data.Status == 3 {
 				status, message = "failed", "网盘转存失败，请检查账号权限、容量及分享有效性"
+				a.shareMu.Lock()
+				p.Failed = true
+				a.shareMu.Unlock()
 			}
 			jsonResponse(w, 200, map[string]string{"status": status, "message": message, "taskId": task})
 			return
@@ -586,7 +593,12 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	a.shareMu.Lock()
 	p.TaskID = taskID
+	p.Submitted = len(chosen)
+	p.Skipped = len(in.IDs) - len(chosen)
+	p.Parent = in.Parent
+	finished := *p
 	a.shareMu.Unlock()
+	a.recordShareNotice(in.Preview, s, finished)
 	a.store.event("info", "files", fmt.Sprintf("%s 分享转存已提交，共 %d 项", s.Name, len(chosen)))
 	jsonResponse(w, 200, map[string]string{"status": "submitted", "taskId": taskID, "message": "转存已提交，请刷新目标目录确认结果"})
 }

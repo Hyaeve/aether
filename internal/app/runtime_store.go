@@ -11,7 +11,7 @@ import (
 
 var runtimeFields = map[string][]string{
 	"tasks":       {"status", "message", "processed", "lastRun", "nextRun"},
-	"automations": {"status", "message", "lastRun", "nextRun"},
+	"automations": {"status", "message", "lastRun", "nextRun", "lastResult"},
 	"backupRules": {"status", "message", "scanned", "copied", "skipped", "deleted", "phase", "total", "processed", "lastRun", "nextRun"},
 	"storages":    {"status", "lastError", "health", "usage"},
 	"mounts":      {"status", "lastError"},
@@ -41,7 +41,7 @@ func stripRuntimeConfig(values map[string]any) {
 	raw, _ := json.Marshal(values["state"])
 	tree, _ := configTree(raw)
 	root := tree.(map[string]any)
-	for _, field := range []string{"logs", "libraryNotices", "casTemporary"} {
+	for _, field := range []string{"logs", "libraryNotices", "shareNotices", "casTemporary"} {
 		delete(root, field)
 	}
 	values["state"] = root
@@ -65,7 +65,7 @@ func (s *Store) runtimeValues() map[string]any {
 		}
 		result[kind] = records
 	}
-	for _, field := range []string{"libraryNotices", "casTemporary"} {
+	for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary"} {
 		result[field] = state[field]
 	}
 	return result
@@ -131,7 +131,7 @@ func (s *Store) initRuntime(dir string) error {
 				}
 			}
 		}
-		for _, field := range []string{"libraryNotices", "casTemporary"} {
+		for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary"} {
 			state[field] = runtime[field]
 		}
 		merged, _ := json.Marshal(state)

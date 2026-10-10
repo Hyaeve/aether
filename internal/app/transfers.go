@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,14 +20,16 @@ import (
 type transferSourceKey struct{}
 type transferOwnedKey struct{}
 type transferEntry struct {
-	ID      string    `json:"id"`
-	Kind    string    `json:"kind"`
-	Source  string    `json:"source"`
-	Storage string    `json:"storage"`
-	Name    string    `json:"name"`
-	Status  string    `json:"status"`
-	Done    int64     `json:"done"`
-	Total   int64     `json:"total"`
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Source  string `json:"source"`
+	Storage string `json:"storage"`
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Done    int64  `json:"done"`
+	Total   int64  `json:"total"`
+	Speed   int64  `json:"speed"`
+	rate    *trafficMeter
 	Started time.Time `json:"started"`
 	Updated time.Time `json:"updated"`
 	Message string    `json:"message,omitempty"`
@@ -95,6 +98,7 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 	}
 	now := time.Now()
 	entry := transferEntry{ID: id(), Kind: kind, Source: source, Storage: s.Name, Name: name, Status: "running", Total: total, Started: now, Updated: now}
+	entry.rate = &trafficMeter{}
 	l := &a.transfers
 	l.mu.Lock()
 	if l.items == nil {
@@ -206,8 +210,22 @@ func (p *transferProgress) add(n int) {
 		return
 	}
 	entry.Done += int64(n)
+	if entry.rate != nil {
+		entry.rate.add("upload", n, time.Now())
+	}
 	entry.Updated = time.Now()
 	p.log.items[p.id] = entry
+}
+func (p *transferProgress) setTotal(total int64) {
+	if p == nil || p.log == nil || total < 0 {
+		return
+	}
+	p.log.mu.Lock()
+	defer p.log.mu.Unlock()
+	if entry, ok := p.log.items[p.id]; ok {
+		entry.Total = total
+		p.log.items[p.id] = entry
+	}
 }
 func (p *transferProgress) finish(err error) {
 	if p == nil || p.log == nil {
@@ -221,6 +239,9 @@ func (p *transferProgress) finish(err error) {
 			return
 		}
 		entry.Status = "completed"
+		if err == nil && entry.Total <= 0 {
+			entry.Total = entry.Done
+		}
 		entry.Updated = time.Now()
 		if err != nil {
 			entry.Status = "failed"
@@ -239,7 +260,7 @@ func (a *App) transferList(w http.ResponseWriter, r *http.Request) {
 	changed := false
 	items := make([]transferEntry, 0, len(a.transfers.items))
 	for _, item := range a.transfers.items {
-		if item.Status == "completed" || (item.Status == "failed" && time.Since(item.Updated) > 72*time.Hour) {
+		if (item.Status == "completed" && time.Since(item.Updated) >= time.Minute) || (item.Status == "failed" && time.Since(item.Updated) > 72*time.Hour) {
 			delete(a.transfers.items, item.ID)
 			changed = true
 			continue
@@ -248,6 +269,10 @@ func (a *App) transferList(w http.ResponseWriter, r *http.Request) {
 			delete(a.transfers.items, item.ID)
 			changed = true
 			continue
+		}
+		item.Speed = 0
+		if item.Status == "running" && item.rate != nil {
+			item.Speed = item.rate.rates(time.Now())["uploadRate"]
 		}
 		items = append(items, item)
 	}
@@ -280,12 +305,22 @@ type transferResponse struct {
 func (w *transferResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func (w *transferResponse) WriteHeader(status int) {
 	w.status = status
+	if status >= 200 && status < 300 {
+		if total, err := strconv.ParseInt(w.Header().Get("Content-Length"), 10, 64); err == nil {
+			w.progress.setTotal(total)
+		}
+	}
 	if status >= 400 {
 		w.failure = errors.New("download failed")
 	}
 	w.ResponseWriter.WriteHeader(status)
 }
 func (w *transferResponse) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		if total, err := strconv.ParseInt(w.Header().Get("Content-Length"), 10, 64); err == nil {
+			w.progress.setTotal(total)
+		}
+	}
 	if err := w.progress.wait(); err != nil {
 		w.failure = err
 		return 0, err
@@ -384,5 +419,12 @@ func (a *App) trackedFile(ctx context.Context, s Storage, name string, file webd
 	if write {
 		kind = "upload"
 	}
-	return &transferFile{File: file, write: write, progress: a.beginTransfer(ctx, kind, s, name, info.Size())}
+	total := info.Size()
+	if write {
+		total = 0
+		if expected, ok := ctx.Value(mountPutLength{}).(int64); ok && expected >= 0 {
+			total = expected
+		}
+	}
+	return &transferFile{File: file, write: write, progress: a.beginTransfer(ctx, kind, s, name, total)}
 }

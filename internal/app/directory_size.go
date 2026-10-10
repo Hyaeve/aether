@@ -21,6 +21,7 @@ func (a *App) directorySize(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
+	generation := a.cache.revision()
 	files, err := a.listFiles(ctx, s, input.Parent, 0, false)
 	if err != nil {
 		fail(w, 400, err)
@@ -103,6 +104,6 @@ func (a *App) directorySize(w http.ResponseWriter, r *http.Request) {
 	if ttl <= 0 {
 		ttl = cfg.CacheTTL
 	}
-	a.cache.put(directorySizeKey(s.ID, found.ID), []File{*found}, ttl, cfg)
+	a.cache.putGeneration(directorySizeKey(s.ID, found.ID), []File{*found}, ttl, cfg, &generation)
 	jsonResponse(w, 200, found)
 }

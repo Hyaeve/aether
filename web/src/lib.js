@@ -2,13 +2,14 @@ import { reactive, watch } from 'vue'
 
 export const state = reactive({
   loaded: false, initialized: false, authenticated: false, storages: [], tasks: [],
-  settings: {}, logs: [], links: [], libraryNotices: [], cache: {}, traffic: {}, username: '', strmRoot: '', uptime: 0
+  settings: {}, logs: [], links: [], libraryNotices: [], shareNotices: [], cache: {}, traffic: {}, username: '', strmRoot: '', uptime: 0
 })
 let linksRequest, linksGeneration = 0
 watch(() => state.authenticated, authenticated => {
   linksGeneration++
   linksRequest = null
   state.links = []
+  state.shareNotices = []
 }, { flush: 'sync' })
 // Memory-only, redacted cards survive route changes, never logout or another session.
 export function loadLinks() {
@@ -42,7 +43,8 @@ export async function api(url, method = 'GET', body) {
 }
 export async function reload() {
   if (!state.authenticated) return
-  Object.assign(state, await api('/state'))
+  const data = await api('/state')
+  Object.assign(state, { shareNotices: [] }, data)
 }
 export const drivers = [
   { id: '115', name: '115 网盘', subtitle: '115driver', icon: '115', color: '#2389dc', kind: '云端存储', auth: 'CK', root: '0', tags: ['Cookie', '直连接入'] },

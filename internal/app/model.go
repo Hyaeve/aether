@@ -120,6 +120,7 @@ type State struct {
 	Simulcast        map[string]SimulcastConfig `json:"simulcast,omitempty"`
 	Plugins          map[string]PluginConfig    `json:"plugins,omitempty"`
 	LibraryNotices   []LibraryNotice            `json:"libraryNotices,omitempty"`
+	ShareNotices     []ShareNotice              `json:"shareNotices,omitempty"`
 	QuarkTV          map[string]QuarkTVBinding  `json:"quarkTV,omitempty"`
 	QuarkTVEnabled   *bool                      `json:"quarkTVEnabled,omitempty"`
 	Mounts           []MountConfig              `json:"mounts,omitempty"`

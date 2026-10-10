@@ -28,6 +28,10 @@ export async function transferShares(storage, parent, links, history = []) {
         update({ progress: (i + (batch + 1) / plan.batches) / links.length })
       }
       window.dispatchEvent(new CustomEvent('aether-files-changed', { detail: { storageId: storage.id } }))
+      session()
+      const resultState = await api('/state').catch(() => null)
+      session()
+      if (resultState) state.shareNotices = resultState.shareNotices || []
     }
     session()
     update({ progress: 1, message: `${storage.name}：${storage.type === 'quark' ? '转存已完成' : '全部批次已提交，请检查网盘结果'}` })

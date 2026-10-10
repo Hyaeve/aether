@@ -1329,7 +1329,10 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .notification-dropdown, .account-dropdown { position: absolute; top: calc(100% + 1px + var(--topbar-menu-gap)); right: 6px; }
 @media (max-width: 760px) { .notification-dropdown, .account-dropdown { right: 16px; } }
 
-.traffic-stat svg { transform:scaleX(.78); }
+.traffic-stat { border:0; background:none; padding:3px; border-radius:4px; cursor:pointer; }.traffic-stat:hover { background:var(--primary-soft); }.traffic-stat svg { transform:scaleX(.86); stroke-width:2.1; stroke-linecap:round; stroke-linejoin:round; }
+.page-content:has(> .transfer-content:not(.backup-content)),.page-content:has(> .task-empty) { min-height:calc(100dvh - 48px); display:flex; flex-direction:column; padding-bottom:0; }
+.page-scroll:has(.transfer-content:not(.backup-content)) > .thin-scroll-rail { display:none; }
+.task-empty { flex:1; min-height:260px; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .log-entry time { color:#6485aa; font-variant-numeric:tabular-nums; }
 [data-theme="dark"] .log-entry time { color:#9db8d8; }
 .log-entry.raw .raw-time { display:inline; width:auto; margin:0; }

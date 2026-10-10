@@ -26,6 +26,7 @@ type Automation struct {
 	Status     string           `json:"status"`
 	Message    string           `json:"message"`
 	LastRun    time.Time        `json:"lastRun"`
+	LastResult string           `json:"lastResult"`
 	NextRun    time.Time        `json:"nextRun"`
 }
 
@@ -163,6 +164,7 @@ func (a *App) automationAPI(w http.ResponseWriter, r *http.Request) {
 			in.Status = "idle"
 			in.Message = ""
 			in.LastRun = time.Time{}
+			in.LastResult = ""
 			in.NextRun = automationNext(in, time.Now())
 			s.Automations = append(s.Automations, in)
 			return nil
@@ -178,6 +180,7 @@ func (a *App) automationAPI(w http.ResponseWriter, r *http.Request) {
 				in.Status = old.Status
 				in.Message = old.Message
 				in.LastRun = old.LastRun
+				in.LastResult = old.LastResult
 				in.NextRun = automationNext(in, time.Now())
 				s.Automations[i] = in
 			}
@@ -288,7 +291,7 @@ func (a *App) startAutomation(id string) error {
 			status = "cancelled"
 			message = "联动已停止"
 		}
-		if err := a.automationUpdate(id, func(r *Automation) { r.Status = status; r.Message = message }); err != nil {
+		if err := a.automationUpdate(id, func(r *Automation) { r.Status = status; r.Message = message; r.LastResult = status }); err != nil {
 			a.logger.Printf("persist automation: %v", err)
 		}
 		a.store.event(status, "tasks", rule.Name+"："+message)

@@ -561,7 +561,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "links": redactedMediaLinks(st.Links), "libraryNotices": st.LibraryNotices, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
+	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "links": redactedMediaLinks(st.Links), "libraryNotices": st.LibraryNotices, "shareNotices": st.ShareNotices, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
 		"cache": a.cache.stats(), "traffic": map[string]any{"uploaded": a.uploaded.Load(), "downloaded": a.downloaded.Load()}, "uptime": int(time.Since(a.started).Seconds()), "strmRoot": a.outputDir})
 }
 
@@ -901,6 +901,15 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []fileLink{}
 	cacheEnabled := a.store.snapshotWithLogLimit(0).Settings.CacheEnabled
+	if r.URL.Query().Get("refresh") == "true" {
+		keys := []string{}
+		for _, f := range files {
+			if f.IsDir {
+				keys = append(keys, directorySizeKey(s.ID, f.ID))
+			}
+		}
+		a.cache.forgetKeys(keys)
+	}
 	for _, f := range files {
 		if f.IsDir && cacheEnabled {
 			if cached, ok := a.cache.get(directorySizeKey(s.ID, f.ID)); ok && len(cached) == 1 {

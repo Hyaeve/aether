@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, state, reload, notify, notices, bytes } from './lib'
 import Icon from './components/Icon.vue'
 import ThinScroll from './components/ThinScroll.vue'
+import { modulePath, rememberedRoute, writeSession } from './session-navigation'
 import AudioPlayer from './components/AudioPlayer.vue'
 import { audioSession, closeAudio } from './audio-session'
 import { embyNoticeDisplay, noticeTime } from './library-notices'
@@ -69,6 +70,7 @@ const dismissedKeys = ref([])
 const taskNotices = computed(() => recentNotices([
   ...state.tasks.filter(t => ['success', 'error', 'cancelled', 'interrupted'].includes(t.status) && t.lastRun && !t.lastRun.startsWith('0001')).map(t => ({ ...t, message: noticeResult(t), provider: state.storages.find(s => s.id === t.storageId)?.type, taskIcon: ({cache:'Database',strm:'FileVideo',cas:'Layers3',ed2k:'Link',organize:'FolderTree'})[t.kind] || 'ListTodo', key: `${t.id}:${t.lastRun}:${t.status}` })),
   ...(state.libraryNotices || []).map(n => ({ id: n.id, key: `emby:${n.id}:${n.time}`, ...embyNoticeDisplay(n), lastRun: n.time, status: 'success', kind: 'emby', logQuery: `[${n.id}]`, legacyQuery: n.series || n.taskName || n.name })),
+  ...(state.shareNotices || []).map(n => ({ ...n, key: `share:${n.id}`, lastRun: n.time, status: 'success', kind: 'share', taskIcon: 'FolderInput', logQuery: `[${n.id}]` })),
   ...replacementJobs.value.map(n => ({ key: `replace:${n.id}:${n.status}`, id: n.id, name: 'STRM 替换', lastRun: n.updatedAt || n.time, status: n.status === 'completed' ? 'success' : n.status === 'failed' ? 'error' : 'running', kind: 'replace', message: `${n.status === 'running' ? '进行中' : n.status === 'completed' ? '已完成' : '失败'} · 已替换 ${n.changed} 个文件${n.error ? ` · ${n.error}` : ''}` }))
 ].filter(n => !dismissedKeys.value.includes(n.key))))
 const readKeys = ref([])
@@ -87,7 +89,7 @@ function markRead() {
 }
 function openNotifications() { notificationMenu.value = !notificationMenu.value; accountMenu.value = false; if (notificationMenu.value) markRead() }
 function openNotice(t) {
-  router.push({ path: '/logs', query: { module: t.kind === 'emby' ? 'links' : t.kind === 'replace' ? 'files' : 'tasks', notice: t.id, q: t.logQuery || t.name, fallback: t.legacyQuery || t.name, time: t.lastRun } })
+  router.push({ path: '/logs', query: { module: t.kind === 'emby' ? 'links' : ['replace', 'share'].includes(t.kind) ? 'files' : 'tasks', notice: t.id, q: t.logQuery || t.name, fallback: t.legacyQuery || t.name, time: t.lastRun } })
   closeMenus()
 }
 watch(taskNotices, () => { if (notificationMenu.value) markRead() })
@@ -120,7 +122,8 @@ async function logout() {
 }
 function closeMenus() { accountMenu.value = false; notificationMenu.value = false }
 function escapeMenus(event) { if (event.key === 'Escape') closeMenus() }
-watch(() => route.fullPath, () => { mobileNav.value = false; closeMenus() })
+watch(() => route.fullPath, () => { mobileNav.value = false; closeMenus(); if (state.authenticated) writeSession(state.username, `route:${modulePath(currentPath.value)}`, currentPath.value) }, { immediate: true })
+watch(() => [state.authenticated, state.username], () => { if (state.authenticated) writeSession(state.username, `route:${modulePath(currentPath.value)}`, currentPath.value) })
 onMounted(() => {
   bootstrap(); media.addEventListener('change', applyTheme)
   trafficTimer = setInterval(refreshTraffic, 1000)
@@ -137,15 +140,15 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
     <aside class="sidebar" :class="{ open: mobileNav }">
       <div class="brand"><img src="/aether.svg" alt="" /><span>Aether<small>云端本地 · 以太空间</small></span></div>
-      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path, 'nav-bottom': item.path === '/logs' }" @click="router.push(item.path)"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
+      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path, 'nav-bottom': item.path === '/logs' }" @click="router.push(rememberedRoute(state.username, item.path))"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
     </aside>
     <div class="main-shell">
       <header class="topbar">
         <button class="icon-btn mobile-menu" aria-label="打开导航" @click="mobileNav = !mobileNav"><Icon name="Menu" /></button>
         <div class="breadcrumbs"><span>Aether</span><Icon name="ChevronRight" :size="16" /><strong>{{ title }}</strong></div>
         <div class="topbar-actions">
-          <div class="traffic-stat upload" aria-label="上传速率"><Icon name="ArrowUp" /><b>{{ rateText(trafficRates?.uploadRate) }}</b></div>
-          <div class="traffic-stat download" aria-label="下载速率"><Icon name="ArrowDown" /><b>{{ rateText(trafficRates?.downloadRate) }}</b></div>
+          <button class="traffic-stat upload" aria-label="上传速率" @click="router.push('/transfer?mode=upload')"><Icon name="ArrowUp" /><b>{{ rateText(trafficRates?.uploadRate) }}</b></button>
+          <button class="traffic-stat download" aria-label="下载速率" @click="router.push('/transfer?mode=download')"><Icon name="ArrowDown" /><b>{{ rateText(trafficRates?.downloadRate) }}</b></button>
           <button class="icon-btn theme-toggle" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
           <div class="notification-control" @click.stop>
             <button class="icon-btn notification-button" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>

@@ -6,6 +6,7 @@ import Icon from '../components/Icon.vue'
 import { documentIcon } from '../file-icon'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
+import FileDetailsDrawer from '../components/FileDetailsDrawer.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 import TextFileEditor from '../components/TextFileEditor.vue'
 import VideoViewer from '../components/VideoViewer.vue'
@@ -21,6 +22,8 @@ import OfflineDownload from '../components/OfflineDownload.vue'
 import ShareTransfer from '../components/ShareTransfer.vue'
 import { useVirtualList } from '../virtual-list'
 import { rememberVisit, validVisits } from '../visit-history'
+import ProviderIcon from '../components/ProviderIcon.vue'
+import { readSession, writeSession } from '../session-navigation'
 const preferenceKey = `aether-files:${state.username}`
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch {}
@@ -33,13 +36,15 @@ watch(mode, value => {
   try { localStorage.setItem(viewPreferenceKey, value) } catch { /* Storage may be disabled by the browser. */ }
 }, { flush: 'sync' })
 const route = useRoute()
-const selected = ref([route.query.storage, saved.storage].find(id => state.storages.some(s => s.enabled && s.id === id)) || state.storages.find(s => s.enabled)?.id || '')
-const current = ref('/'), history = ref([]), files = ref([]), busy = ref(false), error = ref(''), query = ref('')
+const sessionLocation = route.query.storage ? null : readSession(state.username, 'directory')
+const selected = ref([route.query.storage, sessionLocation?.storage, saved.storage].find(id => state.storages.some(s => s.enabled && s.id === id)) || state.storages.find(s => s.enabled)?.id || '')
+const restoredLocation = sessionLocation?.storage === selected.value && typeof sessionLocation.id === 'string' && Array.isArray(sessionLocation.history) && sessionLocation.history.every(h => typeof h.id === 'string' && typeof h.name === 'string') ? sessionLocation : null
+const current = ref(restoredLocation?.id || '/'), history = ref(restoredLocation?.history || []), files = ref([]), busy = ref(false), error = ref(''), query = ref('')
 const visitKey = `aether-file-history:${state.username}`
 let previousVisits = []
 try { previousVisits = validVisits(JSON.parse(localStorage.getItem(visitKey) || '[]')) } catch {}
 const visits = ref(previousVisits), visitChoice = ref('')
-const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => ({ value: String(v.index), icon: 'Folder', label: `${state.storages.find(s => s.id === v.storage)?.name} / ${v.history.at(-1)?.name || '根目录'}` })))
+const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => { const pool = state.storages.find(s => s.id === v.storage); return { value: String(v.index), provider: pool.type, pool: pool.name, parent: v.history.slice(0,-1).map(h => h.name).join('/'), deepest: v.history.at(-1)?.name || '根目录', label: `${pool.name} / ${v.history.at(-1)?.name || '根目录'}` } }))
 async function visitJump(value) {
   const item = visits.value[Number(value)]
   if (!item || renameID.value || uploadBusy.value) return
@@ -170,11 +175,11 @@ function clearSelection(event) {
 }
 async function showDetails() {
   details.value = true; closeMenu(); detailError.value = ''; detailBusy.value = true
-  const storage = selected.value, parent = current.value, chosen = [...detailFiles.value]
+  const storage = selected.value, parent = current.value, listing = requestId, chosen = [...detailFiles.value]
   try {
     for (const f of chosen.filter(f => f.isDir && (!f.sizeKnown || !f.countsKnown))) {
       const result = await api('/files/directory-size', 'POST', { storageId: storage, parent, id: f.id })
-      if (storage === selected.value && parent === current.value) Object.assign(f, result)
+      if (storage === selected.value && parent === current.value && listing === requestId) Object.assign(f, result)
     }
   } catch (e) { detailError.value = e.message }
   finally { detailBusy.value = false }
@@ -312,7 +317,7 @@ function keys(e) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && selection.value.length && !document.querySelector('.modal') && !e.target.isContentEditable && !['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
     e.preventDefault(); selection.value = visible.value.map(f => f.id)
   }
-  if (e.key === 'Escape') { closeMenu(); createMenu.value = false; if (!confirmRename.value) cancelEdit() }
+  if (e.key === 'Escape') { details.value = false; closeMenu(); createMenu.value = false; if (!confirmRename.value) cancelEdit() }
   if (e.key === 'F2' && !document.querySelector('.modal') && !['INPUT','TEXTAREA'].includes(e.target.tagName)) { e.preventDefault(); if (searchResults.value && detailFiles.value.length === 1) { const f = detailFiles.value[0]; locate(f).then(found => { if (found) { selection.value = [found.id]; rename() } }) } else rename() }
 }
 onMounted(() => { document.addEventListener('click', clearSelection); document.addEventListener('click', closeMenu); document.addEventListener('pointerdown', outsideEdit); document.addEventListener('click', outsideCreate); document.addEventListener('keydown', keys) })
@@ -352,6 +357,7 @@ async function load(refresh = false) {
     const result = await api(`/files?storage=${encodeURIComponent(selected.value)}&path=${encodeURIComponent(current.value)}&refresh=${refresh}`)
     if (id === requestId) {
       files.value = result
+      writeSession(state.username, 'directory', { storage: selected.value, id: current.value, history: history.value })
       let persisted = visits.value
       try { persisted = validVisits(JSON.parse(localStorage.getItem(visitKey) || '[]')) } catch {}
       visits.value = rememberVisit(persisted, { storage: selected.value, id: current.value, history: history.value })
@@ -361,13 +367,14 @@ async function load(refresh = false) {
   finally { if (id === requestId) busy.value = false }
 }
 function enter(f) { if (renameID.value || uploadBusy.value) return; if (f.isDir) { const trail = searchResults.value ? [...f.trail, { id: f.parent, name: f.name }] : [...history.value, { id: current.value, name: f.name }]; clearDeepSearch(); query.value = ''; searchInput.value = ''; selection.value = []; history.value = trail; current.value = f.id; resetScroll(); load() } }
-watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value = ''; current.value = '/'; history.value = []; selection.value = []; cancelEdit(); resetScroll(); load() }, { immediate: true })
+watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value = ''; current.value = '/'; history.value = []; selection.value = []; cancelEdit(); resetScroll(); load() })
+load()
 </script>
 <template>
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
-    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump" />
+    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" /><strong>{{ option.pool }}</strong><span class="visit-path"><template v-if="option.parent"><span>/</span><span class="visit-parent">{{ option.parent }}</span></template><span class="visit-deepest">/ {{ option.deepest }}</span></span></span></template></RoundedSelect>
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
@@ -412,7 +419,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
   <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body">将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</div><footer class="modal-footer"><button class="btn" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })">确认修改</button></footer></Modal>
-  <Modal v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-if="detailFiles.length > 1"><dt>大小</dt><dd>{{ detailBusy ? '正在统计…' : !detailSummary.complete ? '统计未完成 · ' : '' }}{{ bytes(detailSummary.size) }}</dd><dt>包含</dt><dd>{{ detailSummary.folders }} 个文件夹，{{ detailSummary.files }} 个文件</dd><dt>所在目录</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation()">{{ detailLocation() }}<Icon name="Copy" :size="14" /></button></dd></dl><dl v-for="f in detailFiles.length === 1 ? detailFiles : []" :key="f.id">
+  <FileDetailsDrawer v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-if="detailFiles.length > 1"><dt>大小</dt><dd>{{ detailBusy ? '正在统计…' : !detailSummary.complete ? '统计未完成 · ' : '' }}{{ bytes(detailSummary.size) }}</dd><dt>包含</dt><dd>{{ detailSummary.folders }} 个文件夹，{{ detailSummary.files }} 个文件</dd><dt>所在目录</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation()">{{ detailLocation() }}<Icon name="Copy" :size="14" /></button></dd></dl><dl v-for="f in detailFiles.length === 1 ? detailFiles : []" :key="f.id">
     <dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd>
     <dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd>
     <template v-if="f.isDir"><dt>包含</dt><dd>{{ f.countsKnown ? `${f.folderCount || 0} 个文件夹，${f.fileCount || 0} 个文件` : detailBusy ? '正在统计…' : '未完成统计' }}</dd></template>
@@ -420,13 +427,16 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
     <dt>修改时间</dt><dd>{{ !f.modified || f.modified.startsWith('0001') ? '未提供' : new Date(f.modified).toLocaleString('zh-CN') }}</dd>
     <template v-if="detailCID"><dt>CID</dt><dd><button class="text-btn" aria-label="复制 CID" @click="copyCID">{{ detailCID }}<Icon name="Copy" :size="14" /></button></dd></template>
     <dt>位置</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation(f)">{{ detailLocation(f) }}<Icon name="Copy" :size="14" /></button></dd>
-    <template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></Modal>
+    <template v-if="f.sha256"><dt>SHA256</dt><dd>{{ f.sha256 }}</dd></template><template v-if="f.md5"><dt>MD5</dt><dd>{{ f.md5 }}</dd></template></dl></div></FileDetailsDrawer>
   <Modal v-if="folderDownload" title="下载文件夹" confirmation @close="folderDownload = null"><div class="modal-body">确认将「{{ folderDownload.name }}」打包为 ZIP 下载？打包将通过以太传输，目录较大时需要较长时间。</div><footer class="modal-footer"><button class="btn primary" @click="confirmFolderDownload">确认下载</button><button class="btn" @click="folderDownload = null">取消</button></footer></Modal>
   <OfflineDownload v-if="offline" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="offline = false" />
   <ShareTransfer v-if="shareTransfer" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="shareTransfer = false" />
   </template>
 </template>
 <style scoped>
+.file-browser { position:relative; }
+.file-visit-history :deep(.rounded-select-popup) { width:390px !important; }
+.visit-entry { display:flex; align-items:center; gap:8px; width:100%; min-width:0; font-size:13px; }.visit-entry :deep(.provider-icon) { width:24px; height:24px; flex:none; border:0; background:none; border-radius:0; }.visit-entry strong { color:var(--text); max-width:120px; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }.visit-path { display:flex; min-width:0; color:var(--muted); gap:4px; }.visit-parent { min-width:0; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left; }.visit-deepest { flex-shrink:0; max-width:190px; overflow:hidden; text-overflow:ellipsis; }
 .file-visit-history { min-width:34px; width:34px; }.file-visit-history :deep(.rounded-select-trigger) { width:34px; padding:0; justify-content:center; border:0; background:none; border-radius:6px; }.file-visit-history :deep(.rounded-select-trigger:hover) { background:var(--primary-soft); color:var(--primary); }.file-visit-history :deep(.rounded-select-trigger svg) { width:20px; height:20px; }.file-visit-history :deep(.rounded-select-popup) { right:-10px; left:auto; width:280px; max-width:80vw; }.file-visit-history :deep(.select-label) { overflow:hidden; text-overflow:ellipsis; }
 .file-search-status { margin:0 0 10px; color:var(--muted); font-size:12px; }
 .file-result-path { display:block; padding:0; margin:4px 0 0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:none; color:var(--muted); font-size:11px; text-align:left; }

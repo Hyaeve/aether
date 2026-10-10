@@ -91,6 +91,17 @@ func (c *Cache) revision() uint64 {
 	return c.generation
 }
 
+func (c *Cache) forgetKeys(keys []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.generation++
+	for _, key := range keys {
+		if el := c.items[key]; el != nil {
+			c.remove(el)
+		}
+	}
+}
+
 func (c *Cache) putGeneration(key string, files []File, ttl int, cfg Settings, generation *uint64) {
 	if !cfg.CacheEnabled {
 		return

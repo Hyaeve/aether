@@ -23,7 +23,7 @@ func TestTransferRetentionAndClear(t *testing.T) {
 	w := httptest.NewRecorder()
 	a.transferList(w, httptest.NewRequest("GET", "/", nil))
 	var items []transferEntry
-	if json.Unmarshal(w.Body.Bytes(), &items) != nil || len(items) != 2 {
+	if json.Unmarshal(w.Body.Bytes(), &items) != nil || len(items) != 3 {
 		t.Fatal(w.Body.String())
 	}
 	var restored transferLog
@@ -33,7 +33,7 @@ func TestTransferRetentionAndClear(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	a.transferList(w, httptest.NewRequest("DELETE", "/", nil))
-	if json.Unmarshal(w.Body.Bytes(), &items) != nil || len(items) != 1 || items[0].ID != "running" {
+	if json.Unmarshal(w.Body.Bytes(), &items) != nil || len(items) != 2 {
 		t.Fatal(w.Body.String())
 	}
 	restored.restore(a.transfers.file)

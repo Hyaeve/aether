@@ -87,7 +87,13 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	a.shareMu.Unlock()
 	// Consume before any directory creation or upstream write; never replay an uncertain result.
 	defer func() { a.shareMu.Lock(); p.BatchBusy = false; a.shareMu.Unlock() }()
-	failure := func(err error) { a.shareMu.Lock(); p.Used = true; a.shareMu.Unlock(); fail(w, 400, err) }
+	failure := func(err error) {
+		a.shareMu.Lock()
+		p.Used = true
+		p.Failed = true
+		a.shareMu.Unlock()
+		fail(w, 400, err)
+	}
 	current, err := a.store.storage(s.ID)
 	if err != nil || shareConfig(current) != preview.Config {
 		failure(errors.New("存储配置已变化"))
@@ -134,8 +140,12 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	a.shareMu.Lock()
 	p.TaskID = task
 	p.Skipped += skipped
+	p.Submitted += len(batch.Items)
 	p.Expires = time.Now().Add(10 * time.Minute)
+	finished := *p
+	finished.BatchBusy = false
 	a.shareMu.Unlock()
+	a.recordShareNotice(key, s, finished)
 	a.cache.clear()
 	jsonResponse(w, 200, map[string]any{"status": "submitted", "taskId": task, "message": "本批次已提交", "skipped": skipped, "done": index + 1, "total": len(preview.Batches)})
 }

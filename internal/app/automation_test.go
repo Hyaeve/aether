@@ -77,7 +77,7 @@ func TestAutomationSequentialConditionsAndTriggerIsolation(t *testing.T) {
 	if err := a.startAutomation("rule"); err != nil {
 		t.Fatal(err)
 	}
-	if r := waitAutomation(t, a, "rule"); r.Status != "error" {
+	if r := waitAutomation(t, a, "rule"); r.Status != "error" || r.LastResult != "error" {
 		t.Fatal(r)
 	}
 	if a.store.snapshot().Tasks[0].Status != "success" {
@@ -87,7 +87,7 @@ func TestAutomationSequentialConditionsAndTriggerIsolation(t *testing.T) {
 		t.Fatal("linked task recursively triggered event")
 	}
 	a.triggerAutomations("generate")
-	if r := waitAutomation(t, a, "event"); r.Status != "success" {
+	if r := waitAutomation(t, a, "event"); r.Status != "success" || r.LastResult != "success" {
 		t.Fatal(r)
 	}
 }
