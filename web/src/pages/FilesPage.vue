@@ -450,7 +450,8 @@ load()
 </template>
 <style scoped>
 .file-browser { position:relative; }
-.file-visit-history :deep(.rounded-select-popup) { width:410px; right:-28px; left:auto; max-width:calc(100vw - 32px); }
+.file-visit-history :deep(.rounded-select-popup) { width:390px; right:-28px; left:auto; max-width:calc(100vw - 32px); }
+.file-visit-history :deep(.rounded-select-trigger[aria-expanded="true"]) { background:var(--primary-soft); color:var(--primary); }
 .visit-entry { display:flex; align-items:center; gap:8px; width:100%; min-width:0; font-size:13px; }.visit-entry :deep(.provider-icon) { width:24px; height:24px; flex:none; padding:0; border:0; background:none; border-radius:0; }.visit-entry :deep(.provider-icon > svg),.visit-entry :deep(.provider-logo) { width:24px; height:24px; }.visit-entry strong { color:var(--text); max-width:120px; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
 .file-visit-history { min-width:33px; width:33px; }.file-visit-history :deep(.rounded-select-trigger) { width:33px; height:33px; padding:0; justify-content:center; border:0; background:none; border-radius:5px; color:var(--muted); }.file-visit-history :deep(.rounded-select-trigger:hover) { background:var(--primary-soft); color:var(--primary); }.file-visit-history :deep(.rounded-select-trigger svg) { width:20px; height:20px; }.file-visit-history :deep(.select-label) { width:100%; overflow:hidden; }
 .visit-entry :deep([data-provider=quark] img),.visit-entry :deep([data-provider=mobile] img),.visit-entry :deep([data-provider=tianyi] img) { transform:scale(1.2); }

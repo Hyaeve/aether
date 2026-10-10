@@ -45,7 +45,10 @@ export function useVirtualList(items, viewport, options = {}) {
     scroll.value = 0
     if (!viewport.value) return
     if (options.window) {
-      if (previousScroll > 0) viewport.value.scrollIntoView({ block: 'start' })
+      if (previousScroll > 0) {
+        if (options.resetToTop) scrollHost.scrollTo(0, 0)
+        else viewport.value.scrollIntoView({ block: 'start' })
+      }
     } else viewport.value.scrollTop = 0
   }
   function reveal(index) {

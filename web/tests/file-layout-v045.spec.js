@@ -17,8 +17,12 @@ async function setup(page, count=180) {
 test('history has explicit omission, matching icons and button colors; details header and outside dismissal',async({page},info)=>{
  await setup(page,4);await page.goto('/files');await expect(page.locator('.file-row')).toHaveCount(4)
  const history=page.getByRole('button',{name:'历史访问',exact:true}),refresh=page.getByRole('button',{name:'刷新目录',exact:true})
- expect(await history.evaluate(el=>getComputedStyle(el).color)).toBe(await refresh.evaluate(el=>getComputedStyle(el).color))
+ await expect.poll(()=>history.evaluate(el=>getComputedStyle(el).color)).toBe(await refresh.evaluate(el=>getComputedStyle(el).color))
  await history.click()
+ await page.mouse.move(20,100)
+ await expect(history).toHaveAttribute('aria-expanded','true')
+ expect(await history.evaluate(el=>getComputedStyle(el).color)).not.toBe(await refresh.evaluate(el=>getComputedStyle(el).color))
+ await expect(page.locator('.file-visit-history [role=listbox]')).toHaveCSS('width','390px')
  const options=page.locator('.file-visit-history [role=option]')
  await expect(options.first().locator('.visit-path')).toContainText('/../')
  await expect(options.first().locator('.visit-deepest')).toHaveText('最深目录')
@@ -26,6 +30,7 @@ test('history has explicit omission, matching icons and button colors; details h
  await page.locator('.file-visit-history [role=listbox]').evaluate(async el=>await Promise.allSettled(el.getAnimations().map(a=>a.finished)))
  for(const icon of await options.locator('.provider-icon').all()) { const rect=await icon.boundingBox();expect(rect.width).toBe(24);expect(rect.height).toBe(24) }
  await page.screenshot({path:info.outputPath('history-light.png')});await page.keyboard.press('Escape')
+ await expect.poll(()=>history.evaluate(el=>getComputedStyle(el).color)).toBe(await refresh.evaluate(el=>getComputedStyle(el).color))
  await page.getByRole('button',{name:'目录0.txt',exact:true}).click({button:'right'});await page.getByRole('button',{name:'查看详情',exact:true}).click()
  const drawer=page.getByRole('dialog',{name:'文件夹详情',exact:true})
  await expect(drawer.locator('header')).toContainText('1 个项目')

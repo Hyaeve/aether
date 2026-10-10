@@ -7,12 +7,11 @@ import TaskTabs from '../components/TaskTabs.vue'
 import Modal from '../components/Modal.vue'
 import ScrapeScopePicker from '../components/ScrapeScopePicker.vue'
 import ScrapeFiles from '../components/ScrapeFiles.vue'
-import ScrollRail from '../components/ScrollRail.vue'
 import { useVirtualList } from '../virtual-list'
 const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), settingsOpen = ref(false), matching = ref(null), candidates = ref([])
 const query = ref(''), status = ref('all')
 const scopeOpen = ref(false)
-const viewMode = ref('poster'), fileView = ref(null)
+const viewMode = ref('poster'), fileView = ref(null), fileCount = ref(0)
 const viewKey = computed(() => `aether-scrape-view:${state.username || ''}`)
 watch(viewKey, key => { try { viewMode.value = localStorage.getItem(key) === 'folder' ? 'folder' : 'poster' } catch { viewMode.value = 'poster' } }, { immediate:true })
 watch(viewMode, value => { exitSelection(); try { localStorage.setItem(viewKey.value, value) } catch {} })
@@ -73,7 +72,7 @@ const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成'
 const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
-const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 314, columnWidth: 155, maxColumns: 6, grid: ref(true) })
+const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 314, columnWidth: 155, maxColumns: 6, grid: ref(true), window: true, resetToTop: true })
 watch([query, status, task, excludedScopes], reset)
 const candidateQuery = ref(''), candidateBusy = ref(false), candidateError = ref('')
 let alive = true, timer, request = 0, candidateRequest = 0
@@ -166,7 +165,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
       <button class="icon-btn" :aria-label="viewMode === 'poster' ? '海报墙视图' : '文件夹视图'" :aria-pressed="viewMode === 'folder'" @click="viewMode = viewMode === 'poster' ? 'folder' : 'poster'"><Icon :name="viewMode === 'poster' ? 'LayoutGrid' : 'List'" /></button>
     </div>
     <div v-if="progress.running" class="scrape-progress"><span>{{ progress.message }}</span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
-    <ScrapeFiles v-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" @reset="resetting = $event" @identify="rematch" />
+    <ScrapeFiles v-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" @reset="resetting = $event" @identify="rematch" @count="fileCount = $event" />
     <div v-else class="scrape-poster-shell"><div ref="viewport" class="scrape-body">
       <div v-if="filtered.length" class="scrape-wall" :style="{gridTemplateColumns: `repeat(${columns}, minmax(0,1fr))`}">
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
@@ -179,8 +178,8 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
       </div>
       <div v-else class="small-empty">{{ task ? '暂无刮削记录' : '请选择 STRM 任务' }}</div>
     </div>
-    <ScrollRail :element="viewport" /></div>
-    <footer>{{ filtered.length }} 部作品</footer>
+    </div>
+    <footer>{{ viewMode === 'poster' ? `${filtered.length} 部作品` : `${fileCount} 项` }}</footer>
   </section>
   <Teleport to="body"><div v-if="selectionMode" class="scrape-dock" role="toolbar" aria-label="所选作品操作"><strong>已选 {{ selection.length }} 项</strong><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" />全选</button><button class="btn" @click="exitSelection"><Icon name="X" />清空</button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" />重置</button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" />识别</button></div></Teleport>
   <Modal v-if="confirmation" :title="confirmation.action === 'reset' ? '重置所选作品' : '确认识别刮削'" compact confirmation @close="!busy && (confirmation = null)"><div class="modal-body"><p v-if="confirmation.action === 'reset'">将删除所选 {{ confirmation.paths.length }} 部作品目录下的所有非 STRM 文件，包括封面、NFO 和其他文件，并清除匹配记录。STRM 与目录保留，此操作不可撤销。</p><p v-else>将按刮削设置重新识别并刮削{{ confirmation.paths?.length ? `所选 ${confirmation.paths.length} 部作品` : '当前范围内的 STRM 库' }}，确认继续？</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="confirmAction">{{ confirmation.action === 'reset' ? '确认重置' : '确认识别' }}</button><button class="btn" :disabled="busy" @click="confirmation = null">取消</button></footer></Modal>
@@ -201,9 +200,9 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     <label>TMDB ID<input v-model="match.tmdb" type="number" min="1" required /></label></div><footer class="modal-footer"><button class="btn primary" :disabled="busy || !match.tmdb">确认匹配</button></footer></form></Modal>
 </template>
 <style scoped>
-.scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .scrape-panel.selecting { padding-bottom:86px; }
-.scrape-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px; }
+.scrape-toolbar { position:sticky; top:8px; z-index:10; display: flex; align-items: center; gap: 10px; padding: 12px; background:var(--surface); border-radius:7px 7px 0 0; border-bottom:1px solid var(--border); }
 .scrape-toolbar > .rounded-select:first-child { width: 170px; }
 .scrape-toolbar > .rounded-select:nth-child(2) { width: 160px; }
 .scrape-toolbar > .rounded-select:nth-child(3) { width: 120px; }
@@ -250,8 +249,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-dock strong { white-space:nowrap; font-size:13px; }.scrape-dock .btn { font-size:13px; border:0; background:transparent; color:var(--text); box-shadow:none; padding:8px; border-radius:0; }
 .scrape-dock .btn:hover:not(:disabled), .scrape-dock .btn:focus-visible { background:transparent; color:var(--primary); }
 .match-source-path { padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; font-size:14px; overflow-wrap:anywhere; }.match-source-path small { display:block; color:var(--muted); font-size:12px; margin-bottom:7px; }
-.scrape-poster-shell{position:relative;flex:1;min-height:0}.scrape-body { height:100%; overflow:auto; scrollbar-width:none; min-height: 0; overflow-anchor: none; }
-.scrape-body::-webkit-scrollbar { display: none; }
+.scrape-poster-shell{flex:1}.scrape-body { padding-top:12px; overflow-anchor:none; }
 .scrape-panel > footer { padding: 8px 14px; color: var(--muted); font-size: 12px; }
 .scrape-settings { display: grid; gap: 16px; }
 .candidate-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; max-height: 360px; overflow: auto; padding: 2px; }

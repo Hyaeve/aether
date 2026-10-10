@@ -117,3 +117,24 @@ test('mount switches stay adjacent to their labels',async({page})=>{
   expect(gap).toBeGreaterThanOrEqual(8);expect(gap).toBeLessThanOrEqual(12)
  }
 })
+
+test('wheel inside an already scrolled list still docks the page first without moving its rows',async({page})=>{
+ await setup(page)
+ await page.route('**/api/files?**',r=>r.fulfill({json:Array.from({length:180},(_,i)=>({id:String(i),name:`file-${i}.txt`}))}))
+ for(const [url,selector,boundary] of [['/files','.file-view','.file-browser'],['/logs','.log-viewport','.log-list-shell'],['/links/cache','.playback-scroller','.playback-list-shell']]){
+  await page.goto(url)
+  const list=page.locator(selector),outer=page.locator('.page-scroll > .thin-scroll-area')
+  await expect(list).toBeVisible()
+  await list.evaluate(el=>{el.scrollTop=100;el.closest('.page-scroll .thin-scroll-area').scrollTop=0})
+  const rect=await list.boundingBox();await page.mouse.move(rect.x+100,rect.y+70)
+  await page.mouse.wheel(0,12)
+  await expect.poll(()=>outer.evaluate(el=>el.scrollTop)).toBeCloseTo(12,0)
+  expect(await list.evaluate(el=>el.scrollTop)).toBe(100)
+  for(let i=0;i<3;i++)await page.mouse.wheel(0,8)
+  await expect.poll(()=>outer.evaluate(el=>el.scrollTop)).toBeCloseTo(36,0)
+  expect(await list.evaluate(el=>el.scrollTop)).toBe(100)
+  await page.mouse.wheel(0,600)
+  await expect.poll(()=>list.evaluate(el=>el.scrollTop)).toBeGreaterThan(100)
+  await expect.poll(async()=>Math.round((await page.locator(boundary).boundingBox()).y)).toBe(56)
+ }
+})

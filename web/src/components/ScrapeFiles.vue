@@ -6,14 +6,14 @@ import { documentIcon } from '../file-icon'
 import Icon from './Icon.vue'
 import ImageViewer from './ImageViewer.vue'
 import TextFileEditor from './TextFileEditor.vue'
-import ScrollRail from './ScrollRail.vue'
 const props = defineProps({ task: String, query: String, works: Array, running: Boolean, excluded: {type:Array, default:()=>[]} })
-const emit = defineEmits(['reset', 'identify'])
+const emit = defineEmits(['reset', 'identify', 'count'])
 const dir = ref(''), files = ref([]), loading = ref(false), error = ref(''), viewport = ref(null), editor = ref(null), image = ref(null)
 let run = 0, editRun = 0, alive = true
 const endpoint = path => `/strm-scrape/files?taskId=${encodeURIComponent(props.task)}&path=${encodeURIComponent(path || '.')}`
 const filtered = computed(() => files.value.filter(f => f.name.toLowerCase().includes((props.query || '').toLowerCase()) && !props.excluded.some(p => p === '.' || f.id === p || f.id.startsWith(p + '/'))))
-const { shown, top, bottom, reset } = useVirtualList(filtered, viewport, { rowHeight: 56 })
+const { shown, top, bottom, reset } = useVirtualList(filtered, viewport, { rowHeight: 56, window: true, resetToTop: true })
+watch(() => filtered.value.length, count => emit('count', count), { immediate:true })
 const crumbs = computed(() => dir.value.split('/').filter(Boolean).map((name, i, all) => ({ name, path: all.slice(0, i + 1).join('/') })))
 const isImage = f => /\.(png|jpe?g|webp|gif|avif)$/i.test(f.name)
 const images = computed(() => files.value.filter(isImage))
@@ -51,12 +51,12 @@ defineExpose({ refresh: () => load(dir.value) })
     <div v-if="bottom" :style="{height:`${bottom}px`}" />
     <p v-if="loading || error || !filtered.length" class="small-empty" :role="error ? 'alert' : 'status'">{{ loading ? '正在读取目录…' : error || '暂无文件' }}</p>
   </div>
-  <ScrollRail :element="viewport" /></div>
+  </div>
   <ImageViewer v-if="image" :images="images" :initial="image" @close="image = null" />
   <TextFileEditor v-if="editor" :file="editor.file" :endpoint="endpoint(editor.file.id)" :content="editor.content" :revision="editor.revision" :disabled="running" @close="closeEditor" />
 </template>
 <style scoped>
-.scrape-file-shell{position:relative;flex:1;min-height:0}.scrape-files{height:100%;overflow:auto;scrollbar-width:none}.scrape-files::-webkit-scrollbar{display:none}
+.scrape-file-shell{flex:1}.scrape-files{overflow-anchor:none}
 .scrape-file-path { display:flex; align-items:center; gap:5px; padding:10px 14px; overflow:auto; white-space:nowrap; scrollbar-width:none; }
 .scrape-file-path .text-btn { flex:none; font-size:14px; }
 .scrape-file-path .text-btn { color:var(--muted); }.scrape-file-path .text-btn:hover { color:var(--primary); }.scrape-folder-actions .text-btn:hover { color:var(--primary); background:var(--primary-soft); border-radius:6px; }
