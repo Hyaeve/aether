@@ -4,7 +4,7 @@
 
 自托管的云盘与本地存储工作空间，使用 Go + Vue 构建。
 
-当前版本：**v0.4.1** · [版本说明](docs/releases/v0.4.1.md)
+当前版本：**v0.4.2** · [版本说明](docs/releases/v0.4.2.md)
 
 ## 功能概览
 
@@ -25,7 +25,28 @@
 
 ## Docker 部署
 
-使用仓库中的 [compose.yaml](compose.yaml)：
+Linux Docker Compose 配置如下，也可使用仓库中的 [compose.yaml](compose.yaml)：
+
+```yaml
+services:
+  aetherlink:
+    image: ghcr.io/hyaeve/aether:latest
+    container_name: Aether
+    network_mode: host
+    volumes:
+      - ./config:/config
+      - ./data:/data
+      - ./fuse_read_cache:/fuse_read_cache
+    environment:
+      - TZ=Asia/Shanghai
+      - AETHER_PORT=15151
+      - AETHER_FUSE_CACHE_DIR=/fuse_read_cache
+    devices:
+      - /dev/fuse:/dev/fuse
+    pid: "host"
+    privileged: true
+    restart: unless-stopped
+```
 
 ```bash
 docker compose up -d
@@ -34,9 +55,11 @@ docker compose up -d
 打开 `http://服务器IP:15151`，首次访问创建管理员账号。管理页面、播放代理与 WebDAV 共用此端口；以太链接使用各自配置的反代端口。
 
 - 镜像：`ghcr.io/hyaeve/aether:latest`，目前仅构建 x86-64。
-- 持久化：`/config` 保存加密配置和密钥，`/data` 保存日志、索引与缓存。
+- 持久化：`/config` 保存配置和密钥，`/data` 保存日志、索引与播放缓存，FUSE 读缓存单独映射到 `/fuse_read_cache`，可放在较快的磁盘。
 - 本地文件及媒体库需要映射到容器；本地挂载需要 `/dev/fuse` 和相应容器权限。不需要挂载时可移除 Compose 中的特权及 FUSE 配置。
 - WebDAV 地址为 `/dav/`。独立 WebDAV 用户只读，管理员可按存储能力读写。
+
+`AETHER_FUSE_CACHE_DIR` 指定 FUSE 缓存目录，镜像默认为 `/fuse_read_cache`；原生运行未设置时仍使用数据目录下的 `fuse_read_cache`。升级时将旧映射的容器路径改为 `/fuse_read_cache`，无需迁移可重建的缓存块。
 
 ## 配置目录
 
@@ -44,7 +67,7 @@ docker compose up -d
 
 模块配置采用固定名称 JSON，CK、Token、上游密码和 API Key 字段加密；登录密码为加盐哈希。请使用内置配置备份，或停机备份整个 `/config` 及主密钥。日志在 `/data/log`，播放缓存在 `/data/cache/link`。迁移、外置密钥和剪贴板监听见[配置说明](docs/configuration.md)。
 
-备份规则保留源目录结构，支持同名跳过或覆盖、扩展名/名称/大小筛选及空 Cron 手动执行，不自动删除源文件或目标多余文件。覆盖、全量重置及刮削元数据清理前请先备份。
+传输中心的备份规则支持多源多目标、同名跳过或覆盖、名称/扩展名/正则/大小筛选及 Cron/间隔扫描，留空计划可手动执行。不自动删除源文件或目标多余文件。覆盖、全量重置及刮削元数据清理前请先备份。
 
 ## 开发
 

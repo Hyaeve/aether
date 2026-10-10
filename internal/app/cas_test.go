@@ -307,6 +307,9 @@ func TestCASFailedRestoreNotReusable(t *testing.T) {
 	}
 	<-a.casGate
 	reopened, err := NewStore(a.store.dir)
+	if err == nil {
+		err = reopened.initRuntime(a.store.runtimeDir)
+	}
 	if err != nil || reopened.snapshot().CASTemporary[0].Ready {
 		t.Fatal("failed restore was marked reusable after restart")
 	}

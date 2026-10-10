@@ -13,6 +13,6 @@ test('ED2K sources include local and 115 only; cache progress remains compact', 
   for (const type of ['mobile', 'tianyi', 'quark']) await expect(accounts).not.toContainText(`源-${type}`)
   await page.screenshot({ path: info.outputPath('ed2k-sources.png') })
   await page.goto('/tasks/cache')
-  await expect(page.locator('.cache-progress-track')).toHaveCSS('height', '16px')
+  await expect(page.locator('.cache-progress-track')).toHaveCSS('height', '6px')
   await page.screenshot({ path: info.outputPath('cache-compact.png') })
 })

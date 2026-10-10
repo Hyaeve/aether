@@ -221,6 +221,9 @@ func (s *Store) jsonValues() map[string]any {
 		p.Logs = nil
 	}
 	v["state"] = p
+	if s.state.RuntimeSeparated {
+		stripRuntimeConfig(v)
+	}
 	return v
 }
 
@@ -306,6 +309,9 @@ func (s *Store) recoverJSONTransaction() error {
 }
 
 func (s *Store) saveJSONModules() error {
+	if err := s.saveRuntimeLocked(); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(filepath.Join(s.dir, ".config-transaction.enc")); err == nil {
 		if err := s.recoverJSONTransaction(); err != nil {
 			return err

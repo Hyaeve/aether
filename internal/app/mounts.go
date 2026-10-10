@@ -125,7 +125,7 @@ func (a *App) validateMount(input *MountConfig) error {
 	if input.UID < 0 || input.GID < 0 || uint64(input.UID) > 4294967295 || uint64(input.GID) > 4294967295 || input.Mode == 0 || input.Mode > 0777 {
 		return errors.New("UID、GID 或八进制权限无效")
 	}
-	protected := []string{a.store.dir, a.dataDir}
+	protected := []string{a.store.dir, a.dataDir, a.fuseCacheDirectory()}
 	if runtime.GOOS == "linux" {
 		protected = append(protected, "/proc", "/sys", "/dev", "/etc", "/usr", "/bin", "/sbin", "/lib", "/run", "/app")
 	}

@@ -218,6 +218,13 @@ func (c *fuseReadCache) readAt(ctx context.Context, key string, size int64, dest
 }
 
 func (a *App) fuseCache() *fuseReadCache {
-	a.fuseReadOnce.Do(func() { a.fuseReads = newFuseReadCache(filepath.Join(a.dataDir, "fuse_read_cache")) })
+	a.fuseReadOnce.Do(func() { a.fuseReads = newFuseReadCache(a.fuseCacheDirectory()) })
 	return a.fuseReads
+}
+
+func (a *App) fuseCacheDirectory() string {
+	if dir := strings.TrimSpace(os.Getenv("AETHER_FUSE_CACHE_DIR")); dir != "" {
+		return filepath.Clean(dir)
+	}
+	return filepath.Join(a.dataDir, "fuse_read_cache")
 }

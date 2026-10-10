@@ -14,39 +14,54 @@ import (
 )
 
 type BackupRule struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Enabled     bool      `json:"enabled"`
-	SourceID    string    `json:"sourceId"`
-	Source      string    `json:"source"`
-	SourceLabel string    `json:"sourceLabel"`
-	TargetID    string    `json:"targetId"`
-	Target      string    `json:"target"`
-	TargetLabel string    `json:"targetLabel"`
-	Replace     string    `json:"replace"`
-	Extensions  string    `json:"extensions"`
-	Exclude     string    `json:"exclude"`
-	MinSize     int64     `json:"minSize"`
-	MaxSize     int64     `json:"maxSize"`
-	Cron        string    `json:"cron"`
-	Status      string    `json:"status"`
-	Message     string    `json:"message"`
-	Scanned     int       `json:"scanned"`
-	Copied      int       `json:"copied"`
-	Skipped     int       `json:"skipped"`
-	LastRun     time.Time `json:"lastRun"`
-	NextRun     time.Time `json:"nextRun"`
+	ID           string           `json:"id"`
+	Name         string           `json:"name"`
+	Enabled      bool             `json:"enabled"`
+	SourceID     string           `json:"sourceId"`
+	Source       string           `json:"source"`
+	SourceLabel  string           `json:"sourceLabel"`
+	TargetID     string           `json:"targetId"`
+	Target       string           `json:"target"`
+	TargetLabel  string           `json:"targetLabel"`
+	Sources      []BackupLocation `json:"sources,omitempty"`
+	Targets      []BackupLocation `json:"targets,omitempty"`
+	Filters      []BackupFilter   `json:"filters,omitempty"`
+	ScanInterval int              `json:"scanInterval"`
+	Replace      string           `json:"replace"`
+	Extensions   string           `json:"extensions"`
+	Exclude      string           `json:"exclude"`
+	MinSize      int64            `json:"minSize"`
+	MaxSize      int64            `json:"maxSize"`
+	Cron         string           `json:"cron"`
+	Status       string           `json:"status"`
+	Message      string           `json:"message"`
+	Scanned      int              `json:"scanned"`
+	Copied       int              `json:"copied"`
+	Skipped      int              `json:"skipped"`
+	Phase        string           `json:"phase"`
+	Total        int              `json:"total"`
+	Processed    int              `json:"processed"`
+	LastRun      time.Time        `json:"lastRun"`
+	NextRun      time.Time        `json:"nextRun"`
 }
 
 func backupNext(r BackupRule, now time.Time) time.Time {
-	if !r.Enabled || strings.TrimSpace(r.Cron) == "" {
+	if !r.Enabled {
 		return time.Time{}
 	}
-	s, err := cronParser.Parse(r.Cron)
-	if err != nil {
-		return time.Time{}
+	var next time.Time
+	if r.ScanInterval > 0 {
+		next = now.Add(time.Duration(r.ScanInterval) * time.Second)
 	}
-	return s.Next(now)
+	if strings.TrimSpace(r.Cron) != "" {
+		if s, err := cronParser.Parse(r.Cron); err == nil {
+			cronNext := s.Next(now)
+			if next.IsZero() || cronNext.Before(next) {
+				next = cronNext
+			}
+		}
+	}
+	return next
 }
 
 func backupStorage(st State, id string) (Storage, error) {
@@ -95,6 +110,23 @@ func backupSameTree(a, b Storage) bool {
 }
 
 func validateBackup(r *BackupRule, st State) error {
+	if err := validateBackupOptions(r, st); err != nil {
+		return err
+	}
+	sources, targets := backupLocations(*r)
+	for _, source := range sources {
+		for _, target := range targets {
+			pair := backupPair(*r, source, target)
+			if err := validateBackupPair(&pair, st); err != nil {
+				return err
+			}
+			r.Name, r.Cron, r.Extensions = pair.Name, pair.Cron, pair.Extensions
+		}
+	}
+	return nil
+}
+
+func validateBackupPair(r *BackupRule, st State) error {
 	r.Name, r.Cron = strings.TrimSpace(r.Name), strings.TrimSpace(r.Cron)
 	if r.Name == "" || len(r.Name) > 200 {
 		return errors.New("请填写备份名称（最多200字节）")
@@ -229,6 +261,7 @@ func (a *App) backupRulesAPI(w http.ResponseWriter, req *http.Request) {
 			}
 			input.ID, input.Status, input.Message = newAutomationID(), "idle", ""
 			input.Scanned, input.Copied, input.Skipped = 0, 0, 0
+			input.Phase, input.Total, input.Processed = "", 0, 0
 			input.LastRun = time.Time{}
 			input.NextRun = backupNext(input, time.Now())
 			st.BackupRules = append(st.BackupRules, input)
@@ -243,6 +276,7 @@ func (a *App) backupRulesAPI(w http.ResponseWriter, req *http.Request) {
 			} else {
 				input.ID, input.Status, input.Message, input.LastRun = id, old.Status, old.Message, old.LastRun
 				input.Scanned, input.Copied, input.Skipped = old.Scanned, old.Copied, old.Skipped
+				input.Phase, input.Total, input.Processed = old.Phase, old.Total, old.Processed
 				input.NextRun = backupNext(input, time.Now())
 				st.BackupRules[i] = input
 			}
@@ -284,9 +318,12 @@ func (a *App) startBackup(id string) error {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 24*time.Hour)
+	rule.Scanned, rule.Copied, rule.Skipped = 0, 0, 0
+	rule.Phase, rule.Total, rule.Processed = "scan", 0, 0
 	if err := a.backupUpdate(id, func(r *BackupRule) {
 		r.Status, r.Message, r.LastRun = "running", "扫描源目录", time.Now()
 		r.Scanned, r.Copied, r.Skipped = 0, 0, 0
+		r.Phase, r.Total, r.Processed = "scan", 0, 0
 		r.NextRun = backupNext(*r, time.Now())
 	}); err != nil {
 		cancel()
@@ -317,6 +354,8 @@ func (a *App) startBackup(id string) error {
 		if e := a.backupUpdate(id, func(r *BackupRule) {
 			r.Status, r.Message = status, message
 			r.Scanned, r.Copied, r.Skipped = rule.Scanned, rule.Copied, rule.Skipped
+			r.Phase, r.Total, r.Processed = status, rule.Total, rule.Processed
+			r.NextRun = backupNext(*r, time.Now())
 		}); e != nil {
 			a.logger.Printf("backup state save failed: %v", e)
 		}
@@ -339,160 +378,6 @@ func backupAccept(r BackupRule, f File) bool {
 		}
 	}
 	return true
-}
-
-func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
-	st := a.store.snapshotWithLogLimit(0)
-	source, err := backupStorage(st, rule.SourceID)
-	if err != nil {
-		return err
-	}
-	target, err := backupStorage(st, rule.TargetID)
-	if err != nil {
-		return err
-	}
-	// Scan completely before writing, so a cloud target nested in the source is
-	// detected even with opaque directory IDs and cannot feed back into itself.
-	type entry struct {
-		file File
-		rel  string
-	}
-	entries := []entry{}
-	seen := map[string]bool{}
-	visited := 0
-	var scan func(string, string, int) error
-	scan = func(dir, rel string, depth int) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if depth > 128 || seen[dir] {
-			return errors.New("备份目录过深或存在循环")
-		}
-		if backupSameTree(source, target) && dir == backupDir(target, rule.Target) {
-			return errors.New("备份目标位于源目录内")
-		}
-		seen[dir] = true
-		files, err := a.rawList(ctx, source, dir)
-		if err != nil {
-			return err
-		}
-		for _, f := range files {
-			visited++
-			if visited > 100000 {
-				return errors.New("单次备份最多扫描100000项，请拆分规则")
-			}
-			if !safeName(f.Name) {
-				return errors.New("源文件名称无效")
-			}
-			name := path.Join(rel, f.Name)
-			if f.IsDir {
-				if err := scan(f.ID, name, depth+1); err != nil {
-					return err
-				}
-				entries = append(entries, entry{f, name})
-				continue
-			}
-			rule.Scanned++
-			if !backupAccept(*rule, f) {
-				rule.Skipped++
-				continue
-			}
-			entries = append(entries, entry{f, name})
-		}
-		return nil
-	}
-	if err := scan(backupDir(source, rule.Source), "", 0); err != nil {
-		return err
-	}
-	// Reverse containment is also unsafe when overwriting an ancestor tree.
-	if backupSameTree(source, target) && source.Type != "local" {
-		seen = map[string]bool{}
-		var containsSource func(string, int) error
-		containsSource = func(dir string, depth int) error {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if depth > 128 || seen[dir] {
-				return errors.New("目标目录过深或存在循环")
-			}
-			if dir == backupDir(source, rule.Source) {
-				return errors.New("备份源位于目标目录内")
-			}
-			seen[dir] = true
-			files, err := a.rawList(ctx, target, dir)
-			if err != nil {
-				return err
-			}
-			for _, f := range files {
-				visited++
-				if visited > 100000 {
-					return errors.New("备份范围过大")
-				}
-				if f.IsDir {
-					if err := containsSource(f.ID, depth+1); err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-		}
-		if err := containsSource(backupDir(target, rule.Target), 0); err != nil {
-			return err
-		}
-	}
-	last := time.Time{}
-	defer a.cache.clear()
-	for _, item := range entries {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		current := a.store.snapshotWithLogLimit(0)
-		s, err := backupStorage(current, source.ID)
-		if err != nil {
-			return err
-		}
-		t, err := backupStorage(current, target.ID)
-		if err != nil {
-			return err
-		}
-		if !sameBackupStorage(source, s) || !sameBackupStorage(target, t) {
-			return errors.New("备份存储配置已变更，请重新执行")
-		}
-		if item.file.IsDir {
-			if _, _, err := a.uploadParent(ctx, target, rule.Target, path.Join(item.rel, ".aether-directory")); err != nil {
-				return err
-			}
-			continue
-		}
-		parent, name, err := a.uploadParent(ctx, target, rule.Target, item.rel)
-		if err != nil {
-			return err
-		}
-		existing, err := a.cloudByName(ctx, target, parent, name)
-		if err != nil {
-			return err
-		}
-		if existing != nil && existing.IsDir {
-			return errors.New("目标同名项是文件夹：" + item.rel)
-		}
-		if existing != nil && rule.Replace == "skip" {
-			rule.Skipped++
-		} else {
-			if err := a.copyBackupFile(ctx, source, target, item.file, parent, name, rule.Replace); err != nil {
-				return fmt.Errorf("备份 %s：%w", item.rel, err)
-			}
-			rule.Copied++
-		}
-		if time.Since(last) > time.Second {
-			if err := a.backupUpdate(rule.ID, func(r *BackupRule) {
-				r.Scanned, r.Copied, r.Skipped, r.Message = rule.Scanned, rule.Copied, rule.Skipped, "正在备份："+item.rel
-			}); err != nil {
-				return err
-			}
-			last = time.Now()
-		}
-	}
-	return nil
 }
 
 func sameBackupStorage(a, b Storage) bool {

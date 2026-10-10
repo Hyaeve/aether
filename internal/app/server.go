@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	usageMu          sync.Mutex
+	usageCache       map[string]*storageUsageEntry
 	backupMu         sync.Mutex
 	backupRuns       map[string]context.CancelFunc
 	automationMu     sync.Mutex
@@ -122,6 +124,9 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 		return nil, err
 	}
 	if err := applyPendingConfig(store); err != nil {
+		return nil, err
+	}
+	if err := store.initRuntime(filepath.Join(dataDir, "runtime")); err != nil {
 		return nil, err
 	}
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
@@ -286,6 +291,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("GET /api/traffic", a.protected(http.HandlerFunc(a.trafficRates)))
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
+	mux.Handle("GET /api/storages/{id}/usage", a.protected(http.HandlerFunc(a.storageUsageAPI)))
 	mux.Handle("/api/files", a.protected(http.HandlerFunc(a.files)))
 	mux.Handle("/api/tasks", a.protected(http.HandlerFunc(a.tasks)))
 	mux.Handle("/api/automations", a.protected(http.HandlerFunc(a.automationAPI)))

@@ -107,40 +107,43 @@ type LogEntry struct {
 }
 
 type State struct {
-	ModuleVersion  int                        `json:"moduleVersion,omitempty"`
-	BackupRules    []BackupRule               `json:"backupRules,omitempty"`
-	TaskOrder      []string                   `json:"taskOrder,omitempty"`
-	Modules        map[string]string          `json:"modules,omitempty"`
-	Automations    []Automation               `json:"automations,omitempty"`
-	ToolsRevision  string                     `json:"toolsRevision,omitempty"`
-	Simulcast      map[string]SimulcastConfig `json:"simulcast,omitempty"`
-	Plugins        map[string]PluginConfig    `json:"plugins,omitempty"`
-	LibraryNotices []LibraryNotice            `json:"libraryNotices,omitempty"`
-	QuarkTV        map[string]QuarkTVBinding  `json:"quarkTV,omitempty"`
-	QuarkTVEnabled *bool                      `json:"quarkTVEnabled,omitempty"`
-	Mounts         []MountConfig              `json:"mounts,omitempty"`
-	Links          []MediaLink                `json:"links,omitempty"`
-	DAVUsers       []DAVUser                  `json:"davUsers,omitempty"`
-	CASTemporary   []CASTemporary             `json:"casTemporary,omitempty"`
-	Storages       []Storage                  `json:"storages"`
-	Tasks          []Task                     `json:"tasks"`
-	Settings       Settings                   `json:"settings"`
-	Username       string                     `json:"username"`
-	Password       string                     `json:"password"`
-	SignKey        string                     `json:"signKey"`
-	Logs           []LogEntry                 `json:"logs"`
+	RuntimeSeparated bool                       `json:"runtimeSeparated,omitempty"`
+	ModuleVersion    int                        `json:"moduleVersion,omitempty"`
+	BackupRules      []BackupRule               `json:"backupRules,omitempty"`
+	TaskOrder        []string                   `json:"taskOrder,omitempty"`
+	Modules          map[string]string          `json:"modules,omitempty"`
+	Automations      []Automation               `json:"automations,omitempty"`
+	ToolsRevision    string                     `json:"toolsRevision,omitempty"`
+	Simulcast        map[string]SimulcastConfig `json:"simulcast,omitempty"`
+	Plugins          map[string]PluginConfig    `json:"plugins,omitempty"`
+	LibraryNotices   []LibraryNotice            `json:"libraryNotices,omitempty"`
+	QuarkTV          map[string]QuarkTVBinding  `json:"quarkTV,omitempty"`
+	QuarkTVEnabled   *bool                      `json:"quarkTVEnabled,omitempty"`
+	Mounts           []MountConfig              `json:"mounts,omitempty"`
+	Links            []MediaLink                `json:"links,omitempty"`
+	DAVUsers         []DAVUser                  `json:"davUsers,omitempty"`
+	CASTemporary     []CASTemporary             `json:"casTemporary,omitempty"`
+	Storages         []Storage                  `json:"storages"`
+	Tasks            []Task                     `json:"tasks"`
+	Settings         Settings                   `json:"settings"`
+	Username         string                     `json:"username"`
+	Password         string                     `json:"password"`
+	SignKey          string                     `json:"signKey"`
+	Logs             []LogEntry                 `json:"logs"`
 }
 
 type Store struct {
-	modular   bool
-	toolsDir  string
-	logDir    string
-	mu        sync.RWMutex
-	state     State
-	dir       string
-	aead      cipher.AEAD
-	macKey    []byte
-	jsonCache map[string][]byte
+	runtimeDir   string
+	runtimeCache []byte
+	modular      bool
+	toolsDir     string
+	logDir       string
+	mu           sync.RWMutex
+	state        State
+	dir          string
+	aead         cipher.AEAD
+	macKey       []byte
+	jsonCache    map[string][]byte
 }
 
 func id() string {
@@ -358,6 +361,9 @@ func (s *Store) update(fn func(*State) error) error {
 	}
 	if err := s.saveLocked(); err != nil {
 		_ = json.Unmarshal(before, &s.state)
+		if rollback := s.saveRuntimeLocked(); rollback != nil {
+			return errors.Join(err, rollback)
+		}
 		return err
 	}
 	return nil

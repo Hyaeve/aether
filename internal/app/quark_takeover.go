@@ -52,6 +52,9 @@ type quarkTVHTTPError struct {
 }
 
 func (e *quarkTVHTTPError) Error() string {
+	if e.Errno == 32009 {
+		return "夸克 TV 设备数超限（32009），请在夸克账号的设备管理中退出不再使用的 TV 设备，再重新扫码绑定"
+	}
 	return fmt.Sprintf("夸克 TV 服务返回 HTTP %d（错误码 %d）", e.Status, e.Errno)
 }
 
@@ -196,8 +199,14 @@ func quarkTVJSON(ctx context.Context, method, address string, headers http.Heade
 			Errno     int    `json:"errno"`
 			Status    int    `json:"status"`
 			ErrorInfo string `json:"error_info"`
+			Data      struct {
+				Errno int `json:"errno"`
+			} `json:"data"`
 		}
 		_ = json.Unmarshal(data, &env)
+		if env.Errno == 0 {
+			env.Errno = env.Data.Errno
+		}
 		message := strings.ToLower(env.ErrorInfo)
 		invalid := env.Errno == 10001 || env.Errno == 11001 || (env.Status == -1 && (strings.Contains(message, "access token") || strings.Contains(message, "access_token") || strings.Contains(message, "token无效") || strings.Contains(message, "token 无效")))
 		return &quarkTVHTTPError{res.StatusCode, env.Errno, invalid}
@@ -273,6 +282,9 @@ func exchangeQuarkTV(ctx context.Context, b *QuarkTVBinding, secret string, refr
 		return err
 	}
 	if result.Code != 200 || result.Data.Errno != 0 || result.Data.Access == "" {
+		if result.Data.Errno == 32009 {
+			return &quarkTVHTTPError{Status: 200, Errno: 32009}
+		}
 		return errors.New("TV 凭据换取失败，请检查授权或刷新凭据")
 	}
 	b.AccessToken = result.Data.Access

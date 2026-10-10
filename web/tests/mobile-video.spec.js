@@ -105,5 +105,5 @@ test('video grid extracts a real frame and player follows only the video boundar
 test('task scan time leaves a wider gap before run controls', async ({ page }) => {
   await workspace(page, [{ id: 's', type: 'mobile', name: '移动', enabled: true, config: {} }], [{ id: 't', storageId: 's', name: '每日任务', kind: 'strm', lastRun: '2026-10-09T12:00:00+08:00', enabled: true }])
   await page.goto('/tasks/strm')
-  await expect(page.locator('.task-last-scan')).toHaveCSS('margin-right', '38px')
+  await expect(page.locator('.task-last-scan')).toHaveCSS('margin-right', '62px')
 })

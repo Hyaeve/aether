@@ -143,7 +143,7 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 	if _, errno = reader.Read(ctx, make([]byte, 5), 0); errno != 0 || reads.Load() != before+1 {
 		t.Fatal("cache invalidation", errno, reads.Load(), before)
 	}
-	if entries, err := os.ReadDir(filepath.Join(a.dataDir, "fuse_read_cache")); err != nil || len(entries) == 0 {
+	if entries, err := os.ReadDir(a.fuseCacheDirectory()); err != nil || len(entries) == 0 {
 		t.Fatal("cache not persisted", err)
 	}
 	reader.Release(ctx)

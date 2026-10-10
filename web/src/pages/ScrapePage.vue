@@ -6,10 +6,16 @@ import RoundedSelect from '../components/RoundedSelect.vue'
 import TaskTabs from '../components/TaskTabs.vue'
 import Modal from '../components/Modal.vue'
 import ScrapeScopePicker from '../components/ScrapeScopePicker.vue'
+import ScrapeFiles from '../components/ScrapeFiles.vue'
 import { useVirtualList } from '../virtual-list'
 const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), settingsOpen = ref(false), matching = ref(null), candidates = ref([])
 const query = ref(''), status = ref('all')
 const scopeOpen = ref(false)
+const viewMode = ref('poster'), fileView = ref(null)
+const viewKey = computed(() => `aether-scrape-view:${state.username || ''}`)
+watch(viewKey, key => { try { viewMode.value = localStorage.getItem(key) === 'folder' ? 'folder' : 'poster' } catch { viewMode.value = 'poster' } }, { immediate:true })
+watch(viewMode, value => { exitSelection(); try { localStorage.setItem(viewKey.value, value) } catch {} })
+function refreshView() { exitSelection(); fileView.value?.refresh(); action('scan') }
 const excludedScopes = ref([]), selectionMode = ref(false), selection = ref([]), selectionAnchor = ref(''), confirmation = ref(null)
 function exitSelection() { selectionMode.value = false; selection.value = []; selectionAnchor.value = '' }
 function choose(event, item) {
@@ -61,7 +67,7 @@ async function resetMetadata() {
     resetting.value = null; await load(); notify('作品元数据已重置')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-const tasks = computed(() => state.tasks.filter(t => t.kind === 'strm' && !t.scrapeExcluded).map(t => ({ value: t.id, label: t.name })))
+const tasks = computed(() => state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded).map(t => ({ value: t.id, label: t.name })))
 const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', miss: '未匹配', doubt: '待确认', error: '失败' }
 const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
@@ -152,18 +158,20 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     <div class="scrape-toolbar">
       <RoundedSelect v-model="task" label="STRM 任务" placeholder="选择 STRM 任务" :disabled="progress.running" :options="tasks" />
       <button class="btn" aria-label="筛选库目录" :disabled="!task || progress.running" @click="scopeOpen = true"><Icon name="Folder" />{{ excludedScopes.length ? `已排除 ${excludedScopes.length} 个目录` : '全部目录' }}</button>
-      <RoundedSelect v-model="status" label="刮削状态" :options="[{ value: 'all', label: '全部状态' }, ...Object.entries(statuses).map(([value,label]) => ({value,label}))]" />
+      <RoundedSelect v-model="status" label="刮削状态" :options="[{ value: 'all', label: '全部状态', marker: 'all' }, ...Object.entries(statuses).map(([value,label]) => ({value,label,marker:value}))]" />
       <button class="btn" :disabled="!task || busy || progress.running" @click="confirmation = {action:'identify'}"><Icon name="ScanSearch" />识别 STRM 库</button>
+      <button class="icon-btn scrape-refresh" aria-label="刷新刮削索引" :disabled="!task || busy || progress.running" @click="refreshView"><Icon name="RefreshCw" /></button>
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索刮削记录" placeholder="搜索名称或路径" /></div>
-      <button class="icon-btn" aria-label="刷新刮削索引" :disabled="!task || busy || progress.running" @click="exitSelection(); action('scan')"><Icon name="RefreshCw" /></button>
+      <button class="icon-btn" :aria-label="viewMode === 'poster' ? '海报墙视图' : '文件夹视图'" :aria-pressed="viewMode === 'folder'" @click="viewMode = viewMode === 'poster' ? 'folder' : 'poster'"><Icon :name="viewMode === 'poster' ? 'LayoutGrid' : 'List'" /></button>
     </div>
     <div class="scrape-progress"><span>{{ progress.running ? progress.message : progress.message || '等待执行' }}</span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
-    <div ref="viewport" class="scrape-body">
+    <ScrapeFiles v-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" @reset="resetting = $event" @identify="rematch" />
+    <div v-else ref="viewport" class="scrape-body">
       <div v-if="filtered.length" class="scrape-wall" :style="{gridTemplateColumns: `repeat(${columns}, minmax(0,1fr))`}">
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
         <article v-for="item in shown" :key="item.path" class="scrape-card" :class="{selected:selection.includes(item.path)}" @click="selectionMode && choose($event,item)" @contextmenu.prevent="choose($event,item)">
-          <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :aria-pressed="selectionMode ? selection.includes(item.path) : undefined" :disabled="progress.running || busy" @click.stop="choose($event,item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '电视剧' : '电影' }}</span></template><span v-if="selectionMode" class="poster-selection"><Icon :name="selection.includes(item.path) ? 'CircleCheck' : 'Circle'" :size="22" /></span></button>
-          <div class="scrape-card-body"><div class="scrape-title"><strong :data-tooltip="item.title">{{ item.title }}</strong><span class="work-star" :class="itemStatus(item)" :aria-label="statuses[itemStatus(item)]" :data-tooltip="statuses[itemStatus(item)]" data-tooltip-always /></div><small :data-tooltip="item.path">{{ item.kind === 'tv' ? '剧集' : '电影' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.kind === 'tv'"> · {{ item.count || 1 }} 集</template></small></div>
+          <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :aria-pressed="selectionMode ? selection.includes(item.path) : undefined" :disabled="progress.running || busy" @click.stop="choose($event,item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '剧集' : '电影' }}</span></template><span v-if="selectionMode" class="poster-selection"><Icon :name="selection.includes(item.path) ? 'CircleCheck' : 'Circle'" :size="22" /></span></button>
+          <div class="scrape-card-body"><div class="scrape-title"><strong :data-tooltip="item.title">{{ item.title }}</strong><span class="work-star" :class="itemStatus(item)" :aria-label="statuses[itemStatus(item)]"  /></div><small :data-tooltip="item.path">{{ item.kind === 'tv' ? '剧集' : '电影' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.kind === 'tv'"> · {{ item.count || 1 }} 集</template></small></div>
           <div v-if="!selectionMode" class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" :size="16" />重置</button><button class="icon-btn" aria-label="识别作品" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" :size="16" />识别</button></div>
         </article>
         <div v-if="bottom" :style="{height: `${bottom}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
@@ -197,7 +205,8 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-toolbar > .rounded-select:first-child { width: 170px; }
 .scrape-toolbar > .rounded-select:nth-child(2) { width: 160px; }
 .scrape-toolbar > .rounded-select:nth-child(3) { width: 120px; }
-.scrape-toolbar .search-field { width: 200px; margin-left: auto; }
+.scrape-toolbar .search-field { width: 200px; margin-left: 0; }
+.scrape-refresh { margin-left:auto; }
 .scrape-progress { display: flex; align-items: center; gap: 12px; padding: 0 14px 12px; font-size: 13px; color: var(--muted); }
 .scrape-progress span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
 .scrape-progress progress { height: 4px; flex: 1; accent-color: var(--primary); }
@@ -211,8 +220,8 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-poster span { font-size: 12px; }
 .scrape-card-body { min-width: 0; padding: 9px 10px; font-size: 14px; }
 .scrape-title { display:flex; gap:7px; align-items:flex-start; }.scrape-title strong { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.work-star { --status-color:#8b93a4; width:6px; height:6px; flex:none; margin-top:3px; border-radius:50%; background:var(--status-color); box-shadow:0 0 5px 1px color-mix(in srgb,var(--status-color) 55%,transparent); }
-.work-star.pending { --status-color:#6e78d4; }.work-star.ok { --status-color:var(--green); }.work-star.miss,.work-star.doubt { --status-color:var(--amber); }.work-star.error { --status-color:var(--red); }
+.work-star { --status-color:#8b93a4; width:10px; height:10px; flex:none; margin-top:3px; background:var(--status-color); clip-path:polygon(50% 0,61% 38%,100% 50%,61% 62%,50% 100%,39% 62%,0 50%,39% 38%); filter:drop-shadow(0 0 3px var(--status-color)); }
+.work-star.pending { --status-color:#6e78d4; }.work-star.ok { --status-color:var(--green); }.work-star.miss { --status-color:var(--amber); }.work-star.doubt { --status-color:#b07cb9; }.work-star.error { --status-color:var(--red); }
 .scrape-card-body > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scrape-card-body > small { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .scrape-status { display: inline-flex; gap: 8px; margin-top: 7px; font-size: 12px; color: var(--muted); }
@@ -227,10 +236,11 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-card:hover .scrape-actions, .scrape-card:focus-within .scrape-actions { opacity:1; pointer-events:auto; transform:none; }
 .scrape-actions :deep(button) { background:var(--surface); border-radius:10px; box-shadow:0 2px 8px #0002; }
 @media(hover:none) { .scrape-actions { opacity:1; pointer-events:auto; transform:none; } }
-.scrape-actions :deep(button) { display:flex; gap:6px; justify-content:center; width: 50%; height: 38px; border-radius:8px; color:#fff; font-size:12px; background:#222633ba; backdrop-filter:blur(12px); box-shadow:0 2px 8px #0002; transition:transform .18s,background .18s; }
-.scrape-actions :deep(button:last-child) { background:#4c438cbd; }
-.scrape-actions :deep(button:hover:not(:disabled)) { transform:translateY(-3px); background:#323947df; }.scrape-actions :deep(button:last-child:hover:not(:disabled)) { background:#6457a9e6; }
-.scrape-card.selected { border-color:#8585e1; box-shadow:inset 0 0 0 1px #8585e1,0 0 12px #7872d84d; }
+.scrape-actions :deep(button) { display:flex; gap:6px; justify-content:center; width: 50%; height: 38px; border-radius:8px; color:#fff; font-size:12px; background:#22263380; backdrop-filter:blur(12px); box-shadow:0 2px 8px #0002; transition:transform .18s,background .18s; }
+.scrape-actions :deep(button:last-child) { background:#4c438c88; }
+.scrape-actions :deep(button:hover:not(:disabled)) { transform:translateY(-3px); background:#323947a6; }.scrape-actions :deep(button:last-child:hover:not(:disabled)) { background:#6457a9b3; }
+.scrape-card.selected { border-color:#8585e1; box-shadow:0 0 12px #7872d84d; }
+.scrape-card.selected::after { content:""; position:absolute; inset:-1px; z-index:4; pointer-events:none; border:2px solid #8585e1; border-radius:inherit; }
 .selecting .scrape-card { transition:transform .2s ease, border-color .2s ease; overflow:visible; }
 .selecting .scrape-card:hover { transform:scale(1.025); z-index:2; }
 .scrape-poster { position:relative; border-radius:7px 7px 0 0; overflow:hidden; }.poster-selection { position:absolute; left:9px; top:9px; color:var(--primary); background:var(--surface); border-radius:50%; width:24px; height:24px; }

@@ -27,7 +27,9 @@
   transfer/backup.json
 ```
 
-`state.json` 保存账户、签名信息、任务顺序和必要运行记录。`task/other.json` 保留其他任务类型；`tool/config.json` 保留其他工具配置。重命名、整理等既有独立规则 JSON 继续保留。
+`state.json` 保存账户、签名信息和任务顺序。`task/other.json` 保留其他任务类型；`tool/config.json` 保留其他工具配置。重命名、整理等既有独立规则 JSON 继续保留。
+
+任务进度、执行结果、最近运行时间、存储健康状态、挂载状态、通知和 CAS 临时文件记录存于 `/data/runtime/state.json`，会话存于 `/data/runtime/sessions.enc`；目录缓存、刮削索引、播放流水和日志沿用 `/data/cache`、`/data/log`。运行态文件同样校验完整性，涉及凭据的字段仍加密。首次启动迁移配置中的旧运行记录，旧文件不删除；任务更新只改变运行态，不重写任务定义。运行态丢失时不能找回过去的结果，但不会回退旧配置；运行态损坏则明确报错。若需要保留历史、会话及 CAS 临时文件追踪，备份 `/data`，并与配置主密钥一起恢复。
 
 ## 安全
 

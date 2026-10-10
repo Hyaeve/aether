@@ -6,11 +6,12 @@ services:
     volumes:
       - ./config:/config
       - ./data:/data
-      # 可选：将 FUSE 读缓存单独映射，建议放到更快的磁盘
-      # - ./fuse_read_cache:/data/fuse_read_cache
+      # FUSE 读缓存单独映射，建议放到更快的磁盘
+      - ./fuse_read_cache:/fuse_read_cache
     environment:
       - TZ=Asia/Shanghai
       - AETHER_PORT=15151
+      - AETHER_FUSE_CACHE_DIR=/fuse_read_cache
     devices:
       - /dev/fuse:/dev/fuse
     pid: "host"

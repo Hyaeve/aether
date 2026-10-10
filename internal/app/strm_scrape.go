@@ -65,6 +65,9 @@ var scrapeID = regexp.MustCompile(`(?i)[{\[]tmdb[-=](\d+)[}\]]`)
 
 func recognizeSTRM(name string) scrapeItem {
 	title := strings.TrimSuffix(name, path.Ext(name))
+	if ext := strings.ToLower(path.Ext(title)); ext == ".cas" || ext == ".ed2k" {
+		title = strings.TrimSuffix(title, path.Ext(title))
+	}
 	if isVideo(title) {
 		title = strings.TrimSuffix(title, path.Ext(title))
 	}
@@ -110,12 +113,12 @@ func (a *App) scrapeIndexPath(task string) string {
 }
 func (a *App) scrapeRoot(taskID string) (string, error) {
 	for _, t := range a.store.snapshotWithLogLimit(0).Tasks {
-		if t.ID == taskID && t.Kind == "strm" && !t.ScrapeExcluded {
+		if t.ID == taskID && (t.Kind == "strm" || t.Kind == "cas" || t.Kind == "ed2k") && !t.ScrapeExcluded {
 			base, rel, err := a.outputLocation(t.Target)
 			if err != nil {
 				return "", err
 			}
-			if t.Source != "" && t.Source != "/" {
+			if t.Kind == "strm" && t.Source != "" && t.Source != "/" {
 				var s Storage
 				for _, pool := range a.store.snapshotWithLogLimit(0).Storages {
 					if pool.ID == t.StorageID {
@@ -234,6 +237,10 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 }
 func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	action := r.PathValue("action")
+	if action == "files" {
+		a.scrapeFiles(w, r)
+		return
+	}
 	if action == "directories" && r.Method == "GET" {
 		a.scrapeDirectories(w, r)
 		return

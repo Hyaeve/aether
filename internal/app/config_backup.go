@@ -110,7 +110,7 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 			return errors.New("配置中存在符号链接，无法导出")
 		}
 		if entry.IsDir() {
-			if name != a.store.dir && (entry.Name() == "log" || entry.Name() == "cache") {
+			if name != a.store.dir && (entry.Name() == "log" || entry.Name() == "cache" || entry.Name() == "runtime") {
 				return filepath.SkipDir
 			}
 			return nil
@@ -282,6 +282,8 @@ func applyPendingConfig(s *Store) error {
 	}
 	before := s.state
 	s.state = b.State
+	// Imported run results must not be replaced by the old data directory on startup.
+	s.state.RuntimeSeparated = false
 	s.state.Modules = before.Modules
 	s.state.ModuleVersion = before.ModuleVersion
 	for i := range s.state.BackupRules {

@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, state, bytes, notify } from '../lib'
 import Icon from '../components/Icon.vue'
+import { documentIcon } from '../file-icon'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
 import ImageViewer from '../components/ImageViewer.vue'
@@ -113,7 +114,7 @@ const imageFile = f => !f.isDir && /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(f.
 const videoFile = f => !f.isDir && /\.(?:mp4|webm|m4v|mov|mkv|avi|ts)$/i.test(f.name)
 const audioFile = f => !f.isDir && /\.(?:mp3|m4a|m4b|aac|flac|wav|ogg|oga|opus|wma|aiff|aif|alac)$/i.test(f.name)
 const archiveFile = f => !f.isDir && /\.(?:zip|7z|rar|tar|tar\.gz|tar\.bz2|tar\.xz|tgz|tbz2|txz)$/i.test(f.name)
-const fileIcon = f => f.isDir ? 'Folder' : audioFile(f) ? 'FileAudio2' : archiveFile(f) ? 'FileArchive' : imageFile(f) ? 'Image' : 'FileVideo'
+const fileIcon = f => f.isDir ? 'Folder' : documentIcon(f.name) || (audioFile(f) ? 'FileAudio2' : archiveFile(f) ? 'FileArchive' : imageFile(f) ? 'Image' : 'FileVideo')
 const extractable = computed(() => detailFiles.value.length === 1 && archiveFile(detailFiles.value[0]))
 const extracting = ref(null), extractPassword = ref(''), extractFolder = ref(''), extractBusy = ref(false), extractError = ref('')
 function closeExtract() { if (!extractBusy.value) { extracting.value = null; extractPassword.value = '' } }
@@ -353,7 +354,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
-    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="FileClock" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump" />
+    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump" />
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
@@ -412,7 +413,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
   </template>
 </template>
 <style scoped>
-.file-visit-history { min-width:34px; width:34px; }.file-visit-history :deep(.rounded-select-trigger) { width:34px; padding:0; justify-content:center; border:0; background:transparent; }.file-visit-history :deep(.rounded-select-popup) { right:0; left:auto; width:280px; max-width:80vw; }.file-visit-history :deep(.select-label) { overflow:hidden; text-overflow:ellipsis; }
+.file-visit-history { min-width:34px; width:34px; }.file-visit-history :deep(.rounded-select-trigger) { width:34px; padding:0; justify-content:center; border:1px solid var(--border); background:var(--input); border-radius:8px; }.file-visit-history :deep(.rounded-select-popup) { right:-10px; left:auto; width:280px; max-width:80vw; }.file-visit-history :deep(.select-label) { overflow:hidden; text-overflow:ellipsis; }
 .file-search-status { margin:0 0 10px; color:var(--muted); font-size:12px; }
 .file-result-path { display:block; padding:0; margin:4px 0 0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:none; color:var(--muted); font-size:11px; text-align:left; }
 .file-result-path:hover { color:var(--primary); }

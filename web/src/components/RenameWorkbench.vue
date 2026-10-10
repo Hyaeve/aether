@@ -16,10 +16,12 @@ const ignored = ref([]), naming = ref(false), editing = ref(null), editName = re
 const originals = () => sourceFiles.value.map(f => ({ id: f.id, name: f.name, newName: f.name, isDir: f.isDir }))
 const sets = ref([]), chosen = ref(''), setName = ref(''), items = ref([]), error = ref(''), busy = ref(false), loading = ref(false), saveBusy = ref(false)
 const viewport = ref(null)
-const { shown, top, bottom, reset } = useVirtualList(items, viewport, { rowHeight: 72 })
+const { shown, top, bottom } = useVirtualList(items, viewport, { rowHeight: 72 })
 let timer, generation = 0, disposed = false
 items.value = originals()
-const payload = () => ({ storageId: props.storage, source: props.source, ids: sourceFiles.value.filter(f => !ignored.value.includes(f.id)).map(f => f.id), rules: rules.value.filter(r => r.find.trim()) })
+const effectiveRules = computed(() => rules.value.filter(r => r.find.trim()).map(r => ({ kind: r.kind, find: r.find, replace: r.replace, findType: r.findType || 'literal', caseSensitive: !!r.caseSensitive, firstOnly: !!r.firstOnly })))
+const ruleSignature = computed(() => JSON.stringify(effectiveRules.value))
+const payload = () => ({ storageId: props.storage, source: props.source, ids: sourceFiles.value.filter(f => !ignored.value.includes(f.id)).map(f => f.id), rules: effectiveRules.value })
 const changes = computed(() => items.value.filter(f => !ignored.value.includes(f.id) && f.name !== f.newName && !f.error).length)
 const invalid = computed(() => loading.value || !items.value.length || items.value.some(f => !ignored.value.includes(f.id) && f.error) || !!error.value || !changes.value)
 const validRules = computed(() => rules.value.length > 0 && rules.value.every(r => r.find.trim()))
@@ -46,16 +48,21 @@ async function renameOne() {
 }
 async function preview() {
   const id = ++generation
-  if (!payload().rules.length || !payload().ids.length) { items.value = originals(); loading.value = false; error.value = ''; return }
+  if (!payload().rules.length || !payload().ids.length) { updatePreview([]); loading.value = false; error.value = ''; return }
   loading.value = true; error.value = ''
-  try { const result = await api('/files/rename-preview', 'POST', payload()); if (!disposed && id === generation) { const byID = new Map(result.map(f => [f.id, f])); items.value = originals().map(f => byID.get(f.id) || f); reset() } }
-  catch (e) { if (!disposed && id === generation) { error.value = e.message; items.value = [] } }
+  try { const result = await api('/files/rename-preview', 'POST', payload()); if (!disposed && id === generation) updatePreview(result) }
+  catch (e) { if (!disposed && id === generation) error.value = e.message }
   finally { if (!disposed && id === generation) loading.value = false }
 }
-watch(rules, () => {
+function updatePreview(result) {
+  const byID = new Map(result.map(f => [f.id, f]))
+  const existing = new Map(items.value.map(f => [f.id, f]))
+  items.value = originals().map(f => Object.assign(existing.get(f.id) || f, { ...f, ...byID.get(f.id), error: byID.get(f.id)?.error || '' }))
+}
+watch(ruleSignature, () => {
   clearTimeout(timer); generation++; loading.value = true
   timer = setTimeout(preview, 250)
-}, { deep: true })
+})
 function addRule() { rules.value.push({ kind: 'replace', find: '', replace: '', caseSensitive: false, firstOnly: false }); expanded.value = rules.value.length - 1 }
 function removeRule(index) { if (index === 0) return; rules.value.splice(index, 1); expanded.value = Math.min(index, rules.value.length - 1) }
 function nameParts(item) {
@@ -98,7 +105,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
     <div class="rename-columns">
       <section class="rename-comparison">
         <ThinScroll :ref="el => viewport = el?.element || null" :thickness="2" class="rename-preview-scroll" content-class="rename-preview">
-          <p v-if="loading" class="small-empty">正在预览…</p><p v-else-if="!items.length" class="small-empty">{{ error || '等待应用规则' }}</p>
+          <p v-if="!items.length" class="small-empty">{{ error || '等待应用规则' }}</p>
           <div :style="{ height: `${top}px` }" />
           <article v-for="item in shown" :key="item.id" class="rename-preview-row" :class="{ignored: ignored.includes(item.id)}">
             <div><small>原：</small><span :data-tooltip="item.name">{{ item.name }}</span></div>
@@ -150,7 +157,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 .rename-rule label:not(.rename-check), .rule-inline { display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:8px; margin-top:8px; }.rule-inline { margin-bottom:8px; }
 .rename-rule input:not([type=checkbox]), .rename-rules :deep(.rounded-select-trigger), .rename-rules .btn { min-height:28px; height:28px; padding-top:3px; padding-bottom:3px; }
 .rule-checks { display:flex; gap:18px; }.rule-checks label { margin:10px 0 2px; }
-.rename-rule { padding:10px; margin-bottom:8px; background:color-mix(in srgb,var(--surface) 60%,var(--input)); }.rename-rule header { margin-bottom:6px; }.rename-rule .icon-btn { width:28px; height:28px; min-height:28px; }
+.rename-rule { padding:10px; margin-bottom:8px; background:var(--surface); }.rename-rule header { margin-bottom:6px; }.rename-rule .icon-btn { width:28px; height:28px; min-height:28px; }
 .rename-changed small { color:var(--green); }.rename-changed > span { color:var(--text); }.rename-changed mark { color:#bf690b; background:#df921c12; border-radius:3px; }
 :global([data-theme=dark] .rename-changed mark) { color:#f4b45a; }
 @media(prefers-reduced-motion:reduce) { .rule-expand-enter-active, .rule-expand-leave-active { transition:none; } }

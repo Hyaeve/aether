@@ -13,6 +13,54 @@ import (
 	"time"
 )
 
+func TestFuseReadCacheConfiguredDirectory(t *testing.T) {
+	t.Setenv("AETHER_FUSE_CACHE_DIR", "")
+	a := &App{dataDir: t.TempDir()}
+	if got := a.fuseCacheDirectory(); got != filepath.Join(a.dataDir, "fuse_read_cache") {
+		t.Fatal("native default changed", got)
+	}
+	dir := t.TempDir()
+	t.Setenv("AETHER_FUSE_CACHE_DIR", dir)
+	if got := a.fuseCacheDirectory(); got != dir {
+		t.Fatal("external cache ignored", got)
+	}
+	c := a.fuseCache()
+	if c.dir != dir || a.fuseCache() != c {
+		t.Fatal("configured cache was not reused", c.dir)
+	}
+	data := []byte("cached")
+	calls := 0
+	fetch := func(b []byte, off int64) (int, error) {
+		calls++
+		return bytes.NewReader(data).ReadAt(b, off)
+	}
+	for i := 0; i < 2; i++ {
+		b := make([]byte, len(data))
+		if n, err := c.readAt(context.Background(), "external", int64(len(data)), b, 0, fetch); err != nil || n != len(data) || !bytes.Equal(b, data) {
+			t.Fatal(n, err)
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 || calls != 1 {
+		t.Fatal("configured disk cache not used", entries, err, calls)
+	}
+	if _, err := os.Stat(filepath.Join(a.dataDir, "fuse_read_cache")); !os.IsNotExist(err) {
+		t.Fatal("unexpected data-directory cache", err)
+	}
+}
+
+func TestFuseReadCacheDirectoryProtectedFromMount(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	t.Setenv("AETHER_FUSE_CACHE_DIR", dir)
+	if err := a.validateMount(&MountConfig{Name: "cache-overlap", MountPoint: dir, Mode: 0755}); err == nil {
+		t.Fatal("mount can hide its own read cache")
+	}
+	if err := a.validateMount(&MountConfig{Name: "separate", MountPoint: t.TempDir(), Mode: 0755}); err != nil {
+		t.Fatal("separate mount rejected", err)
+	}
+}
+
 func TestFuseReadCacheBlocksAndRestart(t *testing.T) {
 	c := newFuseReadCache(t.TempDir())
 	data := bytes.Repeat([]byte("abcd"), fuseBlockSize/4+20)

@@ -30,7 +30,7 @@ func TestSessionsSurviveRestartAndRevoke(t *testing.T) {
 	if request(t, b.Handler(t.TempDir()), "GET", "/api/state", nil, cookie).Code != 200 {
 		t.Fatal("restart lost session")
 	}
-	data, err := os.ReadFile(filepath.Join(a.store.dir, "sessions.enc"))
+	data, err := os.ReadFile(filepath.Join(a.dataDir, "runtime", "sessions.enc"))
 	if err != nil || strings.Contains(string(data), cookie.Value) {
 		t.Fatal("session storage is not encrypted")
 	}

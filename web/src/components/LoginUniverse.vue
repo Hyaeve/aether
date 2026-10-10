@@ -71,16 +71,16 @@ function buildGalaxy(random, scale) {
   if (!dust) return
   dust.scale(scale, scale)
   // A cached band of tiny stellar particles forms a textured galaxy, not blurred blobs.
-  const count = Math.min(62000, Math.floor(width * height / 12))
+  const count = Math.min(76000, Math.floor(width * height / 10))
   for (let i = 0; i < count; i++) {
     const along = random()
     const spread = Math.sqrt(-2 * Math.log(Math.max(random(), .0001))) * Math.cos(random() * Math.PI * 2)
-    const x = width * (.94 - along * .88) + spread * width * .14
-    const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .095
+    const x = width * (.94 - along * .88) + spread * width * .19
+    const y = height * (along + .055 * Math.sin(along * 8)) + spread * height * .13
     // Dark lanes break up the star cloud, giving the band an irregular structure.
     const lane = Math.abs(spread + .3 * Math.sin(along * 26))
     const core = Math.exp(-spread * spread * .55)
-    const alpha = (.08 + random() * .34) * core * (.12 + .88 * Math.min(1, lane / .28))
+    const alpha = (.1 + random() * .38) * core * (.12 + .88 * Math.min(1, lane / .28))
     dust.fillStyle = i % 4 === 0 ? `rgba(232,218,204,${alpha})` : `rgba(173,185,234,${alpha})`
     const radius = .4 + random() * 1.1
     dust.fillRect(x, y, radius, radius)

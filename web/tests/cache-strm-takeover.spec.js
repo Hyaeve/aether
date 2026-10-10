@@ -4,14 +4,16 @@ import { captureScreenshot } from './helpers/screenshot.js'
 async function workspace(page) {
   await page.route('**/api/plugins/*', r => r.fulfill({ json: { enabled: false, token: '' } }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
-  await page.route('**/api/state', r => r.fulfill({ json: {
+  const snapshot = {
     username: 'cache-test', storages: [
       { id: 'olist', name: 'OpenList 影音', type: 'openlist', enabled: true, config: {} },
       { id: 'quark', name: 'Quark', type: 'quark', enabled: true, config: {} }
     ], tasks: [{ id: 'warm', name: '目录预热', kind: 'cache', storageId: 'quark', source: '/', status: 'running', processed: 42, interval: 60, message: '已缓存 42 个目录 · 电影', enabled: true }],
     settings: { cacheMaxItems: 10000 }, cache: { hits: 80, misses: 20, bytes: 2048, entries: 42, evictions: 7, expired: 3 }, traffic: {}, logs: [], strmRoot: '/data/strm'
-  } }))
+  }
+  await page.route('**/api/state', r => r.fulfill({ json: snapshot }))
   await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '/B', name: 'B', isDir: true }] }))
+  return snapshot
 }
 
 test('real cache overview and explicit OpenList STRM source', async ({ page }, testInfo) => {
@@ -19,6 +21,16 @@ test('real cache overview and explicit OpenList STRM source', async ({ page }, t
   await page.goto('/tasks/cache')
   await expect(page.getByRole('region', { name: '缓存命中统计' })).toContainText('80%')
   await expect(page.locator('.cache-progress')).toContainText('已缓存 42 个目录')
+  await expect(page.getByText('当前缓存任务', { exact: true })).toHaveCount(0)
+  await expect(page.locator('.cache-progress-track')).toHaveCSS('height', '6px')
+  await expect(page.getByRole('progressbar', { name: '目录预热：扫描中，已缓存 42 个目录' })).toHaveAttribute('aria-valuetext', '扫描中，已缓存 42 个目录')
+  await expect(page.locator('.cache-progress-motion')).toHaveCSS('animation-name', /^cache-scan(?:-|$)/)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.cache-progress-motion')).toHaveCSS('animation-name', 'none')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.getByRole('button', { name: '添加任务', exact: true }).click()
+  await expect(page.getByRole('spinbutton', { name: '扫描层级', exact: true })).toHaveValue('4')
+  await page.getByRole('button', { name: '取消', exact: true }).click()
   for (const theme of ['light', 'dark']) {
     await page.evaluate(t => document.documentElement.dataset.theme = t, theme)
     await captureScreenshot(page, { path: testInfo.outputPath(`cache-${theme}.png`) })
@@ -45,6 +57,34 @@ test('real cache overview and explicit OpenList STRM source', async ({ page }, t
   await page.getByRole('button', { name: '保存任务', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   expect(saved).toMatchObject({ storageId: 'olist', source: '/B', sourceLabel: 'B', encodePath: true })
+})
+
+test('cache scan counts update live and new depth saves four without changing existing all-depth tasks', async ({ page }) => {
+  const snapshot = await workspace(page)
+  snapshot.tasks.push({ id: 'old', name: '全层缓存', kind: 'cache', storageId: 'quark', source: '/', depth: 0, interval: 60, status: 'idle', enabled: true })
+  await page.goto('/tasks/cache')
+  await expect(page.locator('.cache-progress-count')).toHaveText('已缓存 42 个目录')
+  snapshot.tasks[0].processed = 57
+  snapshot.tasks[0].message = '已缓存 57 个目录 · 剧集'
+  await expect(page.locator('.cache-progress-count')).toHaveText('已缓存 57 个目录', { timeout: 10000 })
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuetext', '扫描中，已缓存 57 个目录')
+  await page.getByRole('button', { name: '任务操作 全层缓存', exact: true }).click()
+  await page.getByRole('button', { name: '编辑任务', exact: true }).click()
+  await expect(page.getByRole('spinbutton', { name: '扫描层级', exact: true })).toHaveValue('0')
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await page.getByRole('button', { name: '添加任务', exact: true }).click()
+  await page.getByLabel('任务名称').fill('四层缓存')
+  await page.getByRole('button', { name: '选择目录', exact: true }).click()
+  await page.getByRole('dialog', { name: '选择存储目录' }).getByRole('button', { name: /Quark/ }).click()
+  await page.getByRole('button', { name: '选择当前目录', exact: true }).click()
+  let saved
+  await page.route('**/api/tasks', r => { saved = r.request().postDataJSON(); return r.fulfill({ json: saved }) })
+  await page.getByRole('button', { name: '保存任务', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(saved).toMatchObject({ kind: 'cache', depth: 4, storageId: 'quark' })
+  snapshot.tasks[0].status = 'success'
+  await expect(page.getByLabel('暂无执行中的缓存任务')).toBeVisible({ timeout: 10000 })
+  await expect(page.locator('.cache-progress-status')).toHaveText('空闲')
 })
 
 test('Quark takeover binds once by QR and toggles from its icon', async ({ page }, testInfo) => {

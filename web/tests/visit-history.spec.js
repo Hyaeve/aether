@@ -11,10 +11,12 @@ test('directory history preserves opaque ids, deepest paths and sibling branches
   entries=rememberVisit(entries,b);expect(entries).toEqual([c])
   entries=rememberVisit(entries,d);expect(entries).toEqual([d,c])
   entries=rememberVisit(entries,b);expect(entries).toEqual([d,c])
-  entries=rememberVisit(entries,visit('other','cid-c',[]));expect(entries).toHaveLength(3)
-  for(let i=0;i<8;i++)entries=rememberVisit(entries,visit(`pool-${i}`,'/',[]))
+  const before = [...entries]
+  entries=rememberVisit(entries,visit('other','cid-c',[]));expect(entries).toEqual(before)
+  entries=rememberVisit(entries,visit('pan','cid-a',[['/','A']]));expect(entries).toEqual(before)
+  for(let i=0;i<8;i++)entries=rememberVisit(entries,visit(`pool-${i}`,'b',[['/','A'],['a','B']]))
   expect(entries).toHaveLength(5)
-  expect(validVisits([null,{storage:'bad',id:'/',history:[null]},c])).toEqual([c])
+  expect(validVisits([null,{storage:'bad',id:'/',history:[null]},visit('pan','/',[]),visit('pan','cid-a',[['/','A']]),c])).toEqual([c])
 })
 
 test('history menu jumps to the exact stored cloud directory and persists per browser',async({page})=>{
@@ -54,7 +56,7 @@ test('a delayed directory response merges history written after the page mounted
     return r.fulfill({json:data})
   })
   await page.goto('/files');await pending
-  await page.evaluate(()=>localStorage.setItem('aether-file-history:history-delayed',JSON.stringify([{storage:'two',id:'cid-c',history:[{id:'/',name:'C'}]}])))
+  await page.evaluate(()=>localStorage.setItem('aether-file-history:history-delayed',JSON.stringify([{storage:'two',id:'cid-c',history:[{id:'/',name:'A'},{id:'cid-a',name:'C'}]}])))
   release()
   await page.getByRole('button',{name:'历史访问',exact:true}).click()
   await expect(page.getByRole('option',{name:'115 / C',exact:true})).toBeVisible()
