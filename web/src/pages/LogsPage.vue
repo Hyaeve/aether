@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
-import { api, date, notify } from '../lib'
+import { api, date, notify, state } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import ScrollRail from '../components/ScrollRail.vue'
@@ -8,6 +8,15 @@ import { listWheel } from '../nested-scroll'
 import { useRoute } from 'vue-router'
 const route = useRoute()
 const filters = reactive({ query: '', level: 'all', module: 'all', view: 'structured' })
+const viewKey = computed(() => state.username ? `aether-log-view:${state.username}` : '')
+watch(viewKey, key => {
+  try { filters.view = key && localStorage.getItem(key) === 'raw' ? 'raw' : 'structured' }
+  catch { filters.view = 'structured' }
+}, { immediate: true })
+function toggleView() {
+  filters.view = filters.view === 'raw' ? 'structured' : 'raw'
+  if (viewKey.value) { try { localStorage.setItem(viewKey.value, filters.view) } catch {} }
+}
 const modules = { audit: '操作审计', files: '文件与备份', storage: '存储与服务', tasks: '任务管理', links: '以太链接', system: '系统' }
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试' }
 if (!modules[filters.module]) filters.module = 'all'
@@ -90,7 +99,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
 <template>
   <section class="log-panel" aria-label="系统日志">
     <div class="log-toolbar">
-      <button class="icon-btn log-view-toggle" :aria-label="filters.view === 'raw' ? '当前原始列表，切换结构化列表' : '当前结构化列表，切换原始列表'" @click="filters.view = filters.view === 'raw' ? 'structured' : 'raw'"><Icon :name="filters.view === 'raw' ? 'Logs' : 'TableProperties'" :size="21" /></button>
+      <button class="icon-btn log-view-toggle" :aria-label="filters.view === 'raw' ? '当前原始列表，切换结构化列表' : '当前结构化列表，切换原始列表'" @click="toggleView"><Icon :name="filters.view === 'raw' ? 'Logs' : 'TableProperties'" :size="21" /></button>
       <RoundedSelect v-model="filters.level" label="日志级别" :options="[{ value: 'all', label: '全部级别' }, ...Object.entries(levels).map(([value, label]) => ({ value, label }))]" />
       <RoundedSelect v-model="filters.module" label="日志模块" :options="[{ value: 'all', label: '全部模块' }, ...Object.entries(modules).map(([value, label]) => ({ value, label }))]" />
       <button class="icon-btn" aria-label="刷新日志" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
@@ -99,7 +108,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
     <div class="log-list-shell"><div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" @wheel="listWheel" @scroll="scroll = $event.target.scrollTop">
       <div :style="{ height: `${totalHeight}px`, position: 'relative' }">
         <div :style="{ transform: `translateY(${offsetAt(start)}px)` }">
-          <div v-for="(entry, index) in visible" :key="`${filters.view}:${start + index}`" :ref="el => setRow(el, start + index)" :data-index="start + index" :data-level="entry.level" class="log-entry" :class="{ raw: filters.view === 'raw' }">
+          <div v-for="(entry, index) in visible" :key="`${filters.view}:${start + index}`" :ref="el => setRow(el, start + index)" :data-index="start + index" :data-level="entry.level" class="log-entry" :class="{ raw: filters.view === 'raw', striped: (start + index) % 2 === 1 }">
             <template v-if="filters.view === 'raw'"><strong class="raw-level">{{ entry.level.toUpperCase() }}</strong><code><time class="raw-time">{{ entry.time }}</time> {{ JSON.stringify({ module: entry.module, message: entry.message }) }}</code></template>
             <template v-else><time>{{ date(entry.time) }}</time><span class="log-level" :data-level="entry.level">{{ levels[entry.level] || entry.level }}</span><span class="log-module">{{ modules[entry.module] || '系统' }}</span><span class="log-message">{{ entry.message }}</span></template>
           </div>
@@ -110,3 +119,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
     <footer>{{ logs.length }} 条记录</footer>
   </section>
 </template>
+<style scoped>
+:root:not([data-theme="dark"]) .log-entry:not(.raw) { background: var(--input); }
+:root:not([data-theme="dark"]) .log-entry:not(.raw).striped { background: color-mix(in srgb, var(--text) 9%, var(--input)); }
+</style>

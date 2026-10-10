@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -42,6 +41,11 @@ type Download struct {
 var apiClient = &http.Client{Timeout: 45 * time.Second}
 
 func requestJSON(ctx context.Context, method, address string, headers http.Header, body any, out any) error {
+	_, err := requestJSONResponse(ctx, method, address, headers, body, out)
+	return err
+}
+
+func requestJSONResponse(ctx context.Context, method, address string, headers http.Header, body any, out any) (http.Header, error) {
 	var reader io.Reader
 	if body != nil {
 		if v, ok := body.(url.Values); ok {
@@ -50,7 +54,7 @@ func requestJSON(ctx context.Context, method, address string, headers http.Heade
 		} else {
 			b, err := json.Marshal(body)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			reader = bytes.NewReader(b)
 			headers.Set("Content-Type", "application/json")
@@ -58,21 +62,25 @@ func requestJSON(ctx context.Context, method, address string, headers http.Heade
 	}
 	req, err := http.NewRequestWithContext(ctx, method, address, reader)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header = headers
 	res, err := apiClient.Do(req)
 	if err != nil {
-		return errors.New("上游连接失败，请检查地址及网络")
+		return nil, upstreamConnectionError(ctx, err)
 	}
 	defer res.Body.Close()
+	responseHeaders := res.Header
+	if res.Request != nil && (res.Request.URL.Scheme != req.URL.Scheme || res.Request.URL.Host != req.URL.Host) {
+		responseHeaders = nil
+	}
 	if res.StatusCode >= 400 {
 		if res.StatusCode == 401 || res.StatusCode == 403 {
-			return authStorageError(fmt.Errorf("上游认证或访问被拒绝（HTTP %d）", res.StatusCode), false)
+			return responseHeaders, authStorageError(fmt.Errorf("上游认证或访问被拒绝（HTTP %d）", res.StatusCode), false)
 		}
-		return fmt.Errorf("上游返回 HTTP %d，请检查凭据及权限", res.StatusCode)
+		return responseHeaders, fmt.Errorf("上游返回 HTTP %d，请检查凭据及权限", res.StatusCode)
 	}
-	return json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out)
+	return responseHeaders, json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out)
 }
 
 func cloudHeaders(s Storage) http.Header {
@@ -82,6 +90,8 @@ func cloudHeaders(s Storage) http.Header {
 		h.Set("User-Agent", pan115UA)
 	}
 	if s.Type == "quark" {
+		h.Set("User-Agent", quarkClientUA)
+		h.Set("Accept", "application/json, text/plain, */*")
 		h.Set("Cookie", s.Config["cookie"])
 		h.Set("Referer", "https://pan.quark.cn/")
 	}
@@ -204,34 +214,7 @@ func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error
 	out := []File{}
 	switch s.Type {
 	case "local":
-		name, err := relative(dir)
-		if err != nil {
-			return nil, err
-		}
-		root, err := os.OpenRoot(s.Config["root"])
-		if err != nil {
-			return nil, errors.New("无法打开本地根目录")
-		}
-		defer root.Close()
-		f, err := root.Open(name)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
-		entries, err := f.ReadDir(-1)
-		if err != nil {
-			return nil, err
-		}
-		for _, entry := range entries {
-			if entry.Type()&os.ModeSymlink != 0 {
-				continue
-			}
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-			out = append(out, File{ID: path.Join("/", dir, entry.Name()), Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size(), Modified: info.ModTime()})
-		}
+		return localRawList(ctx, s, dir)
 	case "openlist", "mobile":
 		for page := 1; ; page++ {
 			var res struct {
@@ -491,19 +474,29 @@ func (a *App) downloadWithUA(ctx context.Context, s Storage, fileID, pick, userA
 		}
 	case "quark":
 		var res struct {
-			Code int `json:"code"`
-			Data []struct {
+			Code   int `json:"code"`
+			Status int `json:"status"`
+			Data   []struct {
 				URL string `json:"download_url"`
 			} `json:"data"`
 		}
-		err := requestJSON(ctx, "POST", "https://drive.quark.cn/1/clouddrive/file/download?pr=ucpro&fr=pc", cloudHeaders(s), map[string]any{"fids": []string{fileID}}, &res)
+		updated, err := a.quarkJSON(ctx, s, "POST", "https://drive.quark.cn/1/clouddrive/file/download?pr=ucpro&fr=pc", map[string]any{"fids": []string{fileID}}, &res)
 		if err != nil {
-			return d, err
+			return d, fmt.Errorf("夸克取下载链接失败：%w", err)
 		}
-		if res.Code != 0 || len(res.Data) == 0 {
-			return d, errors.New("夸克获取下载链接失败")
+		if res.Code == 41001 || res.Code == 31001 || res.Status == 401 || res.Status == 403 {
+			return d, authStorageError(errors.New("夸克下载授权已失效或访问被拒绝"), true)
 		}
-		d.URL, d.Headers = res.Data[0].URL, cloudHeaders(s)
+		if res.Code != 0 || res.Status >= 400 {
+			return d, fmt.Errorf("夸克下载接口拒绝请求（HTTP 状态 %d，错误码 %d）", res.Status, res.Code)
+		}
+		if len(res.Data) == 0 || strings.TrimSpace(res.Data[0].URL) == "" {
+			return d, errors.New("夸克未返回文件下载链接")
+		}
+		d.URL, d.Headers = res.Data[0].URL, cloudHeaders(updated)
+		if strings.Contains(strings.ToLower(userAgent), "quark-cloud-drive") || strings.Contains(strings.ToLower(userAgent), "uc-cloud-drive") {
+			d.Headers.Set("User-Agent", userAgent)
+		}
 	case "115":
 		if pick == "" {
 			return d, errors.New("缺少 pick_code，请刷新目录后重试")

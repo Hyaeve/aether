@@ -23,6 +23,8 @@ import ShareTransfer from '../components/ShareTransfer.vue'
 import { useVirtualList } from '../virtual-list'
 import { rememberVisit, validVisits } from '../visit-history'
 import ProviderIcon from '../components/ProviderIcon.vue'
+import VisitPath from '../components/VisitPath.vue'
+import { listWheel } from '../nested-scroll'
 import { readSession, writeSession } from '../session-navigation'
 const preferenceKey = `aether-files:${state.username}`
 let saved = {}
@@ -44,7 +46,7 @@ const visitKey = `aether-file-history:${state.username}`
 let previousVisits = []
 try { previousVisits = validVisits(JSON.parse(localStorage.getItem(visitKey) || '[]')) } catch {}
 const visits = ref(previousVisits), visitChoice = ref('')
-const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => { const pool = state.storages.find(s => s.id === v.storage); return { value: String(v.index), provider: pool.type, pool: pool.name, parent: v.history.slice(0,-1).map(h => h.name).join('/'), deepest: v.history.at(-1)?.name || '根目录', label: `${pool.name} / ${v.history.at(-1)?.name || '根目录'}` } }))
+const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => { const pool = state.storages.find(s => s.id === v.storage); return { value: String(v.index), provider: pool.type, pool: pool.name, parents: v.history.slice(0,-1).map(h => h.name), deepest: v.history.at(-1)?.name || '根目录', label: `${pool.name} / ${v.history.at(-1)?.name || '根目录'}` } }))
 async function visitJump(value) {
   const item = visits.value[Number(value)]
   if (!item || renameID.value || uploadBusy.value) return
@@ -193,6 +195,7 @@ const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小
 const type = f => f.isDir ? '文件夹' : f.name.split('.').at(-1).toUpperCase()
 const fileSize = f => f.isDir && !f.sizeKnown ? '—' : bytes(f.size)
 const visible = computed(() => activeFiles.value.filter(f => f.name.toLowerCase().includes(query.value.trim().toLowerCase())).sort((a, b) => {
+  if (!!a.isDir !== !!b.isDir) return a.isDir ? -1 : 1
   const value = f => sortKey.value === 'type' ? type(f) : sortKey.value === 'size' ? f.size : f[sortKey.value] || ''
   const av = value(a), bv = value(b)
   return (ascending.value ? 1 : -1) * (typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv), 'zh-CN', { numeric: true }))
@@ -200,6 +203,18 @@ const visible = computed(() => activeFiles.value.filter(f => f.name.toLowerCase(
 const displayItems = computed(() => draft.value ? [{ id: '__new__', name: '', isDir: true }, ...visible.value] : visible.value)
 const gridMode = computed(() => mode.value === 'grid')
 const { shown, top, bottom, columns: gridColumns, reset: resetScroll, reveal } = useVirtualList(displayItems, viewport, { rowHeight: computed(() => gridMode.value ? 148 : 52), header: computed(() => gridMode.value ? 0 : 44), grid: gridMode })
+const baselineHeight = ref(500)
+const fileOverflow = computed(() => Math.ceil(displayItems.value.length / (gridMode.value ? gridColumns.value : 1)) * (gridMode.value ? 148 : 52) + (gridMode.value ? 0 : 44) > baselineHeight.value)
+let layoutObserver
+function measureFileSpace() {
+  const browser = viewport.value?.closest('.file-browser'), page = browser?.closest('.page-scroll .thin-scroll-area')
+  if (!page) return
+  const before = browser.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop
+  baselineHeight.value = Math.max(100, page.clientHeight - before - browser.querySelector('.file-toolbar').offsetHeight - 24 - 8)
+}
+onMounted(() => { layoutObserver = new ResizeObserver(measureFileSpace); if (viewport.value) { layoutObserver.observe(viewport.value); layoutObserver.observe(viewport.value.closest('.page-scroll .thin-scroll-area')) }; measureFileSpace() })
+watch([mode, favoritesOpen], () => nextTick(measureFileSpace))
+onUnmounted(() => layoutObserver?.disconnect())
 watch([query, sortKey, ascending, mode], resetScroll)
 const detailFiles = computed(() => activeFiles.value.filter(f => selection.value.includes(f.id)))
 const detailSummary = computed(() => ({
@@ -374,7 +389,7 @@ load()
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
-    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" /><strong>{{ option.pool }}</strong><span class="visit-path"><template v-if="option.parent"><span>/</span><span class="visit-parent">{{ option.parent }}</span></template><span class="visit-deepest">/ {{ option.deepest }}</span></span></span></template></RoundedSelect>
+    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
     <button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
@@ -385,11 +400,11 @@ load()
   <p v-if="uploadProgress" class="upload-progress" role="status">{{ uploadProgress }}</p>
   <p v-if="searching || searchResults" class="file-search-status" role="status">{{ searching ? '正在深度搜索…' : `深度搜索 · ${searchResults.length} 个结果` }}</p>
   <p v-if="searchError" class="error-message" role="alert">{{ searchError }}</p>
-  <div class="file-browser">
+  <div class="file-browser" :class="{ 'has-file-overflow': !busy && displayItems.length && fileOverflow }">
   <div class="file-toolbar"><button class="icon-btn" aria-label="展开收藏栏" :aria-expanded="favoritesOpen" @click="favoritesOpen = !favoritesOpen"><Icon name="PanelLeft" /></button><RoundedSelect v-model="selected" label="选择存储池" :disabled="!!renameID || uploadBusy" :options="state.storages.filter(s => s.enabled).map(s => ({ value: s.id, label: s.name }))" /><div class="path-bar"><PathBreadcrumbs :entries="history" :disabled="busy || !!renameID || uploadBusy" @jump="jump" /></div><button class="icon-btn" :disabled="!!renameID" :aria-label="mode === 'list' ? '当前列表视图，切换网格' : '当前网格视图，切换列表'" @click="mode = mode === 'list' ? 'grid' : 'list'"><Icon :name="mode === 'list' ? 'List' : 'LayoutGrid'" /></button></div>
   <div class="file-workspace" :class="{ 'with-favorites': favoritesOpen }">
-  <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="!selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div><p v-if="!poolFavorites.length" class="muted">暂无收藏</p></aside>
-  <section ref="viewport" class="file-view" :class="{ 'deep-search-results': !!searchResults }" @contextmenu="blankTools">
+  <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="!selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div></aside>
+  <section ref="viewport" class="file-view" :class="{ 'deep-search-results': !!searchResults }" @wheel="listWheel" @contextmenu="blankTools">
   <div v-if="error" class="error-message" role="alert">{{ error }}</div>
   <div v-if="busy" class="empty-state"><Icon name="LoaderCircle" class="spin" :size="30" /><p>正在读取目录…</p></div>
   <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : searchInput ? '没有匹配结果' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>
@@ -403,7 +418,7 @@ load()
     <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name"><Icon :name="fileIcon(f)" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" :size="21" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
     <tr v-if="bottom" class="file-spacer" :style="{ height: `${bottom}px` }" aria-hidden="true"><td colspan="4" /></tr>
   </tbody></table></div>
-  </section></div></div>
+  </section></div><footer class="file-item-count">共 {{ visible.length }} 项</footer></div>
   <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
     <button :disabled="!downloadable" @click="downloadFile"><Icon name="Download" />下载</button>
     <button v-if="extractable" @click="showExtract"><Icon name="ArchiveRestore" />解压</button>
@@ -419,7 +434,7 @@ load()
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
   <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body">将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</div><footer class="modal-footer"><button class="btn" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })">确认修改</button></footer></Modal>
-  <FileDetailsDrawer v-if="details" title="文件详情" @close="details = false"><div class="modal-body file-details"><p>{{ detailFiles.length }} 个项目</p><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-if="detailFiles.length > 1"><dt>大小</dt><dd>{{ detailBusy ? '正在统计…' : !detailSummary.complete ? '统计未完成 · ' : '' }}{{ bytes(detailSummary.size) }}</dd><dt>包含</dt><dd>{{ detailSummary.folders }} 个文件夹，{{ detailSummary.files }} 个文件</dd><dt>所在目录</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation()">{{ detailLocation() }}<Icon name="Copy" :size="14" /></button></dd></dl><dl v-for="f in detailFiles.length === 1 ? detailFiles : []" :key="f.id">
+  <FileDetailsDrawer v-if="details" :title="detailFiles.every(f => f.isDir) ? '文件夹详情' : '文件详情'" :count="detailFiles.length" @close="details = false"><div class="modal-body file-details"><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-if="detailFiles.length > 1"><dt>大小</dt><dd>{{ detailBusy ? '正在统计…' : !detailSummary.complete ? '统计未完成 · ' : '' }}{{ bytes(detailSummary.size) }}</dd><dt>包含</dt><dd>{{ detailSummary.folders }} 个文件夹，{{ detailSummary.files }} 个文件</dd><dt>所在目录</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation()">{{ detailLocation() }}<Icon name="Copy" :size="14" /></button></dd></dl><dl v-for="f in detailFiles.length === 1 ? detailFiles : []" :key="f.id">
     <dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd>
     <dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd>
     <template v-if="f.isDir"><dt>包含</dt><dd>{{ f.countsKnown ? `${f.folderCount || 0} 个文件夹，${f.fileCount || 0} 个文件` : detailBusy ? '正在统计…' : '未完成统计' }}</dd></template>
@@ -435,9 +450,10 @@ load()
 </template>
 <style scoped>
 .file-browser { position:relative; }
-.file-visit-history :deep(.rounded-select-popup) { width:390px !important; }
-.visit-entry { display:flex; align-items:center; gap:8px; width:100%; min-width:0; font-size:13px; }.visit-entry :deep(.provider-icon) { width:24px; height:24px; flex:none; border:0; background:none; border-radius:0; }.visit-entry strong { color:var(--text); max-width:120px; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }.visit-path { display:flex; min-width:0; color:var(--muted); gap:4px; }.visit-parent { min-width:0; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left; }.visit-deepest { flex-shrink:0; max-width:190px; overflow:hidden; text-overflow:ellipsis; }
-.file-visit-history { min-width:34px; width:34px; }.file-visit-history :deep(.rounded-select-trigger) { width:34px; padding:0; justify-content:center; border:0; background:none; border-radius:6px; }.file-visit-history :deep(.rounded-select-trigger:hover) { background:var(--primary-soft); color:var(--primary); }.file-visit-history :deep(.rounded-select-trigger svg) { width:20px; height:20px; }.file-visit-history :deep(.rounded-select-popup) { right:-10px; left:auto; width:280px; max-width:80vw; }.file-visit-history :deep(.select-label) { overflow:hidden; text-overflow:ellipsis; }
+.file-visit-history :deep(.rounded-select-popup) { width:410px; right:-28px; left:auto; max-width:calc(100vw - 32px); }
+.visit-entry { display:flex; align-items:center; gap:8px; width:100%; min-width:0; font-size:13px; }.visit-entry :deep(.provider-icon) { width:24px; height:24px; flex:none; padding:0; border:0; background:none; border-radius:0; }.visit-entry :deep(.provider-icon > svg),.visit-entry :deep(.provider-logo) { width:24px; height:24px; }.visit-entry strong { color:var(--text); max-width:120px; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+.file-visit-history { min-width:33px; width:33px; }.file-visit-history :deep(.rounded-select-trigger) { width:33px; height:33px; padding:0; justify-content:center; border:0; background:none; border-radius:5px; color:var(--muted); }.file-visit-history :deep(.rounded-select-trigger:hover) { background:var(--primary-soft); color:var(--primary); }.file-visit-history :deep(.rounded-select-trigger svg) { width:20px; height:20px; }.file-visit-history :deep(.select-label) { width:100%; overflow:hidden; }
+.visit-entry :deep([data-provider=quark] img),.visit-entry :deep([data-provider=mobile] img),.visit-entry :deep([data-provider=tianyi] img) { transform:scale(1.2); }
 .file-search-status { margin:0 0 10px; color:var(--muted); font-size:12px; }
 .file-result-path { display:block; padding:0; margin:4px 0 0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:none; color:var(--muted); font-size:11px; text-align:left; }
 .file-result-path:hover { color:var(--primary); }

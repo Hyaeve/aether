@@ -49,7 +49,7 @@ async function remove() {
       <header><Icon name="UserRound" :size="28" /><strong>{{ user.username }}</strong><span class="status" :class="user.enabled ? 'success' : 'muted'">{{ user.enabled ? '已启用' : '已停用' }}</span></header>
       <span class="dav-readonly">只读</span>
       <div class="dav-paths"><div v-for="grant in user.grants" :key="grant.id"><Icon name="Folder" :size="15" /><span>{{ grant.directoryLabel || grant.name }}</span></div><span v-if="!user.grants.length" class="muted">未授权目录</span></div>
-      <footer><button type="button" class="icon-btn" title="编辑用户" aria-label="编辑用户" @click="edit(user)"><Icon name="Pencil" /></button><button type="button" class="icon-btn" :disabled="busy" :title="user.enabled ? '停用用户' : '启用用户'" :aria-label="user.enabled ? '停用用户' : '启用用户'" @click="toggle(user)"><Icon :name="user.enabled ? 'Pause' : 'Play'" /></button><button type="button" class="icon-btn danger-text" title="删除用户" aria-label="删除用户" @click="removing = user"><Icon name="Trash2" /></button></footer>
+      <footer><button type="button" class="icon-btn" aria-label="编辑用户" @click="edit(user)"><Icon name="Pencil" /></button><button type="button" class="icon-btn" :disabled="busy" :aria-label="user.enabled ? '停用用户' : '启用用户'" @click="toggle(user)"><Icon :name="user.enabled ? 'Pause' : 'Play'" /></button><button type="button" class="icon-btn danger-text" aria-label="删除用户" @click="removing = user"><Icon name="Trash2" /></button></footer>
     </article></div>
   </section>
   <Modal v-if="open" :title="form.id ? '编辑 WebDAV 用户' : '添加 WebDAV 用户'" wide @close="!busy && (open = false)">

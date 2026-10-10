@@ -79,7 +79,7 @@ test('toolbox selection, ordered rename rules, saved sets and folder size', asyn
   expect(executed).toHaveLength(1)
   await page.getByRole('button', { name: 'final Ffinaler', exact: true }).click({ button: 'right' })
   await page.getByRole('button', { name: '查看详情' }).click()
-  await expect(page.getByRole('dialog', { name: '文件详情' })).toContainText('4.0 KB')
+  await expect(page.getByRole('dialog', { name: '文件夹详情' })).toContainText('4.0 KB')
   await page.keyboard.press('Escape')
   await expect(page.locator('.file-row').filter({ hasText: 'final Ffinaler' })).toContainText('4.0 KB')
   await page.getByRole('button', { name: 'final.txt', exact: true }).click()

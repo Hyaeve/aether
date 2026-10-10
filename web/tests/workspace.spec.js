@@ -557,7 +557,7 @@ test('log filters, isolated refresh and virtual scrolling', async ({ page }, tes
   await expect(page.getByRole('button', { name: '日志级别', exact: true })).toHaveText('全部级别')
   await expect(page.getByRole('button', { name: '日志模块', exact: true })).toHaveText('全部模块')
   await expect(page.getByLabel('搜索日志')).toHaveValue('')
-  await page.getByRole('button', { name: '当前结构化列表，切换原始列表', exact: true }).click()
+  await expect(page.getByRole('button', { name: '当前原始列表，切换结构化列表', exact: true })).toBeVisible()
   await expect(page.locator('.log-entry.raw').first()).toBeVisible()
   const before = requests
   await page.getByRole('button', { name: '刷新日志', exact: true }).click()

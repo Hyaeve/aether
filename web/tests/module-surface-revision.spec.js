@@ -25,7 +25,7 @@ test('history excludes root and first-level visits, and uses the clock arrow but
   await expect(history).toBeEnabled()
   await history.click()
   await expect(page.getByRole('option',{name:'云盘 / B',exact:true})).toBeVisible()
-  await expect(page.locator('.file-visit-history .rounded-select-popup')).toHaveCSS('right','-10px')
+  await expect(page.locator('.file-visit-history .rounded-select-popup')).toHaveCSS('right','-28px')
   await page.locator('.file-visit-history .rounded-select-popup').evaluate(async el=>{await Promise.allSettled(el.getAnimations().map(a=>a.finished))})
   await page.screenshot({path:info.outputPath('history.png')})
 })

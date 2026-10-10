@@ -50,7 +50,7 @@ test('log and playback lists scroll their short page header first, keep virtual 
   await inner.hover();await page.mouse.wheel(0,500)
   await expect.poll(()=>inner.evaluate(el=>el.scrollTop)).toBeGreaterThan(0)
   const top=(await inner.boundingBox()).y
-  expect(Math.abs(top-48)).toBeLessThan(4)
+  expect(Math.abs(top-56)).toBeLessThan(4)
   await expect(page.locator(shell+' .scroll-rail-thumb')).toBeVisible()
   await expect.poll(()=>page.locator(shell+' .scroll-rail-thumb').evaluate(el=>parseFloat(getComputedStyle(el,'::after').width)*devicePixelRatio)).toBeCloseTo(3,1)
   await page.screenshot({path:info.outputPath(url.includes('logs')?'logs-header-scrolled.png':'links-header-scrolled.png')})

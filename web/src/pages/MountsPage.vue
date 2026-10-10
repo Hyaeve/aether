@@ -51,7 +51,7 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
 </script>
 <template>
   <div class="mount-heading"><FileTabs /><button class="btn primary" @click="open()"><Icon name="Plus" />添加挂载</button></div>
-  <div v-if="!mounts.length" class="empty-state"><span class="empty-icon"><Icon name="CloudDownload" :size="36" /></span><h3>还没有挂载</h3></div>
+  <div v-if="!mounts.length" class="empty-state workspace-empty"><span class="empty-icon"><Icon name="CloudDownload" :size="36" /></span><h3>还没有挂载</h3></div>
   <div v-else class="mount-grid"><article v-for="mount in mounts" :key="mount.id" class="mount-card" tabindex="0" :aria-label="`${mount.name}，${statusName(mount)}`" @click="cardClick($event,mount)" @keydown.enter.self="open(mount)">
     <div class="mount-card-top" @contextmenu.prevent.stop="context($event,mount)"><button class="mount-toggle" :disabled="busy" :aria-label="mount.status === 'mounted' ? '停用挂载' : '启用挂载'" :aria-pressed="mount.status === 'mounted'" @click.stop="action(mount, mount.status === 'mounted' ? 'stop' : 'start')"><ProviderIcon type="local" /></button><div class="mount-identity"><h3>{{ mount.name }}</h3><p>{{ mount.mountPoint.replace(/[\\/]$/, '') }}<strong class="mount-path-suffix">/AetherDrive</strong></p></div><button class="icon-btn" aria-label="挂载操作" @click.stop="context($event,mount)"><Icon name="EllipsisVertical" /></button></div>
     <dl class="mount-details" @contextmenu.prevent.stop="context($event,mount)"><div><dt>源目录</dt><dd>{{ sourceName(mount) }}</dd></div><div><dt>权限</dt><dd class="mount-permissions">UID {{ mount.uid }} · GID {{ mount.gid }} · {{ mount.mode.toString(8).padStart(4, '0') }}</dd></div></dl>
