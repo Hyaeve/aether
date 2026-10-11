@@ -1,9 +1,17 @@
 const motions = new WeakMap()
 
 // Treat the page header and its virtual list as one continuous wheel surface.
-export function listWheel(event) {
+export function pageWheel(event) {
+  if (event.defaultPrevented || !event.currentTarget.closest('.page-scroll')) return
+  if (event.target.closest('.rounded-select-popup,.dropdown-menu,.context-menu,.file-favorites,textarea')) return
+  const list = event.currentTarget.querySelector('.file-browser.has-file-overflow .file-view,.playback-scroller')
+  if (!list || list.scrollHeight <= list.clientHeight + 1) return
+  listWheel(event, list)
+}
+
+export function listWheel(event, target) {
   if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
-  const list = event.currentTarget, page = list.closest('.page-scroll .thin-scroll-area')
+  const list = target || event.currentTarget, page = list.closest('.page-scroll .thin-scroll-area')
   if (!page) return
   const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? page.clientHeight : 1)
   const boundary = list.closest('.file-browser,.transfer-table,.log-list-shell,.playback-list-shell') || list

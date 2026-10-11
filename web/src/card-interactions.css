@@ -1,0 +1,6 @@
+.card-drag-active, .card-drag-active * { cursor: grabbing !important; user-select: none !important; }
+.card-drag-ghost, .card-drag-ghost * { pointer-events: none !important; }
+.mount-card.dragging { opacity: .45; }
+.mount-card.drop-target { outline: 2px solid var(--primary); outline-offset: 2px; }
+.task-row-menu .task-menu button, .storage-menu-control .storage-menu button, div.context-menu button { font-family: inherit; font-size: 14px; font-weight: 400; }
+.modal .disclosure, .modal details > summary { font-family: inherit; font-size: 14px; font-weight: 400; }

@@ -16,10 +16,33 @@ async function workspace(page) {
   return snapshot
 }
 
+async function expectOverviewFrame(page, mobile = false) {
+  const overview = page.getByRole('region', { name: '缓存命中统计' })
+  await expect(overview).toHaveCSS('border-radius', '8px')
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    await expect(overview).toHaveCSS(`border-${side}-width`, '1px')
+    await expect(overview).toHaveCSS(`border-${side}-style`, 'solid')
+  }
+  const layout = await overview.evaluate(el => {
+    const bounds = el.getBoundingClientRect(), chart = el.querySelector('.cache-chart').getBoundingClientRect()
+    const progress = el.querySelector('.cache-progress').getBoundingClientRect(), metrics = el.querySelector('.cache-metrics').getBoundingClientRect()
+    return { chartInset:chart.left-bounds.left, progressGap:progress.left-chart.right, metricsInset:metrics.left-bounds.left, metricsGap:metrics.left-progress.right, metricsTop:metrics.top-progress.bottom, inside:[chart,progress,metrics].every(r=>r.left>bounds.left && r.right<bounds.right), overflow:el.scrollWidth>el.clientWidth }
+  })
+  expect(layout.chartInset).toBeGreaterThanOrEqual(mobile ? 16 : 24)
+  expect(layout.progressGap).toBeGreaterThanOrEqual(mobile ? 11 : 17)
+  expect(layout.metricsInset).toBeGreaterThanOrEqual(mobile ? 16 : 24)
+  expect(mobile ? layout.metricsTop : layout.metricsGap).toBeGreaterThanOrEqual(mobile ? 11 : 17)
+  expect(layout.inside).toBe(true)
+  expect(layout.overflow).toBe(false)
+}
+
 test('real cache overview and explicit OpenList STRM source', async ({ page }, testInfo) => {
   await workspace(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/tasks/cache')
   await expect(page.getByRole('region', { name: '缓存命中统计' })).toContainText('80%')
+  await expect(page.getByRole('img', { name: '缓存命中率 80%', exact: true })).toBeVisible()
+  await expect(page.locator('.cache-chart small')).toHaveText('命中率')
   await expect(page.locator('.cache-progress')).toContainText('已缓存 42 个目录')
   await expect(page.getByText('当前缓存任务', { exact: true })).toHaveCount(0)
   await expect(page.locator('.cache-progress-track')).toHaveCSS('height', '6px')
@@ -33,9 +56,11 @@ test('real cache overview and explicit OpenList STRM source', async ({ page }, t
   await page.getByRole('button', { name: '取消', exact: true }).click()
   for (const theme of ['light', 'dark']) {
     await page.evaluate(t => document.documentElement.dataset.theme = t, theme)
+    await expectOverviewFrame(page)
     await captureScreenshot(page, { path: testInfo.outputPath(`cache-${theme}.png`) })
   }
   await page.setViewportSize({ width: 390, height: 844 })
+  await expectOverviewFrame(page, true)
   await captureScreenshot(page, { path: testInfo.outputPath('cache-mobile.png') })
   expect(await page.locator('.cache-overview').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   await page.setViewportSize({ width: 1440, height: 1000 })

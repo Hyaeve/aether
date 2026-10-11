@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -249,5 +250,171 @@ func TestBackupConsecutiveRunsResetCounters(t *testing.T) {
 	second := a.store.snapshot().BackupRules[0]
 	if second.Copied != 0 || second.Skipped != 1 || second.Scanned != 1 || second.Processed != 1 || second.Total != 1 {
 		t.Fatal("counts carried from previous run", second)
+	}
+}
+
+func TestBackupFilterCaseSensitivityAndPathBoundaries(t *testing.T) {
+	a, base, _, _ := backupFixture(t)
+	for _, check := range []struct {
+		filter            BackupFilter
+		file              File
+		relative          string
+		folded, sensitive bool
+	}{
+		{BackupFilter{Type: "extension", Value: ".MKV"}, File{Name: "film.mkv"}, "film.mkv", true, false},
+		{BackupFilter{Type: "name", Value: "MOVIE*"}, File{Name: "movie.mkv"}, "movie.mkv", true, false},
+		{BackupFilter{Type: "name", Value: "MOVIE"}, File{Name: "movie.mkv"}, "movie.mkv", true, false},
+		{BackupFilter{Type: "regex", Value: `^MOVIE\.mkv$`}, File{Name: "movie.mkv"}, "movie.mkv", true, false},
+		{BackupFilter{Type: "path_prefix", Value: "Movies/Season"}, File{Name: "episode.mkv"}, "movies/season/episode.mkv", true, false},
+		{BackupFilter{Type: "path_regex", Value: `^Movies/.*\.MKV$`}, File{Name: "film.mkv"}, "movies/film.mkv", true, false},
+		{BackupFilter{Type: "path_prefix", Value: "Movies"}, File{Name: "film.mkv"}, "MoviesExtra/film.mkv", false, false},
+		{BackupFilter{Type: "path_regex", Value: `^Movies/`}, File{Name: "Movies"}, "Elsewhere/Movies", false, false},
+	} {
+		for _, sensitive := range []bool{false, true} {
+			rule := base
+			rule.CaseSensitive = sensitive
+			filter := check.filter
+			filter.Mode, filter.MatchFile = "include", true
+			rule.Filters = []BackupFilter{filter}
+			if err := validateBackup(&rule, a.store.snapshot()); err != nil {
+				t.Fatal(err)
+			}
+			filters, err := compileBackupFilters(rule.Filters)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := check.folded
+			if sensitive {
+				want = check.sensitive
+			}
+			if got := backupFilterAccept(filters, check.file, check.relative); got != want {
+				t.Fatalf("%s sensitive=%v relative=%q got=%v want=%v", filter.Type, sensitive, check.relative, got, want)
+			}
+		}
+	}
+	filters, err := compileBackupFilters([]BackupFilter{{Type: "path_prefix", Mode: "include", Value: `Movies\Season\`, MatchDir: true, MatchFile: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"Movies", "Movies/Season", "Movies/Season/Episode"} {
+		if !backupFilterAccept(filters, File{Name: path.Base(dir), IsDir: true}, dir) {
+			t.Fatal("nested whitelist unreachable", dir)
+		}
+	}
+	for _, relative := range []string{"MoviesExtra", "../Movies/Season/a.mkv", "/Movies/Season/a.mkv", "Movies/../Season/a.mkv", `C:\Movies\Season`, "Movies//Season/a.mkv", "Movies/Season/\x00"} {
+		if backupFilterAccept(filters, File{Name: "a.mkv"}, relative) {
+			t.Fatal("unsafe/boundary path accepted", relative)
+		}
+	}
+}
+
+func TestBackupPathFilterValidation(t *testing.T) {
+	a, base, _, _ := backupFixture(t)
+	for _, value := range []string{"", "/Movies", "../Movies", "Movies/../Private", "Movies/./Season", "Movies//Season", `C:\Movies`, `\\server\Movies`, "Movies\x00", "Movies\nSeason"} {
+		rule := base
+		rule.Filters = []BackupFilter{{Type: "path_prefix", Mode: "include", Value: value, MatchFile: true}}
+		if validateBackup(&rule, a.store.snapshot()) == nil {
+			t.Fatal("invalid prefix accepted", value)
+		}
+		if _, err := compileBackupFilters(rule.Filters); err == nil {
+			t.Fatal("invalid prefix compiled", value)
+		}
+	}
+	for _, value := range []string{"", "[", "(?=Movies)"} {
+		rule := base
+		rule.Filters = []BackupFilter{{Type: "path_regex", Mode: "exclude", Value: value, MatchFile: true}}
+		if validateBackup(&rule, a.store.snapshot()) == nil {
+			t.Fatal("invalid path regex accepted", value)
+		}
+	}
+}
+
+func TestBackupCaseSensitiveFiltersPersistAndCopy(t *testing.T) {
+	a, rule, source, target := backupFixture(t)
+	for _, dir := range []string{"Movies/Season", "MoviesExtra/Season", "Cache"} {
+		if err := os.MkdirAll(filepath.Join(source, filepath.FromSlash(dir)), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"Movies/Season/keep.MKV", "Movies/Season/skip.mkv", "MoviesExtra/Season/no.MKV", "Cache/no.MKV"} {
+		if err := os.WriteFile(filepath.Join(source, filepath.FromSlash(name)), []byte("media"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rule.CaseSensitive = true
+	rule.Filters = []BackupFilter{
+		{Type: "path_prefix", Mode: "include", Value: "Movies/Season", MatchDir: true},
+		{Type: "path_regex", Mode: "include", Value: `^Movies/Season/.*\.MKV$`, MatchFile: true},
+	}
+	if err := validateBackup(&rule, a.store.snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.store.update(func(st *State) error { st.BackupRules[0] = rule; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := NewStore(a.store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := reloaded.snapshot().BackupRules[0]
+	if !restored.CaseSensitive || !restored.Filters[0].CaseSensitive {
+		t.Fatal("case option lost", restored)
+	}
+	if err := a.executeBackup(context.Background(), &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Copied != 1 {
+		t.Fatal("case/path filters did not apply", restored)
+	}
+	if _, err := os.Stat(filepath.Join(target, "Movies", "Season", "keep.MKV")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "MoviesExtra")); !os.IsNotExist(err) {
+		t.Fatal("prefix crossed segment boundary", err)
+	}
+	before := syncRevision(restored, a.store.snapshot())
+	restored.CaseSensitive = false
+	if err := validateBackup(&restored, a.store.snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	if before == syncRevision(restored, a.store.snapshot()) {
+		t.Fatal("case change did not invalidate sync baseline")
+	}
+	if err := a.executeBackup(context.Background(), &restored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "Movies", "Season", "skip.mkv")); err != nil {
+		t.Fatal("case insensitive copy missing", err)
+	}
+}
+
+func TestBackupSyncCaseSensitivePathFilters(t *testing.T) {
+	a, rule, source, target := backupFixture(t)
+	rule.SyncMode = "two_way"
+	rule.CaseSensitive = true
+	rule.Filters = []BackupFilter{{Type: "path_regex", Mode: "include", Value: `^Movies/.*\.MKV$`, MatchFile: true}}
+	if err := os.Mkdir(filepath.Join(source, "Movies"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"keep.MKV", "skip.mkv"} {
+		if err := os.WriteFile(filepath.Join(source, "Movies", name), []byte(name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.executeBackup(context.Background(), &rule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "Movies", "keep.MKV")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "Movies", "skip.mkv")); !os.IsNotExist(err) {
+		t.Fatal("case sensitive sync admitted lowercase file", err)
+	}
+	rule.CaseSensitive = false
+	if err := a.executeBackup(context.Background(), &rule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "Movies", "skip.mkv")); err != nil {
+		t.Fatal("case insensitive sync omitted lowercase file", err)
 	}
 }

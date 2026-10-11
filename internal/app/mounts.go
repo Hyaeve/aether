@@ -125,7 +125,7 @@ func (a *App) validateMount(input *MountConfig) error {
 	if input.UID < 0 || input.GID < 0 || uint64(input.UID) > 4294967295 || uint64(input.GID) > 4294967295 || input.Mode == 0 || input.Mode > 0777 {
 		return errors.New("UID、GID 或八进制权限无效")
 	}
-	protected := []string{a.store.dir, a.dataDir, a.fuseCacheDirectory()}
+	protected := []string{a.store.dir, a.dataDir, a.fuseCache().dir}
 	if runtime.GOOS == "linux" {
 		protected = append(protected, "/proc", "/sys", "/dev", "/etc", "/usr", "/bin", "/sbin", "/lib", "/run", "/app")
 	}
@@ -142,6 +142,9 @@ func (a *App) validateMount(input *MountConfig) error {
 		}
 	}
 	for _, root := range protected {
+		if root == "" {
+			continue
+		}
 		if pathOverlaps(root, mountTarget(*input)) {
 			return fmt.Errorf("实际挂载目录 %s 与受保护目录 %s 重叠，请选择其他位置", mountTarget(*input), root)
 		}

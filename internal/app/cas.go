@@ -7,9 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -35,12 +36,13 @@ type CASInfo struct {
 	Name           string `json:"name"`
 	Size           int64  `json:"size"`
 	SHA256         string `json:"sha256"`
-	MD5            string `json:"md5,omitempty"`
+	MD5            string `json:"md5"`
 	SliceMD5       string `json:"slice_md5,omitempty"`
 	SliceSize      int64  `json:"slice_size,omitempty"`
 }
 
 type CASTemporary struct {
+	Feature        string    `json:"feature,omitempty"`
 	Key            string    `json:"key"`
 	StorageID      string    `json:"storageId"`
 	FileID         string    `json:"fileId"`
@@ -52,13 +54,16 @@ type CASTemporary struct {
 }
 
 func validateCAS(info CASInfo) error {
-	if !safeName(info.Name) || !isVideo(info.Name) || info.Size <= 0 || info.Size > 1<<40 {
-		return errors.New("CAS 原始文件名、大小或视频类型无效（最大 1 TiB）")
+	if !safeName(info.Name) || !taskMedia(Task{}, info.Name) || info.Size <= 0 || info.Size > 1<<40 {
+		return errors.New("CAS 原始文件名、大小或媒体类型无效（最大 1 TiB）")
 	}
 	hash, err := hex.DecodeString(info.SHA256)
 	md5, md5Err := hex.DecodeString(info.MD5)
 	if (err != nil || len(hash) != 32) && (md5Err != nil || len(md5) != 16) {
 		return errors.New("CAS 需要有效的 64 位 SHA256 或 32 位 MD5")
+	}
+	if info.SHA256 != "" && (err != nil || len(hash) != 32) || info.MD5 != "" && (md5Err != nil || len(md5) != 16) {
+		return errors.New("CAS 哈希格式无效")
 	}
 	if info.SliceMD5 != "" || info.SliceSize != 0 {
 		slice, err := hex.DecodeString(info.SliceMD5)
@@ -86,16 +91,34 @@ func validateCASFor(s Storage, info CASInfo) error {
 
 func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	var info CASInfo
-	if len(content) > casLimit || !strings.EqualFold(path.Ext(filename), ".cas") {
+	pointer := strings.HasSuffix(strings.ToLower(filename), ".cas.strm")
+	if len(content) > casLimit || (!strings.EqualFold(path.Ext(filename), ".cas") && !pointer) {
 		return info, errors.New("CAS 文件过大或后缀无效")
 	}
 	content = []byte(strings.TrimSpace(strings.TrimPrefix(string(content), "\ufeff")))
-	raw, err := base64.StdEncoding.DecodeString(string(content))
-	if err != nil {
-		raw, err = base64.RawStdEncoding.DecodeString(string(content))
+	var raw []byte
+	var err error
+	if pointer {
+		u, e := url.Parse(string(content))
+		if e != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.HasPrefix(u.Path, "/stream/") || strings.ContainsAny(string(content), "\r\n") {
+			return info, errors.New("CAS STRM 内容不是有效播放地址")
+		}
+		claimRaw, e := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+		var claim streamClaim
+		if e != nil || json.Unmarshal(claimRaw, &claim) != nil || claim.CAS == nil {
+			return info, errors.New("CAS STRM 未包含哈希特征")
+		}
+		raw, err = json.Marshal(claim.CAS)
+	} else if len(content) > 0 && content[0] == '{' {
+		raw = content
+	} else {
+		raw, err = base64.StdEncoding.DecodeString(string(content))
+		if err != nil {
+			raw, err = base64.RawStdEncoding.DecodeString(string(content))
+		}
 	}
 	if err != nil {
-		return info, errors.New("CAS 内容不是合法 Base64")
+		return info, errors.New("CAS 内容不是合法 Base64 或 JSON")
 	}
 	// Some CAS writers serialize the byte count as a decimal string.
 	var data struct {
@@ -123,10 +146,13 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 		return info, errors.New("CAS 文件名包含非法路径")
 	}
 	name := strings.TrimSuffix(filename, path.Ext(filename))
+	if pointer {
+		name = filename[:len(filename)-len(".cas.strm")]
+	}
 	if strings.TrimSpace(name) == "" {
 		return info, errors.New("CAS 文件名不能为空")
 	}
-	if !isVideo(name) {
+	if !taskMedia(Task{}, name) {
 		name += path.Ext(data.Name)
 	}
 	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5), SliceMD5: strings.ToUpper(data.SliceMD5), SliceSize: data.SliceSize, PlaybackURL: data.PlaybackURL}
@@ -141,31 +167,26 @@ func (a *App) readCAS(ctx context.Context, s Storage, f File) (CASInfo, error) {
 	if err != nil {
 		return CASInfo{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, "GET", d.URL, nil)
-	if err != nil {
-		return CASInfo{}, err
-	}
-	request.Header = d.Headers.Clone()
-	response, err := apiClient.Do(request)
-	if err != nil {
-		if ctx.Err() != nil {
-			return CASInfo{}, ctx.Err()
+	var input io.ReadCloser
+	if s.Type == "local" {
+		root, e := os.OpenRoot(s.Config["root"])
+		if e != nil {
+			return CASInfo{}, e
 		}
-		return CASInfo{}, errors.New("CAS 特征文件读取失败")
+		defer root.Close()
+		input, err = root.Open(d.Local)
+	} else {
+		input = &davFile{ctx: ctx, info: davInfo{f}, download: d}
 	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		return CASInfo{}, fmt.Errorf("CAS 特征文件 HTTP %d", response.StatusCode)
-	}
-	content, err := io.ReadAll(io.LimitReader(response.Body, casLimit+1))
 	if err != nil {
 		return CASInfo{}, err
 	}
-	info, err := decodeCAS(content, f.Name)
-	if err == nil {
-		err = validateCASFor(s, info)
+	defer input.Close()
+	content, err := io.ReadAll(io.LimitReader(&cancelReader{ctx, input}, casLimit+1))
+	if err != nil {
+		return CASInfo{}, err
 	}
-	return info, err
+	return decodeCAS(content, f.Name)
 }
 
 func casParts(size int64) []map[string]any {
@@ -242,6 +263,13 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		return Download{}, done, err
 	}
 	defer func() { <-a.casGate }()
+	if claim.Storage == "" {
+		var err error
+		s, claim.RetentionHours, err = a.selectCASStorage(*claim.CAS, time.Now())
+		if err != nil {
+			return Download{}, done, err
+		}
+	}
 	retention := casRetentionHours(claim.RetentionHours)
 	for _, task := range a.store.snapshot().Tasks {
 		if claim.TaskID != "" && task.ID == claim.TaskID && task.Kind == "cas" && (task.CASBindingID == s.ID || task.StorageID == s.ID) {
@@ -261,13 +289,26 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		return Download{}, done, err
 	}
 	var entry CASTemporary
+	feature := casFeatureKey(*claim.CAS)
+	conflict := false
 	for _, existing := range a.store.snapshot().CASTemporary {
-		if existing.Key == key && existing.Ready {
+		if existing.Key == key {
+			conflict = true
+		}
+		matches := existing.Key == key
+		if claim.Storage == "" {
+			matches = existing.Feature == feature && existing.StorageID == s.ID
+		}
+		if matches && existing.Ready && time.Now().Before(existing.expiresAt()) {
 			entry = existing
+			key = existing.Key
 			break
 		}
 	}
 	if entry.FileID == "" {
+		if conflict {
+			key += ":" + id()
+		}
 		if len(a.store.snapshot().CASTemporary) >= 1000 {
 			return Download{}, done, errors.New("CAS 临时文件达到 1000 项，请先清理过期项")
 		}
@@ -304,7 +345,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		if !ready {
 			recordKey += ":failed:" + id()
 		}
-		entry = CASTemporary{Key: recordKey, StorageID: s.ID, FileID: data.ID, Name: name, LastUsed: time.Now(), Ready: ready, RetentionHours: retention}
+		entry = CASTemporary{Key: recordKey, Feature: casFeatureKey(*claim.CAS), StorageID: s.ID, FileID: data.ID, Name: name, LastUsed: time.Now(), Ready: ready, RetentionHours: retention}
 		// Persist every returned file ID, even failed uploads, so cleanup never needs a directory-wide delete.
 		if err := a.store.update(func(st *State) error { st.CASTemporary = append(st.CASTemporary, entry); return nil }); err != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)

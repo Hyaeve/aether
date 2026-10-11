@@ -145,7 +145,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   const extra = await page.request.post('/api/links', { data: { name: '排序测试以链', type: 'emby', address: 'http://127.0.0.1:15998', port: 15997, apiKey: 'test', mode: 'always', enabled: false } })
   expect(extra.ok()).toBe(true)
   await page.reload()
-  const source = page.locator('.link-card').filter({ hasText: '排序测试以链' })
+  const source = page.locator('.link-card:not(.card-drag-ghost)').filter({ hasText: '排序测试以链' })
   const target = page.locator('.link-card').first()
   const point = await source.locator('strong').boundingBox()
   await page.mouse.move(point.x + 5, point.y + 5)

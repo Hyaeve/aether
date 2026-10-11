@@ -3,8 +3,6 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, 
 import { api, date, notify, state } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
-import ScrollRail from '../components/ScrollRail.vue'
-import { listWheel } from '../nested-scroll'
 import { useRoute } from 'vue-router'
 const route = useRoute()
 const filters = reactive({ query: '', level: 'all', module: 'all', view: 'structured' })
@@ -21,7 +19,7 @@ const modules = { audit: '操作审计', files: '文件与备份', storage: '存
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试' }
 if (!modules[filters.module]) filters.module = 'all'
 if (!levels[filters.level]) filters.level = 'all'
-const entries = shallowRef([]), busy = ref(false), viewport = ref(null), scroll = ref(0), height = ref(500)
+const entries = shallowRef([]), busy = ref(false), viewport = ref(null), scrollHost = ref(null), scroll = ref(0), height = ref(500)
 const logs = computed(() => {
   const query = filters.query.toLowerCase()
   return entries.value.filter(l => (filters.level === 'all' || filters.level === l.level) && (filters.module === 'all' || filters.module === l.module) && (!query || `${l.message} ${l.module} ${modules[l.module]} ${l.time}`.toLowerCase().includes(query)))
@@ -54,7 +52,12 @@ function setRow(el, index) {
   if (previous) rowObserver?.unobserve(previous)
   if (el && filters.view === 'raw') { rowNodes.set(index, el); rowObserver?.observe(el) } else rowNodes.delete(index)
 }
-function resetRows() { rowHeights.clear(); scroll.value = 0; if (viewport.value) viewport.value.scrollTop = 0 }
+function syncScroll() {
+  const host = scrollHost.value, list = viewport.value
+  if (!host || !list) return
+  scroll.value = Math.max(0, host.getBoundingClientRect().top - list.getBoundingClientRect().top)
+}
+function resetRows() { rowHeights.clear(); scroll.value = 0; if (scrollHost.value) scrollHost.value.scrollTop = 0 }
 watch(filters, resetRows)
 async function load() {
   if (busy.value) return
@@ -76,7 +79,8 @@ watch(() => route.fullPath, () => {
 let observer, rowObserver, previousWidth = 0
 onMounted(() => {
   rowObserver = new ResizeObserver(rows => {
-    const atBottom = totalHeight.value > height.value && scroll.value + height.value >= totalHeight.value - 2
+    const host = scrollHost.value
+    const atBottom = host && host.scrollTop > 0 && host.scrollTop + host.clientHeight >= host.scrollHeight - 2
     let changed = false
     for (const row of rows) {
       const index = Number(row.target.dataset.index)
@@ -84,17 +88,24 @@ onMounted(() => {
       if (rowHeights.get(index) !== size) { rowHeights.set(index, size); changed = true }
     }
     if (changed && atBottom) nextTick(() => {
-      if (viewport.value) viewport.value.scrollTop = Math.max(0, totalHeight.value - height.value)
+      if (scrollHost.value) scrollHost.value.scrollTop = scrollHost.value.scrollHeight
     })
   })
-  observer = new ResizeObserver(([entry]) => {
-    height.value = entry.contentRect.height
-    if (previousWidth !== entry.contentRect.width) { previousWidth = entry.contentRect.width; resetRows() }
+  scrollHost.value = viewport.value?.closest('.thin-scroll-area')
+  observer = new ResizeObserver(() => {
+    const host = scrollHost.value
+    height.value = host?.clientHeight || 500
+    const width = viewport.value.clientWidth
+    if (previousWidth !== width) { previousWidth = width; resetRows() }
+    syncScroll()
   })
   observer.observe(viewport.value)
+  if (scrollHost.value) observer.observe(scrollHost.value)
+  scrollHost.value?.addEventListener('scroll', syncScroll, { passive: true })
+  syncScroll()
   load()
 })
-onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.clear() })
+onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); scrollHost.value?.removeEventListener('scroll', syncScroll); rowNodes.clear() })
 </script>
 <template>
   <section class="log-panel" aria-label="系统日志">
@@ -105,7 +116,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
       <button class="icon-btn" aria-label="刷新日志" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
       <div class="search-field"><Icon name="Search" :size="16" /><input v-model="filters.query" aria-label="搜索日志" placeholder="搜索日志…" /></div>
     </div>
-    <div class="log-list-shell"><div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" @wheel="listWheel" @scroll="scroll = $event.target.scrollTop">
+    <div class="log-list-shell"><div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" :style="{ height: logs.length ? `${totalHeight}px` : undefined }">
       <div :style="{ height: `${totalHeight}px`, position: 'relative' }">
         <div :style="{ transform: `translateY(${offsetAt(start)}px)` }">
           <div v-for="(entry, index) in visible" :key="`${filters.view}:${start + index}`" :ref="el => setRow(el, start + index)" :data-index="start + index" :data-level="entry.level" class="log-entry" :class="{ raw: filters.view === 'raw', striped: (start + index) % 2 === 1 }">
@@ -115,11 +126,11 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); rowNodes.
         </div>
       </div>
       <div v-if="!logs.length" class="small-empty">{{ busy ? '正在读取…' : '暂无匹配日志' }}</div>
-    </div><ScrollRail :element="viewport" /></div>
+    </div></div>
     <footer>{{ logs.length }} 条记录</footer>
   </section>
 </template>
 <style scoped>
 :root:not([data-theme="dark"]) .log-entry:not(.raw) { background: var(--input); }
-:root:not([data-theme="dark"]) .log-entry:not(.raw).striped { background: color-mix(in srgb, var(--text) 9%, var(--input)); }
+:root:not([data-theme="dark"]) .log-entry:not(.raw).striped { background: color-mix(in srgb, var(--text) 2%, var(--input)); }
 </style>

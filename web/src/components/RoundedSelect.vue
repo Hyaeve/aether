@@ -43,5 +43,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside))
 .select-label svg { flex-shrink: 0; }
 .select-marker { width:10px; height:10px; flex:none; background:var(--muted); clip-path:polygon(50% 0,61% 38%,100% 50%,61% 62%,50% 100%,39% 62%,0 50%,39% 38%); }
 .marker-pending { background:#6e78d4; }.marker-ok { background:var(--green); }.marker-miss { background:var(--amber); }.marker-doubt { background:#b07cb9; }.marker-error { background:var(--red); }
+.marker-unmatched { background:#8b93a4; }
+.marker-unmatched, .marker-pending { clip-path:inset(0); }
+.marker-error { clip-path:polygon(50% 0,100% 100%,0 100%); }
 .opens-up .rounded-select-popup { top: auto; bottom: calc(100% + 6px); transform-origin: bottom; }
 </style>

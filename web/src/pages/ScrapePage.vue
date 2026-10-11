@@ -202,7 +202,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 <style scoped>
 .scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .scrape-panel.selecting { padding-bottom:86px; }
-.scrape-toolbar { position:sticky; top:8px; z-index:10; display: flex; align-items: center; gap: 10px; padding: 12px; background:var(--surface); border-radius:7px 7px 0 0; border-bottom:1px solid var(--border); }
+.scrape-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px; background:var(--surface); border-radius:7px 7px 0 0; border-bottom:1px solid var(--border); }
 .scrape-toolbar > .rounded-select:first-child { width: 170px; }
 .scrape-toolbar > .rounded-select:nth-child(2) { width: 160px; }
 .scrape-toolbar > .rounded-select:nth-child(3) { width: 120px; }
@@ -223,6 +223,8 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-title { display:flex; gap:7px; align-items:flex-start; }.scrape-title strong { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .work-star { --status-color:#8b93a4; width:10px; height:10px; flex:none; margin-top:3px; background:var(--status-color); clip-path:polygon(50% 0,61% 38%,100% 50%,61% 62%,50% 100%,39% 62%,0 50%,39% 38%); filter:drop-shadow(0 0 3px var(--status-color)); }
 .work-star.pending { --status-color:#6e78d4; }.work-star.ok { --status-color:var(--green); }.work-star.miss { --status-color:var(--amber); }.work-star.doubt { --status-color:#b07cb9; }.work-star.error { --status-color:var(--red); }
+.work-star.unmatched, .work-star.pending { clip-path:inset(0); filter:none; }
+.work-star.error { clip-path:polygon(50% 0,100% 100%,0 100%); filter:none; }
 .scrape-card-body > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scrape-card-body > small { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .scrape-status { display: inline-flex; gap: 8px; margin-top: 7px; font-size: 12px; color: var(--muted); }

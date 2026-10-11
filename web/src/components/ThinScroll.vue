@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { pageWheel } from '../nested-scroll'
 const props = defineProps({ contentClass: String, thickness: { type: Number, default: 1 } })
 const area = ref(null), thumb = ref(null), visible = ref(false)
 defineExpose({ element: area })
@@ -47,7 +48,7 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="thin-scroll">
-    <div ref="area" class="thin-scroll-area" :class="props.contentClass" tabindex="0" @scroll.passive="update"><slot /></div>
+    <div ref="area" class="thin-scroll-area" :class="props.contentClass" tabindex="0" @wheel="pageWheel" @scroll.passive="update"><slot /></div>
     <div v-show="visible" class="thin-scroll-rail" aria-hidden="true"><div ref="thumb" class="thin-scroll-thumb" @pointerdown.prevent="start" @pointermove="move" @pointerup="drag = null" @pointercancel="drag = null" @lostpointercapture="drag = null" /></div>
   </div>
 </template>

@@ -40,19 +40,11 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 		return info, err
 	}
 	if s.Type != "local" {
-		if !casStorage(s) {
-			return info, errors.New("不支持此存储生成 CAS")
-		}
-		value, size := info.SHA256, 32
-		if nativeTianyi(s) {
-			value, size = info.MD5, 16
-		}
-		hash, err := hex.DecodeString(value)
-		if err != nil || len(hash) != size {
+		if info.SHA256 == "" && info.MD5 == "" {
 			return info, errCASMissingHash
 		}
-		if err := validateCASFor(s, info); err != nil {
-			return info, err
+		if err := validateCAS(info); err != nil {
+			return info, errCASMissingHash
 		}
 		return info, nil
 	}

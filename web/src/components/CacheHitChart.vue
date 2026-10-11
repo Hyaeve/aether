@@ -1,16 +1,17 @@
 <script setup>
 import { computed } from 'vue'
-const props = defineProps({ hits: { type: Number, default: 0 }, misses: { type: Number, default: 0 } })
+const props = defineProps({ hits: { type: Number, default: 0 }, misses: { type: Number, default: 0 }, label: { type: String, default: '命中率' } })
 const total = computed(() => props.hits + props.misses)
 const rate = computed(() => total.value > 0 ? Math.max(0, Math.min(100, Math.round(props.hits / total.value * 100))) : 0)
+const chartLabel = computed(() => total.value ? `${props.label === '命中率' ? '缓存命中率' : props.label} ${rate.value}%` : props.label === '命中率' ? '缓存暂无访问记录' : `${props.label}暂无记录`)
 </script>
 <template>
   <div class="cache-chart">
-    <svg viewBox="0 0 100 100" role="img" :aria-label="total ? `缓存命中率 ${rate}%` : '缓存暂无访问记录'">
+    <svg viewBox="0 0 100 100" role="img" :aria-label="chartLabel">
       <circle class="cache-track" :class="{ sampled: total > 0 }" cx="50" cy="50" r="40" />
       <circle v-show="rate > 0" class="cache-hit" cx="50" cy="50" r="40" pathLength="100" :stroke-dasharray="`${rate} 100`" />
     </svg>
-    <span><strong>{{ total ? `${rate}%` : '—' }}</strong><small>命中率</small></span>
+    <span><strong>{{ total ? `${rate}%` : '—' }}</strong><small>{{ label }}</small></span>
   </div>
 </template>
 <style scoped>

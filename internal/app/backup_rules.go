@@ -28,6 +28,7 @@ type BackupRule struct {
 	Sources        []BackupLocation `json:"sources,omitempty"`
 	Targets        []BackupLocation `json:"targets,omitempty"`
 	Filters        []BackupFilter   `json:"filters,omitempty"`
+	CaseSensitive  bool             `json:"caseSensitive"`
 	ScanInterval   int              `json:"scanInterval"`
 	MonitorEnabled bool             `json:"monitorEnabled"`
 	CompletionRule string           `json:"completionRule"`

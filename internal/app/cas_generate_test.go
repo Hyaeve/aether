@@ -18,12 +18,11 @@ import (
 func TestLocalCASGeneration(t *testing.T) {
 	a := testApp(t)
 	s := addLocal(t, a)
-	bindings := addCASBindings(t, a)
 	data := []byte("local video content")
 	if err := os.WriteFile(filepath.Join(s.Config["root"], "Test.MP4"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	task := Task{Name: "Local CAS", Kind: "cas", StorageID: s.ID, CASBindingID: bindings[0].ID, Source: "/", SourceLabel: "根目录", Mode: "incremental", Target: "generated"}
+	task := Task{Name: "Local CAS", Kind: "cas", StorageID: s.ID, Source: "/", SourceLabel: "根目录", Mode: "incremental", Target: "generated"}
 	if err := a.validateTask(&task); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +41,7 @@ func TestLocalCASGeneration(t *testing.T) {
 	info := generatedCASClaim(t, encoded)
 	sha := sha256.Sum256(data)
 	mdOriginal := md5.Sum(data)
-	if info.SHA256 != hex.EncodeToString(sha[:]) || info.MD5 != hex.EncodeToString(mdOriginal[:]) || info.Provider != "mobile" || info.Size != int64(len(data)) || info.PlaybackURL == "" {
+	if info.SHA256 != hex.EncodeToString(sha[:]) || info.MD5 != hex.EncodeToString(mdOriginal[:]) || info.Provider != "" || info.Size != int64(len(data)) || info.PlaybackURL == "" {
 		t.Fatalf("%+v", info)
 	}
 	if count, err := a.executeTask(context.Background(), task, s); count != 0 || err != nil {
@@ -59,16 +58,11 @@ func TestLocalCASGeneration(t *testing.T) {
 	if string(updated) == string(encoded) {
 		t.Fatal("full did not replace CAS")
 	}
-	task.CASBindingID = bindings[1].ID
-	if _, err := a.executeTask(context.Background(), task, s); err != nil {
-		t.Fatal(err)
-	}
-	tianyiOutput, _ := os.ReadFile(output)
-	tianyiInfo := generatedCASClaim(t, tianyiOutput)
+	updatedInfo := generatedCASClaim(t, updated)
 	md := md5.Sum([]byte("updated"))
 	shaUpdated := sha256.Sum256([]byte("updated"))
-	if err != nil || tianyiInfo.Provider != "tianyi" || tianyiInfo.SHA256 != hex.EncodeToString(shaUpdated[:]) || tianyiInfo.MD5 != hex.EncodeToString(md[:]) {
-		t.Fatalf("%+v %v", tianyiInfo, err)
+	if updatedInfo.Provider != "" || updatedInfo.SHA256 != hex.EncodeToString(shaUpdated[:]) || updatedInfo.MD5 != hex.EncodeToString(md[:]) {
+		t.Fatalf("%+v", updatedInfo)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -103,8 +97,11 @@ func generatedCASClaim(t *testing.T, content []byte) CASInfo {
 		t.Fatal(err)
 	}
 	var claim streamClaim
-	if err = json.Unmarshal(raw, &claim); err != nil || claim.CAS == nil || !claim.Redirect || claim.Storage == "" {
+	if err = json.Unmarshal(raw, &claim); err != nil || claim.CAS == nil || !claim.Redirect {
 		t.Fatalf("invalid CAS claim: %s (%v)", raw, err)
+	}
+	if claim.Storage != "" || claim.File != "" || claim.TaskID != "" || claim.RetentionHours != 0 || claim.CAS.Provider != "" || claim.CAS.PlaybackURL != "" || claim.CAS.RetentionHours != 0 {
+		t.Fatalf("generated CAS contains a binding: %s", raw)
 	}
 	info := *claim.CAS
 	info.PlaybackURL = link
@@ -131,7 +128,6 @@ func TestCloudCASGenerationHashValidation(t *testing.T) {
 func TestCASOnlyGeneratesNewTasks(t *testing.T) {
 	a := testApp(t)
 	s := addLocal(t, a)
-	bindings := addCASBindings(t, a)
 	task := Task{ID: "old-cas", Name: "old", Kind: "cas", StorageID: s.ID, Mode: "full", CASOperation: "restore"}
 	if err := a.validateTask(&task); err == nil {
 		t.Fatal("restore task accepted")
@@ -143,7 +139,6 @@ func TestCASOnlyGeneratesNewTasks(t *testing.T) {
 		t.Fatal("old conversion started")
 	}
 	task.CASOperation = ""
-	task.CASBindingID = bindings[0].ID
 	if err := a.validateTask(&task); err != nil || task.CASOperation != "generate" {
 		t.Fatalf("%+v %v", task, err)
 	}
@@ -161,25 +156,16 @@ func addCASBindings(t *testing.T, a *App) []Storage {
 	return bindings
 }
 
-func TestCASBindingValidation(t *testing.T) {
+func TestCASGenerationDoesNotRequireBinding(t *testing.T) {
 	a := testApp(t)
 	local := addLocal(t, a)
 	bindings := addCASBindings(t, a)
-	task := Task{Name: "bound", Kind: "cas", StorageID: local.ID, Mode: "full"}
-	if a.validateTask(&task) == nil {
-		t.Fatal("unbound local accepted")
-	}
-	task.CASBindingID = bindings[0].ID
-	if err := a.validateTask(&task); err != nil {
-		t.Fatal(err)
-	}
-	task.StorageID = bindings[1].ID
-	if a.validateTask(&task) == nil {
-		t.Fatal("cross-provider source accepted")
-	}
-	task.StorageID = local.ID
-	task.CASBindingID = "missing"
-	if a.validateTask(&task) == nil {
-		t.Fatal("missing binding accepted")
+	for _, source := range append([]Storage{local}, bindings...) {
+		for _, bindingID := range []string{"", bindings[0].ID, bindings[1].ID, "missing"} {
+			task := Task{Name: "portable", Kind: "cas", StorageID: source.ID, CASBindingID: bindingID, RetentionHours: 24, Mode: "full"}
+			if err := a.validateTask(&task); err != nil || task.CASBindingID != "" || task.RetentionHours != 0 || task.CASOperation != "generate" {
+				t.Fatalf("source %s binding %q: %+v %v", source.Type, bindingID, task, err)
+			}
+		}
 	}
 }

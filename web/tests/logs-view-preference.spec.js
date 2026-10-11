@@ -95,18 +95,31 @@ test('day stripes differ from the page background and keep their parity while vi
   const colors = await rows.evaluateAll(list => ({
     white: getComputedStyle(list[0]).backgroundColor,
     gray: getComputedStyle(list[1]).backgroundColor,
-    outer: getComputedStyle(document.querySelector('.main-shell')).backgroundColor
+    outer: getComputedStyle(document.querySelector('.main-shell')).backgroundColor,
+    grayChannels: (() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 1
+      const context = canvas.getContext('2d')
+      context.fillStyle = getComputedStyle(list[1]).backgroundColor
+      context.fillRect(0, 0, 1, 1)
+      return Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3)
+    })()
   }))
   expect(colors.white).toBe('rgb(255, 255, 255)')
   expect(colors.gray).not.toBe(colors.white)
   expect(colors.gray).not.toBe(colors.outer)
-  await page.locator('.log-viewport').evaluate(el => { el.scrollTop = 44 * 40 })
+  for (const channel of colors.grayChannels) {
+    expect(255 - channel).toBeGreaterThan(0)
+    expect(255 - channel).toBeLessThanOrEqual(6)
+  }
+  await page.locator('.log-viewport').evaluate(el => { const host=el.closest('.thin-scroll-area');host.scrollTop=host.scrollTop+el.getBoundingClientRect().top-host.getBoundingClientRect().top+44*40 })
   await expect(rows.first()).toHaveAttribute('data-index', '35')
   const stripes = await rows.evaluateAll(list => list.map(row => ({
     odd: Number(row.dataset.index) % 2 === 1, color: getComputedStyle(row).backgroundColor
   })))
   for (const row of stripes) expect(row.color).toBe(row.odd ? colors.gray : colors.white)
   await page.screenshot({ path: info.outputPath('log-stripes-day.png') })
+  await page.locator('.page-scroll > .thin-scroll-area').evaluate(el=>el.scrollTop=0)
   await page.getByRole('button', { name: '主题：日光', exact: true }).click()
   const nightColors = await rows.evaluateAll(list => list.slice(0, 2).map(row => getComputedStyle(row).backgroundColor))
   expect(nightColors).not.toContain(colors.white)

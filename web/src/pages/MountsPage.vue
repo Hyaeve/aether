@@ -8,13 +8,37 @@ import NumberInput from '../components/NumberInput.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 import FileTabs from '../components/FileTabs.vue'
+import { useCardDrag } from '../useCardDrag'
 const mounts = ref([]), modal = ref(false), picker = ref(false), directoryPicker = ref(false), busy = ref(false), error = ref(''), deleting = ref(null)
 const form = ref({}), permission = ref('0777')
 const menu = ref(null)
 function closeMenu() { menu.value = null }
 function menuKey(event) { if (event.key === 'Escape') closeMenu() }
 function context(event, mount) { menu.value = { mount, x: Math.min(event.clientX, innerWidth - 165), y: Math.min(event.clientY, innerHeight - 180) } }
-function cardClick(event, mount) { if (!event.target.closest('button')) open(mount) }
+const { armed, dragging, dropTarget, hold, cardClick } = useCardDrag({ selector: '.mount-card', disabled: () => busy.value, onDrop: moveMount, onStart: closeMenu })
+const mountOrderKey = () => `aether:mount-order:${state.username || 'admin'}`
+function orderMounts(items) {
+  let order = mounts.value.map(mount => mount.id)
+  try { const saved = JSON.parse(localStorage.getItem(mountOrderKey()) || 'null'); if (Array.isArray(saved)) order = saved } catch {}
+  const positions = new Map(order.map((id, index) => [id, index]))
+  return [...items].sort((a, b) => (positions.get(a.id) ?? order.length) - (positions.get(b.id) ?? order.length))
+}
+function moveMount(id, target) {
+  const items = [...mounts.value], from = items.findIndex(m => m.id === id), to = items.findIndex(m => m.id === target)
+  if (busy.value || from < 0 || to < 0 || from === to) return
+  items.splice(to, 0, items.splice(from, 1)[0])
+  mounts.value = items
+  try { localStorage.setItem(mountOrderKey(), JSON.stringify(items.map(m => m.id))) } catch {}
+}
+function cardKey(event, mount) {
+  if (event.target !== event.currentTarget) return
+  if (event.key === 'Enter') { open(mount); return }
+  if (!event.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
+  event.preventDefault()
+  const index = mounts.value.findIndex(m => m.id === mount.id)
+  const target = mounts.value[index + (['ArrowUp', 'ArrowLeft'].includes(event.key) ? -1 : 1)]
+  if (target) moveMount(mount.id, target.id)
+}
 const storages = computed(() => state.storages.filter(s => s.enabled))
 const sourceName = mount => mount.storageId ? `${state.storages.find(s => s.id === mount.storageId)?.name || '存储不可用'} · ${mount.sourceLabel || '根目录'}` : '所有存储池'
 const statusName = mount => ({ mounted: '已挂载', stopped: '未挂载', error: '挂载失败' })[mount.status] || '未挂载'
@@ -24,7 +48,7 @@ function open(mount) {
   permission.value = form.value.mode.toString(8).padStart(4, '0')
   error.value = ''; modal.value = true
 }
-async function load() { try { mounts.value = await api('/mounts') } catch (e) { notify(e.message, true) } }
+async function load() { try { mounts.value = orderMounts(await api('/mounts')) } catch (e) { notify(e.message, true) } }
 async function save() {
   if (!/^0?[0-7]{3}$/.test(permission.value)) { error.value = '权限须为八进制，例如 0755'; return }
   busy.value = true; error.value = ''
@@ -52,7 +76,7 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
 <template>
   <div class="mount-heading"><FileTabs /><button class="btn primary" @click="open()"><Icon name="Plus" />添加挂载</button></div>
   <div v-if="!mounts.length" class="empty-state workspace-empty"><span class="empty-icon"><Icon name="CloudDownload" :size="36" /></span><h3>还没有挂载</h3></div>
-  <div v-else class="mount-grid"><article v-for="mount in mounts" :key="mount.id" class="mount-card" tabindex="0" :aria-label="`${mount.name}，${statusName(mount)}`" @click="cardClick($event,mount)" @keydown.enter.self="open(mount)">
+  <div v-else class="mount-grid"><article v-for="mount in mounts" :key="mount.id" class="mount-card" :data-id="mount.id" :class="{ 'drag-armed': armed === mount.id, dragging: dragging === mount.id, 'drop-target': dropTarget === mount.id }" :draggable="false" tabindex="0" :aria-label="`${mount.name}，${statusName(mount)}`" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown" @pointerdown="hold($event,mount)" @click="cardClick($event,mount,open)" @keydown="cardKey($event,mount)" @dragstart.prevent>
     <div class="mount-card-top" @contextmenu.prevent.stop="context($event,mount)"><button class="mount-toggle" :disabled="busy" :aria-label="mount.status === 'mounted' ? '停用挂载' : '启用挂载'" :aria-pressed="mount.status === 'mounted'" @click.stop="action(mount, mount.status === 'mounted' ? 'stop' : 'start')"><ProviderIcon type="local" /></button><div class="mount-identity"><h3>{{ mount.name }}</h3><p>{{ mount.mountPoint.replace(/[\\/]$/, '') }}<strong class="mount-path-suffix">/AetherDrive</strong></p></div><button class="icon-btn" aria-label="挂载操作" @click.stop="context($event,mount)"><Icon name="EllipsisVertical" /></button></div>
     <dl class="mount-details" @contextmenu.prevent.stop="context($event,mount)"><div><dt>源目录</dt><dd>{{ sourceName(mount) }}</dd></div><div><dt>权限</dt><dd class="mount-permissions">UID {{ mount.uid }} · GID {{ mount.gid }} · {{ mount.mode.toString(8).padStart(4, '0') }}</dd></div></dl>
     <p v-if="mount.lastError" class="error-message" @contextmenu.prevent.stop="context($event,mount)">{{ mount.lastError }}</p>

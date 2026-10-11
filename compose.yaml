@@ -1,5 +1,5 @@
 services:
-  aetherlink:
+  aether:
     image: ghcr.io/hyaeve/aether:latest
     container_name: Aether
     network_mode: host
@@ -11,7 +11,6 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - AETHER_PORT=15151
-      - AETHER_FUSE_CACHE_DIR=/fuse_read_cache
     devices:
       - /dev/fuse:/dev/fuse
     pid: "host"

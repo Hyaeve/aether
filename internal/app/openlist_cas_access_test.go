@@ -9,9 +9,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	linkstrm "aether/internal/linkcore/strm"
@@ -93,16 +95,19 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 	local := addLocal(t, a)
 	binding := addCASBindings(t, a)[0]
 	binding.Config["authorization"] = base64.StdEncoding.EncodeToString([]byte("pc:13900000000:test"))
-	a.store.update(func(st *State) error {
+	if err := a.store.update(func(st *State) error {
 		for i := range st.Storages {
 			if st.Storages[i].ID == binding.ID {
 				st.Storages[i] = binding
 			}
 		}
+		st.CASPool = normalizedCASPool(CASPoolConfig{Mobile: CASPoolGroup{StorageIDs: []string{binding.ID}, RetentionHours: 24}})
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	writeTest(t, filepath.Join(local.Config["root"], "film.mp4"), "media")
-	task := Task{ID: "cas-task", Name: "CAS", Kind: "cas", StorageID: local.ID, CASBindingID: binding.ID, Source: "/", Mode: "full", Target: "cas", RetentionHours: 12}
+	task := Task{ID: "cas-task", Name: "CAS", Kind: "cas", StorageID: local.ID, Source: "/", Mode: "full", Target: "cas", RetentionHours: 12}
 	if _, err := a.executeTask(context.Background(), task, local); err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +154,18 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(raw)), Request: r}, nil
 	})}
 	h := a.Handler(t.TempDir())
+	var playback sync.WaitGroup
+	for range 4 {
+		playback.Add(1)
+		go func() {
+			defer playback.Done()
+			w := request(t, h, "GET", info.PlaybackURL, nil, nil)
+			if w.Code != 302 || w.Header().Get("Location") != "https://cdn.example/film.mp4" {
+				t.Errorf("concurrent playback: %d %s", w.Code, w.Body.String())
+			}
+		}()
+	}
+	playback.Wait()
 	for range 2 {
 		w := request(t, h, "GET", info.PlaybackURL, nil, nil)
 		if w.Code != 302 || w.Header().Get("Location") != "https://cdn.example/film.mp4" {
@@ -157,6 +174,15 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 	}
 	if restores != 1 || len(a.store.snapshot().CASTemporary) != 1 {
 		t.Fatal("temporary reuse failed")
+	}
+	if entry := a.store.snapshot().CASTemporary[0]; entry.RetentionHours != 24 || entry.Feature != casFeatureKey(info) || entry.StorageID != binding.ID {
+		t.Fatalf("pool selection not recorded: %+v", entry)
+	}
+	different := info
+	different.Size++
+	wDifferent := request(t, h, "GET", a.signedStreamURL(streamClaim{CAS: &different, Redirect: true}), nil, nil)
+	if wDifferent.Code != 302 || restores != 2 || len(a.store.snapshot().CASTemporary) != 2 {
+		t.Fatal("different portable feature reused hash-only temporary", wDifferent.Code, restores)
 	}
 	setup := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
 	var body bytes.Buffer
@@ -176,10 +202,17 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"success":true`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if restores != 2 || len(a.store.snapshot().CASTemporary) != 1 {
+	if restores != 3 || len(a.store.snapshot().CASTemporary) != 2 {
 		t.Fatal("durable import was tracked as temporary")
 	}
-	raw, _ := base64.StdEncoding.DecodeString(string(content))
+	u, err := url.Parse(info.PlaybackURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(raw), binding.Config["authorization"]) {
 		t.Fatal("credential in CAS")
 	}

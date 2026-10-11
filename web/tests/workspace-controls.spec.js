@@ -39,9 +39,9 @@ test('file manager shares compact STRM/NFO editor and history matches refresh co
  await page.screenshot({path:info.outputPath('shared-editor-dark.png')})
 })
 
-test('log and playback lists scroll their short page header first, keep virtual rows and matching rails',async({page},info)=>{
+test('playback list scrolls its short page header first and keeps virtual rows and matching rail',async({page},info)=>{
  await setup(page)
- for(const [url,list,shell,rows] of [['/logs','.log-viewport','.log-list-shell','.log-entry'],['/links/cache','.playback-scroller','.playback-list-shell','.playback-event']]){
+ for(const [url,list,shell,rows] of [['/links/cache','.playback-scroller','.playback-list-shell','.playback-event']]){
   await page.goto(url);await expect(page.locator(rows).first()).toBeVisible()
   const outer=page.locator('.page-scroll > .thin-scroll-area'),inner=page.locator(list)
   expect(await page.locator(rows).count()).toBeLessThan(60)
@@ -60,7 +60,7 @@ test('log and playback lists scroll their short page header first, keep virtual 
 
 test('backup standard editor exposes monitoring and source completion policies',async({page},info)=>{
  await setup(page);await page.goto('/transfer/backup')
- await page.getByRole('button',{name:'添加备份',exact:true}).click()
+ await page.locator('.task-heading').getByRole('button',{name:'添加规则',exact:true}).click()
  const modal=page.getByRole('dialog',{name:'添加备份规则',exact:true})
  expect((await modal.boundingBox()).width).toBe(640)
  await modal.getByRole('button',{name:'备份规则',exact:true}).click()
@@ -85,7 +85,7 @@ test('both transfer tabs keep their framed content at the viewport bottom',async
 
 test('nested wheel smoothly consumes header and list distance, reverses and respects reduced motion',async({page})=>{
  await setup(page)
- for(const [url,selector] of [['/logs','.log-viewport'],['/links/cache','.playback-scroller']]){
+ for(const [url,selector] of [['/links/cache','.playback-scroller']]){
   await page.goto(url);const list=page.locator(selector)
   await expect(list).toBeVisible()
   const values=await list.evaluate(async el=>{
@@ -121,7 +121,7 @@ test('mount switches stay adjacent to their labels',async({page})=>{
 test('wheel inside an already scrolled list still docks the page first without moving its rows',async({page})=>{
  await setup(page)
  await page.route('**/api/files?**',r=>r.fulfill({json:Array.from({length:180},(_,i)=>({id:String(i),name:`file-${i}.txt`}))}))
- for(const [url,selector,boundary] of [['/files','.file-view','.file-browser'],['/logs','.log-viewport','.log-list-shell'],['/links/cache','.playback-scroller','.playback-list-shell']]){
+ for(const [url,selector,boundary] of [['/files','.file-view','.file-browser'],['/links/cache','.playback-scroller','.playback-list-shell']]){
   await page.goto(url)
   const list=page.locator(selector),outer=page.locator('.page-scroll > .thin-scroll-area')
   await expect(list).toBeVisible()
@@ -137,4 +137,45 @@ test('wheel inside an already scrolled list still docks the page first without m
   await expect.poll(()=>list.evaluate(el=>el.scrollTop)).toBeGreaterThan(100)
   await expect.poll(async()=>Math.round((await page.locator(boundary).boundingBox()).y)).toBe(56)
  }
+})
+
+test('inside and outside file and cache wheels share page-first descent and list-first ascent',async({page})=>{
+ await setup(page)
+ await page.route('**/api/files?**',r=>r.fulfill({json:Array.from({length:180},(_,i)=>({id:String(i),name:`file-${i}.txt`}))}))
+ for(const [url,selector] of [['/files','.file-view'],['/links/cache','.playback-scroller']]){
+  await page.goto(url)
+  const list=page.locator(selector),outer=page.locator('.page-scroll > .thin-scroll-area')
+  await expect(list).toBeVisible()
+  for(const inside of [true,false]){
+   await list.evaluate(el=>{el.scrollTop=0;el.closest('.page-scroll .thin-scroll-area').scrollTop=0})
+   const box=await list.boundingBox()
+   await page.mouse.move(inside?box.x+100:245,inside?box.y+70:350)
+   await page.mouse.wheel(0,12)
+   await expect.poll(()=>outer.evaluate(el=>el.scrollTop)).toBeCloseTo(12,0)
+   expect(await list.evaluate(el=>el.scrollTop)).toBe(0)
+   await page.mouse.wheel(0,500)
+   await expect.poll(()=>list.evaluate(el=>el.scrollTop+el.closest('.thin-scroll-area').scrollTop)).toBeCloseTo(512,0)
+   const docked=await outer.evaluate(el=>el.scrollTop)
+   const oldList=await list.evaluate(el=>el.scrollTop)
+   await page.mouse.wheel(0,-80)
+   await expect.poll(()=>list.evaluate(el=>el.scrollTop)).toBeCloseTo(oldList-80,0)
+   expect(await outer.evaluate(el=>el.scrollTop)).toBe(docked)
+   await page.mouse.wheel(0,-10000)
+   await expect.poll(()=>outer.evaluate(el=>el.scrollTop)).toBe(0)
+   expect(await list.evaluate(el=>el.scrollTop)).toBe(0)
+  }
+ }
+})
+
+test('logs wheel scrolls the full virtual page and only the breadcrumb remains fixed',async({page},info)=>{
+ await setup(page);await page.goto('/logs')
+ const outer=page.locator('.page-scroll > .thin-scroll-area'),list=page.locator('.log-viewport')
+ await expect(page.locator('.log-entry').first()).toBeVisible()
+ await page.locator('.log-entry').first().hover();await page.mouse.wheel(0,700)
+ await expect.poll(()=>outer.evaluate(el=>el.scrollTop)).toBeGreaterThan(600)
+ expect(await list.evaluate(el=>el.scrollTop)).toBe(0)
+ expect((await page.locator('.log-toolbar').boundingBox()).y).toBeLessThan(0)
+ expect((await page.locator('.topbar').boundingBox()).y).toBe(0)
+ expect(await page.locator('.log-entry').count()).toBeLessThan(60)
+ await page.screenshot({path:info.outputPath('log-page-scroll.png')})
 })

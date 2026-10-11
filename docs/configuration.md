@@ -10,6 +10,7 @@
   storage/settings.json
   task/strm.json
   task/cas.json
+  task/cas-pool.json
   task/ed2k.json
   task/cache.json
   task/other.json

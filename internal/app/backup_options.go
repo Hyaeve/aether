@@ -15,14 +15,49 @@ type BackupLocation struct {
 }
 
 type BackupFilter struct {
-	Type      string `json:"type"`
-	Mode      string `json:"mode"`
-	Value     string `json:"value"`
-	MatchDir  bool   `json:"matchDir"`
-	MatchFile bool   `json:"matchFile"`
-	MinSize   int64  `json:"minSize"`
-	MaxSize   int64  `json:"maxSize"`
-	Unit      string `json:"unit"`
+	Type          string `json:"type"`
+	Mode          string `json:"mode"`
+	Value         string `json:"value"`
+	MatchDir      bool   `json:"matchDir"`
+	MatchFile     bool   `json:"matchFile"`
+	MinSize       int64  `json:"minSize"`
+	MaxSize       int64  `json:"maxSize"`
+	Unit          string `json:"unit"`
+	CaseSensitive bool   `json:"caseSensitive,omitempty"`
+}
+
+func backupFilterPath(value string) (string, error) {
+	value = strings.ReplaceAll(value, `\`, "/")
+	if value == "" || strings.HasPrefix(value, "/") || strings.ContainsAny(value, ":\x00\r\n") {
+		return "", errors.New("筛选路径须为源目录内的相对路径")
+	}
+	value = strings.TrimSuffix(value, "/")
+	for _, part := range strings.Split(value, "/") {
+		if part == "" || part == "." || part == ".." {
+			return "", errors.New("筛选路径不能包含空目录段、.或..")
+		}
+	}
+	return value, nil
+}
+
+func backupFilterExtensions(value string, sensitive bool) (string, error) {
+	if !sensitive {
+		return normalizeExtensions(value)
+	}
+	tokens, seen := []string{}, map[string]bool{}
+	for _, token := range strings.Split(value, ";") {
+		token = strings.TrimPrefix(strings.TrimSpace(token), ".")
+		if token == "" {
+			continue
+		}
+		if !extensionToken.MatchString(strings.ToLower(token)) {
+			return "", errors.New("扩展名无效")
+		}
+		if !seen[token] {
+			tokens, seen[token] = append(tokens, token), true
+		}
+	}
+	return strings.Join(tokens, ";"), nil
 }
 
 func backupLocations(r BackupRule) ([]BackupLocation, []BackupLocation) {
@@ -108,16 +143,19 @@ func validateBackupOptions(r *BackupRule, st State) error {
 	}
 	for i := range r.Filters {
 		f := &r.Filters[i]
+		// Bind the rule option before either execution path compiles filters. Keeping
+		// it in the filter JSON also invalidates sync baselines when matching changes.
+		f.CaseSensitive = r.CaseSensitive
 		f.Value = strings.TrimSpace(f.Value)
 		if len(f.Value) > 2048 || f.Mode != "include" && f.Mode != "exclude" || !f.MatchDir && !f.MatchFile {
 			return fmt.Errorf("筛选规则%d的范围或模式无效", i+1)
 		}
 		switch f.Type {
-		case "name", "regex":
+		case "name", "regex", "path_regex":
 			if f.Value == "" {
 				return fmt.Errorf("请填写筛选规则%d的匹配内容", i+1)
 			}
-			if f.Type == "regex" {
+			if f.Type == "regex" || f.Type == "path_regex" {
 				if _, err := regexp.Compile(f.Value); err != nil {
 					return fmt.Errorf("筛选规则%d的正则表达式无效", i+1)
 				}
@@ -133,9 +171,15 @@ func validateBackupOptions(r *BackupRule, st State) error {
 				}
 			}
 		case "extension":
-			value, err := normalizeExtensions(f.Value)
+			value, err := backupFilterExtensions(f.Value, r.CaseSensitive)
 			if err != nil || value == "" {
 				return fmt.Errorf("筛选规则%d的扩展名无效", i+1)
+			}
+			f.Value = value
+		case "path_prefix":
+			value, err := backupFilterPath(f.Value)
+			if err != nil {
+				return fmt.Errorf("筛选规则%d的路径前缀无效：%w", i+1, err)
 			}
 			f.Value = value
 		case "size":
@@ -199,9 +243,20 @@ func compileBackupFilters(filters []BackupFilter) ([]compiledBackupFilter, error
 	result := make([]compiledBackupFilter, 0, len(filters))
 	for _, f := range filters {
 		item := compiledBackupFilter{BackupFilter: f}
-		if f.Type == "regex" {
+		if f.Type == "path_prefix" {
+			value, err := backupFilterPath(f.Value)
+			if err != nil {
+				return nil, err
+			}
+			item.Value = value
+		}
+		if f.Type == "regex" || f.Type == "path_regex" {
 			var err error
-			item.expression, err = regexp.Compile(f.Value)
+			expression := f.Value
+			if !f.CaseSensitive {
+				expression = "(?i:" + expression + ")"
+			}
+			item.expression, err = regexp.Compile(expression)
 			if err != nil {
 				return nil, err
 			}
@@ -218,26 +273,57 @@ func backupFilterAccept(filters []compiledBackupFilter, f File, relative string)
 			continue
 		}
 		matched := false
+		name, candidate := f.Name, relative
+		if !filter.CaseSensitive {
+			name, candidate = strings.ToLower(name), strings.ToLower(candidate)
+		}
 		switch filter.Type {
 		case "extension":
-			matched = excludedType(f.Name, filter.Value)
+			extension := strings.TrimPrefix(path.Ext(name), ".")
+			for _, token := range strings.Split(filter.Value, ";") {
+				if !filter.CaseSensitive {
+					token = strings.ToLower(token)
+				}
+				matched = matched || extension != "" && extension == token
+			}
 		case "size":
 			factor := backupUnit(filter.Unit)
 			matched = f.Size >= filter.MinSize*factor && (filter.MaxSize == 0 || f.Size <= filter.MaxSize*factor)
 		case "regex":
 			matched = filter.expression.MatchString(f.Name) || filter.expression.MatchString(relative)
+		case "path_prefix", "path_regex":
+			value, err := backupFilterPath(relative)
+			if err != nil {
+				return false
+			}
+			if filter.Type == "path_regex" {
+				matched = filter.expression.MatchString(value)
+				break
+			}
+			prefix := filter.Value
+			if !filter.CaseSensitive {
+				value, prefix = strings.ToLower(value), strings.ToLower(prefix)
+			}
+			matched = value == prefix || strings.HasPrefix(value, prefix+"/")
+			// Allow ancestors of an included prefix so nested matches remain reachable.
+			if filter.Mode == "include" && f.IsDir && strings.HasPrefix(prefix, value+"/") {
+				matched = true
+			}
 		case "name":
 			for _, word := range strings.Split(filter.Value, ";") {
-				word = strings.ToLower(strings.TrimSpace(word))
+				word = strings.TrimSpace(word)
+				if !filter.CaseSensitive {
+					word = strings.ToLower(word)
+				}
 				if word == "" {
 					continue
 				}
 				if strings.ContainsAny(word, "*?") {
-					a, _ := path.Match(word, strings.ToLower(f.Name))
-					b, _ := path.Match(word, strings.ToLower(relative))
+					a, _ := path.Match(word, name)
+					b, _ := path.Match(word, candidate)
 					matched = matched || a || b
 				} else {
-					matched = matched || strings.Contains(strings.ToLower(f.Name), word)
+					matched = matched || strings.Contains(name, word)
 				}
 			}
 		}

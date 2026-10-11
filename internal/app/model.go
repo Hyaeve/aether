@@ -78,6 +78,8 @@ type Task struct {
 	Status             string           `json:"status"`
 	Message            string           `json:"message"`
 	Processed          int              `json:"processed"`
+	CASGenerated       int              `json:"casGenerated,omitempty"`
+	CASFailed          int              `json:"casFailed,omitempty"`
 	LastRun            time.Time        `json:"lastRun"`
 	NextRun            time.Time        `json:"nextRun"`
 }
@@ -110,6 +112,8 @@ type LogEntry struct {
 }
 
 type State struct {
+	CASPool          CASPoolConfig              `json:"casPool"`
+	CASPoolVersion   int                        `json:"casPoolVersion,omitempty"`
 	RuntimeSeparated bool                       `json:"runtimeSeparated,omitempty"`
 	ModuleVersion    int                        `json:"moduleVersion,omitempty"`
 	BackupRules      []BackupRule               `json:"backupRules,omitempty"`

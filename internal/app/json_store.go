@@ -45,7 +45,7 @@ func durableConfigWrite(name string, data []byte) error {
 	return syncConfigDirectory(filepath.Dir(name))
 }
 
-var jsonModules = []string{"storage/storage", "storage/settings", "task/strm", "task/cas", "task/ed2k", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "tool/tmdb", "tool/proxy", "tool/ai", "tool/emby", "tool/quark-takeover", "tool/115-simulcast", "file/webdav", "file/mount", "transfer/backup", "state"}
+var jsonModules = []string{"storage/storage", "storage/settings", "task/strm", "task/cas", "task/cas-pool", "task/ed2k", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "tool/tmdb", "tool/proxy", "tool/ai", "tool/emby", "tool/quark-takeover", "tool/115-simulcast", "file/webdav", "file/mount", "transfer/backup", "state"}
 
 type jsonConfig struct {
 	Version int             `json:"version"`
@@ -196,6 +196,7 @@ func (s *Store) decodeJSONConfig(module string, raw []byte, target any) error {
 
 func (s *Store) jsonValues() map[string]any {
 	v := s.moduleValues()
+	v["task/cas-pool"] = normalizedCASPool(s.state.CASPool)
 	v["storage/storage"], v["storage/settings"] = s.state.Storages, v["storage/storage"].(storageModule).Settings
 	plugins := map[string]PluginConfig{}
 	for name, config := range s.state.Plugins {
@@ -210,6 +211,7 @@ func (s *Store) jsonValues() map[string]any {
 	v["tool/quark-takeover"] = toolSettings{QuarkTV: s.state.QuarkTV, Enabled: s.state.QuarkTVEnabled}
 	v["tool/115-simulcast"] = s.state.Simulcast
 	p := s.state
+	p.CASPool, p.CASPoolVersion = CASPoolConfig{}, 1
 	p.Storages, p.Tasks, p.Automations, p.Links, p.Mounts, p.DAVUsers, p.BackupRules = nil, nil, nil, nil, nil, nil, nil
 	p.Plugins, p.QuarkTV, p.Simulcast, p.QuarkTVEnabled = nil, nil, nil, nil
 	p.Settings, p.Modules, p.ToolsRevision, p.ModuleVersion = Settings{}, nil, "", 3
@@ -422,6 +424,7 @@ func (s *Store) saveJSONModules() error {
 }
 
 func (s *Store) readJSONModules() error {
+	missingPool := false
 	name, err := s.jsonPath("state")
 	if err != nil {
 		return err
@@ -446,6 +449,11 @@ func (s *Store) readJSONModules() error {
 			return err
 		}
 		raw, err := os.ReadFile(name)
+		if key == "task/cas-pool" && os.IsNotExist(err) && s.state.CASPoolVersion == 0 {
+			s.state.CASPool = normalizedCASPool(CASPoolConfig{})
+			missingPool = true
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -467,6 +475,8 @@ func (s *Store) readJSONModules() error {
 			target = &s.state.Links
 		case "task/automation":
 			target = &s.state.Automations
+		case "task/cas-pool":
+			target = &s.state.CASPool
 		case "transfer/backup":
 			target = &s.state.BackupRules
 		case "tool/config":
@@ -532,6 +542,10 @@ func (s *Store) readJSONModules() error {
 		if err != nil {
 			return err
 		}
+	}
+	if missingPool {
+		delete(s.jsonCache, "task/cas-pool")
+		delete(s.jsonCache, "state")
 	}
 	return nil
 }

@@ -157,6 +157,7 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 		t.Status = "running"
 		t.Message = "正在扫描"
 		t.Processed = 0
+		t.CASGenerated, t.CASFailed = 0, 0
 		t.LastRun = time.Now()
 		t.NextRun = nextRun(*t, time.Now())
 	})
@@ -222,24 +223,30 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		}
 	}()
 	count := 0
+	generated, failed := 0, 0
+	defer func() {
+		if t.Kind == "cas" {
+			a.taskUpdate(t.ID, func(task *Task) { task.CASGenerated, task.CASFailed = generated, failed })
+		}
+	}()
 	var skippedCAS []string
 	flushSkippedCAS := func() {
 		if len(skippedCAS) == 0 {
 			return
 		}
-		a.store.event("warn", "tasks", fmt.Sprintf("CAS任务 %s：本批跳过 %d 个缺少有效哈希的文件：%s", t.Name, len(skippedCAS), strings.Join(skippedCAS, "；")))
+		a.store.event("warn", "tasks", fmt.Sprintf("CAS任务 %s：本批跳过 %d 个特征异常文件：%s", t.Name, len(skippedCAS), strings.Join(skippedCAS, "；")))
 		skippedCAS = nil
 	}
 	defer flushSkippedCAS()
 	var binding Storage
-	if t.Kind == "cas" {
+	if t.Kind == "cas" && t.CASOperation == "restore" {
 		var err error
 		binding, err = a.casBinding(t, s)
 		if err != nil {
 			return 0, err
 		}
 	}
-	generateCAS := t.Kind == "cas" && (t.CASOperation == "generate" || (t.CASOperation == "" && s.Type == "local"))
+	generateCAS := t.Kind == "cas" && t.CASOperation != "restore"
 	if t.Kind == "ed2k" && t.ED2KBindingID != "" {
 		var err error
 		binding, err = a.validateED2KBinding(t, s)
@@ -297,6 +304,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				continue
 			}
 			var info *CASInfo
+			featureSource := generateCAS && (strings.EqualFold(path.Ext(f.Name), ".cas") || strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm"))
 			metadata := excludedType(f.Name, t.MetadataExtensions) && !taskMedia(t, f.Name)
 			if t.Kind == "cas" && !generateCAS && !metadata {
 				if !strings.EqualFold(path.Ext(f.Name), ".cas") || excluded(f.Name, t.ExcludeFiles) {
@@ -311,8 +319,27 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 				info = &parsed
 				child = path.Join(rel, parsed.Name)
-			} else if (t.Kind != "strm" && t.Kind != "ed2k" && t.Kind != "cas") || (!taskMedia(t, f.Name) && !metadata) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
+			} else if (t.Kind != "strm" && t.Kind != "ed2k" && t.Kind != "cas") || (!taskMedia(t, f.Name) && !metadata && !featureSource) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
 				continue
+			}
+			if featureSource {
+				parsed, e := a.readCAS(ctx, s, f)
+				if e != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					failed++
+					skippedCAS = append(skippedCAS, child)
+					if len(skippedCAS) >= 50 {
+						flushSkippedCAS()
+					}
+					continue
+				}
+				if !taskMedia(t, parsed.Name) || excludedType(parsed.Name, t.ExcludeTypes) {
+					continue
+				}
+				info = &parsed
+				child, metadata = path.Join(rel, parsed.Name), false
 			}
 			// Create the output root only when a matching file actually needs writing.
 			if root == nil {
@@ -352,6 +379,13 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				suffix = ".cas.strm"
 			}
 			filename := path.Join(target, taskOutputName(t, s, child, suffix))
+			if featureSource {
+				base := f.Name[:len(f.Name)-len(".cas")]
+				if strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm") {
+					base = f.Name[:len(f.Name)-len(".cas.strm")]
+				}
+				filename = path.Join(target, rel, base+".cas.strm")
+			}
 			if outputs[strings.ToLower(filename)] {
 				return fmt.Errorf("输出文件名冲突：%s", filename)
 			}
@@ -378,8 +412,14 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				continue
 			}
 			if generateCAS {
-				info, err := a.generateCASInfo(ctx, s, f)
+				feature := info
+				err = nil
+				if feature == nil {
+					parsed, e := a.generateCASInfo(ctx, s, f)
+					feature, err = &parsed, e
+				}
 				if errors.Is(err, errCASMissingHash) {
+					failed++
 					delete(outputs, strings.ToLower(filename))
 					skippedCAS = append(skippedCAS, child)
 					if len(skippedCAS) >= 50 {
@@ -388,19 +428,24 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					continue
 				}
 				if err != nil {
+					failed++
 					return fmt.Errorf("%s: %w", f.Name, err)
 				}
-				info.RetentionHours = casRetentionHours(t.RetentionHours)
-				info, err = casForBinding(info, binding)
-				if err != nil {
-					return err
-				}
-				playbackInfo := info
-				info.PlaybackURL = a.signedStreamURL(streamClaim{Storage: binding.ID, File: f.ID, CAS: &playbackInfo, TaskID: t.ID, RetentionHours: casRetentionHours(t.RetentionHours), Redirect: true})
-				if err := writeCASOutput(root, filename, []byte(info.PlaybackURL+"\n"), t.Mode == "incremental"); err != nil {
+				feature.Provider, feature.PlaybackURL, feature.RetentionHours = "", "", 0
+				link := a.signedStreamURL(streamClaim{CAS: feature, Redirect: true})
+				if err := writeCASOutput(root, filename, []byte(link+"\n"), t.Mode == "incremental"); err != nil {
+					failed++
 					return err
 				}
 				count++
+				generated++
+				if t.ID != "" && time.Since(lastProgress) >= time.Second {
+					lastProgress = time.Now()
+					a.taskUpdate(t.ID, func(task *Task) {
+						task.Processed, task.CASGenerated, task.CASFailed = count, generated, failed
+						task.Message = "正在生成 · " + child
+					})
+				}
 				continue
 			}
 			claim := streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode, CAS: info}

@@ -265,6 +265,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	})))
 	mux.Handle("GET /api/cas/status", a.protected(http.HandlerFunc(a.casStatus)))
 	mux.Handle("POST /api/cas/cleanup", a.protected(http.HandlerFunc(a.casCleanup)))
+	mux.Handle("/api/cas/pool", a.protected(http.HandlerFunc(a.casPoolSettings)))
 	mux.Handle("GET /api/version", a.protected(http.HandlerFunc(a.version)))
 	mux.Handle("GET /api/version/check", a.protected(http.HandlerFunc(a.checkVersion)))
 	mux.Handle("POST /api/authorization/{provider}/start", a.protected(http.HandlerFunc(a.startAuthorization)))
@@ -970,27 +971,15 @@ func (a *App) validateTask(t *Task) error {
 			}
 		}
 		if t.Kind == "cas" {
-			if t.RetentionHours == 0 {
-				t.RetentionHours = 12
-			}
-			if t.RetentionHours < 1 || t.RetentionHours > 8760 {
-				return errors.New("还原文件保留时间必须为 1–8760 小时")
-			}
-			s, _ := a.store.storage(t.StorageID)
 			if t.CASOperation == "" {
 				t.CASOperation = "generate"
 			}
 			if t.CASOperation != "generate" {
 				return errors.New("CAS 任务仅生成 CAS 文件，请重新编辑保存旧任务")
 			}
-			if !casStorage(s) && !(s.Type == "local" && t.CASOperation == "generate") {
-				return errors.New("CAS 生成支持本地、原生移动或天翼存储；还原仅支持原生移动或天翼")
-			}
-			binding, err := a.casBinding(*t, s)
-			if err != nil {
-				return err
-			}
-			t.CASBindingID = binding.ID
+			// Generated features are independent of the playback account pool.
+			t.CASBindingID = ""
+			t.RetentionHours = 0
 		}
 		t.Target = strings.TrimSpace(t.Target)
 		if _, err := a.outputRelative(t.Target); err != nil {
@@ -1033,6 +1022,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.ID, t.Status, t.Message, t.Processed, t.LastRun = id(), "idle", "等待执行", 0, time.Time{}
+	t.CASGenerated, t.CASFailed = 0, 0
 	t.NextRun = nextRun(t, created)
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
@@ -1075,6 +1065,7 @@ func (a *App) taskItem(w http.ResponseWriter, r *http.Request) {
 				return nil
 			}
 			in.ID, in.Status, in.Message, in.Processed, in.LastRun = tid, t.Status, t.Message, t.Processed, t.LastRun
+			in.CASGenerated, in.CASFailed = t.CASGenerated, t.CASFailed
 			in.NextRun = nextRun(in, time.Now())
 			st.Tasks[i] = in
 			return nil
@@ -1250,7 +1241,12 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	s, err := a.store.storage(claim.Storage)
+	var s Storage
+	if claim.CAS != nil && claim.Storage == "" {
+		s, claim.RetentionHours, err = a.selectCASStorage(*claim.CAS, time.Now())
+	} else {
+		s, err = a.store.storage(claim.Storage)
+	}
 	if err != nil {
 		fail(w, 404, err)
 		return

@@ -80,6 +80,7 @@ func TestNativeFuseLocalCallbacks(t *testing.T) {
 
 func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 	a := testApp(t)
+	a.fuseReadOnce.Do(func() { a.fuseReads = newFuseReadCache(t.TempDir()) })
 	root := t.TempDir()
 	var reads atomic.Int32
 	dav := &webdav.Handler{FileSystem: webdav.Dir(root), LockSystem: webdav.NewMemLS()}
@@ -150,7 +151,7 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 	if _, errno = reader.Read(ctx, make([]byte, 5), 0); errno != 0 || reads.Load() != before+1 {
 		t.Fatal("cache invalidation", errno, reads.Load(), before)
 	}
-	if entries, err := os.ReadDir(a.fuseCacheDirectory()); err != nil || len(entries) == 0 {
+	if entries, err := os.ReadDir(a.fuseCache().dir); err != nil || len(entries) == 0 {
 		t.Fatal("cache not persisted", err)
 	}
 	reader.Release(ctx)

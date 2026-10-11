@@ -1277,11 +1277,12 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
 html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .main-shell { height: 100dvh; box-sizing: border-box; }
 .page-scroll { height: calc(100dvh - 48px); }
-.page-scroll:has(.log-panel,.link-playback) > .thin-scroll-rail { display:none; }
+.page-scroll:has(.link-playback) > .thin-scroll-rail { display:none; }
 .page-content:has(> .log-panel),.page-content:has(> .link-playback) { height:auto; min-height:calc(100dvh - 48px); }
 .log-panel { flex:none; height:auto; }
-.log-list-shell,.playback-list-shell { position:relative; flex:none; height:calc(100dvh - 80px); min-height:240px; }
-.log-list-shell > .log-viewport,.playback-list-shell > .playback-scroller { height:100%; scrollbar-width:none; }
+.log-list-shell,.playback-list-shell { position:relative; flex:none; min-height:240px; }
+.log-list-shell > .log-viewport { height:auto; overflow:visible; }
+.playback-list-shell > .playback-scroller { height:100%; scrollbar-width:none; }
 .log-viewport::-webkit-scrollbar { display:none; }
 .link-playback { flex:none; }
 .log-panel > footer,.playback-count { flex:none; height:24px; padding:3px 16px; margin:0; font-size:12px; line-height:18px; }
@@ -1365,7 +1366,10 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .page-content:has(> .automation-list) { display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
 .page-content:has(> .scrape-panel) { min-height:calc(100dvh - 48px); height:auto; display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
 .page-content:has(> .transfer-content:not(.backup-content)) { padding-bottom:var(--workspace-end-gap); }
-.log-list-shell,.playback-list-shell { height:calc(100dvh - 88px); }
+.log-list-shell { height:auto; min-height:0; flex:1; }
+.playback-list-shell { height:calc(100dvh - 88px); }
+.page-content:has(> .log-panel) { height:auto; display:flex; flex-direction:column; }
+.log-panel { flex:1; min-height:0; }
 .page-content:has(> .log-panel),.page-content:has(> .link-playback) { padding-bottom:var(--workspace-end-gap); }
 .files-heading-actions .search-field { width:230px; }
 .storage-card:hover,.link-card:hover,.mount-card:hover,.dav-user-card:hover,.task-row-card:not(.running):hover,.backup-card:not(.running):hover { border-color:color-mix(in srgb,var(--primary) 72%,var(--border)); box-shadow:0 0 0 1px color-mix(in srgb,var(--primary) 16%,transparent); }

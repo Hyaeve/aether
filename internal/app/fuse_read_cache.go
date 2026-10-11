@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +43,9 @@ func newFuseReadCache(dir string) *fuseReadCache {
 }
 
 func (c *fuseReadCache) initialize() {
+	if c.dir == "" {
+		return
+	}
 	if os.MkdirAll(c.dir, 0700) != nil {
 		return
 	}
@@ -201,6 +204,12 @@ func (c *fuseReadCache) readAt(ctx context.Context, key string, size int64, dest
 	if off >= size {
 		return 0, io.EOF
 	}
+	if c.dir == "" {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		return fetch(dest, off)
+	}
 	written := 0
 	for written < len(dest) && off+int64(written) < size {
 		position := off + int64(written)
@@ -223,8 +232,25 @@ func (a *App) fuseCache() *fuseReadCache {
 }
 
 func (a *App) fuseCacheDirectory() string {
-	if dir := strings.TrimSpace(os.Getenv("AETHER_FUSE_CACHE_DIR")); dir != "" {
-		return filepath.Clean(dir)
+	if runtime.GOOS != "linux" {
+		return ""
 	}
-	return filepath.Join(a.dataDir, "fuse_read_cache")
+	// Containers must not silently cache in their writable image layer.
+	const dir = "/fuse_read_cache"
+	info, err := os.ReadFile("/proc/self/mountinfo")
+	if err == nil && fuseCacheMounted(string(info), dir) {
+		return dir
+	}
+	return ""
+}
+
+func fuseCacheMounted(info, dir string) bool {
+	unescape := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
+	for _, line := range strings.Split(info, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 10 && strings.Contains(line, " - ") && unescape.Replace(fields[4]) == dir {
+			return true
+		}
+	}
+	return false
 }

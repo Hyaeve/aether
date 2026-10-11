@@ -4,7 +4,7 @@
 
 自托管的云盘与本地存储工作空间，使用 Go + Vue 构建。
 
-当前版本：**v0.4.7** · [版本说明](docs/releases/v0.4.7.md)
+当前版本：**v0.4.8** · [版本说明](docs/releases/v0.4.8.md)
 
 ## 功能概览
 
@@ -29,7 +29,7 @@ Linux Docker Compose 配置如下，也可使用仓库中的 [compose.yaml](comp
 
 ```yaml
 services:
-  aetherlink:
+  aether:
     image: ghcr.io/hyaeve/aether:latest
     container_name: Aether
     network_mode: host
@@ -40,7 +40,6 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - AETHER_PORT=15151
-      - AETHER_FUSE_CACHE_DIR=/fuse_read_cache
     devices:
       - /dev/fuse:/dev/fuse
     pid: "host"
@@ -59,7 +58,7 @@ docker compose up -d
 - 本地文件及媒体库需要映射到容器；本地挂载需要 `/dev/fuse` 和相应容器权限。不需要挂载时可移除 Compose 中的特权及 FUSE 配置。
 - WebDAV 地址为 `/dav/`。独立 WebDAV 用户只读，管理员可按存储能力读写。
 
-`AETHER_FUSE_CACHE_DIR` 指定 FUSE 缓存目录，镜像默认为 `/fuse_read_cache`；原生运行未设置时仍使用数据目录下的 `fuse_read_cache`。升级时将旧映射的容器路径改为 `/fuse_read_cache`，无需迁移可重建的缓存块。
+FUSE 磁盘读缓存仅在映射 `/fuse_read_cache` 时自动启用，不使用环境变量控制；不映射则禁用，不会在 `/data` 下创建缓存。升级时将旧映射的容器路径改为 `/fuse_read_cache`，无需迁移可重建的缓存块。
 
 ## 配置目录
 

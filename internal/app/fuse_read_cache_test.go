@@ -14,16 +14,14 @@ import (
 )
 
 func TestFuseReadCacheConfiguredDirectory(t *testing.T) {
-	t.Setenv("AETHER_FUSE_CACHE_DIR", "")
 	a := &App{dataDir: t.TempDir()}
-	if got := a.fuseCacheDirectory(); got != filepath.Join(a.dataDir, "fuse_read_cache") {
-		t.Fatal("native default changed", got)
-	}
 	dir := t.TempDir()
+	// Legacy overrides must no longer select another cache directory.
 	t.Setenv("AETHER_FUSE_CACHE_DIR", dir)
-	if got := a.fuseCacheDirectory(); got != dir {
-		t.Fatal("external cache ignored", got)
+	if got := a.fuseCacheDirectory(); got != "" && got != "/fuse_read_cache" {
+		t.Fatal("legacy environment override still active", got)
 	}
+	a.fuseReadOnce.Do(func() { a.fuseReads = newFuseReadCache(dir) })
 	c := a.fuseCache()
 	if c.dir != dir || a.fuseCache() != c {
 		t.Fatal("configured cache was not reused", c.dir)
@@ -49,10 +47,64 @@ func TestFuseReadCacheConfiguredDirectory(t *testing.T) {
 	}
 }
 
+func TestFuseReadCacheMountedDirectory(t *testing.T) {
+	for _, tt := range []struct {
+		name, info, dir string
+		want            bool
+	}{
+		{"bind", "42 1 8:1 /cache /fuse_read_cache rw - ext4 /dev/sda rw", "/fuse_read_cache", true},
+		{"volume", "42 1 8:1 /var/lib/docker/volumes/cache /fuse_read_cache rw - ext4 /dev/sda rw", "/fuse_read_cache", true},
+		{"image", "42 1 0:1 / / rw - overlay overlay rw", "/fuse_read_cache", false},
+		{"parent", "42 1 8:1 / /data rw - ext4 /dev/sda rw", "/data/fuse_read_cache", false},
+		{"child", "42 1 8:1 /cache /fuse_read_cache/child rw - ext4 /dev/sda rw", "/fuse_read_cache", false},
+		{"escaped", `42 1 8:1 /cache /fuse\040cache rw - ext4 /dev/sda rw`, "/fuse cache", true},
+		{"malformed", "42 1 /fuse_read_cache", "/fuse_read_cache", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := fuseCacheMounted(tt.info, tt.dir); got != tt.want {
+				t.Fatal(got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFuseReadCacheDisabledReadsDirectly(t *testing.T) {
+	c := newFuseReadCache("")
+	data := []byte("uncached")
+	calls := 0
+	fetch := func(b []byte, off int64) (int, error) {
+		calls++
+		return bytes.NewReader(data).ReadAt(b, off)
+	}
+	for i := 0; i < 2; i++ {
+		b := make([]byte, 3)
+		if n, err := c.readAt(context.Background(), "file", int64(len(data)), b, 2, fetch); n != 3 || err != nil || string(b) != "cac" {
+			t.Fatal(n, err, string(b))
+		}
+	}
+	if calls != 2 || c.ready || c.bytes != 0 || len(c.entries) != 0 {
+		t.Fatal("disabled cache retained blocks", calls, c.ready, c.bytes)
+	}
+	for i := 0; i < 2; i++ {
+		b, err := c.block(context.Background(), "fuse-handle", 0, len(data), fetch)
+		if err != nil || !bytes.Equal(b, data) {
+			t.Fatal(err, string(b))
+		}
+	}
+	if calls != 4 || c.ready || len(c.entries) != 0 {
+		t.Fatal("disabled FUSE block persisted", calls, c.ready)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.readAt(ctx, "file", int64(len(data)), make([]byte, 3), 0, fetch); !errors.Is(err, context.Canceled) || calls != 4 {
+		t.Fatal("canceled read reached upstream", err, calls)
+	}
+}
+
 func TestFuseReadCacheDirectoryProtectedFromMount(t *testing.T) {
 	a := testApp(t)
 	dir := t.TempDir()
-	t.Setenv("AETHER_FUSE_CACHE_DIR", dir)
+	a.fuseReadOnce.Do(func() { a.fuseReads = newFuseReadCache(dir) })
 	if err := a.validateMount(&MountConfig{Name: "cache-overlap", MountPoint: dir, Mode: 0755}); err == nil {
 		t.Fatal("mount can hide its own read cache")
 	}

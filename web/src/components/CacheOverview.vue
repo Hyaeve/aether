@@ -34,7 +34,7 @@ const metrics = computed(() => [
   </section>
 </template>
 <style scoped>
-.cache-overview { display: grid; grid-template-columns: 112px minmax(160px, 1fr) minmax(320px, 1.1fr); gap: 18px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cache-overview { display: grid; grid-template-columns: 112px minmax(160px, 1fr) minmax(320px, 1.1fr); gap: 18px; align-items: center; padding: 12px 16px 12px 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 10px; }
 dt, .cache-progress small { color: var(--muted); font-size: 12px; }
 .cache-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px 12px; margin: 0; }
 .cache-metrics > div { position: relative; padding-left: 27px; min-width: 0; }
@@ -65,6 +65,6 @@ dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
 .cache-progress-motion { position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: inherit; background: var(--primary); animation: cache-scan 1.8s ease-in-out infinite; }
 @keyframes cache-scan { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
 @media(prefers-reduced-motion: reduce) { .cache-progress-motion { animation: none; left: 32.5%; } }
-@media(max-width: 1050px) { .cache-overview { grid-template-columns: 96px minmax(0,1fr); gap: 12px; } .cache-metrics { grid-column: 1 / -1; } }
-@media(max-width: 480px) { .cache-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width: 1050px) { .cache-overview { grid-template-columns: 104px minmax(0,1fr); gap: 12px; } .cache-metrics { grid-column: 1 / -1; } }
+@media(max-width: 480px) { .cache-overview { padding: 12px 12px 12px 16px; } .cache-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 </style>

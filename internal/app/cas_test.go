@@ -131,11 +131,11 @@ func TestCASLifecycle(t *testing.T) {
 	if err := a.validateTask(&task); err != nil {
 		t.Fatal(err)
 	}
-	// Exercise the legacy decoder for already-issued playback links.
-	task.CASOperation = "restore"
-	if task.RetentionHours != 12 {
-		t.Fatal("CAS default retention must be 12h")
+	if task.RetentionHours != 0 {
+		t.Fatal("generated CAS task must leave retention to the playback pool")
 	}
+	// Exercise the legacy decoder and retention for already-issued playback links.
+	task.CASOperation = "restore"
 	task.RetentionHours = 24
 	if nextRun(task, time.Now()).IsZero() {
 		t.Fatal("CAS cron did not schedule")
@@ -268,8 +268,8 @@ func TestCASRetentionDefaultsAndValidation(t *testing.T) {
 	_ = a.store.update(func(st *State) error { st.Storages = append(st.Storages, s); return nil })
 	for _, hours := range []int{-1, 8761} {
 		task := Task{Name: "CAS", Kind: "cas", StorageID: s.ID, Mode: "full", RetentionHours: hours}
-		if a.validateTask(&task) == nil {
-			t.Fatal("invalid retention accepted", hours)
+		if err := a.validateTask(&task); err != nil || task.RetentionHours != 0 {
+			t.Fatalf("generated task retained obsolete retention %d: %+v %v", hours, task, err)
 		}
 	}
 	now := time.Now()

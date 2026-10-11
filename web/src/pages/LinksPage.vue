@@ -9,6 +9,7 @@ import SecretInput from '../components/SecretInput.vue'
 import ScrollRail from '../components/ScrollRail.vue'
 import { listWheel } from '../nested-scroll'
 import { copyText } from '../clipboard'
+import { useCardDrag } from '../useCardDrag'
 const types = [{ id: 'audiobookshelf', name: 'AudioBookShelf', icon: 'abs' }, { id: 'emby', name: 'Emby', icon: 'emby' }, { id: 'fnos', name: '飞牛影视', icon: 'fnmovie' }]
 const modes = [{ value: 'always', label: '始终跳转', icon: 'ExternalLink' }, { value: 'public', label: '公网跳转', icon: 'Globe' }, { value: 'private', label: '内网跳转', icon: 'House' }, { value: 'never', label: '始终中继', icon: 'CornerDownLeft' }]
 const route = useRoute()
@@ -18,41 +19,8 @@ const form = reactive({})
 const menu = ref(null)
 const outcome = ref('all')
 const outcomes = [{ value: 'all', label: '全部类型' }, { value: 'redirect', label: '302' }, { value: 'proxy', label: '中继' }, { value: 'transcode', label: '适配' }, { value: 'passthrough', label: '透传' }, { value: 'local', label: '本地' }, { value: 'error', label: '失败' }, { value: 'unauthorized', label: '未授权' }]
-const armed = ref(''), dragging = ref(''), dropTarget = ref(''), sorting = ref(false)
-let holdTimer, releaseTimer, suppressClick = false, pointer = null
-const interactive = event => event.target.closest('button, a, input, .rounded-select')
-function hold(event, link) {
-  if (event.button !== 0 || sorting.value || interactive(event)) return
-  clearTimeout(holdTimer); clearTimeout(releaseTimer)
-  const card = event.currentTarget
-  pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, link: link.id }
-  holdTimer = setTimeout(() => { armed.value = link.id; suppressClick = true; card?.setPointerCapture?.(event.pointerId) }, 160)
-}
-function pointerMove(event) {
-  if (!pointer || event.pointerId !== pointer.id) return
-  if (!armed.value) {
-    if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 8) { clearTimeout(holdTimer); pointer = null }
-    return
-  }
-  if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 5) return
-  event.preventDefault()
-  dragging.value = pointer.link
-  dropTarget.value = document.elementFromPoint(event.clientX, event.clientY)?.closest('.link-card')?.dataset.id || ''
-}
-function pointerUp(event) {
-  if (!pointer || event.pointerId !== pointer.id) return
-  const id = pointer.link, target = dropTarget.value
-  pointer = null
-  if (dragging.value && target) moveLink(id, target)
-  else dragEnd()
-}
-function pointerCancel() { pointer = null; dragEnd() }
-function release() {
-  clearTimeout(holdTimer)
-  releaseTimer = setTimeout(() => { armed.value = ''; suppressClick = false }, 100)
-}
-function cardClick(event, link) { if (!suppressClick && !interactive(event)) open(link) }
-function dragEnd() { dragging.value = ''; dropTarget.value = ''; release() }
+const sorting = ref(false)
+const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCardDrag({ selector: '.link-card', disabled: () => sorting.value, onDrop: moveLink, onStart: closeMenu })
 async function moveLink(id, target) {
   dragEnd()
   if (!id || id === target || sorting.value) return
@@ -139,8 +107,8 @@ async function remove() {
   catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 let timer
-onMounted(() => { document.addEventListener('pointermove', pointerMove, { passive: false }); document.addEventListener('pointerup', pointerUp); document.addEventListener('pointercancel', pointerCancel); document.addEventListener('click', closeMenu); document.addEventListener('keydown', escapeMenu); load(); timer = setInterval(() => { if (tab.value === 'cache') loadPlayback() }, 5000) })
-onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); document.removeEventListener('pointerup', pointerUp); document.removeEventListener('pointercancel', pointerCancel); clearInterval(timer); clearTimeout(holdTimer); clearTimeout(releaseTimer); document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', escapeMenu) })
+onMounted(() => { document.addEventListener('click', closeMenu); document.addEventListener('keydown', escapeMenu); load(); timer = setInterval(() => { if (tab.value === 'cache') loadPlayback() }, 5000) })
+onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', closeMenu); document.removeEventListener('keydown', escapeMenu) })
 </script>
 <template>
   <div class="link-heading">
@@ -148,7 +116,7 @@ onUnmounted(() => { document.removeEventListener('pointermove', pointerMove); do
     <div v-if="tab === 'cache'" class="playback-toolbar"><button class="icon-btn" aria-label="刷新播放流水" @click="loadPlayback"><Icon name="RefreshCw" /></button><RoundedSelect v-model="outcome" label="筛选播放类型" :options="outcomes" /><div class="toolbar-right"><div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索播放流水" placeholder="搜索播放流水…" /></div></div></div>
   </div>
   <div v-if="tab === 'manage'" class="link-grid">
-    <article v-for="link in links" :key="link.id" class="link-card" :data-id="link.id" tabindex="0" :aria-label="link.name" :class="{ 'drag-armed': armed === link.id, dragging: dragging === link.id, 'drop-target': dropTarget === link.id }" :draggable="false" @pointerdown="hold($event, link)" @click="cardClick($event, link)" @keydown="cardKey($event, link)" @dragstart.prevent @contextmenu.prevent.stop="context($event, link)">
+    <article v-for="link in links" :key="link.id" class="link-card" :data-id="link.id" tabindex="0" :aria-label="link.name" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown" :class="{ 'drag-armed': armed === link.id, dragging: dragging === link.id, 'drop-target': dropTarget === link.id }" :draggable="false" @pointerdown="hold($event, link)" @click="cardClick($event, link, open)" @keydown="cardKey($event, link)" @dragstart.prevent @contextmenu.prevent.stop="context($event, link)">
       <div class="link-identity"><button class="link-toggle" :aria-label="`${link.enabled ? '停用' : '启用'}以链 ${link.name}`" :aria-pressed="link.enabled" :disabled="busy" @click.stop="update(link, { enabled: !link.enabled })"><img :src="`/media/${typeOf(link.type).icon}.png`" :alt="typeOf(link.type).name" /></button><strong>{{ link.name }}</strong></div>
       <div class="link-card-controls"><RoundedSelect :model-value="link.mode" :label="`${link.name}跳转模式`" :options="modes" :disabled="busy" @update:model-value="update(link, { mode: $event })" /><div class="link-port-actions"><a :href="endpoint(link)" target="_blank" rel="noopener noreferrer"><Icon name="ArrowUpRight" :size="15" />{{ link.port }}</a><button class="icon-btn" :aria-label="`以链操作 ${link.name}`" :aria-expanded="menu?.link.id === link.id" @click.stop="context($event, link)"><Icon name="Ellipsis" /></button></div></div>
     </article>
