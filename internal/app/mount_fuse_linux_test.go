@@ -172,7 +172,21 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 }
 
 func TestNativeFuse115BoundedCacheCallbacks(t *testing.T) {
+	for _, diskCache := range []bool{true, false} {
+		t.Run(fmt.Sprintf("disk_cache_%t", diskCache), func(t *testing.T) {
+			testNativeFuse115BoundedCacheCallbacks(t, diskCache)
+		})
+	}
+}
+
+func testNativeFuse115BoundedCacheCallbacks(t *testing.T, diskCache bool) {
 	a := testApp(t)
+	dir := ""
+	if diskCache {
+		dir = t.TempDir()
+	}
+	// Test cache policy explicitly, without depending on the runner's mounts.
+	a.fuseReadOnce.Do(func() { a.fuseReads = newFuseReadCache(dir) })
 	content := bytes.Repeat([]byte("x"), fuseBlockSize+100)
 	var reads atomic.Int32
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -210,12 +224,26 @@ func TestNativeFuse115BoundedCacheCallbacks(t *testing.T) {
 		if i >= 3 {
 			want = 2
 		}
+		if i == 4 && !diskCache {
+			want = 3
+		}
 		if reads.Load() != want || file.body != nil || len(a.mountReadPools) != 0 {
 			t.Fatal("cache/network slot regression", reads.Load(), want)
 		}
 	}
+	if diskCache {
+		if entries, err := os.ReadDir(dir); err != nil || len(entries) != 2 {
+			t.Fatal("expected two persisted cache blocks", entries, err)
+		}
+	} else if a.fuseCache().ready || len(a.fuseCache().entries) != 0 {
+		t.Fatal("disabled disk cache persisted blocks")
+	}
 	a.fuseReadRevision.Add(1)
-	if _, errno := h.Read(ctx, make([]byte, 64), 0); errno != 0 || reads.Load() != 3 {
+	want := int32(3)
+	if !diskCache {
+		want = 4
+	}
+	if _, errno := h.Read(ctx, make([]byte, 64), 0); errno != 0 || reads.Load() != want {
 		t.Fatal("hot cache did not invalidate", errno, reads.Load())
 	}
 	if err := a.store.update(func(st *State) error { st.Storages[0].Config["cookie"] = "changed"; return nil }); err != nil {
