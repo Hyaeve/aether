@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +105,14 @@ func (f *cloudWriteFile) Close() error {
 }
 
 func (f *cloudWriteFile) publish(ctx context.Context) error {
+	ctx, release, err := f.app.controlCloudUpload(ctx, f.name, f.File.Name())
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err = f.app.waitLocalUpload(ctx, f.File.Name()); err != nil {
+		return err
+	}
 	f.app.runMu.Lock()
 	defer f.app.runMu.Unlock()
 	current, err := f.app.store.storage(f.storage.ID)
@@ -132,6 +142,9 @@ func (d mountFS) cloudParent(ctx context.Context, s Storage, source, rel string)
 func (d mountFS) openCloudWrite(ctx context.Context, s Storage, source, rel string, flag int) (*cloudWriteFile, error) {
 	if rel == "." || !safeName(path.Base(rel)) {
 		return nil, os.ErrPermission
+	}
+	if d.app.transferIgnored(path.Base(rel)) {
+		return nil, errors.New("此扩展名已被全局传输设置忽略")
 	}
 	parent, err := d.cloudParent(ctx, s, source, rel)
 	if err != nil {
@@ -168,10 +181,15 @@ func (a *App) cloudByName(ctx context.Context, s Storage, parent, name string) (
 	return nil, nil
 }
 
-func (a *App) publishCloudFile(ctx context.Context, s Storage, parent, name, local string) error {
+func (a *App) publishCloudFile(ctx context.Context, s Storage, parent, name, local string) (resultErr error) {
 	if !safeName(name) {
 		return os.ErrPermission
 	}
+	ctx, release, err := a.controlCloudUpload(ctx, name, local)
+	if err != nil {
+		return err
+	}
+	defer release()
 	old, err := a.cloudByName(ctx, s, parent, name)
 	if err != nil {
 		return err
@@ -209,22 +227,47 @@ func (a *App) publishCloudFile(ctx context.Context, s Storage, parent, name, loc
 		return errors.New("上游文件大小与暂存不一致，停止替换原文件")
 	}
 	apply := func(f *File, action, newName string) error {
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		return a.cloudFileAction(ctx, s, s, fileActionRequest{Source: parent, IDs: []string{f.ID}, Action: action, Name: newName})
 	}
 	backupName := ".aether-previous-" + id()
 	if old != nil {
+		original := *old
+		oldDigest := ""
+		// Path-based providers change the file ID on rename. Capture content
+		// identity before hiding the old file so compensation cannot restore a
+		// different file substituted at the backup path.
+		if s.Type == "webdav" || s.Type == "openlist" {
+			oldDigest, err = a.cloudPublicationDigest(ctx, s, original)
+			if err != nil {
+				return fmt.Errorf("旧文件恢复特征校验失败，未改名：%w", err)
+			}
+		}
+		needsRestore := true
+		defer func() {
+			if resultErr == nil || !needsRestore {
+				return
+			}
+			if restoreErr := a.restoreCloudPublication(s, parent, name, backupName, original, oldDigest); restoreErr != nil {
+				restoreErr = fmt.Errorf("恢复旧文件失败，旧文件保留为 %s：%w", backupName, restoreErr)
+				a.store.event("error", "storage", s.Name+" "+restoreErr.Error())
+				resultErr = errors.Join(resultErr, restoreErr)
+			}
+		}()
 		if err := apply(old, "rename", backupName); err != nil {
 			return fmt.Errorf("新文件已上传但旧文件改名失败：%w", err)
 		}
 		old, err = a.cloudByName(ctx, s, parent, backupName)
 		if err != nil || old == nil {
-			return errors.New("旧文件已改名但无法确认，保留两份文件等待处理")
+			return errors.Join(errors.New("旧文件已改名但无法确认"), err)
 		}
-	}
-	if err := apply(uploaded, "rename", name); err != nil {
-		if old != nil {
-			_ = apply(old, "rename", name)
+		if err := apply(uploaded, "rename", name); err != nil {
+			return fmt.Errorf("发布新文件失败，云端临时文件保留：%w", err)
 		}
+		needsRestore = false
+	} else if err := apply(uploaded, "rename", name); err != nil {
 		return fmt.Errorf("发布新文件失败，云端临时文件保留：%w", err)
 	}
 	if old != nil {
@@ -235,10 +278,110 @@ func (a *App) publishCloudFile(ctx context.Context, s Storage, parent, name, loc
 	return nil
 }
 
+// Compensation is limited to restoring this one hidden old file, never new
+// publication or cleanup. A fresh bounded context deliberately excludes the
+// canceled task and pause/filter guards; storage identity and no-overwrite
+// checks remain mandatory.
+func (a *App) restoreCloudPublication(s Storage, parent, name, backupName string, original File, digest string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	checkStorage := func() error {
+		current, err := a.store.storage(s.ID)
+		if err != nil || !current.Enabled || current.ID != s.ID || !sameBackupStorage(current, s) {
+			return errors.New("存储配置已变化或停用，不向其他账号恢复")
+		}
+		return nil
+	}
+	if err := checkStorage(); err != nil {
+		return err
+	}
+	files, err := a.rawList(ctx, s, parent)
+	if err != nil {
+		return err
+	}
+	var backup *File
+	for _, file := range files {
+		if strings.EqualFold(file.Name, name) {
+			// An ambiguous failed old rename may have left the original in place.
+			// Only recognize it as intact with the original stable identity.
+			if file.Name == name && file.ID == original.ID && file.Size == original.Size && !file.IsDir {
+				if digest != "" {
+					got, err := a.cloudPublicationDigest(ctx, s, file)
+					if err != nil || got != digest {
+						return errors.New("原路径内容已变化，拒绝恢复覆盖")
+					}
+				}
+				return nil
+			}
+			return errors.New("原路径已有新文件，拒绝恢复覆盖")
+		}
+		if file.Name == backupName {
+			copy := file
+			backup = &copy
+		}
+	}
+	if backup == nil || backup.IsDir || backup.Size != original.Size {
+		return errors.New("旧文件备份不存在或特征已变化")
+	}
+	if digest != "" {
+		got, err := a.cloudPublicationDigest(ctx, s, *backup)
+		if err != nil || got != digest {
+			return errors.New("旧文件备份内容已变化，拒绝误恢复")
+		}
+	} else if backup.ID != original.ID {
+		return errors.New("旧文件备份标识已变化，拒绝误恢复")
+	}
+	if err := checkStorage(); err != nil {
+		return err
+	}
+	if err := a.cloudFileAction(ctx, s, s, fileActionRequest{Source: parent, IDs: []string{backup.ID}, Action: "rename", Name: name}); err != nil {
+		return err
+	}
+	if err := checkStorage(); err != nil {
+		return err
+	}
+	restored, err := a.cloudByName(ctx, s, parent, name)
+	if err != nil || restored == nil || restored.IsDir || restored.Size != original.Size {
+		return errors.New("上游未确认旧文件恢复")
+	}
+	if digest != "" {
+		got, err := a.cloudPublicationDigest(ctx, s, *restored)
+		if err != nil || got != digest {
+			return errors.New("恢复后旧文件内容校验失败")
+		}
+	} else if restored.ID != original.ID {
+		return errors.New("恢复后旧文件标识校验失败")
+	}
+	return nil
+}
+
+func (a *App) cloudPublicationDigest(ctx context.Context, s Storage, file File) (string, error) {
+	download, err := a.download(ctx, s, file.ID, file.PickCode)
+	if err != nil {
+		return "", err
+	}
+	reader := &davFile{ctx: ctx, info: davInfo{file}, download: download}
+	defer reader.Close()
+	hash := sha256.New()
+	n, err := io.Copy(hash, &cancelReader{ctx, reader})
+	if err != nil || n != file.Size {
+		return "", errors.Join(errors.New("旧文件内容读取不完整"), err)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 // Upload endpoints must not redirect credentials or write bodies to another host.
 func writeHTTP(ctx context.Context, method, address string, headers http.Header, body io.Reader, size int64) ([]byte, http.Header, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
+	}
+	if a, ok := ctx.Value(transferAppResourceKey{}).(*App); ok && method != "GET" && method != "HEAD" {
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return nil, nil, err
+		}
+	}
+	if body != nil && method == "PUT" {
+		body = controlledUploadReader(ctx, body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, address, body)
 	if err != nil {
@@ -284,6 +427,25 @@ func uploadAPI(ctx context.Context, s Storage, method, address string, body, out
 }
 
 func (a *App) uploadCloud(ctx context.Context, s Storage, parent, name, local string) error {
+	ctx, release, err := a.controlCloudUpload(ctx, name, local)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err = a.waitLocalUpload(ctx, local); err != nil {
+		return err
+	}
+	if err = a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
+	preRelease, err := a.controlPreprocess(ctx)
+	if err != nil {
+		return err
+	}
+	defer preRelease()
+	if err = a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	file, err := os.Open(local)
 	if err != nil {
 		return err
@@ -334,6 +496,9 @@ func (a *App) uploadCloud(ctx context.Context, s Storage, parent, name, local st
 }
 
 func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) error {
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	if !safeName(name) {
 		return os.ErrPermission
 	}
@@ -343,6 +508,9 @@ func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) er
 	}
 	if found != nil {
 		return os.ErrExist
+	}
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
 	}
 	switch s.Type {
 	case "webdav":

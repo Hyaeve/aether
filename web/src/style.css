@@ -1129,6 +1129,7 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
   .mount-heading > .btn { padding: 8px 10px; }
 }
 .overflow-tooltip { position: fixed; z-index: 200; width: max-content; max-width: min(320px,calc(100vw - 16px)); max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-size: 14px; line-height: 1.5; }
+.overflow-tooltip.playback-tooltip { max-width:min(480px,calc(100vw - 16px)); max-height:none; overflow:visible; }
 .rounded-select-popup { scrollbar-width: none; }
 .rounded-select-popup::-webkit-scrollbar { display: none; }
 
@@ -1291,8 +1292,8 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .source-list { display: flex; flex-direction: column; overflow: hidden; }
 .source-list > .virtual-directory-list { flex: 1; }
 .source-columns { flex-shrink: 0; }
-.virtual-directory-row .source-directory:nth-child(odd) { background: transparent; }
-.virtual-directory-row:nth-child(odd) .source-directory { background: var(--bg); }
+.virtual-directory-row .source-directory { background:var(--input); }
+.virtual-directory-row:nth-child(odd) .source-directory { background:color-mix(in srgb,var(--input) 65%,var(--surface)); }
 .virtual-directory-row .source-directory:hover { background: var(--primary-soft); }
 .task-heading { flex-wrap: nowrap; }
 .task-heading .content-tabs { flex-basis: auto; flex-wrap: nowrap; gap: 14px; }

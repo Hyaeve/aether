@@ -144,7 +144,12 @@ func (i davInfo) ContentType(context.Context) (string, error) {
 	return "application/octet-stream", nil
 }
 
+type davFreshReadKey struct{}
+
 func (d davFS) list(ctx context.Context, s Storage, dir string) ([]File, error) {
+	if fresh, _ := ctx.Value(davFreshReadKey{}).(bool); fresh {
+		return d.a.rawList(ctx, s, dir)
+	}
 	if _, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant); restricted && s.Type == "local" {
 		return d.a.rawList(ctx, s, dir)
 	}
@@ -295,6 +300,9 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	}
 	df.open = func() error {
 		df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size)
+		if df.progress != nil {
+			df.ctx = df.progress.ctx
+		}
 		download, err := d.a.download(df.ctx, s, f.ID, f.PickCode)
 		if err != nil {
 			return fmt.Errorf("获取文件读取链接失败（存储类型 %s）：%w", s.Type, err)
@@ -421,6 +429,9 @@ func (f *davFile) Read(b []byte) (int, error) {
 	}
 	if f.local != nil {
 		n, err := f.local.Read(b)
+		if e := f.progress.limit(n); e != nil {
+			return 0, e
+		}
 		f.progress.add(n)
 		if err != nil && err != io.EOF {
 			f.progress.finish(err)
@@ -499,6 +510,9 @@ func (f *davFile) Read(b []byte) (int, error) {
 		f.body = res.Body
 	}
 	n, err := f.body.Read(b)
+	if e := f.progress.limit(n); e != nil {
+		return 0, e
+	}
 	f.progress.add(n)
 	if err != nil && err != io.EOF {
 		f.progress.finish(err)

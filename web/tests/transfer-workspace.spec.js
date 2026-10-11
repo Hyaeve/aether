@@ -23,7 +23,8 @@ test('transfer modes show actual request records on desktop and mobile', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: info.outputPath('transfers-mobile.png') })
   await page.getByRole('link', { name: '备份规则', exact: true }).click()
-  await expect(page.getByText('暂无备份规则', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '还没有备份规则', exact: true })).toBeVisible()
+  await expect(page.locator('.empty-state').getByRole('button', { name: '添加规则', exact: true })).toBeVisible()
 })
 
 test('extension presets toggle normalized groups and blank tools menu follows pointer', async ({ page }, info) => {

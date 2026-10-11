@@ -58,7 +58,7 @@ func syncRevision(rule BackupRule, st State) string {
 		s, _ := backupStorage(st, loc.StorageID)
 		configs = append(configs, Storage{ID: s.ID, Type: s.Type, Config: s.Config})
 	}
-	raw, _ := json.Marshal([]any{sources, targets, configs, rule.Filters, rule.Extensions, rule.Exclude, rule.MinSize, rule.MaxSize})
+	raw, _ := json.Marshal([]any{sources, targets, configs, rule.Filters, rule.Extensions, rule.Exclude, rule.MinSize, rule.MaxSize, normalizedTransferSettings(st.TransferSettings).IgnoredExtensions})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
@@ -111,7 +111,7 @@ func (a *App) scanSyncReplica(ctx context.Context, loc BackupLocation, s Storage
 				if err := scan(f.ID, name, depth+1, allowed); err != nil {
 					return err
 				}
-			} else if allowed && backupAccept(rule, f) {
+			} else if allowed && backupAccept(rule, f) && !a.backupIgnored(ctx, f.Name) {
 				if f.Size < 0 || f.Size > 100<<30 {
 					return errors.New("同步单文件上限100GiB")
 				}
@@ -373,6 +373,11 @@ func (a *App) checkSyncStorage(replicas []syncReplica) error {
 }
 
 func (a *App) syncMarker(ctx context.Context, rep syncReplica, owner string, create bool) error {
+	if create {
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
+	}
 	fs := mountFS{app: a, config: MountConfig{StorageID: rep.storage.ID, Source: rep.location.Path}}
 	f, err := fs.OpenFile(ctx, "/.aether-sync-owner", os.O_RDONLY, 0)
 	if err == nil {
@@ -448,6 +453,9 @@ func (a *App) removeSyncFile(ctx context.Context, rep syncReplica, op syncOperat
 }
 
 func (a *App) removeSyncEntry(ctx context.Context, rep syncReplica, name string, directory bool, policy string) error {
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -479,6 +487,9 @@ func (a *App) removeSyncEntry(ctx context.Context, rep syncReplica, name string,
 				return nil
 			}
 		}
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		return root.Remove(rel)
 	}
 	parent, base, err := a.uploadParent(ctx, rep.storage, rep.location.Path, name)
@@ -508,10 +519,17 @@ func (a *App) removeSyncEntry(ctx context.Context, rep syncReplica, name string,
 	} else {
 		s.Config["deleteMode"] = "trash"
 	}
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	return a.cloudFileAction(ctx, s, s, fileActionRequest{Source: parent, IDs: []string{f.ID}, Action: "delete"})
 }
 
 func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State) error {
+	ctx = context.WithValue(ctx, backupSyncResourceKey{}, true)
+	if _, ok := ctx.Value(backupTransferSnapshotKey{}).(TransferSettings); !ok {
+		ctx = context.WithValue(ctx, backupTransferSnapshotKey{}, a.transferConfig())
+	}
 	sources, targets := backupLocations(*rule)
 	locations := append(append([]BackupLocation{}, sources...), targets...)
 	revision := syncRevision(*rule, st)
@@ -561,6 +579,20 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 		return err
 	}
 	operations = append(operations, dirDeletes...)
+	if release, ok := ctx.Value(backupScanLeaseKey{}).(func()); ok {
+		release()
+	}
+	if a.backupResourceConfig().PauseBidirectional {
+		return a.savePausedBackupPlan(rule, operations, dirs)
+	}
+	releasePublish, err := a.acquireTransferResource(ctx, "publish")
+	if err != nil {
+		return err
+	}
+	defer releasePublish()
+	if err = a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	if rule.DeletionRule == "delete" {
 		for _, op := range operations {
 			if op.remove && (replicas[op.to].storage.Type == "115" || replicas[op.to].storage.Type == "quark") {
@@ -589,6 +621,12 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 	}
 	rule.Phase = "copy"
 	rule.Total = len(operations)
+	queue, err := newBackupManifest(ctx, a, operations)
+	if err != nil {
+		return err
+	}
+	defer queue.Close()
+	operations = nil
 	if err = a.backupProgress(rule, "正在双向同步"); err != nil {
 		return err
 	}
@@ -602,14 +640,19 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 	staged := map[string]syncFile{}
 	var stageBytes int64
 	history := append([]syncHistory{}, prior.History...)
-	for _, op := range operations {
+	if err = queue.Run(ctx, a.backupResourceConfig(), func(op syncOperation) error {
 		if op.remove {
-			continue
+			return nil
 		}
 		key := op.file.digest
 		if _, ok := staged[key]; ok {
-			continue
+			return nil
 		}
+		release, err := a.acquireTransferResource(ctx, "preprocess")
+		if err != nil {
+			return err
+		}
+		defer release()
 		stageBytes += op.file.file.Size
 		if stageBytes > 100<<30 {
 			return errors.New("单次同步暂存超过100GiB，请拆分规则")
@@ -639,9 +682,15 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 			return errors.New("同步源文件已变化，停止发布")
 		}
 		staged[key] = syncFile{backupEntry{Storage{ID: "", Type: "local", Config: map[string]string{"root": stageDir}}, File{ID: "/" + key, Name: key, Size: n}, op.name, "/"}, key}
+		return nil
+	}); err != nil {
+		return err
 	}
 	// Preserve empty directories without deleting filtered or unknown content.
 	for name := range dirs {
+		if err = a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		for _, rep := range replicas {
 			if _, ok := rep.files[name]; ok {
 				return errors.New("同步目录与文件名称冲突")
@@ -651,8 +700,8 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 			}
 		}
 	}
-	for _, op := range operations {
-		if err = ctx.Err(); err != nil {
+	if err = queue.Run(ctx, a.backupResourceConfig(), func(op syncOperation) error {
+		if err = a.checkBackupMutation(ctx); err != nil {
 			return err
 		}
 		if err = a.checkSyncStorage(replicas); err != nil {
@@ -711,8 +760,14 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 		if err = a.backupProgress(rule, "正在同步："+op.name); err != nil {
 			return err
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	// Re-scan after publication; failures never advance the deletion baseline.
+	if err = a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	final := syncBaseline{Revision: revision, Scans: prior.Scans + 1, FullScanAt: prior.FullScanAt, History: history}
 	if full {
 		final.Scans = 0
@@ -734,7 +789,7 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 		for name, f := range rep.files {
 			expected[name] = f.digest
 		}
-		for _, op := range operations {
+		if err = queue.Run(ctx, a.backupResourceConfig(), func(op syncOperation) error {
 			if op.to == i && !op.directory {
 				if op.remove {
 					delete(expected, op.name)
@@ -742,6 +797,9 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 					expected[op.name] = op.file.digest
 				}
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 		if !maps.Equal(expected, files) {
 			return errors.New("同步期间文件再次变化，未更新删除基线，请重新扫描")
@@ -793,6 +851,9 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 	if err = os.MkdirAll(filepath.Dir(a.syncStatePath(rule.ID)), 0700); err != nil {
 		return err
 	}
+	if err = a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	if err = durableConfigWrite(a.syncStatePath(rule.ID), raw); err != nil {
 		return err
 	}
@@ -800,6 +861,19 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 }
 
 func (a *App) publishSyncStaged(ctx context.Context, target Storage, parent, name, staged, digest, expected string) error {
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
+	release, err := a.acquireTransferResource(ctx, "upload")
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err = a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
+	ctx = context.WithValue(ctx, transferUploadResourceKey{}, true)
+	ctx = context.WithValue(ctx, transferAppResourceKey{}, a)
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	if len(a.running) != 0 {
@@ -850,7 +924,7 @@ func (a *App) publishSyncStaged(ctx context.Context, target Storage, parent, nam
 			out.Close()
 			return err
 		}
-		_, err = io.Copy(out, &cancelReader{ctx, in})
+		_, err = io.Copy(out, resourceReader{ctx, a, "upload", &cancelReader{ctx, in}})
 		in.Close()
 		if err == nil {
 			err = out.Sync()
@@ -862,7 +936,7 @@ func (a *App) publishSyncStaged(ctx context.Context, target Storage, parent, nam
 		if closeErr != nil {
 			return closeErr
 		}
-		if err = ctx.Err(); err != nil {
+		if err = a.checkBackupMutation(ctx); err != nil {
 			return err
 		}
 		if expected != "" {
@@ -873,10 +947,16 @@ func (a *App) publishSyncStaged(ctx context.Context, target Storage, parent, nam
 		} else if _, err := root.Stat(path.Join(rel, name)); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("原子发布前目标已出现")
 		}
+		if err = a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		if err = root.Rename(temp, path.Join(rel, name)); err != nil {
 			return err
 		}
 	} else if err := a.publishCloudFile(ctx, target, parent, name, staged); err != nil {
+		return err
+	}
+	if err = a.checkBackupMutation(ctx); err != nil {
 		return err
 	}
 	actual, err := a.backupFileDigest(ctx, target, parent, name)

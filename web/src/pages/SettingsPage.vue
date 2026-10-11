@@ -7,6 +7,7 @@ import NumberInput from '../components/NumberInput.vue'
 import AboutPage from './AboutPage.vue'
 import WebDAVUsers from '../components/WebDAVUsers.vue'
 import AccountFields from '../components/AccountFields.vue'
+import TransferSettings from '../components/TransferSettings.vue'
 const props = defineProps({ section: { default: 'cache' } })
 const form = reactive({ ...state.settings })
 const account = reactive({ username: state.username, password: '', sessionDays: state.settings.sessionDays || 15 })
@@ -29,13 +30,15 @@ async function clear() {
 </script>
 <template>
   <section v-if="section === 'cache'" class="task-heading"><button class="btn" @click="$router.push('/tasks/cache')"><Icon name="ArrowLeft" />返回缓存任务</button><div class="toolbar-right"><button class="btn danger-outline" @click="clearConfirm = true"><Icon name="Trash2" />清空缓存</button><button class="btn primary" form="cache-settings-form" :disabled="busy"><Icon name="Save" />保存设置</button></div></section>
-  <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about', 'logs'].includes(section) }">
-  <nav v-tab-scroll v-if="['account', 'general', 'about', 'logs'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
+  <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about', 'logs', 'transfer'].includes(section) }">
+  <nav v-tab-scroll v-if="['account', 'general', 'about', 'logs', 'transfer'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
     <RouterLink to="/settings/account" :class="{ active: section === 'account' }"><Icon name="UserRound" />账号与安全</RouterLink>
+    <RouterLink to="/settings/transfer" :class="{ active: section === 'transfer' }"><Icon name="ArrowLeftRight" />传输设置</RouterLink>
     <RouterLink to="/settings/logs" :class="{ active: section === 'logs' }"><Icon name="FileClock" />日志管理</RouterLink>
     <RouterLink to="/settings/about" :class="{ active: section === 'about' }"><Icon name="Info" />关于以太</RouterLink>
   </nav>
   <AboutPage v-if="section === 'about'" />
+  <TransferSettings v-else-if="section === 'transfer'" mode="transfer" />
   <form v-else-if="section === 'logs'" class="log-settings-panel" @submit.prevent="save">
     <div class="settings-row"><strong>日志保留天数</strong><NumberInput v-model="form.logDays" aria-label="日志保留天数" unit="天" min="1" max="3650" required /></div>
     <div class="settings-row"><strong>日志条数上限</strong><NumberInput v-model="form.logMaxEntries" aria-label="日志条数上限" unit="条" min="100" max="1000000" required /></div>

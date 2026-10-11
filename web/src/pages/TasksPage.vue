@@ -24,16 +24,6 @@ const taskTitle = computed(() => props.kind === 'cas' ? 'CAS' : props.kind === '
 const ed2kBindings = computed(() => state.storages.filter(s => s.enabled && s.type === '115'))
 const validED2KBinding = computed(() => ed2kBindings.value.some(s => s.id === form.ed2kBindingId))
 const availableStorages = computed(() => state.storages.filter(s => s.enabled && (props.kind !== 'ed2k' || ['local', '115'].includes(s.type))))
-const casStatus = ref(null), casPanel = ref(false)
-async function showCAS() {
-  try { casStatus.value = await api('/cas/status'); casPanel.value = true } catch (e) { notify(e.message, true) }
-}
-async function cleanupCAS() {
-  busy.value = true
-  try { const result = await api('/cas/cleanup', 'POST'); casStatus.value = await api('/cas/status'); notify(`已清理 ${result.removed} 个过期临时文件`) }
-  catch (e) { notify(e.message, true) }
-  finally { busy.value = false }
-}
 const modal = ref(false), busy = ref(false), error = ref(''), editing = ref(''), more = ref(false), picker = ref(false), confirmDelete = ref(null), menu = ref('')
 const form = reactive({})
 const extensionGroups = {
@@ -139,7 +129,7 @@ async function toggle(t) {
 }
 </script>
 <template>
-  <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button v-if="kind === 'cas'" class="btn" @click="showCAS"><Icon name="Database" />临时文件</button><button v-if="kind === 'cache'" class="btn" @click="$router.push('/tasks/cache/settings')"><Icon name="Settings2" />缓存设置</button><button class="btn primary" @click="open()"><Icon name="Plus" />添加任务</button></div></section>
+  <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button v-if="kind === 'cache'" class="btn" @click="$router.push('/tasks/cache/settings')"><Icon name="Settings2" />缓存设置</button><button class="btn primary" @click="open()"><Icon name="Plus" />添加任务</button></div></section>
   <CacheOverview v-if="kind === 'cache'" :tasks="tasks" />
   <CASOverview v-else-if="kind === 'cas'" :tasks="tasks" />
   <div v-else class="metric-strip three"><div><span class="metric-icon"><Icon name="ListTodo" /></span><span><small>全部任务</small><strong>{{ tasks.length }}<em>项</em></strong></span></div><div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>正在执行</small><strong>{{ tasks.filter(t => t.status === 'running').length }}<em>项</em></strong></span></div><div><span class="metric-icon amber"><Icon name="FileVideo" /></span><span><small>本次生成文件</small><strong>{{ tasks.reduce((n, t) => n + t.processed, 0) }}<em>条</em></strong></span></div></div>
@@ -180,7 +170,6 @@ async function toggle(t) {
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="availableStorages" :storage="form.storageId" :initial="form.source" :initial-label="form.sourceLabel" :initial-trail="form.sourceTrail" @select="selectSource" @close="picker = false" />
   <LocalDirectoryPicker v-if="targetPicker" :initial="form.target" @close="targetPicker = false" @select="form.target = $event; targetPicker = false" />
-  <Modal v-if="casPanel" title="CAS 临时文件" wide @close="casPanel = false"><div class="modal-body"><p>按存储绑定池保留时间清理；播放中的文件不清理。仅处理以太记录的临时文件，遵循存储池删除模式。</p><p v-if="!casStatus.items.length" class="small-empty">暂无临时文件</p><div v-for="item in casStatus.items" :key="item.storageId + item.name" class="settings-row"><span>{{ item.name }}<small>保留 {{ item.retentionHours }} 小时 · 到期 {{ date(item.expiresAt) }}</small></span><span>{{ item.active ? '播放中' : '等待过期' }}</span></div></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="showCAS"><Icon name="RefreshCw" />刷新</button><button class="btn primary" :disabled="busy" @click="cleanupCAS"><Icon name="Trash2" />清理过期项</button></footer></Modal>
   <Modal v-if="confirmDelete" title="删除任务" @close="confirmDelete = null"><div class="modal-body">确认删除「{{ confirmDelete.name }}」？已生成的文件不会删除。</div><footer class="modal-footer"><button class="btn" @click="confirmDelete = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除任务</button></footer></Modal>
 </template>
 <style scoped>

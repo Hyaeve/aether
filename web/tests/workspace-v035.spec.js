@@ -10,8 +10,10 @@ async function mock(page) {
 
 test('media preview, grid thumbnails and Ctrl A selection', async ({ page }, info) => {
   await mock(page)
-  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '/a.png', name: 'a.png', url: '/test-image.png', size: 100 }, { id: '/b.mp4', name: 'b.mp4', url: '/test-video.mp4', size: 100 }] }))
+  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '/a.png', name: 'a.png', url: '/stream/test-image.png', size: 100 }, { id: '/b.mp4', name: 'b.mp4', url: '/stream/test-video.mp4', size: 100 }] }))
+  await page.route('**/api/files/thumbnail?**', r=>r.request().method()==='POST' ? r.fulfill({contentType:'image/jpeg',body:r.request().postDataBuffer()}) : r.fulfill({status:404,headers:{'X-Thumbnail-Revision':'image-revision'}}))
   await page.route('**/test-image.png', r => r.fulfill({ contentType: 'image/png', body: readFileSync(new URL('../public/providers/quark.png', import.meta.url)) }))
+  await page.route('**/api/files/thumbnail-source?**', r => new URL(r.request().url()).searchParams.get('id') === '/a.png' ? r.fulfill({contentType:'image/png',body:readFileSync(new URL('../public/providers/quark.png', import.meta.url))}) : r.fulfill({status:404}))
   await page.route('**/test-video.mp4', r => r.fulfill({ status: 404, body: '' }))
   await page.goto('/files')
   await page.getByRole('button', { name: 'a.png', exact: true }).click()

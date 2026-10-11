@@ -77,7 +77,7 @@ func upload115OSS(ctx context.Context, f *os.File, size int64, params *driver.Up
 	var callback []byte
 	opts := append(driver.OssOption(params, token), oss.WithContext(ctx), oss.CallbackResult(&callback))
 	if size <= 16<<20 {
-		err = bucket.PutObject(params.Object, upload115Reader{ctx, f}, opts...)
+		err = bucket.PutObject(params.Object, controlledUploadReader(ctx, upload115Reader{ctx, f}), opts...)
 	} else {
 		partOpts := []oss.Option{oss.WithContext(ctx), oss.SetHeader(driver.OssSecurityTokenHeaderName, token.SecurityToken)}
 		upload, startErr := bucket.InitiateMultipartUpload(params.Object, partOpts...)
@@ -96,7 +96,7 @@ func upload115OSS(ctx context.Context, f *os.File, size int64, params *driver.Up
 		partSize := max(int64(16<<20), (size+9998)/9999)
 		for offset := int64(0); offset < size; offset += partSize {
 			length := min(partSize, size-offset)
-			part, err := bucket.UploadPart(upload, uploadReader{ctx, io.NewSectionReader(f, offset, length)}, length, len(parts)+1, partOpts...)
+			part, err := bucket.UploadPart(upload, controlledUploadReader(ctx, uploadReader{ctx, io.NewSectionReader(f, offset, length)}), length, len(parts)+1, partOpts...)
 			if err != nil {
 				return err
 			}

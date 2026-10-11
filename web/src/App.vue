@@ -30,6 +30,8 @@ import OverflowTooltip from './components/OverflowTooltip.vue'
 import MountsPage from './pages/MountsPage.vue'
 import ScrapePage from './pages/ScrapePage.vue'
 import TransfersPage from './pages/TransfersPage.vue'
+import CASPoolPage from './pages/CASPoolPage.vue'
+import TransferSettings from './components/TransferSettings.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -164,8 +166,9 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
       <main class="page-content">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />
-        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/ed2k', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
+        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />
+        <template v-else-if="currentPath === '/transfer/backup/settings'"><section class="task-heading"><button class="btn" @click="router.push('/transfer/backup')"><Icon name="ArrowLeft" />返回备份规则</button></section><TransferSettings mode="backup" /></template>
         <TransfersPage v-else-if="currentPath.startsWith('/transfer') || currentPath === '/backup'" :rules="currentPath === '/transfer/backup' || currentPath === '/backup'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
         <FilesPage v-else-if="currentPath === '/files'" />
@@ -174,8 +177,9 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <ScrapePage v-else-if="currentPath === '/tasks/scrape'" />
         <AutomationPage v-else-if="currentPath === '/tasks/automation'" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
+        <CASPoolPage v-else-if="currentPath === '/tasks/cas/pool'" />
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
-        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : 'account'" />
+        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : 'account'" />
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
         <LogsPage v-else-if="currentPath === '/logs'" />

@@ -50,9 +50,16 @@ func (a *App) backupProgress(rule *BackupRule, message string) error {
 }
 
 func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
+	ctx = context.WithValue(ctx, backupTransferSnapshotKey{}, a.transferConfig())
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	releaseScan, err := a.acquireTransferResource(ctx, "scan")
+	if err != nil {
+		return err
+	}
+	defer releaseScan()
+	ctx = context.WithValue(ctx, backupScanLeaseKey{}, releaseScan)
 	st := a.store.snapshotWithLogLimit(0)
 	if err := validateBackup(rule, st); err != nil {
 		return err
@@ -125,7 +132,7 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 					}
 				} else {
 					rule.Scanned++
-					if !allowed || !backupAccept(*rule, f) {
+					if !allowed || !backupAccept(*rule, f) || a.backupIgnored(ctx, f.Name) {
 						rule.Skipped++
 					} else {
 						entries = append(entries, backupEntry{source, f, path.Join(prefixes[i], relative), dir})
@@ -194,13 +201,35 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 			return err
 		}
 	}
+	queue, err := newBackupManifest(ctx, a, entries)
+	if err != nil {
+		return err
+	}
+	defer queue.Close()
+	// Keep only the cleanup safety index, not the pending publication payload.
+	if rule.CompletionRule != "delete_source_dir" && rule.DeletionRule == "keep" {
+		entries = nil
+	}
+	releaseScan()
+	releasePublish, err := a.acquireTransferResource(ctx, "publish")
+	if err != nil {
+		return err
+	}
+	defer releasePublish()
 	rule.Phase = "copy"
 	if err := a.backupProgress(rule, "正在复制文件"); err != nil {
 		return err
 	}
 	defer a.cache.clear()
 	candidates := []backupCleanupEntry{}
-	for _, item := range entries {
+	stageCache := &backupStageResource{}
+	defer stageCache.clear()
+	ctx = context.WithValue(ctx, backupStageResourceKey{}, stageCache)
+	if err := queue.Run(ctx, a.backupResourceConfig(), func(item backupEntry) error {
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
+		stageCache.clear()
 		copiedAll := true
 		fingerprint := ""
 		destinations := []backupCleanupTarget{}
@@ -258,16 +287,25 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 				last = time.Now()
 			}
 		}
-		if !item.file.IsDir && copiedAll && fingerprint != "" {
+		if rule.CompletionRule != "" && rule.CompletionRule != "keep" && !item.file.IsDir && copiedAll && fingerprint != "" {
 			candidates = append(candidates, backupCleanupEntry{item, fingerprint, destinations})
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if rule.CompletionRule != "" && rule.CompletionRule != "keep" {
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		if err := a.cleanupBackup(ctx, rule, candidates, entries); err != nil {
 			return err
 		}
 	}
 	if rule.DeletionRule != "keep" {
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		return a.deleteOneWayExtras(ctx, rule, st, entries)
 	}
 	return nil

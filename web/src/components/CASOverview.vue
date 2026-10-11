@@ -1,11 +1,10 @@
 <script setup>
-import { computed, nextTick, ref, useId } from 'vue'
+import { computed } from 'vue'
 import CacheHitChart from './CacheHitChart.vue'
-import CASPool from './CASPool.vue'
 import Icon from './Icon.vue'
+import { BadgeCheck, FileWarning } from 'lucide-vue-next'
 
 const props = defineProps({ tasks: { type: Array, default: () => [] } })
-const poolOpen = ref(false), trigger = ref(null), poolId = useId()
 const casTasks = computed(() => props.tasks.filter(t => !t.kind || t.kind === 'cas'))
 const active = computed(() => casTasks.value.filter(t => t.status === 'running'))
 // One latest terminal result per executed task, including cancelled/interrupted runs.
@@ -17,8 +16,6 @@ const successes = computed(() => executed.value.filter(t => t.status === 'succes
 function count(value) { return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0 }
 const generated = computed(() => casTasks.value.reduce((sum, t) => sum + count(t.casGenerated), 0))
 const failed = computed(() => casTasks.value.reduce((sum, t) => sum + count(t.casFailed), 0))
-async function closePool() { poolOpen.value = false; await nextTick(); trigger.value?.focus({ preventScroll: true }) }
-function leaving(element) { element.inert = true }
 </script>
 
 <template>
@@ -38,14 +35,11 @@ function leaving(element) { element.inert = true }
         </div>
       </div>
       <dl class="cas-metrics">
-        <div><dt><Icon name="CircleCheck" />成功生成</dt><dd>{{ generated }}</dd></div>
-        <div><dt><Icon name="CircleAlert" />异常</dt><dd>{{ failed }}</dd></div>
+        <div><dt><BadgeCheck :size="18" />成功</dt><dd>{{ generated }}</dd></div>
+        <div><dt><FileWarning :size="18" />异常</dt><dd>{{ failed }}</dd></div>
       </dl>
-      <button v-show="!poolOpen" ref="trigger" type="button" class="icon-btn cas-pool-trigger" aria-label="打开存储绑定池" title="存储绑定池" :aria-expanded="poolOpen" :aria-controls="poolId" @click="poolOpen = true"><Icon name="ChevronLeft" :size="28" /></button>
+      <button type="button" class="icon-btn cas-pool-trigger" aria-label="打开存储绑定池" title="存储绑定池" @click="$router.push('/tasks/cas/pool')"><Icon name="ChevronLeft" :size="28" /></button>
     </section>
-    <Transition name="cas-pool-slide" @before-leave="leaving">
-      <CASPool v-if="poolOpen" :id="poolId" @close="closePool" />
-    </Transition>
   </div>
 </template>
 
@@ -75,11 +69,8 @@ function leaving(element) { element.inert = true }
 .cas-metrics dd { margin: 6px 0 0 24px; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .cas-pool-trigger { width: 44px; height: 44px; color: var(--primary); }
 .cas-pool-trigger :deep(svg) { transform: scaleX(.7); }
-.cas-overview-area > .cas-pool { margin-top: 8px; }
-.cas-pool-slide-enter-active { transition: transform .22s ease-out, opacity .22s ease-out; }.cas-pool-slide-leave-active { transition: transform .16s ease-in, opacity .16s ease-in; pointer-events: none; }
-.cas-pool-slide-enter-from, .cas-pool-slide-leave-to { transform: translateX(32px); opacity: 0; }
 @keyframes cas-scan { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
 @media(max-width:1050px) { .cas-overview { grid-template-columns: 104px minmax(0,1fr) 44px; gap: 12px; }.cas-metrics { grid-column: 1 / 3; grid-row: 2; }.cas-pool-trigger { grid-column: 3; grid-row: 1 / 3; } }
 @media(max-width:480px) { .cas-overview { grid-template-columns: 92px minmax(0,1fr) 44px; padding: 12px; gap: 12px 8px; --cache-chart-size:92px; }.cas-metrics { gap: 12px; } }
-@media(prefers-reduced-motion:reduce) { .cas-progress-motion { animation: none; left: 32.5%; }.cas-pool-slide-enter-active, .cas-pool-slide-leave-active { transition: none; }.cas-pool-slide-enter-from, .cas-pool-slide-leave-to { transform: none; } }
+@media(prefers-reduced-motion:reduce) { .cas-progress-motion { animation: none; left: 32.5%; } }
 </style>

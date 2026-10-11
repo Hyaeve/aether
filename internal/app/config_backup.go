@@ -71,6 +71,9 @@ func openBackup(data []byte, password string) ([]byte, error) {
 	return plain, nil
 }
 func validateBundle(b configBundle) error {
+	if err := validateResourceState(&b.State); err != nil {
+		return err
+	}
 	if b.State.Username == "" || b.State.Password == "" || b.State.SignKey == "" || len(b.Files) > 1000 {
 		return errors.New("备份缺少完整账户配置或文件数量过多")
 	}

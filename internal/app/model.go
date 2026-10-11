@@ -112,6 +112,9 @@ type LogEntry struct {
 }
 
 type State struct {
+	TransferSettings TransferSettings           `json:"transferSettings"`
+	BackupResources  BackupResources            `json:"backupResources"`
+	TransferVersion  int                        `json:"transferVersion,omitempty"`
 	CASPool          CASPoolConfig              `json:"casPool"`
 	CASPoolVersion   int                        `json:"casPoolVersion,omitempty"`
 	RuntimeSeparated bool                       `json:"runtimeSeparated,omitempty"`
@@ -277,6 +280,9 @@ func NewStore(dir string) (*Store, error) {
 	}
 	if s.state.Settings.PublicURL == "http://localhost:15151" {
 		s.state.Settings.PublicURL = defaultPublicURL()
+	}
+	if err := validateResourceState(&s.state); err != nil {
+		return nil, err
 	}
 	return s, s.saveLocked()
 }

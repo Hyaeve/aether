@@ -21,6 +21,7 @@ type backupCleanupEntry struct {
 }
 
 func (a *App) backupFileDigest(ctx context.Context, s Storage, parent, name string) (string, error) {
+	ctx = context.WithValue(ctx, davFreshReadKey{}, true)
 	f, err := (mountFS{app: a, config: MountConfig{StorageID: s.ID, Source: parent}}).OpenFile(ctx, "/"+name, os.O_RDONLY, 0)
 	if err != nil {
 		return "", err
@@ -34,6 +35,9 @@ func (a *App) backupFileDigest(ctx context.Context, s Storage, parent, name stri
 func (a *App) cleanupBackup(ctx context.Context, r *BackupRule, items []backupCleanupEntry, entries []backupEntry) error {
 	// Verify every published target and unchanged source before removing anything.
 	for _, item := range items {
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		for _, target := range item.targets {
 			current, err := a.store.storage(target.storage.ID)
 			if err != nil || !sameBackupStorage(current, target.storage) {
@@ -67,6 +71,9 @@ func (a *App) cleanupBackup(ctx context.Context, r *BackupRule, items []backupCl
 			return errors.New("清理前源文件变化，保留该文件及后续文件")
 		}
 		fs := mountFS{app: a, config: MountConfig{StorageID: current.ID, Source: item.entry.parent}}
+		if err := a.checkBackupMutation(ctx); err != nil {
+			return err
+		}
 		if err := fs.RemoveAll(ctx, "/"+item.entry.file.Name); err != nil {
 			return err
 		}
@@ -91,6 +98,10 @@ func (a *App) cleanupBackup(ctx context.Context, r *BackupRule, items []backupCl
 			}
 			root, err := os.OpenRoot(current.Config["root"])
 			if err != nil {
+				return err
+			}
+			if err := a.checkBackupMutation(ctx); err != nil {
+				root.Close()
 				return err
 			}
 			_ = root.Remove(rel)

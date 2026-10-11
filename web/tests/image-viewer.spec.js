@@ -12,9 +12,11 @@ async function setup(page) {
     return canvas.toDataURL('image/png').split(',')[1]
   })
   await page.route('**/viewer-image-*.png', r => r.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
+  await page.route('**/api/files/thumbnail-source?**', r => r.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'image-viewer', storages: [{ id: 's', name: '相册', type: 'local', enabled: true, config: {} }], tasks: [], settings: {}, cache: {}, traffic: {} } }))
-  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '1', name: '01 山与湖.png', url: '/viewer-image-1.png' }, { id: '2', name: '02 第二张.png', url: '/viewer-image-2.png' }, { id: '3', name: '说明.txt' }] }))
+  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '1', name: '01 山与湖.png', url: '/stream/viewer-image-1.png' }, { id: '2', name: '02 第二张.png', url: '/stream/viewer-image-2.png' }, { id: '3', name: '说明.txt' }] }))
+  await page.route('**/api/files/thumbnail?**', r => r.request().method() === 'POST' ? r.fulfill({contentType:'image/jpeg',body:r.request().postDataBuffer()}) : r.fulfill({status:404,headers:{'X-Thumbnail-Revision':'image-revision'}}))
   await page.goto('/files')
 }
 
@@ -55,6 +57,7 @@ test('thumbnail click opens responsive viewer with keyboard focus contained', as
   await page.setViewportSize({ width: 390, height: 780 })
   await setup(page)
   await page.getByRole('button', { name: '当前列表视图，切换网格' }).click()
+  await expect.poll(()=>page.locator('.file-thumbnail img').first().evaluate(img=>img.complete && img.naturalWidth===320)).toBe(true)
   await page.locator('.file-thumbnail').first().click()
   await expect(page.locator('.image-viewer img')).toHaveClass(/loaded/)
   expect(await page.locator('.viewer-dock').evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth })).toBe(true)

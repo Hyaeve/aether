@@ -30,6 +30,7 @@ type transferEntry struct {
 	Total   int64  `json:"total"`
 	Speed   int64  `json:"speed"`
 	rate    *trafficMeter
+	cancel  context.CancelFunc
 	Started time.Time `json:"started"`
 	Updated time.Time `json:"updated"`
 	Message string    `json:"message,omitempty"`
@@ -80,12 +81,18 @@ func (l *transferLog) saveFailures() error {
 }
 
 type transferProgress struct {
-	meter *trafficMeter
-	kind  string
-	log   *transferLog
-	id    string
-	once  sync.Once
-	ctx   context.Context
+	meter      *trafficMeter
+	kind       string
+	log        *transferLog
+	id         string
+	once       sync.Once
+	bindOnce   sync.Once
+	ctx        context.Context
+	app        *App
+	cancel     context.CancelFunc
+	resourceMu sync.Mutex
+	release    func()
+	ignored    bool
 }
 
 func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name string, total int64) *transferProgress {
@@ -96,9 +103,11 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 	if source == "" {
 		source = "浏览器"
 	}
+	ctx, cancel := context.WithCancel(ctx)
 	now := time.Now()
 	entry := transferEntry{ID: id(), Kind: kind, Source: source, Storage: s.Name, Name: name, Status: "running", Total: total, Started: now, Updated: now}
 	entry.rate = &trafficMeter{}
+	entry.cancel = cancel
 	l := &a.transfers
 	l.mu.Lock()
 	if l.items == nil {
@@ -115,12 +124,12 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 			delete(l.items, oldest)
 		} else {
 			l.mu.Unlock()
-			return &transferProgress{meter: &a.traffic, kind: kind}
+			return &transferProgress{meter: &a.traffic, kind: kind, app: a, ctx: ctx, cancel: cancel}
 		}
 	}
 	l.items[entry.ID] = entry
 	l.mu.Unlock()
-	return &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind, ctx: ctx}
+	return &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind, ctx: ctx, app: a, cancel: cancel, ignored: kind == "upload" && a.transferIgnored(name)}
 }
 
 // Pause at IO boundaries without buffering the remaining file in memory.
@@ -132,10 +141,47 @@ func (p *transferProgress) wait() error {
 }
 
 func (p *transferProgress) waitContext(ctx context.Context) error {
-	if p == nil || p.log == nil {
+	if p == nil {
+		return nil
+	}
+	if p.ignored {
+		return errors.New("此扩展名已被全局传输设置忽略")
+	}
+	if p.ctx != nil && p.ctx.Err() != nil {
+		return p.ctx.Err()
+	}
+	if p.app != nil && p.kind == "upload" {
+		if owned, _ := p.ctx.Value(transferUploadResourceKey{}).(bool); !owned {
+			p.resourceMu.Lock()
+			if p.release == nil {
+				var err error
+				waitCtx := p.ctx
+				if waitCtx == nil {
+					waitCtx = context.Background()
+				}
+				waitCtx, cancel := context.WithCancel(waitCtx)
+				stop := func() bool { return false }
+				if ctx != nil {
+					stop = context.AfterFunc(ctx, cancel)
+				}
+				p.release, err = p.app.acquireTransferResource(waitCtx, "upload")
+				stop()
+				cancel()
+				if err != nil {
+					p.resourceMu.Unlock()
+					return err
+				}
+			}
+			p.resourceMu.Unlock()
+		}
+	}
+	if p.log == nil {
 		return nil
 	}
 	for {
+		if p.ctx != nil && p.ctx.Err() != nil {
+			return p.ctx.Err()
+		}
 		if ctx != nil && ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -185,6 +231,9 @@ func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, errors.New("云端复制提交后不能中断，请等待结束"))
 			return
 		}
+		if entry.cancel != nil {
+			entry.cancel()
+		}
 		delete(l.items, in.ID)
 		if err := l.saveFailures(); err != nil {
 			fail(w, 500, errors.New("保存传输记录失败"))
@@ -228,10 +277,22 @@ func (p *transferProgress) setTotal(total int64) {
 	}
 }
 func (p *transferProgress) finish(err error) {
-	if p == nil || p.log == nil {
+	if p == nil {
 		return
 	}
 	p.once.Do(func() {
+		if p.cancel != nil {
+			p.cancel()
+		}
+		p.resourceMu.Lock()
+		if p.release != nil {
+			p.release()
+			p.release = nil
+		}
+		p.resourceMu.Unlock()
+		if p.log == nil {
+			return
+		}
 		p.log.mu.Lock()
 		defer p.log.mu.Unlock()
 		entry, ok := p.log.items[p.id]
@@ -325,7 +386,7 @@ func (w *transferResponse) Write(b []byte) (int, error) {
 		w.failure = err
 		return 0, err
 	}
-	n, err := w.ResponseWriter.Write(b)
+	n, err := writeResourceChunks(w.ResponseWriter, b, w.progress)
 	if !w.successOnly || w.status == 0 || w.status >= 200 && w.status < 300 {
 		w.progress.add(n)
 	}
@@ -336,10 +397,19 @@ func (w *transferResponse) Write(b []byte) (int, error) {
 }
 
 func (r transferReader) Read(b []byte) (int, error) {
+	if r.progress != nil {
+		if closer, ok := r.Reader.(io.Closer); ok {
+			r.progress.bindOnce.Do(func() { context.AfterFunc(r.progress.ctx, func() { _ = closer.Close() }) })
+		}
+	}
 	if err := r.progress.wait(); err != nil {
 		return 0, err
 	}
+	b = b[:min(len(b), 32*1024)]
 	n, err := r.Reader.Read(b)
+	if e := r.progress.limit(n); e != nil {
+		return 0, e
+	}
 	r.progress.add(n)
 	return n, err
 }
@@ -353,7 +423,7 @@ func (w transferWriter) Write(b []byte) (int, error) {
 	if err := w.progress.wait(); err != nil {
 		return 0, err
 	}
-	n, err := w.Writer.Write(b)
+	n, err := writeResourceChunks(w.Writer, b, w.progress)
 	w.progress.add(n)
 	return n, err
 }
@@ -372,6 +442,12 @@ func (f *transferFile) Read(b []byte) (int, error) {
 	}
 	n, err := f.File.Read(b)
 	if !f.write {
+		if e := f.progress.limit(n); e != nil {
+			f.failure = e
+			return 0, e
+		}
+	}
+	if !f.write {
 		f.progress.add(n)
 	}
 	if err != nil && err != io.EOF {
@@ -385,7 +461,7 @@ func (f *transferFile) Write(b []byte) (int, error) {
 		f.failure = err
 		return 0, err
 	}
-	n, err := f.File.Write(b)
+	n, err := writeResourceChunks(f.File, b, f.progress)
 	f.progress.add(n)
 	if err != nil {
 		f.failure = err
@@ -401,6 +477,9 @@ func (f *transferFile) Close() error {
 		if staged, ok := f.File.(*cloudWriteFile); ok && f.failure != nil {
 			staged.writeErr = f.failure
 		}
+		if staged, ok := f.File.(*cloudWriteFile); ok && f.progress != nil {
+			staged.ctx = context.WithValue(staged.ctx, transferUploadResourceKey{}, true)
+		}
 	}
 	err := f.File.Close()
 	if err == nil {
@@ -408,6 +487,36 @@ func (f *transferFile) Close() error {
 	}
 	f.progress.finish(err)
 	return err
+}
+
+func (p *transferProgress) limit(n int) error {
+	if p == nil || p.app == nil {
+		return nil
+	}
+	return p.app.limitTransferBytes(p.ctx, p.kind, n)
+}
+
+func writeResourceChunks(out io.Writer, b []byte, p *transferProgress) (int, error) {
+	total := 0
+	for len(b) > 0 {
+		part := b[:min(len(b), 32*1024)]
+		if err := p.wait(); err != nil {
+			return total, err
+		}
+		if err := p.limit(len(part)); err != nil {
+			return total, err
+		}
+		n, err := out.Write(part)
+		total += n
+		b = b[n:]
+		if err != nil {
+			return total, err
+		}
+		if n != len(part) {
+			return total, io.ErrShortWrite
+		}
+	}
+	return total, nil
 }
 func (a *App) trackedFile(ctx context.Context, s Storage, name string, file webdav.File, flag int) webdav.File {
 	info, err := file.Stat()
@@ -426,5 +535,14 @@ func (a *App) trackedFile(ctx context.Context, s Storage, name string, file webd
 			total = expected
 		}
 	}
-	return &transferFile{File: file, write: write, progress: a.beginTransfer(ctx, kind, s, name, total)}
+	progress := a.beginTransfer(ctx, kind, s, name, total)
+	if progress != nil {
+		switch f := file.(type) {
+		case *cloudWriteFile:
+			f.ctx = progress.ctx
+		case *davFile:
+			f.ctx = progress.ctx
+		}
+	}
+	return &transferFile{File: file, write: write, progress: progress}
 }

@@ -29,7 +29,7 @@ const policies = [{value:'skip',label:'跳过同名文件'},{value:'overwrite',l
 const completionPolicies = [{value:'keep',label:'保留源文件'},{value:'delete_source',label:'删除已备份源文件'},{value:'delete_source_dir',label:'删除已备份源文件和空文件夹'}]
 const deletionPolicies = [{value:'keep',label:'保留'},{value:'trash',label:'移至回收目录'},{value:'delete',label:'删除'}]
 const conflictPolicies = [{value:'keep_both',label:'保留两个版本（另一个保存为冲突副本）'},{value:'source',label:'优先源目录版本'},{value:'newest',label:'优先较新版本'}]
-const statuses = {idle:'等待执行',running:'正在备份',completed:'备份完成',failed:'备份失败',stopped:'已停止',interrupted:'已中断'}
+const statuses = {idle:'等待执行',running:'正在备份',completed:'备份完成',failed:'备份失败',stopped:'已停止',interrupted:'已中断',paused:'已暂停'}
 let timer, alive = true, loading = false
 async function load() {
   if (loading) return
@@ -120,7 +120,7 @@ const directoryText = (id,label) => id ? `${storage(id)?.name || '存储已移�
 defineExpose({ open, load })
 </script>
 <template>
-  <div v-if="!rules.length" class="empty-state"><Icon name="ArchiveRestore" :size="32" /><h2>暂无备份规则</h2><button class="btn primary" @click="open()"><Icon name="Plus" />添加规则</button></div>
+  <div v-if="!rules.length" class="empty-state task-empty"><span class="empty-icon"><Icon name="ArchiveRestore" :size="36" /></span><h3>还没有备份规则</h3><button class="btn" @click="open()"><Icon name="Plus" />添加规则</button></div>
   <div v-else class="backup-grid">
     <article v-for="rule in rules" :key="rule.id" class="backup-card" :class="{ disabled:!rule.enabled, failed:rule.status==='failed', running:rule.status==='running' }" @contextmenu.prevent.stop="menu=rule.id">
       <header><button class="provider-toggle" :aria-label="`${rule.enabled?'停用':'启用'}备份 ${rule.name}`" :aria-pressed="rule.enabled" :disabled="rule.status==='running'" @click="toggle(rule)"><ProviderIcon :type="storage(locations(rule,'source')[0]?.storageId)?.type || 'local'" /></button><button class="backup-name" :disabled="rule.status==='running'" @click="open(rule)"><strong>{{rule.name}}</strong><small>{{phaseText(rule)}}</small></button><button class="icon-btn" :class="{stopping:rule.status==='running'}" :aria-label="rule.status==='running'?'停止备份':'执行备份'" :disabled="!rule.enabled" @click="command(rule,rule.status==='running'?'stop':'run')"><Icon :name="rule.status==='running'?'Square':'Play'" /></button><div class="backup-menu" @click.stop><button class="icon-btn" :aria-label="`备份操作 ${rule.name}`" :aria-expanded="menu===rule.id" @click="menu=menu===rule.id?'':rule.id"><Icon name="EllipsisVertical" /></button><div v-if="menu===rule.id" class="storage-menu"><button @click="closeMenu();detailId=rule.id"><Icon name="List" />执行详情</button><button :disabled="rule.status==='running'" @click="open(rule)"><Icon name="Pencil" />编辑规则</button><button @click="copyRule(rule)"><Icon name="Copy" />复制规则</button><button :disabled="rule.status==='running'" @click="toggle(rule)"><Icon name="Power" />{{rule.enabled?'停用规则':'启用规则'}}</button><button class="danger-text" :disabled="rule.status==='running'" @click="closeMenu();deleting=rule"><Icon name="Trash2" />删除规则</button></div></div></header>
@@ -155,8 +155,8 @@ defineExpose({ open, load })
       <section v-show="step===3" class="backup-section">
       <article v-for="(filter,index) in form.filters" :key="filterKey(filter)" class="backup-filter">
         <header><strong><component :is="filterType(filter).icon" :size="16" aria-hidden="true" /><span>{{index+1}}. {{filterType(filter).label}}</span></strong><div class="backup-filter-controls"><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="exclude" :aria-label="'黑名单 '+(index+1)" />黑名单</label><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="include" :aria-label="'白名单 '+(index+1)" />白名单</label><label><input :checked="filter.matchDir" type="checkbox" :disabled="filter.type==='extension'||filter.type==='size'" :aria-label="'文件夹 '+(index+1)" @change="setScope(filter,'matchDir',$event)" />文件夹</label><label><input :checked="filter.matchFile" type="checkbox" :aria-label="'文件 '+(index+1)" @change="setScope(filter,'matchFile',$event)" />文件</label><button type="button" class="icon-btn danger-text" :aria-label="'删除筛选规则 '+(index+1)" :data-tooltip="'删除规则 '+(index+1)" @click="tokenDrafts.delete(filter);form.filters.splice(index,1)"><Icon name="Trash2" :size="16" /></button></div></header>
-        <div v-if="filter.type==='extension'||filter.type==='name'" class="backup-token-editor"><div v-if="tokens(filter).length" class="backup-tokens"><span v-for="(token,tokenIndex) in tokens(filter)" :key="token" class="backup-token"><span>{{token}}</span><button type="button" :aria-label="'删除 '+token+' 规则 '+(index+1)" :data-tooltip="'删除 '+token" @click="removeToken(filter,tokenIndex)"><Icon name="X" :size="14" /></button></span></div><label class="backup-token-input">{{filter.type==='extension'?'扩展名':'文件名'}}<input :value="tokenDrafts.get(filter) || ''" :aria-label="'匹配内容 '+(index+1)" :placeholder="filter.type==='extension'?'添加扩展名':'添加文件名'" maxlength="2048" @input="tokenDrafts.set(filter,$event.target.value)" @keydown.enter.prevent="!$event.isComposing && addToken(filter)" @blur="addToken(filter)" /></label></div>
-        <label v-else-if="filter.type!=='size'">{{filterType(filter).label}}<input v-model="filter.value" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" /></label>
+        <div v-if="filter.type==='extension'||filter.type==='name'" class="backup-token-editor"><div v-if="tokens(filter).length" class="backup-tokens"><span v-for="(token,tokenIndex) in tokens(filter)" :key="token" class="backup-token"><span>{{token}}</span><button type="button" :aria-label="'删除 '+token+' 规则 '+(index+1)" @click="removeToken(filter,tokenIndex)"><Icon name="X" :size="14" /></button></span></div><div class="backup-token-input"><input :value="tokenDrafts.get(filter) || ''" :aria-label="'匹配内容 '+(index+1)" :placeholder="filter.type==='extension'?'添加扩展名':'添加文件名'" maxlength="2048" @input="tokenDrafts.set(filter,$event.target.value)" @keydown.enter.prevent="!$event.isComposing && addToken(filter)" @blur="addToken(filter)" /></div></div>
+        <div v-else-if="filter.type!=='size'"><input v-model="filter.value" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" /></div>
         <div v-else class="backup-size"><div class="field"><label>最小值</label><NumberInput v-model="filter.minSize" :aria-label="'最小值 '+(index+1)" min="0" /></div><div class="field"><label>最大值</label><NumberInput v-model="filter.maxSize" :aria-label="'最大值 '+(index+1)" min="0" /></div><div class="field"><label>单位</label><RoundedSelect v-model="filter.unit" :label="'大小单位 '+(index+1)" :options="sizeUnits" /></div></div>
       </article>
       <button class="btn backup-add-filter" type="button" :disabled="form.filters.length>=32" @click="filterPicker=true"><Icon name="Plus" />添加规则</button>
@@ -193,6 +193,9 @@ defineExpose({ open, load })
 @media(max-width:760px){.backup-grid{grid-template-columns:1fr}.backup-card footer{flex-wrap:wrap}.backup-editor{max-height:60dvh}}
 .backup-modal :deep(.modal) { width:min(640px,calc(100vw - 32px)); background:var(--surface); }.backup-editor :deep(.thin-scroll-rail) { display:none; }.backup-editor :deep(.backup-monitor) { flex-direction:row; align-items:center; gap:8px; }.backup-editor :deep(.backup-monitor input) { width:16px; height:16px; min-height:16px; }
 .backup-editor { overflow:auto; scrollbar-width:none; }.backup-editor::-webkit-scrollbar { display:none; }.backup-fields { display:grid; gap:14px; }.backup-editor .backup-monitor { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:10px; }.backup-editor .backup-monitor input.switch { width:32px; height:18px; min-height:18px; }.backup-sync-advanced { border-top:1px solid var(--border); padding-top:12px; }
+.backup-modal :deep(.modal) { background:var(--bg); }
+.backup-fields { padding:14px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.backup-filter { background:color-mix(in srgb,var(--surface) 65%,var(--input)); }
 .backup-filter header { flex-wrap:wrap; gap:8px; padding-bottom:10px; border-bottom:1px solid var(--border); }
 .backup-filter header strong { display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; }
 .backup-filter-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }
@@ -201,9 +204,9 @@ defineExpose({ open, load })
 .backup-filter-controls .icon-btn { width:30px; height:30px; min-height:30px; }
 .backup-token-editor { display:grid; gap:10px; min-width:0; }
 .backup-tokens { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
-.backup-token { display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:4px 7px; border-radius:6px; background:var(--bg); font-size:14px; }
+.backup-token { position:relative; display:inline-flex; align-items:center; max-width:100%; padding:4px 7px; border-radius:6px; background:var(--bg); font-size:14px; }
 .backup-token > span { min-width:0; overflow-wrap:anywhere; }
-.backup-token button { display:flex; align-items:center; justify-content:center; flex:none; width:20px; height:20px; padding:0; border:0; background:none; color:var(--muted); opacity:0; transition:opacity .15s,color .15s; }
+.backup-token button { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:inherit; background:var(--bg); color:var(--text); opacity:0; transition:opacity .15s,color .15s; }
 .backup-token:hover button,.backup-token:focus-within button { opacity:1; }
 .backup-token button:hover { color:var(--danger); }
 .backup-token-input { width:50%; min-width:0; }
@@ -215,7 +218,6 @@ defineExpose({ open, load })
 .backup-more summary { font-size:14px; }
 .backup-editor .backup-case-sensitive { gap:10px; }
 .backup-editor .backup-case-sensitive input.switch { width:32px; height:18px; min-height:18px; }
-@media(max-width:600px){.backup-filter header strong{width:100%}.backup-filter-controls{margin-left:0;gap:7px}.backup-filter-controls label{font-size:13px}.backup-filter-controls .icon-btn{margin-left:auto}.backup-token-input{width:50%}.backup-token button{opacity:1}}
-@media(hover:none){.backup-token button{opacity:1}}
+@media(max-width:600px){.backup-filter header strong{width:100%}.backup-filter-controls{margin-left:0;gap:7px}.backup-filter-controls label{font-size:13px}.backup-filter-controls .icon-btn{margin-left:auto}.backup-token-input{width:50%}}
 @media(prefers-reduced-motion:reduce){.backup-token button{transition:none}}
 </style>

@@ -13,6 +13,9 @@ import (
 )
 
 func (a *App) createDirectory(ctx context.Context, s Storage, parent, name string) error {
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	if !safeName(name) {
 		return errors.New("目录名称无效")
 	}
@@ -31,6 +34,9 @@ func (a *App) createDirectory(ctx context.Context, s Storage, parent, name strin
 		return err
 	}
 	defer root.Close()
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
 	return root.Mkdir(path.Join(rel, name), 0755)
 }
 
@@ -98,6 +104,11 @@ func (a *App) uploadParent(ctx context.Context, s Storage, parent, name string) 
 }
 
 func (a *App) storeUploadedFile(ctx context.Context, s Storage, parent, name, staged string) error {
+	ctx, release, err := a.controlCloudUpload(ctx, name, staged)
+	if err != nil {
+		return err
+	}
+	defer release()
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	if len(a.running) != 0 {

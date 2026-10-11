@@ -29,6 +29,7 @@ import (
 )
 
 type App struct {
+	thumbnails       *thumbnailService
 	usageMu          sync.Mutex
 	usageCache       map[string]*storageUsageEntry
 	healthMu         sync.Mutex
@@ -46,6 +47,7 @@ type App struct {
 
 	simulcast      *pan115Simulcast
 	transfers      transferLog
+	resources      transferResources
 	traffic        trafficMeter
 	shareMu        sync.Mutex
 	sharePreviews  map[string]*sharePreview
@@ -155,6 +157,10 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 			a.store.event("warn", "storage", "WebDAV "+r.Method+" "+r.URL.Path+"："+err.Error())
 		}
 	}}
+	a.thumbnails, err = a.newThumbnailService()
+	if err != nil {
+		return nil, fmt.Errorf("initialize thumbnails: %w", err)
+	}
 	return a, nil
 }
 
@@ -185,6 +191,11 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.backupMonitor()
 	a.wg.Add(1)
 	go a.storageHealthLoop()
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.thumbnails.Run(a.ctx)
+	}()
 	server := &http.Server{Handler: a.Handler(env("AETHER_WEB_DIR", "web/dist")), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
@@ -288,6 +299,10 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
 	mux.Handle("GET /api/files/text", a.protected(http.HandlerFunc(a.fileText)))
+	mux.Handle("GET /api/files/thumbnail", a.protected(a.thumbnails))
+	mux.Handle("GET /api/files/thumbnail-source", a.protected(http.HandlerFunc(a.thumbnails.ServeSource)))
+	mux.Handle("HEAD /api/files/thumbnail-source", a.protected(http.HandlerFunc(a.thumbnails.ServeSource)))
+	mux.Handle("POST /api/files/thumbnail", a.protected(a.thumbnails))
 	mux.Handle("PUT /api/files/text", a.protected(http.HandlerFunc(a.fileText)))
 	mux.Handle("POST /api/files/extract", a.protected(http.HandlerFunc(a.fileExtract)))
 	mux.Handle("GET /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
@@ -298,6 +313,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/tasks/reorder", a.protected(http.HandlerFunc(a.reorderTask)))
 	mux.Handle("GET /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
+	mux.Handle("/api/transfer/settings", a.protected(http.HandlerFunc(a.transferSettingsAPI)))
+	mux.Handle("/api/backup/settings", a.protected(http.HandlerFunc(a.backupSettingsAPI)))
 	mux.Handle("DELETE /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
 	mux.Handle("POST /api/transfers/action", a.protected(http.HandlerFunc(a.transferAction)))
 	mux.Handle("GET /api/traffic", a.protected(http.HandlerFunc(a.trafficRates)))
@@ -364,7 +381,7 @@ func (a *App) Handler(webDir string) http.Handler {
 		}
 		http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
 	})
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return a.transferRequestControls(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
@@ -395,7 +412,7 @@ func (a *App) Handler(webDir string) http.Handler {
 			return
 		}
 		mux.ServeHTTP(w, r)
-	})
+	}))
 }
 
 func (a *App) authenticated(r *http.Request) bool {
@@ -1292,6 +1309,7 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 	cw := countWriter{w, &a.downloaded}
 	if r.Method == "GET" {
 		tracked := &transferResponse{ResponseWriter: w, progress: a.beginTransfer(r.Context(), "download", s, claim.File, 0)}
+		r = r.WithContext(tracked.progress.ctx)
 		cw.ResponseWriter = tracked
 		defer func() {
 			if r.Context().Err() != nil {

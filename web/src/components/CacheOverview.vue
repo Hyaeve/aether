@@ -11,7 +11,7 @@ function scanDetail(task) {
 const metrics = computed(() => [
   ['缓存大小', bytes(state.cache.bytes || 0), 'Database'],
   ['缓存条目', `${state.cache.entries || 0} / ${state.settings.cacheMaxItems || 10000}`, 'Layers3'],
-  ['命中', state.cache.hits || 0, 'CircleCheck'], ['未命中', state.cache.misses || 0, 'CircleDashed'],
+  ['命中', state.cache.hits || 0, 'Target'], ['未命中', state.cache.misses || 0, 'CircleDashed'],
   ['LRU 淘汰', state.cache.evictions || 0, 'LogOut'], ['过期', state.cache.expired || 0, 'FileClock']
 ])
 </script>

@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -346,8 +344,8 @@ func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 	if a.ctx.Err() != nil {
 		return a.ctx.Err()
 	}
-	if len(a.backupRuns) != 0 {
-		return errors.New("已有备份正在执行，请等待完成")
+	if _, running := a.backupRuns[id]; running {
+		return errors.New("此备份正在执行，请等待完成")
 	}
 	st := a.store.snapshotWithLogLimit(0)
 	var rule BackupRule
@@ -413,6 +411,9 @@ func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 			if ctx.Err() != nil {
 				status, level = "stopped", "warn"
 			}
+			if errors.Is(err, errBackupPaused) {
+				status, level = "paused", "info"
+			}
 		}
 		message := fmt.Sprintf("扫描 %d · 备份 %d · 跳过 %d · 清理 %d", rule.Scanned, rule.Copied, rule.Skipped, rule.Deleted)
 		if err != nil {
@@ -463,6 +464,14 @@ func sameBackupStorage(a, b Storage) bool {
 }
 
 func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File, parent, name, replace string, digest ...*string) (resultErr error) {
+	if err := a.checkBackupMutation(ctx); err != nil {
+		return err
+	}
+	release, err := a.acquireTransferResource(ctx, "preprocess")
+	if err != nil {
+		return err
+	}
+	defer release()
 	const limit = int64(100 << 30)
 	if f.Size < 0 || f.Size > limit {
 		return errors.New("备份单文件上限100GiB")
@@ -471,65 +480,37 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	if err := os.MkdirAll(rootDir, 0700); err != nil {
 		return err
 	}
-	staged, err := os.CreateTemp(rootDir, "backup-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(staged.Name())
-	defer staged.Close()
-	var input io.ReadCloser
-	var downloadProgress *transferProgress
-	if source.Type == "local" {
-		var root *os.Root
-		root, err = os.OpenRoot(source.Config["root"])
-		if err == nil {
-			var rel string
-			rel, err = relative(f.ID)
-			if err == nil {
-				input, err = root.Open(rel)
-			}
-			root.Close()
-		}
+	cache, _ := ctx.Value(backupStageResourceKey{}).(*backupStageResource)
+	reuse := cache != nil && a.transferConfig().CrossCloudTemp && source.Type != "local"
+	stage := backupStageResource{}
+	if reuse && cache.name != "" {
+		stage = *cache
 	} else {
-		var download Download
-		download, err = a.download(ctx, source, f.ID, f.PickCode)
-		if err == nil {
-			downloadProgress = a.beginTransfer(ctx, "download", source, f.Name, f.Size)
-			reader := &davFile{ctx: ctx, info: davInfo{f}, download: download, progress: downloadProgress}
-			if source.Type == "115" {
-				reader.refreshDownload = func() (Download, error) {
-					info, err := download115API(ctx, source, f.PickCode, pan115ReadUA, true)
-					if err != nil {
-						return Download{}, err
-					}
-					return Download{URL: info.Url.Url, Headers: info.Header}, nil
-				}
-			}
-			input = reader
+		stage, err = a.stageBackupSource(ctx, source, f, rootDir)
+		if err != nil {
+			return err
 		}
-	}
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	defer func() { downloadProgress.finish(resultErr) }()
-	hash := sha256.New()
-	n, err := io.Copy(io.MultiWriter(staged, hash), io.LimitReader(&cancelReader{ctx, input}, limit+1))
-	if err != nil {
-		return err
-	}
-	if n != f.Size || n > limit {
-		return errors.New("源文件内容不完整或读取期间大小变化")
+		if reuse {
+			*cache = stage
+		} else {
+			defer os.Remove(stage.name)
+		}
 	}
 	if len(digest) > 0 {
-		*digest[0] = hex.EncodeToString(hash.Sum(nil))
+		*digest[0] = stage.digest
 	}
-	downloadProgress.finish(nil)
-	if err := staged.Close(); err != nil {
-		return err
-	}
+	n := stage.size
+	release()
 	progress := a.beginTransfer(ctx, "upload", target, name, n)
 	defer func() { progress.finish(resultErr) }()
+	if err := progress.wait(); err != nil {
+		return err
+	}
+	if progress != nil {
+		ctx = context.WithValue(progress.ctx, transferProgressResourceKey{}, progress)
+	}
+	ctx = context.WithValue(ctx, transferUploadResourceKey{}, true)
+	ctx = context.WithValue(ctx, transferAppResourceKey{}, a)
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	if len(a.running) != 0 {
@@ -544,7 +525,7 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 			return errors.New("备份存储配置已变更，停止发布")
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	if err := a.checkBackupMutation(ctx); err != nil {
 		return err
 	}
 	if target.Type != "local" {
@@ -555,7 +536,7 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 		if old != nil && replace == "skip" {
 			return errors.New("目标文件在备份期间出现，请重新扫描")
 		}
-		if err := a.publishCloudFile(ctx, target, parent, name, staged.Name()); err != nil {
+		if err := a.publishCloudFile(ctx, target, parent, name, stage.name); err != nil {
 			return err
 		}
 	} else {
@@ -574,7 +555,7 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 			return err
 		}
 		defer root.Remove(temp)
-		in, err := os.Open(staged.Name())
+		in, err := os.Open(stage.name)
 		if err != nil {
 			out.Close()
 			return err
@@ -595,8 +576,14 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 			return err
 		}
 		if replace == "skip" {
+			if err := a.checkBackupMutation(ctx); err != nil {
+				return err
+			}
 			err = root.Link(temp, path.Join(rel, name))
 		} else {
+			if err := a.checkBackupMutation(ctx); err != nil {
+				return err
+			}
 			err = root.Rename(temp, path.Join(rel, name))
 		}
 		if err != nil {

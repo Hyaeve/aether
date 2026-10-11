@@ -26,8 +26,9 @@ func casPoolRevisionStorages() []Storage {
 
 func casPoolRevisionConfig() CASPoolConfig {
 	return normalizedCASPool(CASPoolConfig{
-		Mobile: CASPoolGroup{StorageIDs: []string{"mobile-a", "mobile-b"}, RetentionHours: 24},
-		Tianyi: CASPoolGroup{StorageIDs: []string{"tianyi-a"}, RetentionHours: 48},
+		RotationMinutes: 10,
+		Mobile:          CASPoolGroup{StorageIDs: []string{"mobile-a", "mobile-b"}, RetentionHours: 24},
+		Tianyi:          CASPoolGroup{StorageIDs: []string{"tianyi-a"}, RetentionHours: 48},
 	})
 }
 
@@ -37,7 +38,7 @@ func casPoolRevisionInfo() CASInfo {
 
 func TestCASPoolRevisionValidation(t *testing.T) {
 	defaults := normalizedCASPool(CASPoolConfig{})
-	if defaults.Preferred != "mobile" || defaults.RotationMinutes != 10 || defaults.Mobile.RetentionHours != 12 || defaults.Tianyi.RetentionHours != 12 || defaults.Mobile.StorageIDs == nil || defaults.Tianyi.StorageIDs == nil {
+	if defaults.Preferred != "mobile" || defaults.RotationMinutes != 720 || defaults.Mobile.RetentionHours != 12 || defaults.Tianyi.RetentionHours != 12 || defaults.Mobile.StorageIDs == nil || defaults.Tianyi.StorageIDs == nil || defaults.Configured == nil || *defaults.Configured {
 		t.Fatalf("unexpected defaults: %+v", defaults)
 	}
 	for _, tc := range []struct {
@@ -88,6 +89,49 @@ func TestCASPoolRevisionValidation(t *testing.T) {
 	}
 	if validateCASPool(pool, state) == nil {
 		t.Fatal("33 distinct storages accepted")
+	}
+}
+
+func TestCASPoolConfiguredMarkerAndEmptyPersistence(t *testing.T) {
+	pristine := normalizedCASPool(CASPoolConfig{})
+	if pristine.Configured == nil || *pristine.Configured || pristine.RotationMinutes != 720 {
+		t.Fatalf("pristine config: %+v", pristine)
+	}
+	for _, legacy := range []CASPoolConfig{
+		{Mobile: CASPoolGroup{StorageIDs: []string{}}, Tianyi: CASPoolGroup{StorageIDs: []string{}}},
+		{RotationMinutes: 10},
+	} {
+		if p := normalizedCASPool(legacy); p.Configured == nil || !*p.Configured {
+			t.Fatalf("legacy configured pool lost: %+v", p)
+		}
+	}
+	a := testApp(t)
+	initialStore, err := NewStore(a.store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := initialStore.snapshot().CASPool
+	if initial.Configured == nil || *initial.Configured || initial.RotationMinutes != 720 {
+		t.Fatalf("unconfigured marker lost on restart: %+v", initial)
+	}
+	h := a.Handler(t.TempDir())
+	setup := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
+	cookie := setup.Result().Cookies()[0]
+	w := request(t, h, "PUT", "/api/cas/pool", pristine, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("save empty: %d %s", w.Code, w.Body.String())
+	}
+	var saved CASPoolConfig
+	if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil || saved.Configured == nil || !*saved.Configured || len(saved.Mobile.StorageIDs) != 0 || len(saved.Tianyi.StorageIDs) != 0 {
+		t.Fatalf("explicit empty response: %+v %v", saved, err)
+	}
+	reopened, err := NewStore(a.store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := reopened.snapshot().CASPool
+	if p.Configured == nil || !*p.Configured || len(p.Mobile.StorageIDs) != 0 || len(p.Tianyi.StorageIDs) != 0 {
+		t.Fatalf("empty selections not persisted: %+v", p)
 	}
 }
 

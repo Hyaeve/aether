@@ -54,17 +54,42 @@ test('video grid extracts a real frame and player follows only the video boundar
     return await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.readAsDataURL(blob) })
   })
   await workspace(page, [{ id: 'local', type: 'local', name: '视频', enabled: true, config: {} }])
-  await page.route('**/frame.webm', r => r.fulfill({ contentType: 'video/webm', body: Buffer.from(encoded, 'base64') }))
-  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: 'v', name: '预览.webm', url: '/frame.webm' }] }))
+  let savedThumbnail, frameRequests = 0, cacheHits = 0
+  await page.route('**/stream/test/frame.webm', r => { frameRequests++; return r.fulfill({ contentType: 'video/webm', body: Buffer.from(encoded, 'base64') }) })
+  await page.route('**/api/files/thumbnail-source?**', r => { frameRequests++; return r.fulfill({ contentType: 'video/webm', body: Buffer.from(encoded, 'base64') }) })
+  await page.route('**/api/files/thumbnail?**', r => {
+    const request = r.request()
+    expect(new URL(request.url()).searchParams.get('storage')).toBe('local')
+    expect(new URL(request.url()).searchParams.get('id')).toBe('v')
+    if (request.method() === 'POST') {
+      expect(request.headers()['x-thumbnail-revision']).toBe('frame-revision')
+      expect(request.headers()['content-type']).toBe('image/jpeg')
+      savedThumbnail = request.postDataBuffer()
+      expect(savedThumbnail.length).toBeLessThan(512 * 1024)
+      expect([...savedThumbnail.subarray(0, 2)]).toEqual([255, 216])
+      return r.fulfill({ contentType: 'image/jpeg', body: savedThumbnail })
+    }
+    if (savedThumbnail) { cacheHits++; return r.fulfill({ contentType: 'image/jpeg', body: savedThumbnail }) }
+    return r.fulfill({ status: 404, headers: { 'X-Thumbnail-Revision': 'frame-revision' } })
+  })
+  await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: 'v', name: '预览.webm', url: '/stream/test/frame.webm' }] }))
   await page.goto('/files')
   await page.getByRole('button', { name: '当前列表视图，切换网格' }).click()
-  await expect(page.locator('.video-thumbnail video')).toHaveClass('ready')
-  const frame = await page.locator('.video-thumbnail video').evaluate(video => {
+  await expect.poll(() => Boolean(savedThumbnail)).toBe(true)
+  await expect.poll(() => page.locator('.video-thumbnail img').evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true)
+  const frame = await page.locator('.video-thumbnail img').evaluate(img => {
     const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180
-    const ctx = canvas.getContext('2d'); ctx.drawImage(video, 0, 0)
-    return { pixel: [...ctx.getImageData(200, 20, 1, 1).data], paused: video.paused, width: video.videoWidth }
+    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0)
+    return { pixel: [...ctx.getImageData(200, 20, 1, 1).data], width: img.naturalWidth }
   })
-  expect(frame.paused).toBe(true); expect(frame.width).toBe(320); expect(frame.pixel[2]).toBeGreaterThan(60)
+  expect(frame.width).toBe(320); expect(frame.pixel[2]).toBeGreaterThan(60)
+  await expect(page.locator('.video-thumbnail video')).not.toHaveAttribute('src')
+  const firstReadCount = frameRequests
+  await page.reload()
+  await expect.poll(() => cacheHits).toBe(1)
+  await expect.poll(() => page.locator('.video-thumbnail img').evaluate(img => img.complete && img.naturalWidth === 320)).toBe(true)
+  expect(frameRequests).toBe(firstReadCount)
+  await expect(page.locator('.video-thumbnail video')).not.toHaveAttribute('src')
   await page.getByRole('button', { name: '预览.webm', exact: true }).dblclick()
   await expect(page.locator('.video-viewer video')).toHaveAttribute('controls', '')
   await expect.poll(() => page.locator('.video-viewer video').evaluate(v => v.videoWidth)).toBe(320)

@@ -522,6 +522,9 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 			if s.Type == "115" {
 				if file, ok := h.file.(*davFile); ok {
 					n, err := h.node.backend.app.readMount115(ctx, s.ID, file, buf, position)
+					if e := h.node.backend.app.limitTransferBytes(ctx, "download", n); e != nil {
+						return 0, e
+					}
 					h.progress.add(n)
 					return n, err
 				}
@@ -530,6 +533,9 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 				return 0, e
 			}
 			n, err := io.ReadFull(h.file, buf)
+			if e := h.node.backend.app.limitTransferBytes(ctx, "download", n); e != nil {
+				return 0, e
+			}
 			h.progress.add(n)
 			return n, err
 		}
@@ -562,6 +568,9 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 		h.positioned = false
 	} else {
 		n, err = h.file.Read(data)
+		if e := h.node.backend.app.limitTransferBytes(ctx, "download", n); e != nil {
+			return nil, fuseErr(e)
+		}
 		h.progress.add(n)
 	}
 	h.offset = off + int64(n)
@@ -587,6 +596,9 @@ func (h *nativeFuseHandle) Write(ctx context.Context, data []byte, off int64) (u
 		return 0, syscall.EBADF
 	}
 	if _, err := h.file.Seek(off, io.SeekStart); err != nil {
+		return 0, fuseErr(err)
+	}
+	if err := h.node.backend.app.limitTransferBytes(ctx, "upload", len(data)); err != nil {
 		return 0, fuseErr(err)
 	}
 	n, err := h.file.Write(data)
@@ -615,6 +627,7 @@ func (h *nativeFuseHandle) Flush(ctx context.Context) syscall.Errno {
 	}
 	if h.staged != nil {
 		f := h.staged
+		ctx = context.WithValue(ctx, transferUploadResourceKey{}, true)
 		err := f.publish(ctx)
 		if err != nil {
 			h.progress.finish(err)

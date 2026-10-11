@@ -20,14 +20,21 @@ type CASPoolConfig struct {
 	Tianyi          CASPoolGroup `json:"tianyi"`
 	Preferred       string       `json:"preferred"`
 	RotationMinutes int          `json:"rotationMinutes"`
+	Configured      *bool        `json:"configured,omitempty"`
 }
 
 func normalizedCASPool(p CASPoolConfig) CASPoolConfig {
+	// Legacy pools have no marker. Explicit fields (including empty lists) mean
+	// they were already configured; only a pristine config gets UI defaults.
+	if p.Configured == nil {
+		configured := p.Preferred != "" || p.RotationMinutes != 0 || p.Mobile.RetentionHours != 0 || p.Tianyi.RetentionHours != 0 || p.Mobile.StorageIDs != nil || p.Tianyi.StorageIDs != nil
+		p.Configured = &configured
+	}
 	if p.Preferred == "" {
 		p.Preferred = "mobile"
 	}
 	if p.RotationMinutes == 0 {
-		p.RotationMinutes = 10
+		p.RotationMinutes = 720
 	}
 	if p.Mobile.RetentionHours == 0 {
 		p.Mobile.RetentionHours = 12
@@ -93,6 +100,8 @@ func (a *App) casPoolSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pool = normalizedCASPool(pool)
+	configured := true
+	pool.Configured = &configured
 	if err := a.acquireCAS(r.Context()); err != nil {
 		fail(w, http.StatusRequestTimeout, err)
 		return

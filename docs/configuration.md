@@ -26,6 +26,8 @@
   file/webdav.json
   file/mount.json
   transfer/backup.json
+  transfer/settings.json
+  transfer/resources.json
 ```
 
 `state.json` 保存账户、签名信息和任务顺序。`task/other.json` 保留其他任务类型；`tool/config.json` 保留其他工具配置。重命名、整理等既有独立规则 JSON 继续保留。
@@ -35,6 +37,8 @@
 ## 安全
 
 双向备份的目录基线和历史版本清单另存 `/data/runtime/backup-sync/*.json`，同样校验完整性；不属于模块配置。恢复同步记录应一并备份 `/data` 与配置主密钥，详见[备份规则](backup-rules.md)。
+
+文件网格缩略图保存在 `/data/thumbnails`，连续 72 小时未读取会自动清理；可重建，无需作为配置备份。详见[缩略图缓存](thumbnail-cache.md)。
 
 - 每个文件包含 `version`、可读的 `data` 和完整性校验 `auth`。名称、目录、端口及一般地址可以阅读。
 - CK、Token、Authorization、API Key、上游密码及签名密钥采用 AES-256-GCM 字段加密。每次加密使用随机 nonce，认证数据绑定模块、记录 ID 和字段路径；地址含内嵌认证或查询参数时也加密，避免泄露令牌。

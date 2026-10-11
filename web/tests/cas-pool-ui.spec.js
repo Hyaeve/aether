@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { captureScreenshot } from './helpers/screenshot.js'
 
-const initialPool = () => ({ mobile: { storageIds: [], retentionHours: 12 }, tianyi: { storageIds: [], retentionHours: 12 }, preferred: 'mobile', rotationMinutes: 10 })
+const initialPool = () => ({ mobile: { storageIds: [], retentionHours: 12 }, tianyi: { storageIds: [], retentionHours: 12 }, preferred: 'mobile', rotationMinutes: 720, configured: true })
 const account = (id, name, type, config = { mode: 'native' }, enabled = true) => ({ id, name, type, config, enabled })
 
 async function workspace(page, tasks = []) {
@@ -20,10 +20,10 @@ async function workspace(page, tasks = []) {
   await page.route('**/api/**', route => {
     const request = route.request(), pathname = new URL(request.url()).pathname
     if (pathname === '/api/cas/pool') {
-      if (request.method() === 'PUT') { pool = request.postDataJSON(); saved.push(pool) }
+      if (request.method() === 'PUT') { saved.push(request.postDataJSON()); pool = { ...request.postDataJSON(), configured: true } }
       return route.fulfill({ json: pool })
     }
-    const json = pathname === '/api/auth/status' ? { initialized: true, authenticated: true }
+    const json = pathname === '/api/cas/status' ? { items: [] } : pathname === '/api/auth/status' ? { initialized: true, authenticated: true }
       : pathname === '/api/state' ? snapshot : pathname === '/api/files' ? [] : {}
     return route.fulfill({ json })
   })
@@ -34,11 +34,13 @@ async function openPool(page) {
   await page.getByRole('button', { name: '打开存储绑定池', exact: true }).click()
   const pool = poolRegion(page)
   await expect(pool).toBeVisible()
-  await expect(pool.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
+  await expect(page).toHaveURL(/\/tasks\/cas\/pool$/)
+  await expect(page.getByRole('region', { name: 'CAS 生成统计', exact: true })).toHaveCount(0)
   await expect.poll(() => pool.evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true)
   return pool
 }
-async function advanced(pool) { await pool.locator('summary').click() }
+async function advanced(pool) { await expect(pool.getByRole('region', { name: '高级设置', exact: true })).toBeVisible() }
 
 test('CAS success rate uses executed terminal tasks, true generation counters and live indeterminate progress', async ({ page }) => {
   const lastRun = '2026-10-11T08:00:00Z'
@@ -77,28 +79,28 @@ test('CAS pool defaults to no bindings, filters native accounts and persists mul
   const { saved } = await workspace(page)
   await page.goto('/tasks/cas')
   const pool = await openPool(page)
-  await expect(pool.getByRole('checkbox')).toHaveCount(4)
-  for (const checkbox of await pool.getByRole('checkbox').all()) await expect(checkbox).not.toBeChecked()
+  await expect(pool.locator('.cas-binding-toggle')).toHaveCount(4)
+  for (const toggle of await pool.locator('.cas-binding-toggle').all()) await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   for (const name of ['移动协议账号', '移动非原生旧账号', '天翼协议账号', '移动停用账号', '夸克影音', '本地影音']) await expect(pool).not.toContainText(name)
-  await pool.getByRole('checkbox', { name: '绑定 移动影音一', exact: true }).check()
-  await pool.getByRole('checkbox', { name: '绑定 移动影音二', exact: true }).check()
-  await pool.getByRole('checkbox', { name: '绑定 天翼旧账号', exact: true }).check()
+  await pool.getByRole('button', { name: '绑定 移动影音一', exact: true }).click()
+  await pool.getByRole('button', { name: '绑定 移动影音二', exact: true }).click()
+  await pool.getByRole('button', { name: '绑定 天翼旧账号', exact: true }).click()
   await advanced(pool)
-  await expect(pool.getByRole('button', { name: '优先存储', exact: true })).toContainText('移动云盘（默认）')
-  await expect(pool.getByRole('spinbutton', { name: '轮换时间', exact: true })).toHaveValue('10')
+  await expect(pool.getByRole('button', { name: '优先秒传', exact: true })).toContainText('移动云盘')
+  await expect(pool.getByRole('spinbutton', { name: '轮换时间', exact: true })).toHaveValue('12')
   for (const name of ['移动云盘保留时间', '天翼云盘保留时间']) await expect(pool.getByRole('spinbutton', { name, exact: true })).toHaveValue('12')
-  await pool.getByRole('button', { name: '优先存储', exact: true }).click()
+  await pool.getByRole('button', { name: '优先秒传', exact: true }).click()
   await pool.getByRole('option', { name: '天翼云盘', exact: true }).click()
   await pool.getByRole('spinbutton', { name: '轮换时间', exact: true }).fill('15')
   await pool.getByRole('spinbutton', { name: '移动云盘保留时间', exact: true }).fill('24')
   await pool.getByRole('spinbutton', { name: '天翼云盘保留时间', exact: true }).fill('48')
-  await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
   await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
-  expect(saved).toEqual([{ mobile: { storageIds: ['m1', 'm2'], retentionHours: 24 }, tianyi: { storageIds: ['t2'], retentionHours: 48 }, preferred: 'tianyi', rotationMinutes: 15 }])
-  await pool.getByRole('button', { name: '关闭存储绑定池', exact: true }).click()
+  expect(saved).toEqual([{ mobile: { storageIds: ['m1', 'm2'], retentionHours: 24 }, tianyi: { storageIds: ['t2'], retentionHours: 48 }, preferred: 'tianyi', rotationMinutes: 900 }])
+  await page.getByRole('button', { name: '返回 CAS 任务', exact: true }).click()
   const restored = await openPool(page)
-  await expect(restored.getByRole('checkbox', { name: '绑定 移动影音二', exact: true })).toBeChecked()
-  await expect(restored.getByRole('checkbox', { name: '绑定 天翼旧账号', exact: true })).toBeChecked()
+  await expect(restored.getByRole('button', { name: '绑定 移动影音二', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(restored.getByRole('button', { name: '绑定 天翼旧账号', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await advanced(restored)
   await expect(restored.getByRole('spinbutton', { name: '天翼云盘保留时间', exact: true })).toHaveValue('48')
 })
@@ -108,30 +110,34 @@ test('CAS numeric limits reject blank, zero, fractions and above-max values and 
   await page.goto('/tasks/cas')
   const pool = await openPool(page)
   await advanced(pool)
-  for (const [name, max] of [['轮换时间', 1440], ['移动云盘保留时间', 8760], ['天翼云盘保留时间', 8760]]) {
+  for (const [name, min, max, fraction] of [['轮换时间', 1 / 60, 24, '.025'], ['移动云盘保留时间', 1, 8760, '1.5'], ['天翼云盘保留时间', 1, 8760, '1.5']]) {
     const input = pool.getByRole('spinbutton', { name, exact: true })
-    await expect(input).toHaveAttribute('min', '1')
+    await expect(input).toHaveAttribute('min', String(min))
     await expect(input).toHaveAttribute('max', String(max))
-    for (const value of ['', '0', '1.5', String(max + 1)]) {
+    for (const value of ['', '0', fraction, String(max + 1)]) {
       await input.fill(value)
-      await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+      await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
       expect(await input.evaluate(el => el.validity.valid)).toBe(false)
       expect(saved).toHaveLength(0)
     }
     await input.fill('1')
   }
-  await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
   await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
-  expect(saved[0]).toEqual({ mobile: { storageIds: [], retentionHours: 1 }, tianyi: { storageIds: [], retentionHours: 1 }, preferred: 'mobile', rotationMinutes: 1 })
-  await pool.getByRole('spinbutton', { name: '轮换时间', exact: true }).fill('1440')
+  expect(saved[0]).toEqual({ mobile: { storageIds: [], retentionHours: 1 }, tianyi: { storageIds: [], retentionHours: 1 }, preferred: 'mobile', rotationMinutes: 60 })
+  await pool.getByRole('spinbutton', { name: '轮换时间', exact: true }).fill('24')
   await pool.getByRole('spinbutton', { name: '移动云盘保留时间', exact: true }).fill('8760')
   await pool.getByRole('spinbutton', { name: '天翼云盘保留时间', exact: true }).fill('8760')
-  await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
   await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
   expect(saved[1]).toMatchObject({ rotationMinutes: 1440, mobile: { storageIds: [], retentionHours: 8760 }, tianyi: { storageIds: [], retentionHours: 8760 } })
+  await pool.getByRole('spinbutton', { name: '轮换时间', exact: true }).fill(String(1 / 60))
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
+  expect(saved[2].rotationMinutes).toBe(1)
 })
 
-test('CAS overview and pool adapt to themes and mobile with a single arrow, keyboard close and focus restoration', async ({ page }, testInfo) => {
+test('CAS full page adapts to themes and mobile with flat advanced options, a single back arrow and keyboard return', async ({ page }, testInfo) => {
   await workspace(page)
   await page.goto('/tasks/cas')
   await expect(page.getByRole('img', { name: '成功率暂无记录', exact: true })).toBeVisible()
@@ -140,34 +146,38 @@ test('CAS overview and pool adapt to themes and mobile with a single arrow, keyb
     for (const theme of ['light', 'dark']) {
       await page.evaluate(value => document.documentElement.dataset.theme = value, theme)
       const pool = await openPool(page)
-      await expect(page.locator('.cas-pool-trigger')).toBeHidden()
-      await expect(page.getByRole('button', { name: '关闭存储绑定池', exact: true })).toHaveCount(1)
-      await expect(pool.getByRole('button', { name: '关闭存储绑定池', exact: true })).toBeFocused()
-      await expect(pool.locator('.cas-pool-close svg')).toHaveClass(/lucide-chevron-right/)
-      await expect(pool).toHaveCSS('border-radius', '8px')
-      await expect(pool).toHaveCSS('border-top-width', '1px')
+      const back = page.getByRole('button', { name: '返回 CAS 任务', exact: true })
+      await expect(page.locator('.cas-pool-trigger')).toHaveCount(0)
+      await expect(back).toHaveCount(1)
+      await expect(back).toBeFocused()
+      await expect(back.locator('svg')).toHaveClass(/lucide-chevron-right/)
+      await expect(pool.locator('.cas-pool-list-frame').first()).toHaveCSS('border-radius', '8px')
+      await expect(pool.locator('.cas-pool-list-frame').first()).toHaveCSS('border-top-width', '1px')
       await expect(pool.locator('.provider-icon').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(pool.locator('.cas-pool-list .cas-pool-account')).toHaveCount(10)
+      await expect(pool.locator('details')).toHaveCount(0)
       await advanced(pool)
-      await pool.getByRole('button', { name: '优先存储', exact: true }).click()
+      await pool.getByRole('button', { name: '优先秒传', exact: true }).click()
       await page.keyboard.press('Escape')
       await expect(pool).toBeVisible()
       await expect(pool.getByRole('listbox')).toHaveCount(0)
-      expect(await pool.evaluate(el => {
-        const overview = document.querySelector('.cas-overview').getBoundingClientRect(), box = el.getBoundingClientRect()
-        return box.top >= overview.bottom + 7 && el.scrollWidth <= el.clientWidth && document.documentElement.scrollWidth <= innerWidth
+      expect(await pool.evaluate(el => el.scrollWidth <= el.clientWidth && document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      if (width === 1440) expect(await pool.locator('.cas-pool-group').evaluateAll(groups => {
+        const [a,b] = groups.map(el => el.getBoundingClientRect())
+        return Math.abs(a.top-b.top) < 1 && b.left >= a.right
       })).toBe(true)
       await captureScreenshot(page, { path: testInfo.outputPath(`cas-pool-${theme}-${width}x${height}.png`), fullPage: true })
-      await pool.getByRole('button', { name: '关闭存储绑定池', exact: true }).focus()
+      await back.focus()
       await page.keyboard.press('Escape')
       await expect(pool).toHaveCount(0)
-      await expect(page.getByRole('button', { name: '打开存储绑定池', exact: true })).toBeFocused()
+      await expect(page).toHaveURL(/\/tasks\/cas$/)
+      await expect(page.getByRole('button', { name: '打开存储绑定池', exact: true })).toBeVisible()
     }
   }
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const pool = await openPool(page)
-  await advanced(pool)
-  await expect(pool.locator('summary > svg').last()).toHaveCSS('transition-duration', '0s')
-  await pool.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(pool.locator('.cas-pool-account').first()).toHaveCSS('transition-duration', '0s')
+  await page.getByRole('button', { name: '返回 CAS 任务', exact: true }).click()
   await expect(pool).toHaveCount(0)
 })
 
@@ -183,15 +193,15 @@ test('CAS load and save errors retain edits, support retry, and always allow clo
   await page.getByRole('button', { name: '打开存储绑定池', exact: true }).click()
   const pool = poolRegion(page)
   await expect(pool.getByRole('alert')).toHaveText('绑定池暂时不可用')
-  await expect(pool.getByRole('button', { name: '保存绑定池', exact: true })).toBeDisabled()
-  await expect(pool.getByRole('button', { name: '关闭存储绑定池', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '保存绑定池', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '返回 CAS 任务', exact: true })).toBeEnabled()
   await pool.getByRole('button', { name: '重新加载', exact: true }).click()
-  await expect(pool.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
-  await pool.getByRole('checkbox', { name: '绑定 移动影音二', exact: true }).check()
-  await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await expect(page.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
+  await pool.getByRole('button', { name: '绑定 移动影音二', exact: true }).click()
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
   await expect(pool.getByRole('alert')).toHaveText('保存绑定池失败')
-  await expect(pool.getByRole('checkbox', { name: '绑定 移动影音二', exact: true })).toBeChecked()
-  await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await expect(pool.getByRole('button', { name: '绑定 移动影音二', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
   await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
   expect(submitted.mobile.storageIds).toEqual(['m2'])
 })
@@ -215,21 +225,21 @@ for (const method of ['GET', 'PUT']) {
       await page.getByRole('button', { name: '打开存储绑定池', exact: true }).click()
       const pool = poolRegion(page)
       if (method === 'PUT') {
-        await expect(pool.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
-        await pool.getByRole('checkbox', { name: '绑定 移动影音一', exact: true }).check()
-        await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+        await expect(page.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
+        await pool.getByRole('button', { name: '绑定 移动影音一', exact: true }).click()
+        await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
       }
       await expect.poll(() => pending).toBe(true)
-      await expect(pool.getByRole('button', { name: '关闭存储绑定池', exact: true })).toBeEnabled()
-      await pool.getByRole('button', { name: '关闭存储绑定池', exact: true }).click()
+      await expect(page.getByRole('button', { name: '返回 CAS 任务', exact: true })).toBeEnabled()
+      await page.getByRole('button', { name: '返回 CAS 任务', exact: true }).click()
       await expect(pool).toHaveCount(0)
       const reopened = await openPool(page)
       release(); await settled
-      await expect(reopened.getByRole('checkbox', { name: '绑定 移动影音一', exact: true })).not.toBeChecked()
+      await expect(reopened.getByRole('button', { name: '绑定 移动影音一', exact: true })).toHaveAttribute('aria-pressed', 'false')
       await expect(reopened.getByRole('status')).toHaveCount(0)
       await expect(reopened.getByRole('alert')).toHaveCount(0)
       await advanced(reopened)
-      await expect(reopened.getByRole('spinbutton', { name: '轮换时间', exact: true })).toHaveValue('10')
+      await expect(reopened.getByRole('spinbutton', { name: '轮换时间', exact: true })).toHaveValue('12')
       await expect(page.locator('.toast').filter({ hasText: '存储绑定池已保存' })).toHaveCount(0)
     } finally { release() }
   })
@@ -246,12 +256,122 @@ test('CAS unavailable saved bindings remain visible until explicitly removed', a
   const pool = await openPool(page)
   await expect(pool).toContainText('移动停用账号 · 不可用')
   await expect(pool).toContainText('deleted-account · 不可用')
-  await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
   await expect(pool.getByRole('alert')).toHaveText('请移除移动云盘中不可用的绑定')
   expect(saved).toHaveLength(0)
   await pool.getByRole('button', { name: '移除不可用绑定 移动停用账号', exact: true }).click()
   await pool.getByRole('button', { name: '移除不可用绑定 deleted-account', exact: true }).click()
-  await pool.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
   await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
   expect(saved[0].mobile.storageIds).toEqual([])
+})
+
+test('CAS unconfigured pool selects only the first ordered native account and saved-empty survives reopening', async ({ page }) => {
+  const { snapshot, saved } = await workspace(page)
+  snapshot.storages = [snapshot.storages[1], snapshot.storages[0], ...snapshot.storages.slice(2)]
+  let response = { ...initialPool(), configured: false }
+  await page.route('**/api/cas/pool', route => {
+    if (route.request().method() === 'PUT') { saved.push(route.request().postDataJSON()); response = { ...saved.at(-1), configured: true } }
+    return route.fulfill({ json: response })
+  })
+  await page.goto('/tasks/cas')
+  const pool = await openPool(page)
+  await expect(pool.getByRole('button', { name: '绑定 移动影音二', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(pool.getByRole('button', { name: '绑定 移动影音一', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  await expect(pool.getByRole('button', { name: '绑定 天翼影音一', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(pool.getByRole('button', { name: '绑定 天翼旧账号', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  expect(saved).toHaveLength(0)
+  await pool.getByRole('button', { name: '绑定 移动影音二', exact: true }).click()
+  await pool.getByRole('button', { name: '绑定 天翼影音一', exact: true }).click()
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
+  expect(saved[0]).toMatchObject({ mobile: { storageIds: [] }, tianyi: { storageIds: [] }, rotationMinutes: 720 })
+  await page.getByRole('button', { name: '返回 CAS 任务', exact: true }).click()
+  const reopened = await openPool(page)
+  for (const toggle of await reopened.locator('.cas-binding-toggle').all()) await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await page.reload()
+  await expect(page.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
+  for (const toggle of await poolRegion(page).locator('.cas-binding-toggle').all()) await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('CAS fixed five-row lists fill blanks, preserve storage order and scroll with three-physical-pixel rail', async ({ page }) => {
+  const { snapshot } = await workspace(page)
+  snapshot.storages.unshift(...Array.from({ length: 6 }, (_, index) => account(`extra-${index}`, `移动额外 ${index}`, 'mobile')))
+  await page.goto('/tasks/cas')
+  const pool = await openPool(page)
+  const mobile = pool.getByRole('region', { name: '移动云盘', exact: true })
+  const tianyi = pool.getByRole('region', { name: '天翼云盘', exact: true })
+  await expect(mobile.locator('.cas-pool-blank')).toHaveCount(0)
+  await expect(tianyi.locator('.cas-pool-blank')).toHaveCount(3)
+  await expect(mobile.locator('.cas-binding-toggle').first()).toHaveAttribute('aria-label', '绑定 移动额外 0')
+  await expect(mobile.locator('.cas-pool-list')).toHaveCSS('height', '344px')
+  await expect(mobile.locator('.scroll-rail')).toBeVisible()
+  await expect(tianyi.locator('.scroll-rail')).toBeHidden()
+  for (const toggle of await mobile.locator('.cas-binding-toggle').all()) await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await mobile.locator('.cas-pool-list').hover()
+  await page.mouse.wheel(0, 500)
+  await expect.poll(() => mobile.locator('.cas-pool-list').evaluate(el => el.scrollTop)).toBeGreaterThan(0)
+  expect(await mobile.locator('.scroll-rail-thumb').evaluate(el => {
+    const width = parseFloat(getComputedStyle(el, '::after').width)
+    return Math.abs(width * devicePixelRatio * (visualViewport?.scale || 1) - 3) < .1
+  })).toBe(true)
+  const toggle = mobile.getByRole('button', { name: '绑定 移动影音二', exact: true })
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle.locator('..')).not.toHaveClass(/binding-disabled/)
+  await toggle.click()
+  await expect(toggle.locator('..')).toHaveClass(/binding-disabled/)
+})
+
+test('CAS full page temporary-file strip loads status and cleans only through the existing cleanup API', async ({ page }) => {
+  await workspace(page)
+  let reads = 0, cleanups = 0
+  const items = [{ storageId: 'm1', name: 'playing.mkv', retentionHours: 12, active: true, expiresAt: '2000-01-01T00:00:00Z' }, { storageId: 't1', name: 'expired.mkv', retentionHours: 24, active: false, expiresAt: '2000-01-01T00:00:00Z' }]
+  await page.route('**/api/cas/status', route => {
+    reads++
+    return route.fulfill({ json: { items: cleanups ? items.slice(0, 1) : items } })
+  })
+  await page.route('**/api/cas/cleanup', route => {
+    expect(route.request().method()).toBe('POST'); cleanups++
+    return route.fulfill({ json: { removed: 1 } })
+  })
+  await page.goto('/tasks/cas/pool')
+  const strip = page.getByRole('region', { name: 'CAS 临时文件', exact: true })
+  await expect(strip.locator('dd')).toHaveText(['2', '1', '1'])
+  await expect(strip).toContainText('移动影音一')
+  await expect(strip).toContainText('24 h')
+  await strip.getByRole('button', { name: '刷新临时文件', exact: true }).click()
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(2)
+  await strip.getByRole('button', { name: '清理过期项', exact: true }).click()
+  await expect(strip.getByRole('status')).toHaveText('已清理 1 个过期临时文件')
+  await expect(strip.locator('dd')).toHaveText(['1', '1', '0'])
+  await expect(strip).not.toContainText('expired.mkv')
+  await expect(strip).toContainText('playing.mkv')
+  expect(cleanups).toBe(1)
+})
+
+test('CAS legacy minute rotation stays unchanged until edited and temporary status failures remain retryable', async ({ page }) => {
+  const { saved } = await workspace(page)
+  let statusReads = 0
+  await page.route('**/api/cas/pool', route => {
+    if (route.request().method() === 'PUT') saved.push(route.request().postDataJSON())
+    const legacy = initialPool(); delete legacy.configured; legacy.rotationMinutes = 17
+    return route.fulfill({ json: route.request().method() === 'PUT' ? saved.at(-1) : legacy })
+  })
+  await page.route('**/api/cas/status', route => route.fulfill(++statusReads === 1 ? { status: 503, json: { error: '临时文件暂不可用' } } : { json: { items: [] } }))
+  await page.route('**/api/cas/cleanup', route => route.fulfill({ status: 502, json: { error: '过期清理失败' } }))
+  await page.goto('/tasks/cas/pool')
+  const pool = poolRegion(page), strip = page.getByRole('region', { name: 'CAS 临时文件', exact: true })
+  await expect(page.getByRole('button', { name: '保存绑定池', exact: true })).toBeEnabled()
+  for (const toggle of await pool.locator('.cas-binding-toggle').all()) await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(pool.getByRole('spinbutton', { name: '轮换时间', exact: true })).toHaveValue(String(17 / 60))
+  await page.getByRole('button', { name: '保存绑定池', exact: true }).click()
+  await expect(pool.getByRole('status')).toHaveText('存储绑定池已保存')
+  expect(saved[0].rotationMinutes).toBe(17)
+  await expect(strip.getByRole('alert')).toHaveText('临时文件暂不可用')
+  await strip.getByRole('button', { name: '刷新临时文件', exact: true }).click()
+  await expect(strip.getByRole('alert')).toHaveCount(0)
+  await strip.getByRole('button', { name: '清理过期项', exact: true }).click()
+  await expect(strip.getByRole('alert')).toHaveText('过期清理失败')
+  await expect(page.getByRole('button', { name: '返回 CAS 任务', exact: true })).toBeEnabled()
 })
