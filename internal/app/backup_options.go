@@ -23,6 +23,8 @@ type BackupFilter struct {
 	MinSize       int64  `json:"minSize"`
 	MaxSize       int64  `json:"maxSize"`
 	Unit          string `json:"unit"`
+	MinUnit       string `json:"minUnit,omitempty"`
+	MaxUnit       string `json:"maxUnit,omitempty"`
 	CaseSensitive bool   `json:"caseSensitive,omitempty"`
 }
 
@@ -143,6 +145,9 @@ func validateBackupOptions(r *BackupRule, st State) error {
 	}
 	for i := range r.Filters {
 		f := &r.Filters[i]
+		if (f.Type == "path_prefix" || f.Type == "path_regex") && !f.MatchDir && !f.MatchFile {
+			f.MatchDir, f.MatchFile = true, true
+		}
 		// Bind the rule option before either execution path compiles filters. Keeping
 		// it in the filter JSON also invalidates sync baselines when matching changes.
 		f.CaseSensitive = r.CaseSensitive
@@ -177,14 +182,24 @@ func validateBackupOptions(r *BackupRule, st State) error {
 			}
 			f.Value = value
 		case "path_prefix":
-			value, err := backupFilterPath(f.Value)
-			if err != nil {
-				return fmt.Errorf("筛选规则%d的路径前缀无效：%w", i+1, err)
+			var prefixes []string
+			for _, line := range strings.Split(strings.ReplaceAll(f.Value, "\r\n", "\n"), "\n") {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				value, err := backupFilterPath(strings.TrimSpace(line))
+				if err != nil {
+					return fmt.Errorf("筛选规则%d的路径前缀无效：%w", i+1, err)
+				}
+				prefixes = append(prefixes, value)
 			}
-			f.Value = value
+			if len(prefixes) == 0 {
+				return errors.New("请填写路径前缀")
+			}
+			f.Value = strings.Join(prefixes, "\n")
 		case "size":
-			factor := backupUnit(f.Unit)
-			if factor == 0 || f.MinSize < 0 || f.MaxSize < 0 || f.MaxSize > 0 && f.MaxSize < f.MinSize || f.MinSize > (1<<63-1)/factor || f.MaxSize > (1<<63-1)/factor {
+			minFactor, maxFactor := backupSizeFactors(*f)
+			if minFactor == 0 || maxFactor == 0 || f.MinSize < 0 || f.MaxSize < 0 || f.MinSize > (1<<63-1)/minFactor || f.MaxSize > (1<<63-1)/maxFactor || f.MaxSize > 0 && f.MaxSize*maxFactor < f.MinSize*minFactor {
 				return fmt.Errorf("筛选规则%d的大小范围无效", i+1)
 			}
 		default:
@@ -234,6 +249,17 @@ func validateBackupOptions(r *BackupRule, st State) error {
 	return nil
 }
 
+func backupSizeFactors(f BackupFilter) (int64, int64) {
+	minUnit, maxUnit := f.MinUnit, f.MaxUnit
+	if minUnit == "" {
+		minUnit = f.Unit
+	}
+	if maxUnit == "" {
+		maxUnit = f.Unit
+	}
+	return backupUnit(minUnit), backupUnit(maxUnit)
+}
+
 type compiledBackupFilter struct {
 	BackupFilter
 	expression *regexp.Regexp
@@ -244,11 +270,15 @@ func compileBackupFilters(filters []BackupFilter) ([]compiledBackupFilter, error
 	for _, f := range filters {
 		item := compiledBackupFilter{BackupFilter: f}
 		if f.Type == "path_prefix" {
-			value, err := backupFilterPath(f.Value)
-			if err != nil {
-				return nil, err
+			var values []string
+			for _, line := range strings.Split(f.Value, "\n") {
+				value, err := backupFilterPath(strings.TrimSpace(line))
+				if err != nil {
+					return nil, err
+				}
+				values = append(values, value)
 			}
-			item.Value = value
+			item.Value = strings.Join(values, "\n")
 		}
 		if f.Type == "regex" || f.Type == "path_regex" {
 			var err error
@@ -287,8 +317,8 @@ func backupFilterAccept(filters []compiledBackupFilter, f File, relative string)
 				matched = matched || extension != "" && extension == token
 			}
 		case "size":
-			factor := backupUnit(filter.Unit)
-			matched = f.Size >= filter.MinSize*factor && (filter.MaxSize == 0 || f.Size <= filter.MaxSize*factor)
+			minFactor, maxFactor := backupSizeFactors(filter.BackupFilter)
+			matched = f.Size >= filter.MinSize*minFactor && (filter.MaxSize == 0 || f.Size <= filter.MaxSize*maxFactor)
 		case "regex":
 			matched = filter.expression.MatchString(f.Name) || filter.expression.MatchString(relative)
 		case "path_prefix", "path_regex":
@@ -298,16 +328,19 @@ func backupFilterAccept(filters []compiledBackupFilter, f File, relative string)
 			}
 			if filter.Type == "path_regex" {
 				matched = filter.expression.MatchString(value)
+				if filter.Mode == "include" && f.IsDir {
+					matched = true
+				}
 				break
 			}
-			prefix := filter.Value
-			if !filter.CaseSensitive {
-				value, prefix = strings.ToLower(value), strings.ToLower(prefix)
-			}
-			matched = value == prefix || strings.HasPrefix(value, prefix+"/")
-			// Allow ancestors of an included prefix so nested matches remain reachable.
-			if filter.Mode == "include" && f.IsDir && strings.HasPrefix(prefix, value+"/") {
-				matched = true
+			for _, prefix := range strings.Split(filter.Value, "\n") {
+				if !filter.CaseSensitive {
+					value, prefix = strings.ToLower(value), strings.ToLower(prefix)
+				}
+				matched = matched || value == prefix || strings.HasPrefix(value, prefix+"/")
+				if filter.Mode == "include" && f.IsDir && strings.HasPrefix(prefix, value+"/") {
+					matched = true
+				}
 			}
 		case "name":
 			for _, word := range strings.Split(filter.Value, ";") {

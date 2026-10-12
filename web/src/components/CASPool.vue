@@ -10,7 +10,7 @@ import ScrollRail from './ScrollRail.vue'
 const emit = defineEmits(['close', 'saved', 'busy', 'ready'])
 const id = useId(), formElement = ref(null), lists = reactive({ mobile: null, tianyi: null })
 const loading = ref(false), saving = ref(false), loaded = ref(false), error = ref(''), saved = ref(false)
-const groups = [{ type: 'mobile', name: '移动云盘', hash: 'SHA256' }, { type: 'tianyi', name: '天翼云盘', hash: 'MD5' }]
+const groups = [{ type: 'mobile', name: '移动云盘' }, { type: 'tianyi', name: '天翼云盘' }]
 const form = reactive(defaults())
 const accounts = computed(() => Object.fromEntries(groups.map(({ type }) => [type, state.storages.filter(s =>
   s.enabled && s.type === type && (s.config?.mode === 'native' || (type === 'tianyi' && !s.config?.mode))
@@ -36,6 +36,7 @@ function accountName(id) { return state.storages.find(s => s.id === id)?.name ||
 function remove(type, id) { form[type].storageIds = form[type].storageIds.filter(value => value !== id); changed() }
 function toggle(type, storageId) {
   if (busy.value || !loaded.value) return
+  if(accounts.value[type][0]?.id === storageId) return
   if (form[type].storageIds.includes(storageId)) remove(type, storageId)
   else { form[type].storageIds.push(storageId); changed() }
 }
@@ -63,8 +64,7 @@ async function request(method, body) {
     if (!active || token !== requestId) return
     if (!response.ok) throw new Error(result.error || '请求失败')
     Object.assign(form, normalize(result))
-    // A legacy saved-empty pool must never silently select an account.
-    if (method === 'GET' && result.configured === false) for (const { type } of groups) form[type].storageIds = accounts.value[type].slice(0, 1).map(s => s.id)
+    for (const { type } of groups) { const first=accounts.value[type][0]?.id; if(first)form[type].storageIds=[first,...form[type].storageIds.filter(id=>id!==first)] }
     loaded.value = true
     if (method === 'PUT') { saved.value = true; emit('saved', normalize(result)) }
   } catch (e) { if (active && token === requestId && e.name !== 'AbortError') error.value = e.message }
@@ -78,6 +78,7 @@ function save() {
 }
 watch(busy, value => emit('busy', value), { immediate: true })
 watch(loaded, value => emit('ready', value), { immediate: true })
+watch(accounts, () => { for(const {type} of groups) { const first=accounts.value[type][0]?.id; if(first && !form[type].storageIds.includes(first))form[type].storageIds.unshift(first) } })
 watch(() => state.authenticated, () => { loaded.value = false; invalidate(); emit('close') }, { flush: 'sync' })
 onMounted(() => request('GET'))
 onBeforeUnmount(() => { active = false; invalidate() })
@@ -90,14 +91,14 @@ defineExpose({ save })
       <fieldset class="cas-pool-fields" :disabled="busy || !loaded">
         <div class="cas-pool-groups">
           <section v-for="group in groups" :key="group.type" class="cas-pool-group" :aria-label="group.name">
-            <header><ProviderIcon :type="group.type" small /><h3>{{ group.name }}</h3><span>{{ group.hash }}</span></header>
+            <header><ProviderIcon :type="group.type" small /><h3>{{ group.name }}</h3></header>
             <div class="cas-pool-list-frame">
-              <div :ref="el => lists[group.type] = el" class="cas-pool-list" :aria-label="`${group.name}存储列表`" tabindex="0">
+              <div :ref="el => lists[group.type] = el" class="cas-pool-list" :class="{'two-columns':accounts[group.type].length>3}" :aria-label="`${group.name}存储列表`" tabindex="0">
                 <article v-for="storage in accounts[group.type]" :key="storage.id" class="cas-pool-account" :class="{ 'binding-disabled': !form[group.type].storageIds.includes(storage.id) }">
-                  <button type="button" class="cas-binding-toggle" :aria-label="`绑定 ${storage.name}`" :aria-pressed="form[group.type].storageIds.includes(storage.id)" :disabled="busy || !loaded" @click="toggle(group.type, storage.id)"><ProviderIcon :type="storage.type" /></button>
-                  <span>{{ storage.name }}</span><Icon v-if="form[group.type].storageIds.includes(storage.id)" name="Power" :size="16" class="binding-on" />
+                  <button type="button" class="cas-binding-toggle" :aria-label="`绑定 ${storage.name}`" :aria-pressed="form[group.type].storageIds.includes(storage.id)" :disabled="busy || !loaded || accounts[group.type][0]?.id===storage.id" @click="toggle(group.type, storage.id)"><ProviderIcon :type="storage.type" /></button>
+                  <div class="cas-account-label"><strong>{{storage.name}}</strong><small>{{storage.usage?.username || storage.config?.username || storage.config?.phone || storage.config?.account || '—'}}</small></div>
                 </article>
-                <div v-for="slot in Math.max(0, 5 - accounts[group.type].length)" :key="`blank-${slot}`" class="cas-pool-account cas-pool-blank" aria-hidden="true" />
+                <div v-for="slot in Math.max(0, (accounts[group.type].length>3?6:3) - accounts[group.type].length)" :key="`blank-${slot}`" class="cas-pool-account cas-pool-blank" aria-hidden="true" />
               </div>
               <ScrollRail :element="lists[group.type]" :thickness="3" />
             </div>
@@ -128,11 +129,10 @@ defineExpose({ save })
 .cas-pool-group { min-width:0; }
 .cas-pool-group header { display:flex; align-items:center; gap:8px; padding:12px 0; }
 .cas-pool-group h3,.cas-pool-advanced h3 { font-size:14px; font-weight:600; }
-.cas-pool-group header>span { margin-left:auto; color:var(--muted); font-size:12px; }
 .cas-pool-list-frame { position:relative; border:1px solid var(--border); border-radius:8px; padding:8px; background:var(--surface); }
-.cas-pool-list { height:344px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; }
+.cas-pool-list { height:204px; display:grid; grid-template-columns:minmax(0,1fr); grid-auto-rows:64px; gap:6px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; }.cas-pool-list.two-columns { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .cas-pool-list::-webkit-scrollbar { display:none; }
-.cas-pool-account { height:64px; display:flex; align-items:center; gap:12px; padding:8px 12px; border:1px solid var(--border); border-radius:8px; background:var(--input); margin-bottom:6px; transition:opacity .15s,border-color .15s; }
+.cas-pool-account { height:64px; min-width:0; display:flex; align-items:center; gap:8px; padding:8px; border:1px solid var(--border); border-radius:8px; background:var(--input); transition:opacity .15s,border-color .15s; }.cas-account-label { display:grid;gap:3px;min-width:0; }.cas-account-label strong,.cas-account-label small { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }.cas-account-label strong {font-size:14px;}.cas-account-label small {font-size:12px;color:var(--muted);}
 .cas-pool-account:last-child { margin-bottom:0; }
 .cas-pool-account:hover:not(.cas-pool-blank) { border-color:color-mix(in srgb,var(--primary) 60%,var(--border)); }
 .cas-pool-account span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
@@ -140,8 +140,7 @@ defineExpose({ save })
 .cas-pool-blank { background:transparent; border-style:dashed; opacity:.3; }
 .cas-binding-toggle { width:44px; height:44px; flex:none; border:0; padding:0; background:transparent; cursor:pointer; border-radius:8px; }
 .cas-binding-toggle:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
-.cas-binding-toggle:disabled { cursor:wait; }
-.binding-on { margin-left:auto; color:var(--green); flex:none; }
+.cas-binding-toggle:disabled { cursor:default; }
 .cas-pool :deep(.provider-icon) { width:40px; height:40px; background:transparent; border:0; border-radius:0; padding:0; box-shadow:none; }
 .cas-pool header :deep(.provider-icon) { width:24px; height:24px; }
 .cas-pool :deep(.provider-logo) { width:100%; height:100%; object-fit:contain; }

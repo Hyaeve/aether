@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, state, bytes, notify } from '../lib'
 import Icon from '../components/Icon.vue'
-import { documentIcon } from '../file-icon'
+import { documentIcon, entryIcon } from '../file-icon'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
 import FileDetailsDrawer from '../components/FileDetailsDrawer.vue'
@@ -133,7 +133,7 @@ const imageFile = f => !f.isDir && /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(f.
 const videoFile = f => !f.isDir && /\.(?:mp4|webm|m4v|mov|mkv|avi|ts)$/i.test(f.name)
 const audioFile = f => !f.isDir && /\.(?:mp3|m4a|m4b|aac|flac|wav|ogg|oga|opus|wma|aiff|aif|alac)$/i.test(f.name)
 const archiveFile = f => !f.isDir && /\.(?:zip|7z|rar|tar|tar\.gz|tar\.bz2|tar\.xz|tgz|tbz2|txz)$/i.test(f.name)
-const fileIcon = f => f.isDir ? 'Folder' : documentIcon(f.name) || (audioFile(f) ? 'FileAudio2' : archiveFile(f) ? 'FileArchive' : imageFile(f) ? 'Image' : 'FileVideo')
+const fileIcon = entryIcon
 const extractable = computed(() => detailFiles.value.length === 1 && archiveFile(detailFiles.value[0]))
 const extracting = ref(null), extractPassword = ref(''), extractFolder = ref(''), extractBusy = ref(false), extractError = ref('')
 function closeExtract() { if (!extractBusy.value) { extracting.value = null; extractPassword.value = '' } }
@@ -386,7 +386,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
 load()
 </script>
 <template>
-  <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
+  <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :source-label="'/'+history.map(item=>item.name).join('/')" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
     <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
@@ -452,6 +452,7 @@ load()
 .file-browser { position:relative; }
 .file-browser { background:var(--bg); }
 .file-view { background:var(--input); }
+.file-favorites,.file-item-count { background:var(--input); user-select:none; }.file-favorites * { user-select:none; }
 .file-view .file-row:not(.selected):nth-child(even) { background:color-mix(in srgb,var(--input) 65%,var(--surface)); }
 .file-view .file-row:not(.selected):hover { background:color-mix(in srgb,var(--primary-soft) 55%,var(--input)); }
 .file-toolbar { gap:6px; }

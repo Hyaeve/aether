@@ -174,6 +174,17 @@ func TestCASLifecycle(t *testing.T) {
 	if err != nil || restores != 1 {
 		t.Fatalf("duplicate restore: %d %v", restores, err)
 	}
+	stats := a.store.snapshotWithLogLimit(0).CASStats
+	if stats.Success != 1 || stats.Failed != 0 || stats.Mobile != 1 || stats.Tianyi != 0 {
+		t.Fatal("reuse must not count as another rapid upload", stats)
+	}
+	key := a.store.snapshotWithLogLimit(0).CASTemporary[0].Key
+	if n, err := a.cleanupCASSelected(context.Background(), map[string]bool{key: true}); err == nil || n != 0 {
+		t.Fatal("selected playing file deleted", n, err)
+	}
+	if n, err := a.cleanupCASSelected(context.Background(), map[string]bool{"unknown": true}); err == nil || n != 0 {
+		t.Fatal("unknown selection accepted", n, err)
+	}
 	age := func() {
 		t.Helper()
 		if err := a.store.update(func(st *State) error {
@@ -218,6 +229,9 @@ func TestCASLifecycle(t *testing.T) {
 	if len(reopened.store.snapshot().CASTemporary) != 1 {
 		t.Fatal("temporary journal not recovered")
 	}
+	if reopened.store.snapshotWithLogLimit(0).CASStats != stats {
+		t.Fatal("CAS stats not recovered")
+	}
 	if _, done, err := reopened.casDownload(context.Background(), s, claim); err != nil {
 		t.Fatal(err)
 	} else {
@@ -227,8 +241,7 @@ func TestCASLifecycle(t *testing.T) {
 		t.Fatal("restart created duplicate media")
 	}
 	a = reopened
-	age()
-	count, err = a.cleanupCAS(context.Background())
+	count, err = a.cleanupCASSelected(context.Background(), map[string]bool{key: true})
 	if err != nil || count != 1 || len(removed) != 1 || removed[0] != "restored-file" {
 		t.Fatalf("cleanup %d %v %v", count, err, removed)
 	}

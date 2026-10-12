@@ -17,9 +17,11 @@ const filterKey = filter => { if(!filterKeys.has(filter))filterKeys.set(filter,+
 const twoWay = computed(() => form.syncMode === 'two_way')
 watch(twoWay, value => { if (value) form.completionRule = 'keep' })
 const steps = ['基本设置','备份规则','扫描规则','筛选规则']
-const filterTypes = [{value:'extension',label:'扩展名',icon:FileText},{value:'name',label:'文件名',icon:File},{value:'regex',label:'正则',icon:CodeXml},{value:'path_prefix',label:'路径前缀',icon:FolderTree},{value:'path_regex',label:'路径正则',icon:Route},{value:'size',label:'最小大小',icon:Weight}]
+const filterTypes = [{value:'extension',label:'扩展名',icon:FileText},{value:'name',label:'文件名',icon:File},{value:'regex',label:'正则',icon:CodeXml},{value:'path_prefix',label:'路径前缀',icon:FolderTree},{value:'path_regex',label:'路径正则',icon:Route},{value:'size',label:'大小',icon:Weight}]
 const filterType = filter => filterTypes.find(t=>t.value===filter.type) || filterTypes[1]
-const sizeUnits = ['B','KB','MB','GB'].map(value=>({value,label:value}))
+const sizeUnits = ['KB','MB','GB']
+function cycleUnit(filter, key) { filter[key] = sizeUnits[(sizeUnits.indexOf(filter[key] || filter.unit || 'MB') + 1) % sizeUnits.length] }
+async function moreToggle(event) { if(event.target.open) { await nextTick(); event.target.querySelector('.backup-filters')?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}) } }
 const detail = computed(()=>rules.value.find(r=>r.id===detailId.value))
 const locations = (r,kind) => r[kind+'s']?.length ? r[kind+'s'] : [{storageId:r[kind+'Id'],path:r[kind],label:r[kind+'Label']}]
 const blankLocation = () => ({storageId:'',path:'',label:''})
@@ -47,6 +49,7 @@ function open(rule) {
   const defaults = {name:'',enabled:true,sourceId:'',source:'',sourceLabel:'',targetId:'',target:'',targetLabel:'',replace:'skip',completionRule:'keep',monitorEnabled:false,caseSensitive:false,extensions:'',exclude:'',minSize:0,maxSize:0,cron:'',scanInterval:0,filters:[],syncMode:'one_way',deletionRule:'keep',syncDelete:false,conflictRule:'keep_both',conflictMarker:'conflict copy',historyDays:0,deleteLimit:20,targetOnly:'copy',syncMarker:true,fullScan:true,fullScanEvery:8,fullScanHours:24}
   Object.keys(form).forEach(key=>delete form[key])
   Object.assign(form,defaults,rule ? JSON.parse(JSON.stringify(rule)) : {})
+  for(const filter of form.filters) { if(['path_prefix','path_regex'].includes(filter.type)) filter.matchFile = filter.matchDir = true }
   form.sources = rule ? JSON.parse(JSON.stringify(locations(rule,'source'))) : [blankLocation()]
   form.targets = rule ? JSON.parse(JSON.stringify(locations(rule,'target'))) : [blankLocation()]
   modal.value = true
@@ -58,7 +61,7 @@ function choose(value) {
 function pick(kind,index) { picker.value=kind; pickerIndex.value=index }
 const picked = computed(()=>picker.value ? form[picker.value+'s'][pickerIndex.value] : null)
 async function addFilter(type) {
-  form.filters.push({type,mode:type==='extension'||type==='size'?'include':'exclude',value:'',matchFile:true,matchDir:false,minSize:0,maxSize:0,unit:'MB'})
+  form.filters.push({type,mode:type==='extension'||type==='size'?'include':'exclude',value:'',matchFile:true,matchDir:['path_prefix','path_regex'].includes(type),minSize:0,maxSize:0,unit:'MB',minUnit:'MB',maxUnit:'MB'})
   filterPicker.value=false
   await nextTick()
   document.querySelector('.backup-filter:last-of-type input:not([type=radio]):not([type=checkbox])')?.focus()
@@ -90,6 +93,7 @@ async function save() {
   if(busy.value) return
   if (!form.name.trim()) { step.value=0; error.value='请填写备份名称'; return }
   for(const filter of form.filters){
+    if(filter.type==='size' && ['minSize','maxSize'].some(key=>!Number.isSafeInteger(filter[key])||filter[key]<0)){step.value=3;error.value='大小仅允许0或正整数';return}
     if(['extension','name'].includes(filter.type) && !addToken(filter)){step.value=3;return}
     if(filter.type!=='size' && !filter.value.trim()){step.value=3;error.value='请填写筛选规则的匹配内容';return}
     if(!filter.matchFile && !filter.matchDir){step.value=3;error.value='筛选规则至少选择文件或文件夹';return}
@@ -154,17 +158,15 @@ defineExpose({ open, load })
       <section v-show="step===2" class="backup-section"><label>Cron 表达式<input v-model="form.cron" aria-label="Cron 表达式" /></label><div class="field"><label>自动扫描间隔</label><NumberInput v-model="form.scanInterval" aria-label="自动扫描间隔" unit="秒" min="0" max="31536000" /></div><label v-if="twoWay" class="backup-monitor"><span>同步删除</span><input v-model="form.syncDelete" type="checkbox" role="switch" class="switch" /></label></section>
       <section v-show="step===3" class="backup-section">
       <article v-for="(filter,index) in form.filters" :key="filterKey(filter)" class="backup-filter">
-        <header><strong><component :is="filterType(filter).icon" :size="16" aria-hidden="true" /><span>{{index+1}}. {{filterType(filter).label}}</span></strong><div class="backup-filter-controls"><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="exclude" :aria-label="'黑名单 '+(index+1)" />黑名单</label><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="include" :aria-label="'白名单 '+(index+1)" />白名单</label><label><input :checked="filter.matchDir" type="checkbox" :disabled="filter.type==='extension'||filter.type==='size'" :aria-label="'文件夹 '+(index+1)" @change="setScope(filter,'matchDir',$event)" />文件夹</label><label><input :checked="filter.matchFile" type="checkbox" :aria-label="'文件 '+(index+1)" @change="setScope(filter,'matchFile',$event)" />文件</label><button type="button" class="icon-btn danger-text" :aria-label="'删除筛选规则 '+(index+1)" :data-tooltip="'删除规则 '+(index+1)" @click="tokenDrafts.delete(filter);form.filters.splice(index,1)"><Icon name="Trash2" :size="16" /></button></div></header>
+        <header><strong><component :is="filterType(filter).icon" :size="16" aria-hidden="true" /><span>{{index+1}}. {{filterType(filter).label}}</span></strong><div class="backup-filter-controls"><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="exclude" :aria-label="'黑名单 '+(index+1)" />黑名单</label><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="include" :aria-label="'白名单 '+(index+1)" />白名单</label><template v-if="!['path_prefix','path_regex'].includes(filter.type)"><label><input :checked="filter.matchDir" type="checkbox" :disabled="filter.type==='extension'||filter.type==='size'" :aria-label="'文件夹 '+(index+1)" @change="setScope(filter,'matchDir',$event)" />文件夹</label><label><input :checked="filter.matchFile" type="checkbox" :aria-label="'文件 '+(index+1)" @change="setScope(filter,'matchFile',$event)" />文件</label></template><button type="button" class="icon-btn danger-text" :aria-label="'删除筛选规则 '+(index+1)" @click="tokenDrafts.delete(filter);form.filters.splice(index,1)"><Icon name="Trash2" :size="16" /></button></div></header>
         <div v-if="filter.type==='extension'||filter.type==='name'" class="backup-token-editor"><div v-if="tokens(filter).length" class="backup-tokens"><span v-for="(token,tokenIndex) in tokens(filter)" :key="token" class="backup-token"><span>{{token}}</span><button type="button" :aria-label="'删除 '+token+' 规则 '+(index+1)" @click="removeToken(filter,tokenIndex)"><Icon name="X" :size="14" /></button></span></div><div class="backup-token-input"><input :value="tokenDrafts.get(filter) || ''" :aria-label="'匹配内容 '+(index+1)" :placeholder="filter.type==='extension'?'添加扩展名':'添加文件名'" maxlength="2048" @input="tokenDrafts.set(filter,$event.target.value)" @keydown.enter.prevent="!$event.isComposing && addToken(filter)" @blur="addToken(filter)" /></div></div>
+        <textarea v-else-if="filter.type==='path_prefix'" v-model="filter.value" class="backup-path-prefix" rows="3" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" />
         <div v-else-if="filter.type!=='size'"><input v-model="filter.value" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" /></div>
-        <div v-else class="backup-size"><div class="field"><label>最小值</label><NumberInput v-model="filter.minSize" :aria-label="'最小值 '+(index+1)" min="0" /></div><div class="field"><label>最大值</label><NumberInput v-model="filter.maxSize" :aria-label="'最大值 '+(index+1)" min="0" /></div><div class="field"><label>单位</label><RoundedSelect v-model="filter.unit" :label="'大小单位 '+(index+1)" :options="sizeUnits" /></div></div>
+        <div v-else class="backup-size"><label v-for="bound in ['min','max']" :key="bound">{{bound==='min'?'最小值':'最大值'}}<span class="backup-size-input"><input v-model.number="filter[bound+'Size']" type="number" min="0" step="1" required :aria-label="(bound==='min'?'最小值 ':'最大值 ')+(index+1)" @keydown="['e','E','-','+','.'].includes($event.key) && $event.preventDefault()" /><button type="button" :aria-label="(bound==='min'?'最小值单位 ':'最大值单位 ')+(index+1)" @click="cycleUnit(filter,bound+'Unit')">{{filter[bound+'Unit'] || filter.unit || 'MB'}}</button></span></label></div>
       </article>
       <button class="btn backup-add-filter" type="button" :disabled="form.filters.length>=32" @click="filterPicker=true"><Icon name="Plus" />添加规则</button>
-      <details class="backup-more"><summary>更多选项<Icon name="ChevronDown" :size="16" /></summary><div class="backup-filters">
-        <label class="backup-case-sensitive"><span>区分大小写</span><input v-model="form.caseSensitive" type="checkbox" role="switch" class="switch" /></label>
-        <label>包含扩展名<input v-model="form.extensions" aria-label="包含扩展名" placeholder="英文分号分隔，留空为全部" /></label>
-        <label>排除名称关键词<input v-model="form.exclude" aria-label="排除名称关键词" placeholder="英文分号分隔" /></label>
-        <div class="form-grid"><div class="field"><label>最小文件大小</label><NumberInput v-model="form.minSize" aria-label="最小文件大小" unit="B" min="0" /></div><div class="field"><label>最大文件大小</label><NumberInput v-model="form.maxSize" aria-label="最大文件大小" unit="B" min="0" /></div></div>
+      <details class="backup-more link-more" @toggle="moreToggle"><summary>更多选项</summary><div class="backup-filters">
+        <div class="field backup-case-option"><label>扩展名大小写区分</label><RoundedSelect v-model="form.caseSensitive" label="扩展名大小写区分" :options="[{value:false,label:'关闭'},{value:true,label:'开启'}]" /></div>
       </div></details>
       </section>
       <p v-if="error" class="error-message" role="alert">{{error}}</p>
@@ -206,9 +208,9 @@ defineExpose({ open, load })
 .backup-tokens { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
 .backup-token { position:relative; display:inline-flex; align-items:center; max-width:100%; padding:4px 7px; border-radius:6px; background:var(--bg); font-size:14px; }
 .backup-token > span { min-width:0; overflow-wrap:anywhere; }
-.backup-token button { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:inherit; background:var(--bg); color:var(--text); opacity:0; transition:opacity .15s,color .15s; }
+.backup-token button { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:inherit; background:#0006; color:#fff; opacity:0; transition:opacity .15s; }
 .backup-token:hover button,.backup-token:focus-within button { opacity:1; }
-.backup-token button:hover { color:var(--danger); }
+.backup-token button :deep(svg) { width:11px; height:11px; }
 .backup-token-input { width:50%; min-width:0; }
 .backup-token-input input { width:100%; min-width:0; }
 .backup-filter-types { display:grid; gap:4px; }
@@ -216,6 +218,11 @@ defineExpose({ open, load })
 .backup-filter-types button:hover,.backup-filter-types button:focus-visible { background:var(--primary-soft); color:var(--primary); }
 .backup-filter-types svg,.backup-filter header strong svg { flex:none; }
 .backup-more summary { font-size:14px; }
+.backup-more { margin-top:20px; }.backup-more summary { display:list-item; padding:7px 9px; font-weight:400; list-style:disclosure-closed; }.backup-more[open] summary { list-style:disclosure-open; }
+.backup-case-option { width:50%; min-width:0; }.backup-size { grid-template-columns:repeat(2,minmax(0,1fr)); }.backup-size>*:last-child { grid-column:auto; }
+.backup-size-input { display:block; position:relative; min-width:0; }.backup-size-input input { width:100%; padding-right:44px; appearance:textfield; }.backup-size-input input::-webkit-inner-spin-button { appearance:none; }.backup-size-input button { position:absolute; inset:0 0 0 auto; border:0; background:transparent; color:var(--muted); width:42px; font-size:14px; }.backup-size-input button:hover { color:var(--primary); }
+.backup-path-prefix { resize:vertical; height:78px; min-height:78px; line-height:22px; padding:5px 9px; font-size:14px; overflow:auto; }
+.backup-filter > div > input { width:100%; }
 .backup-editor .backup-case-sensitive { gap:10px; }
 .backup-editor .backup-case-sensitive input.switch { width:32px; height:18px; min-height:18px; }
 @media(max-width:600px){.backup-filter header strong{width:100%}.backup-filter-controls{margin-left:0;gap:7px}.backup-filter-controls label{font-size:13px}.backup-filter-controls .icon-btn{margin-left:auto}.backup-token-input{width:50%}}

@@ -7,17 +7,11 @@ test('individual rename updates path before bulk preview and ignored files are e
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'rename-single', storages: [{ id: 'local', type: 'local', name: 'Local', enabled: true, config: {} }], tasks: [], settings: {}, traffic: {}, cache: {} } }))
   await page.route('**/api/files?**', r => r.fulfill({ json: [file, { id: '/stay.mkv', name: 'stay.mkv' }] }))
   await page.route('**/api/files/rename-rules', r => r.fulfill({ json: [] }))
-  await page.route('**/api/files/action', r => {
-    const input = r.request().postDataJSON()
-    expect(input).toMatchObject({ action: 'rename', ids: ['/old.mkv'], name: 'single.mkv' })
-    file = { ...file, id: '/single.mkv', name: 'single.mkv' }
-    return r.fulfill({ json: { processed: 1 } })
-  })
   await page.route('**/api/files/rename-preview', r => {
     preview = r.request().postDataJSON()
-    return r.fulfill({ json: [file, { id: '/stay.mkv', name: 'stay.mkv' }].filter(f => preview.ids.includes(f.id)).map(f => ({ ...f, newName: f.name.replace('mkv', 'mp4') })) })
+    return r.fulfill({ json: [file, { id: '/stay.mkv', name: 'stay.mkv' }].filter(f => preview.ids.includes(f.id)).map(f => ({ ...f, newName: preview.rules[0]?.findType==='regex'?'single.mkv':f.name.replace('mkv', 'mp4') })) })
   })
-  await page.route('**/api/files/rename', r => { executed = r.request().postDataJSON(); return r.fulfill({ json: { processed: 1 } }) })
+  await page.route('**/api/files/rename', r => { executed = r.request().postDataJSON(); if(executed.rules[0]?.findType==='regex')file={...file,id:'/single.mkv',name:'single.mkv'}; return r.fulfill({ json: { processed: 1 } }) })
   await page.goto('/files')
   await page.getByRole('button', { name: '工具', exact: true }).click()
   await page.getByRole('menuitem', { name: '重命名', exact: true }).click()

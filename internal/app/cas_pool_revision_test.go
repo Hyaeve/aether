@@ -335,9 +335,9 @@ func TestCASPoolRevisionSelection(t *testing.T) {
 		{name: "disabled account", change: func(st *State, _ *CASInfo) { st.Storages[0].Enabled = false }, want: "mobile-b", hours: 24},
 		{name: "removed account", change: func(st *State, _ *CASInfo) { st.Storages = st.Storages[1:] }, want: "mobile-b", hours: 24},
 		{name: "non-native account", change: func(st *State, _ *CASInfo) { st.Storages[0].Config["mode"] = "openlist" }, want: "mobile-b", hours: 24},
-		{name: "wrong group provider", change: func(st *State, _ *CASInfo) { st.CASPool.Mobile.StorageIDs = []string{"tianyi-a"} }, want: "tianyi-a", hours: 48},
-		{name: "empty preferred group", change: func(st *State, _ *CASInfo) { st.CASPool.Mobile.StorageIDs = nil }, want: "tianyi-a", hours: 48},
-		{name: "empty pool never uses outside account", change: func(st *State, _ *CASInfo) { st.CASPool = normalizedCASPool(CASPoolConfig{}) }},
+		{name: "first ordered native account is mandatory", change: func(st *State, _ *CASInfo) { st.CASPool.Mobile.StorageIDs = []string{"tianyi-a"} }, want: "mobile-a", hours: 24},
+		{name: "empty preferred group selects mandatory first", change: func(st *State, _ *CASInfo) { st.CASPool.Mobile.StorageIDs = nil }, want: "mobile-a", hours: 24},
+		{name: "empty pool selects mandatory first", change: func(st *State, _ *CASInfo) { st.CASPool = normalizedCASPool(CASPoolConfig{}) }, want: "mobile-a", hours: 12},
 		{name: "invalid hash", change: func(_ *State, info *CASInfo) { info.SHA256 = "bad" }},
 		{name: "invalid saved rotation", change: func(st *State, _ *CASInfo) { st.CASPool.RotationMinutes = -1 }},
 		{name: "cooldown account", change: func(st *State, _ *CASInfo) {

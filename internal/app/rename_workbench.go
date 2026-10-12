@@ -36,11 +36,12 @@ type renameItem struct {
 }
 
 type renameRequest struct {
-	StorageID string       `json:"storageId"`
-	Source    string       `json:"source"`
-	IDs       []string     `json:"ids"`
-	Rules     []renameRule `json:"rules"`
-	Expected  []renameItem `json:"expected"`
+	StorageID   string       `json:"storageId"`
+	Source      string       `json:"source"`
+	SourceLabel string       `json:"sourceLabel,omitempty"`
+	IDs         []string     `json:"ids"`
+	Rules       []renameRule `json:"rules"`
+	Expected    []renameItem `json:"expected"`
 }
 
 func applyRenameRules(name string, rules []renameRule) (string, error) {
@@ -138,6 +139,10 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("重命名请求格式错误或超过 16MB"))
 		return
 	}
+	if len(input.SourceLabel) > 4096 || len(input.Source) > 4096 {
+		fail(w, 400, errors.New("目录路径过长"))
+		return
+	}
 	s, err := a.store.storage(input.StorageID)
 	if err != nil {
 		fail(w, 400, err)
@@ -190,6 +195,7 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 		defer root.Close()
 	}
 	done := 0
+	history := []RenameRecord{}
 	defer a.cache.clear()
 	for _, item := range items {
 		if item.Name == item.NewName {
@@ -198,9 +204,24 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 		if err = r.Context().Err(); err != nil {
 			break
 		}
+		identity := ""
+		if s.Type == "webdav" || s.Type == "openlist" {
+			for _, f := range files {
+				if f.ID == item.ID {
+					identity, err = a.pathRenameIdentity(r.Context(), s, input.Source, f)
+					break
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
 		if root != nil {
 			var from string
 			from, err = relative(item.ID)
+			if err == nil {
+				identity, err = localRenameIdentity(root, from)
+			}
 			if err == nil {
 				to := path.Join(path.Dir(from), item.NewName)
 				if _, check := root.Lstat(to); !os.IsNotExist(check) {
@@ -216,6 +237,12 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		done++
+		history = append(history, makeRenameRecord(s, item, identity))
+	}
+	if len(history) > 0 {
+		if historyErr := a.rememberRenames(s, input, history); historyErr != nil {
+			err = errors.New("已重命名，但历史保存失败，请核对实际名称")
+		}
 	}
 	message := fmt.Sprintf("批量重命名完成 %d 项", done)
 	if err != nil {

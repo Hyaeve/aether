@@ -1363,8 +1363,8 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .task-empty,.workspace-empty { flex:1; min-height:260px; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .page-content > .transfer-content.backup-content { min-height:0; flex:1; }.backup-content > .empty-state { flex:1; border:0; min-height:0; }
 .transfer-content.has-transfers .transfer-table { height:calc(100dvh - 64px); flex-shrink:0; }
-.page-content:has(> .workspace-empty),.page-content:has(> .automation-list) { height:calc(100dvh - 48px); }
-.page-content:has(> .automation-list) { display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
+.page-content:has(> .workspace-empty) { height:calc(100dvh - 48px); }
+.page-content:has(> .automation-list) { min-height:calc(100dvh - 48px); display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
 .page-content:has(> .scrape-panel) { min-height:calc(100dvh - 48px); height:auto; display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
 .page-content:has(> .transfer-content:not(.backup-content)) { padding-bottom:var(--workspace-end-gap); }
 .log-list-shell { height:auto; min-height:0; flex:1; }
@@ -1372,6 +1372,8 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .page-content:has(> .log-panel) { height:auto; display:flex; flex-direction:column; }
 .log-panel { flex:1; min-height:0; }
 .page-content:has(> .log-panel),.page-content:has(> .link-playback) { padding-bottom:var(--workspace-end-gap); }
+.page-scroll:has(.rename-workbench,.rename-history-page) > .thin-scroll-rail { display:block; }
+.page-content:has(.rename-history-page) { height:auto; min-height:calc(100dvh - 48px); padding-bottom:var(--workspace-end-gap); }
 .files-heading-actions .search-field { width:230px; }
 .storage-card:hover,.link-card:hover,.mount-card:hover,.dav-user-card:hover,.task-row-card:not(.running):hover,.backup-card:not(.running):hover { border-color:color-mix(in srgb,var(--primary) 72%,var(--border)); box-shadow:0 0 0 1px color-mix(in srgb,var(--primary) 16%,transparent); }
 .storage-card.storage-unhealthy:hover { border-color:var(--red); }

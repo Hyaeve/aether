@@ -162,7 +162,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
           </div>
         </div>
       </header>
-      <ThinScroll class="page-scroll" :thickness="currentPath === '/logs' ? 3 : currentPath.includes('scrape') ? 2 : 1" :key="currentPath">
+      <ThinScroll class="page-scroll" :thickness="currentPath === '/logs' || currentPath.startsWith('/tasks') || currentPath === '/files' ? 5 : 3" :key="currentPath">
       <main class="page-content">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />

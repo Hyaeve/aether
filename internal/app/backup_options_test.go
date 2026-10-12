@@ -11,6 +11,46 @@ import (
 	"time"
 )
 
+func TestBackupIndependentSizeUnitsAndMultilinePrefixes(t *testing.T) {
+	a, rule, _, _ := backupFixture(t)
+	rule.Filters = []BackupFilter{{Type: "size", Mode: "include", MatchFile: true, MinSize: 1, MinUnit: "MB", MaxSize: 2, MaxUnit: "GB"}}
+	if err := validateBackup(&rule, a.store.snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	filters, err := compileBackupFilters(rule.Filters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		size   int64
+		accept bool
+	}{{1023, false}, {1 << 20, true}, {2 << 30, true}, {(2 << 30) + 1, false}} {
+		if backupFilterAccept(filters, File{Name: "file", Size: tc.size}, "file") != tc.accept {
+			t.Fatal(tc)
+		}
+	}
+	rule.Filters[0].MinSize, rule.Filters[0].MinUnit, rule.Filters[0].MaxSize, rule.Filters[0].MaxUnit = 3, "GB", 2, "MB"
+	if validateBackup(&rule, a.store.snapshot()) == nil {
+		t.Fatal("inverted mixed units accepted")
+	}
+	rule.Filters = []BackupFilter{{Type: "path_prefix", Mode: "include", Value: "Books/Deep\r\n\nFilms/Season", MatchFile: true, MatchDir: true}}
+	if err := validateBackup(&rule, a.store.snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	filters, err = compileBackupFilters(rule.Filters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path        string
+		dir, accept bool
+	}{{"Books", true, true}, {"Books/Deep/a.epub", false, true}, {"Films/Season/episode", false, true}, {"Books/Deeper/a", false, false}, {"Other", true, false}} {
+		if backupFilterAccept(filters, File{Name: path.Base(tc.path), IsDir: tc.dir}, tc.path) != tc.accept {
+			t.Fatal(tc)
+		}
+	}
+}
+
 func TestBackupMultiSourceTargetKeepsDistinctTreesAndProgress(t *testing.T) {
 	a, rule, source, target := backupFixture(t)
 	secondSource, secondTarget := t.TempDir(), t.TempDir()
@@ -310,7 +350,7 @@ func TestBackupFilterCaseSensitivityAndPathBoundaries(t *testing.T) {
 
 func TestBackupPathFilterValidation(t *testing.T) {
 	a, base, _, _ := backupFixture(t)
-	for _, value := range []string{"", "/Movies", "../Movies", "Movies/../Private", "Movies/./Season", "Movies//Season", `C:\Movies`, `\\server\Movies`, "Movies\x00", "Movies\nSeason"} {
+	for _, value := range []string{"", "/Movies", "../Movies", "Movies/../Private", "Movies/./Season", "Movies//Season", `C:\Movies`, `\\server\Movies`, "Movies\x00", "Movies\n../Season"} {
 		rule := base
 		rule.Filters = []BackupFilter{{Type: "path_prefix", Mode: "include", Value: value, MatchFile: true}}
 		if validateBackup(&rule, a.store.snapshot()) == nil {

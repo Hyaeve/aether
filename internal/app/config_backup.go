@@ -102,6 +102,8 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	b := configBundle{State: a.store.snapshot(), Files: map[string]json.RawMessage{}}
 	b.State.Logs = nil
+	b.State.RenameHistory = nil
+	b.State.CASStats = CASRestoreStats{}
 	b.State.ToolsRevision = ""
 	b.State.Modules = nil
 	var total int64
@@ -285,6 +287,8 @@ func applyPendingConfig(s *Store) error {
 	}
 	before := s.state
 	s.state = b.State
+	s.state.RenameHistory = nil
+	s.state.CASStats = CASRestoreStats{}
 	// Imported run results must not be replaced by the old data directory on startup.
 	s.state.RuntimeSeparated = false
 	s.state.Modules = before.Modules

@@ -134,6 +134,8 @@ type State struct {
 	Links            []MediaLink                `json:"links,omitempty"`
 	DAVUsers         []DAVUser                  `json:"davUsers,omitempty"`
 	CASTemporary     []CASTemporary             `json:"casTemporary,omitempty"`
+	CASStats         CASRestoreStats            `json:"casStats"`
+	RenameHistory    []RenameDirectory          `json:"renameHistory,omitempty"`
 	Storages         []Storage                  `json:"storages"`
 	Tasks            []Task                     `json:"tasks"`
 	Settings         Settings                   `json:"settings"`

@@ -294,6 +294,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/files/action", a.protected(http.HandlerFunc(a.fileAction)))
 	mux.Handle("POST /api/files/rename-preview", a.protected(http.HandlerFunc(a.renameWorkbench)))
 	mux.Handle("POST /api/files/rename", a.protected(http.HandlerFunc(a.renameWorkbench)))
+	mux.Handle("GET /api/files/rename-history", a.protected(http.HandlerFunc(a.renameHistory)))
+	mux.Handle("POST /api/files/rename-restore", a.protected(http.HandlerFunc(a.renameRestore)))
 	mux.Handle("/api/files/rename-rules", a.protected(http.HandlerFunc(a.renameRuleSets)))
 	mux.Handle("POST /api/files/directory-size", a.protected(http.HandlerFunc(a.directorySize)))
 	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))

@@ -39,9 +39,7 @@ test('backup rules create, edit, run, stop, toggle and delete with aligned contr
   await page.getByRole('option',{name:'覆盖同名文件',exact:true}).click()
   expect(await modal.getByRole('button',{name:'同名文件策略',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBe(inputHeight)
   await modal.getByRole('button',{name:'筛选规则',exact:true}).click()
-  await modal.getByText('更多选项',{exact:true}).click()
-  await modal.getByLabel('包含扩展名',{exact:true}).fill('epub;pdf')
-  await modal.getByLabel('排除名称关键词',{exact:true}).fill('临时;未完成')
+  for(const [type,value] of [['扩展名','epub;pdf'],['文件名','临时;未完成']]){await modal.getByRole('button',{name:'添加规则',exact:true}).click();await page.getByRole('dialog',{name:'选择规则类型'}).getByRole('button',{name:type,exact:true}).click();const input=modal.getByLabel('匹配内容 '+(type==='扩展名'?1:2),{exact:true});await input.fill(value);await input.press('Enter')}
   await modal.locator('.backup-editor').evaluate(el=>el.scrollTop=0)
   await expect.poll(()=>modal.evaluate(el=>el.getAnimations({subtree:true}).filter(a=>a.effect.getTiming().iterations!==Infinity && ['running','paused'].includes(a.playState)).length)).toBe(0)
   await page.screenshot({path:info.outputPath('backup-editor.png')})
@@ -259,7 +257,7 @@ test('six filter types support wrapped removable tokens, scopes and case-sensiti
     await picker.getByRole('button',{name:'选择当前目录',exact:true}).click()
   }
   await modal.getByRole('button',{name:'筛选规则',exact:true}).click()
-  const names=['扩展名','文件名','正则','路径前缀','路径正则','最小大小']
+  const names=['扩展名','文件名','正则','路径前缀','路径正则','大小']
   for(const [index,name] of names.entries()){
     await modal.getByRole('button',{name:'添加规则',exact:true}).click()
     const picker=page.getByRole('dialog',{name:'选择规则类型',exact:true})
@@ -276,6 +274,23 @@ test('six filter types support wrapped removable tokens, scopes and case-sensiti
     else await modal.getByLabel('最小值 6',{exact:true}).fill('10')
   }
   const extension=modal.locator('.backup-filter').first(), filename=modal.locator('.backup-filter').nth(1)
+  const size=modal.locator('.backup-filter').nth(5)
+  await expect(size.getByLabel('最大值 6',{exact:true})).toHaveValue('0')
+  for(const [unit,next] of [['MB','GB'],['GB','KB'],['KB','MB']]){
+    const button=size.getByRole('button',{name:'最小值单位 6',exact:true});await expect(button).toHaveText(unit);await button.click();await expect(button).toHaveText(next)
+  }
+  const min=await size.getByLabel('最小值 6',{exact:true}).boundingBox(),max=await size.getByLabel('最大值 6',{exact:true}).boundingBox()
+  expect(Math.abs(min.y-max.y)).toBeLessThan(1)
+  for(const bound of ['最小值','最大值']){
+    const input=await size.getByLabel(bound+' 6',{exact:true}).boundingBox(),button=await size.getByRole('button',{name:bound+'单位 6',exact:true}).boundingBox()
+    expect(button.x).toBeGreaterThanOrEqual(input.x);expect(button.x+button.width).toBeLessThanOrEqual(input.x+input.width+1)
+  }
+  const prefix=modal.getByLabel('匹配内容 4',{exact:true});await expect(prefix).toHaveAttribute('rows','3');await prefix.fill('Movies/Season\nBooks/Deep\nMusic\nImages');await prefix.evaluate(el=>el.style.height='150px')
+  for(const index of [3,4])await expect(modal.locator('.backup-filter').nth(index).getByRole('checkbox')).toHaveCount(0)
+  for(const index of [2,4]){
+    const input=modal.getByLabel('匹配内容 '+(index+1),{exact:true})
+    expect(await input.evaluate(el=>Math.abs(el.getBoundingClientRect().width-el.parentElement.getBoundingClientRect().width))).toBeLessThan(2)
+  }
   await expect(extension.locator('.backup-token > span')).toHaveText(['mkv','mp4'])
   await expect(extension.getByRole('radio',{name:'白名单 1',exact:true})).toBeChecked()
   await modal.getByLabel('文件 2',{exact:true}).click()
@@ -285,12 +300,14 @@ test('six filter types support wrapped removable tokens, scopes and case-sensiti
   await expect(modal.getByLabel('文件夹 2',{exact:true})).toBeChecked()
   await modal.getByText('更多选项',{exact:true}).click()
   await expect(modal.locator('.backup-more summary')).toHaveCSS('font-size','14px')
-  await expect(modal.getByLabel('区分大小写',{exact:true})).not.toBeChecked()
-  await modal.getByLabel('区分大小写',{exact:true}).check()
+  await expect(modal.getByRole('button',{name:'扩展名大小写区分',exact:true})).toContainText('关闭')
+  await modal.getByRole('button',{name:'扩展名大小写区分',exact:true}).click();await page.getByRole('option',{name:'开启',exact:true}).click()
   await extension.getByLabel('匹配内容 1',{exact:true}).fill('.AVI')
   await extension.getByLabel('匹配内容 1',{exact:true}).press('Enter')
   await expect(extension.locator('.backup-token > span')).toHaveText(['mkv','mp4','AVI'])
   await extension.locator('.backup-token').filter({hasText:'mp4'}).hover()
+  await expect(extension.getByRole('button',{name:'删除 mp4 规则 1',exact:true}).locator('svg')).toHaveCSS('width','11px')
+  await expect(extension.getByRole('button',{name:'删除 mp4 规则 1',exact:true})).toHaveCSS('background-color','rgba(0, 0, 0, 0.4)')
   await extension.getByRole('button',{name:'删除 mp4 规则 1',exact:true}).click()
   await expect(extension.locator('.backup-token > span')).toHaveText(['mkv','AVI'])
   await filename.getByLabel('匹配内容 2',{exact:true}).fill('alpha;beta;gamma;delta;epsilon;zeta;eta;theta;iota;kappa;lambda')
@@ -315,8 +332,9 @@ test('six filter types support wrapped removable tokens, scopes and case-sensiti
   await page.locator('.backup-name').filter({hasText:'筛选归档'}).click()
   const edit=page.getByRole('dialog',{name:'编辑备份规则',exact:true})
   await edit.getByRole('button',{name:'筛选规则',exact:true}).click()
+  await expect(edit.getByLabel('匹配内容 4',{exact:true})).toHaveCSS('height','78px')
   await edit.getByText('更多选项',{exact:true}).click()
-  await expect(edit.getByLabel('区分大小写',{exact:true})).toBeChecked()
-  await edit.getByLabel('区分大小写',{exact:true}).uncheck()
+  await expect(edit.getByRole('button',{name:'扩展名大小写区分',exact:true})).toContainText('开启')
+  await edit.getByRole('button',{name:'扩展名大小写区分',exact:true}).click();await page.getByRole('option',{name:'关闭',exact:true}).click()
   await expect(edit.locator('.backup-filter').first().locator('.backup-token > span')).toHaveText(['mkv','avi'])
 })

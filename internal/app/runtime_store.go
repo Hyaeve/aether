@@ -41,7 +41,7 @@ func stripRuntimeConfig(values map[string]any) {
 	raw, _ := json.Marshal(values["state"])
 	tree, _ := configTree(raw)
 	root := tree.(map[string]any)
-	for _, field := range []string{"logs", "libraryNotices", "shareNotices", "casTemporary"} {
+	for _, field := range []string{"logs", "libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory"} {
 		delete(root, field)
 	}
 	values["state"] = root
@@ -65,7 +65,7 @@ func (s *Store) runtimeValues() map[string]any {
 		}
 		result[kind] = records
 	}
-	for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary"} {
+	for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory"} {
 		result[field] = state[field]
 	}
 	return result
@@ -131,8 +131,10 @@ func (s *Store) initRuntime(dir string) error {
 				}
 			}
 		}
-		for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary"} {
-			state[field] = runtime[field]
+		for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory"} {
+			if value, exists := runtime[field]; exists {
+				state[field] = value
+			}
 		}
 		merged, _ := json.Marshal(state)
 		if err := json.Unmarshal(merged, &s.state); err != nil {

@@ -47,10 +47,18 @@ type CASTemporary struct {
 	StorageID      string    `json:"storageId"`
 	FileID         string    `json:"fileId"`
 	Name           string    `json:"name"`
+	Size           int64     `json:"size"`
 	LastUsed       time.Time `json:"lastUsed"`
 	Ready          bool      `json:"ready"`
 	Trashed        bool      `json:"trashed,omitempty"`
 	RetentionHours int       `json:"retentionHours,omitempty"`
+}
+
+type CASRestoreStats struct {
+	Success uint64 `json:"success"`
+	Failed  uint64 `json:"failed"`
+	Mobile  uint64 `json:"mobile"`
+	Tianyi  uint64 `json:"tianyi"`
 }
 
 func validateCAS(info CASInfo) error {
@@ -306,6 +314,24 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		}
 	}
 	if entry.FileID == "" {
+		rapidSuccess := false
+		defer func() {
+			if saveErr := a.store.update(func(st *State) error {
+				if s.Type == "mobile" {
+					st.CASStats.Mobile++
+				} else {
+					st.CASStats.Tianyi++
+				}
+				if rapidSuccess {
+					st.CASStats.Success++
+				} else {
+					st.CASStats.Failed++
+				}
+				return nil
+			}); saveErr != nil {
+				a.store.event("error", "tasks", "CAS 秒传统计保存失败")
+			}
+		}()
 		if conflict {
 			key += ":" + id()
 		}
@@ -345,7 +371,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		if !ready {
 			recordKey += ":failed:" + id()
 		}
-		entry = CASTemporary{Key: recordKey, Feature: casFeatureKey(*claim.CAS), StorageID: s.ID, FileID: data.ID, Name: name, LastUsed: time.Now(), Ready: ready, RetentionHours: retention}
+		entry = CASTemporary{Key: recordKey, Feature: casFeatureKey(*claim.CAS), StorageID: s.ID, FileID: data.ID, Name: name, Size: claim.CAS.Size, LastUsed: time.Now(), Ready: ready, RetentionHours: retention}
 		// Persist every returned file ID, even failed uploads, so cleanup never needs a directory-wide delete.
 		if err := a.store.update(func(st *State) error { st.CASTemporary = append(st.CASTemporary, entry); return nil }); err != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -356,6 +382,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		if !data.Exist && !data.Rapid {
 			return Download{}, done, errors.New("CAS 秒传未成功：源数据可能失效或账号权益不足，不会上传媒体内容")
 		}
+		rapidSuccess = true
 	}
 	d, err := a.casLink(ctx, s, host, entry.FileID)
 	if err != nil {
@@ -404,13 +431,39 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 }
 
 func (a *App) cleanupCAS(ctx context.Context) (int, error) {
+	return a.cleanupCASSelected(ctx, nil)
+}
+
+func (a *App) cleanupCASSelected(ctx context.Context, selected map[string]bool) (int, error) {
 	if err := a.acquireCAS(ctx); err != nil {
 		return 0, err
 	}
 	defer func() { <-a.casGate }()
 	count := 0
-	for _, entry := range a.store.snapshot().CASTemporary {
-		if time.Now().Before(entry.expiresAt()) || a.casActive[entry.Key] > 0 {
+	entries := a.store.snapshotWithLogLimit(0).CASTemporary
+	if selected != nil {
+		known := map[string]bool{}
+		for _, entry := range entries {
+			known[entry.Key] = true
+		}
+		for key := range selected {
+			if !known[key] {
+				return 0, errors.New("所选秒传文件已失效，请刷新")
+			}
+		}
+	}
+	var skipped error
+	for _, entry := range entries {
+		if selected != nil && !selected[entry.Key] {
+			continue
+		}
+		if a.casActive[entry.Key] > 0 {
+			if selected != nil {
+				skipped = errors.New("正在播放的秒传文件已跳过")
+			}
+			continue
+		}
+		if selected == nil && time.Now().Before(entry.expiresAt()) {
 			continue
 		}
 		s, err := a.store.storage(entry.StorageID)
@@ -437,7 +490,7 @@ func (a *App) cleanupCAS(ctx context.Context) (int, error) {
 		}
 		count++
 	}
-	return count, nil
+	return count, skipped
 }
 
 func (a *App) casHost(ctx context.Context, s Storage) (string, error) {
@@ -462,15 +515,40 @@ func (a *App) casStatus(w http.ResponseWriter, r *http.Request) {
 	defer func() { <-a.casGate }()
 	items := []map[string]any{}
 	for _, item := range a.store.snapshot().CASTemporary {
-		items = append(items, map[string]any{"name": item.Name, "storageId": item.StorageID, "lastUsed": item.LastUsed, "active": a.casActive[item.Key] > 0, "expiresAt": item.expiresAt(), "retentionHours": casRetentionHours(item.RetentionHours)})
+		items = append(items, map[string]any{"key": item.Key, "name": item.Name, "size": item.Size, "storageId": item.StorageID, "lastUsed": item.LastUsed, "active": a.casActive[item.Key] > 0, "expiresAt": item.expiresAt(), "retentionHours": casRetentionHours(item.RetentionHours)})
 	}
-	jsonResponse(w, 200, map[string]any{"items": items, "defaultRetentionHours": 12})
+	jsonResponse(w, 200, map[string]any{"items": items, "stats": a.store.snapshotWithLogLimit(0).CASStats, "defaultRetentionHours": 12})
 }
 
 func (a *App) casCleanup(w http.ResponseWriter, r *http.Request) {
-	count, err := a.cleanupCAS(r.Context())
+	var selected map[string]bool
+	if r.ContentLength != 0 {
+		var input struct {
+			Keys []string `json:"keys"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		if len(input.Keys) == 0 || len(input.Keys) > 1000 {
+			fail(w, 400, errors.New("请选择1至1000个秒传文件"))
+			return
+		}
+		selected = map[string]bool{}
+		for _, key := range input.Keys {
+			if key == "" || selected[key] {
+				fail(w, 400, errors.New("秒传文件选择无效或重复"))
+				return
+			}
+			selected[key] = true
+		}
+	}
+	count, err := a.cleanupCASSelected(r.Context(), selected)
 	if err != nil {
-		fail(w, 502, err)
+		if selected == nil {
+			fail(w, 502, err)
+			return
+		}
+		jsonResponse(w, 200, map[string]any{"removed": count, "error": err.Error()})
 		return
 	}
 	jsonResponse(w, 200, map[string]int{"removed": count})

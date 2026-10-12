@@ -51,6 +51,25 @@ func normalizedCASPool(p CASPoolConfig) CASPoolConfig {
 	return p
 }
 
+func requiredCASPool(p CASPoolConfig, st State) CASPoolConfig {
+	p = normalizedCASPool(p)
+	for kind, group := range map[string]*CASPoolGroup{"mobile": &p.Mobile, "tianyi": &p.Tianyi} {
+		ids := append([]string(nil), group.StorageIDs...)
+		for _, s := range st.Storages {
+			if s.Enabled && s.Type == kind && casStorage(s) {
+				group.StorageIDs = []string{s.ID}
+				for _, sid := range ids {
+					if sid != s.ID {
+						group.StorageIDs = append(group.StorageIDs, sid)
+					}
+				}
+				break
+			}
+		}
+	}
+	return p
+}
+
 func casFeatureKey(info CASInfo) string {
 	raw := fmt.Sprintf("%s\x00%d\x00%s\x00%s", info.Name, info.Size, strings.ToLower(info.SHA256), strings.ToLower(info.MD5))
 	sum := sha256.Sum256([]byte(raw))
@@ -88,7 +107,8 @@ func validateCASPool(p CASPoolConfig, st State) error {
 
 func (a *App) casPoolSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		jsonResponse(w, 200, normalizedCASPool(a.store.snapshotWithLogLimit(0).CASPool))
+		st := a.store.snapshotWithLogLimit(0)
+		jsonResponse(w, 200, requiredCASPool(st.CASPool, st))
 		return
 	}
 	if r.Method != "PUT" {
@@ -108,6 +128,7 @@ func (a *App) casPoolSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { <-a.casGate }()
 	if err := a.store.update(func(st *State) error {
+		pool = requiredCASPool(pool, *st)
 		if err := validateCASPool(pool, *st); err != nil {
 			return err
 		}
@@ -127,7 +148,7 @@ func (a *App) selectCASStorage(info CASInfo, now time.Time) (Storage, int, error
 		return Storage{}, 0, err
 	}
 	st := a.store.snapshotWithLogLimit(0)
-	p := normalizedCASPool(st.CASPool)
+	p := requiredCASPool(st.CASPool, st)
 	if p.RotationMinutes < 1 || p.RotationMinutes > 1440 || (p.Preferred != "mobile" && p.Preferred != "tianyi") {
 		return Storage{}, 0, errors.New("CAS 存储绑定池设置无效，请重新保存")
 	}

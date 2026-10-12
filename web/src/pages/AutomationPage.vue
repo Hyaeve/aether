@@ -6,7 +6,6 @@ import Modal from '../components/Modal.vue'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import NumberInput from '../components/NumberInput.vue'
-import ThinScroll from '../components/ThinScroll.vue'
 const rules = ref([]), editing = ref(null), modal = ref(false), busy = ref(false), error = ref(''), deleting = ref(null)
 const form = reactive({})
 const menu = ref(null)
@@ -44,13 +43,13 @@ const taskOptions = () => state.tasks.map(t => ({value:t.id,label:t.name}))
   <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button class="btn primary" @click="open()"><Icon name="Plus" />添加联动</button></div></section>
   <div class="automation-list">
     <header class="automation-columns"><span>联动名称</span><span>任务流程</span><span>上次结果</span><span>下次执行</span><span>操作</span></header>
-    <ThinScroll class="automation-scroll" :thickness="3"><article v-for="rule in rules" :key="rule.id" class="automation-row" :class="{disabled:!rule.enabled,running:rule.status==='running'}">
+    <div class="automation-scroll"><article v-for="rule in rules" :key="rule.id" class="automation-row" :class="{disabled:!rule.enabled,running:rule.status==='running'}">
       <button class="automation-summary" @click="open(rule)"><strong>{{rule.name}}</strong></button>
       <div class="automation-flow" tabindex="0" :aria-label="rule.steps.map(stepName).join(' → ')"><span class="workflow-chain"><template v-for="(step,index) in rule.steps" :key="index"><Icon v-if="index" name="ArrowRight" :size="14" /><span>{{stepName(step)}}</span></template></span></div>
       <span class="automation-result" :class="lastResult(rule)==='成功'?'success-text':lastResult(rule)==='失败'?'danger-text':'muted'">{{lastResult(rule)}}</span>
       <time :title="date(rule.nextRun)">{{nextExecution(rule)}}</time>
       <div class="automation-actions"><button class="icon-btn" :disabled="!rule.enabled && rule.status!=='running'" :aria-label="rule.status==='running'?'停止联动':'执行联动'" @click="command(rule,rule.status==='running'?'stop':'run')"><Icon :name="rule.status==='running'?'Square':'Play'" /></button><button class="icon-btn" aria-label="联动操作" aria-haspopup="menu" @click.stop="showMenu($event,rule)"><Icon name="Ellipsis" /></button></div>
-    </article><p v-if="!rules.length" class="small-empty">暂无联动任务</p></ThinScroll>
+    </article><p v-if="!rules.length" class="small-empty">暂无联动任务</p></div>
   </div>
   <Teleport to="body"><div v-if="menu" class="context-menu" role="menu" :style="{left:menu.x+'px',top:menu.y+'px'}" @click.stop><button role="menuitem" @click="open(menu.rule);closeMenu()"><Icon name="Pencil" />编辑</button><button role="menuitem" :disabled="menu.rule.status==='running'" @click="toggle(menu.rule);closeMenu()"><Icon :name="menu.rule.enabled?'Pause':'Play'" />{{menu.rule.enabled?'停用':'启用'}}</button><button role="menuitem" class="danger-text" :disabled="menu.rule.status==='running'" @click="deleting=menu.rule;closeMenu()"><Icon name="Trash2" />删除</button></div></Teleport>
   <Modal v-if="modal" standard :title="editing?'编辑联动':'添加联动'" @close="modal=false">
