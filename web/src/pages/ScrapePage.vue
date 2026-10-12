@@ -68,8 +68,8 @@ async function resetMetadata() {
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 const tasks = computed(() => state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded).map(t => ({ value: t.id, label: t.name })))
-const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', miss: '未匹配', doubt: '待确认', error: '失败' }
-const itemStatus = item => item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
+const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', error: '失败' }
+const itemStatus = item => ['miss','doubt'].includes(item.status) || item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
 const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 314, columnWidth: 155, maxColumns: 6, grid: ref(true), window: true, resetToTop: true })
@@ -221,10 +221,8 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-poster span { font-size: 12px; }
 .scrape-card-body { min-width: 0; padding: 9px 10px; font-size: 14px; }
 .scrape-title { display:flex; gap:7px; align-items:flex-start; }.scrape-title strong { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.work-star { --status-color:#8b93a4; width:10px; height:10px; flex:none; margin-top:3px; background:var(--status-color); clip-path:polygon(50% 0,61% 38%,100% 50%,61% 62%,50% 100%,39% 62%,0 50%,39% 38%); filter:drop-shadow(0 0 3px var(--status-color)); }
-.work-star.pending { --status-color:#6e78d4; }.work-star.ok { --status-color:var(--green); }.work-star.miss { --status-color:var(--amber); }.work-star.doubt { --status-color:#b07cb9; }.work-star.error { --status-color:var(--red); }
-.work-star.unmatched, .work-star.pending { clip-path:inset(0); filter:none; }
-.work-star.error { clip-path:polygon(50% 0,100% 100%,0 100%); filter:none; }
+.work-star { --status-color:var(--amber); width:10px; height:10px; flex:none; margin-top:3px; background:var(--status-color); border-radius:3px; }
+.work-star.pending { --status-color:var(--primary); }.work-star.ok { --status-color:var(--green);transform:rotate(45deg);border-radius:2px; }.work-star.error { --status-color:var(--red);border-radius:50%; }
 .scrape-card-body > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scrape-card-body > small { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .scrape-status { display: inline-flex; gap: 8px; margin-top: 7px; font-size: 12px; color: var(--muted); }
@@ -235,11 +233,13 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-name strong, .scrape-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .scrape-status.ok strong { color: var(--success); }
 .scrape-status.error strong { color: var(--danger); }
-.scrape-actions { display: flex; gap:6px; position: absolute; left: 6px; right: 6px; top: 194px; opacity:0; pointer-events:none; transform:translateY(5px); transition:opacity .18s,transform .18s; }
-.scrape-card:hover .scrape-actions, .scrape-card:focus-within .scrape-actions { opacity:1; pointer-events:auto; transform:none; }
-.scrape-actions :deep(button) { background:var(--surface); border-radius:10px; box-shadow:0 2px 8px #0002; }
-@media(hover:none) { .scrape-actions { opacity:1; pointer-events:auto; transform:none; } }
-.scrape-actions :deep(button) { display:flex; gap:6px; justify-content:center; width: 50%; height: 38px; border-radius:8px; color:#fff; font-size:12px; background:#22263380; backdrop-filter:blur(12px); box-shadow:0 2px 8px #0002; transition:transform .18s,background .18s; }
+/* Fade each button, not its ancestor, to keep the poster in the glass backdrop. */
+.scrape-actions { display: flex; gap:6px; position: absolute; left: 6px; right: 6px; top: 194px; pointer-events:none; transform:translateY(5px); transition:transform .18s; }
+.scrape-card:hover .scrape-actions, .scrape-card:focus-within .scrape-actions { pointer-events:auto; transform:none; }
+.scrape-actions :deep(button) { display:flex; gap:6px; justify-content:center; width: 50%; height: 38px; border-radius:8px; color:#fff; font-size:12px; background:#22263380; backdrop-filter:blur(12px); box-shadow:0 2px 8px #0002; opacity:0; transition:opacity .18s,transform .18s,background .18s; }
+.scrape-actions :deep(button:disabled) { --action-opacity:.45; }
+.scrape-card:hover .scrape-actions :deep(button), .scrape-card:focus-within .scrape-actions :deep(button) { opacity:var(--action-opacity,1); }
+@media(hover:none) { .scrape-actions { pointer-events:auto; transform:none; }.scrape-actions :deep(button) { opacity:var(--action-opacity,1); } }
 .scrape-actions :deep(button:last-child) { background:#4c438c88; }
 .scrape-actions :deep(button:hover:not(:disabled)) { transform:translateY(-3px); background:#323947a6; }.scrape-actions :deep(button:last-child:hover:not(:disabled)) { background:#6457a9b3; }
 .scrape-card.selected { border-color:#8585e1; box-shadow:0 0 12px #7872d84d; }

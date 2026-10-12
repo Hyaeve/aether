@@ -45,7 +45,7 @@ func durableConfigWrite(name string, data []byte) error {
 	return syncConfigDirectory(filepath.Dir(name))
 }
 
-var jsonModules = []string{"storage/storage", "storage/settings", "task/strm", "task/cas", "task/cas-pool", "task/ed2k", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "tool/tmdb", "tool/proxy", "tool/ai", "tool/emby", "tool/quark-takeover", "tool/115-simulcast", "file/webdav", "file/mount", "transfer/backup", "transfer/settings", "transfer/resources", "state"}
+var jsonModules = []string{"storage/storage", "storage/settings", "task/strm", "task/cas", "task/cas-pool", "task/ed2k", "task/ed2k-pool", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "tool/tmdb", "tool/proxy", "tool/ai", "tool/emby", "tool/quark-takeover", "tool/115-simulcast", "file/webdav", "file/mount", "transfer/backup", "transfer/settings", "transfer/resources", "state"}
 
 type jsonConfig struct {
 	Version int             `json:"version"`
@@ -197,6 +197,7 @@ func (s *Store) decodeJSONConfig(module string, raw []byte, target any) error {
 func (s *Store) jsonValues() map[string]any {
 	v := s.moduleValues()
 	v["task/cas-pool"] = normalizedCASPool(s.state.CASPool)
+	v["task/ed2k-pool"] = normalizedED2KPool(s.state.ED2KPool)
 	v["transfer/settings"] = normalizedTransferSettings(s.state.TransferSettings)
 	v["transfer/resources"] = normalizedBackupResources(s.state.BackupResources)
 	v["storage/storage"], v["storage/settings"] = s.state.Storages, v["storage/storage"].(storageModule).Settings
@@ -214,6 +215,7 @@ func (s *Store) jsonValues() map[string]any {
 	v["tool/115-simulcast"] = s.state.Simulcast
 	p := s.state
 	p.CASPool, p.CASPoolVersion = CASPoolConfig{}, 1
+	p.ED2KPool, p.ED2KPoolVersion = ED2KPoolConfig{}, 1
 	p.TransferSettings, p.BackupResources, p.TransferVersion = TransferSettings{}, BackupResources{}, 1
 	p.Storages, p.Tasks, p.Automations, p.Links, p.Mounts, p.DAVUsers, p.BackupRules = nil, nil, nil, nil, nil, nil, nil
 	p.Plugins, p.QuarkTV, p.Simulcast, p.QuarkTVEnabled = nil, nil, nil, nil
@@ -462,6 +464,11 @@ func (s *Store) readJSONModules() error {
 			missingPool = true
 			continue
 		}
+		if key == "task/ed2k-pool" && os.IsNotExist(err) && s.state.ED2KPoolVersion == 0 {
+			s.state.ED2KPool = normalizedED2KPool(ED2KPoolConfig{})
+			missingTransfer = append(missingTransfer, key)
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -485,6 +492,8 @@ func (s *Store) readJSONModules() error {
 			target = &s.state.Automations
 		case "task/cas-pool":
 			target = &s.state.CASPool
+		case "task/ed2k-pool":
+			target = &s.state.ED2KPool
 		case "transfer/backup":
 			target = &s.state.BackupRules
 		case "transfer/settings":

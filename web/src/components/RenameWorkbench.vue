@@ -127,21 +127,22 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 <template>
   <RenameHistory v-if="historyOpen" @close="historyOpen=false" @changed="historyChanged" />
   <section v-else class="rename-workbench">
-    <header class="rename-heading task-heading"><button class="icon-btn" aria-label="返回文件管理" :disabled="busy" @click="emit('close')"><Icon name="ArrowLeft" /></button><h2>重命名工作台</h2><div class="rename-heading-actions"><button class="btn" :disabled="busy" @click="historyOpen=true"><Icon name="History" />历史记录</button><button class="btn primary" :disabled="invalid || busy" @click="execute"><Icon name="Check" />{{ busy ? '正在重命名…' : '确认重命名' }}</button></div></header>
+    <header class="rename-heading task-heading"><button class="icon-btn" aria-label="返回文件管理" :disabled="busy" @click="emit('close')"><Icon name="ArrowLeft" /></button><h2 class="module-title">重命名工作台</h2><div class="rename-current-directory"><ProviderIcon :type="storageInfo?.type||'local'" /><strong>{{storageInfo?.name}}</strong><VisitPath :parents="pathParts.slice(0,-1)" :deepest="pathParts.at(-1)||'根目录'" /></div><div class="rename-heading-actions"><button class="btn" :disabled="busy" @click="historyOpen=true"><Icon name="History" />历史记录</button><button class="btn primary" :disabled="invalid || busy" @click="execute"><Icon name="Check" />{{ busy ? '正在重命名…' : '确认重命名' }}</button></div></header>
     <div class="rename-columns">
       <section class="rename-comparison">
         <ThinScroll :ref="el => viewport = el?.element || null" :thickness="3" class="rename-preview-scroll" content-class="rename-preview">
+          <div class="rename-preview-content">
           <p v-if="!items.length" class="small-empty">{{ error || '等待应用规则' }}</p>
           <div :style="{ height: `${top}px` }" />
           <article v-for="item in shown" :key="item.id" class="rename-preview-row" :class="{ignored: ignored.includes(item.id)}">
             <div><small>原：</small><Icon :name="entryIcon(item)" :class="{'folder-color':item.isDir}" :size="18" /><span :data-tooltip="item.name">{{ item.name }}</span></div>
             <div class="rename-changed" :class="{ 'error-message': item.error }"><small>新：</small><Icon :name="entryIcon({name:item.newName,isDir:item.isDir})" :class="{'folder-color':item.isDir}" :size="18" /><span :data-tooltip="item.error || item.newName"><template v-if="item.error">{{ item.error }}</template><template v-else><template v-for="(part, index) in nameParts(item)" :key="index"><mark v-if="part.changed">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></template></span></div>
             <div class="rename-item-actions"><button class="icon-btn" :aria-label="ignored.includes(item.id) ? '取消忽略' : '忽略'" :data-tooltip="ignored.includes(item.id) ? '取消忽略' : '忽略'" data-tooltip-always :disabled="busy" @click="toggleIgnore(item)"><Icon :name="ignored.includes(item.id) ? 'RotateCcw' : 'X'" /></button><button class="icon-btn" aria-label="修改" data-tooltip="修改" data-tooltip-always :disabled="busy" @click="editing = item; editName = item.name"><Icon name="Pencil" /></button></div>
-          </article><div :style="{ height: `${bottom}px` }" />
-        </ThinScroll><small class="rename-count">共 {{files.length}} 项</small><p v-if="error && items.length" class="error-message">{{ error }}</p>
+          </article><div :style="{ height: `${bottom}px` }" /><small class="rename-count">{{files.length}} 项</small>
+          </div>
+        </ThinScroll><p v-if="error && items.length" class="error-message">{{ error }}</p>
       </section>
       <aside class="rename-rules">
-        <div class="rename-current-directory"><ProviderIcon :type="storageInfo?.type||'local'" /><strong>{{storageInfo?.name}}</strong><VisitPath :parents="pathParts.slice(0,-1)" :deepest="pathParts.at(-1)||'根目录'" /></div>
         <ThinScroll :thickness="3" class="rename-rules-scroll">
         <fieldset :disabled="busy">
           <article v-for="(rule, index) in rules" :key="index" class="rename-rule" :class="{collapsed: expanded !== index}">
@@ -164,9 +165,10 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
   <Modal v-if="editing" title="重命名" compact @close="!busy && (editing = null)"><form @submit.prevent="renameOne"><div class="modal-body"><label>新名称<input v-model="editName" required maxlength="255" :disabled="busy" /></label></div><footer class="modal-footer"><button type="button" class="btn cancel" :disabled="busy" @click="editing = null">取消</button><button class="btn primary" :disabled="busy || !editName.trim()">确认修改</button></footer></form></Modal>
 </template>
 <style scoped>
-.rename-workbench {height:calc(100dvh - 80px);padding-bottom:var(--workspace-end-gap)}.rename-heading {min-height:48px;margin-bottom:20px;align-items:center;justify-content:flex-start}.rename-heading h2{font-size:16px}.rename-heading-actions{margin-left:auto;display:flex;gap:8px}.rename-comparison{position:relative}.rename-count{position:absolute;bottom:6px;left:14px;font-size:12px;color:var(--muted);pointer-events:none}.rename-current-directory{display:flex;align-items:center;gap:6px;margin-bottom:10px;min-width:0;font-size:12px}.rename-current-directory strong{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rename-current-directory :deep(.provider-icon){width:20px;height:20px;background:none;border:0;padding:0;flex:none}
+.rename-workbench {height:calc(100dvh - 80px);padding-bottom:var(--workspace-end-gap)}.rename-heading {min-height:48px;margin-bottom:20px;align-items:center;justify-content:flex-start;gap:10px}.rename-heading-actions{margin-left:auto;display:flex;gap:8px;flex:none}.rename-comparison{position:relative}.rename-count{position:absolute;bottom:4px;left:4px;font-size:12px;color:var(--muted);pointer-events:none}.rename-current-directory{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;flex:1}.rename-current-directory strong{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rename-current-directory :deep(.provider-icon){width:22px;height:22px;background:none;border:0;padding:0;flex:none}
 .rename-workbench { padding-bottom:0; }.rename-preview-scroll { flex:1; min-height:0; }
-.rename-preview-scroll :deep(.rename-preview) { border:0; border-radius:0; padding-right:6px; }
+.rename-heading h2.module-title { font-size:15px; }
+.rename-preview-scroll :deep(.rename-preview) { border:0; border-radius:0; padding-right:6px; }.rename-preview-content { position:relative;min-height:100%;padding-bottom:24px; }
 .rename-preview-row { position: relative; grid-template-columns: minmax(0,1fr); gap: 2px; padding:8px 92px 8px 12px; font-size:12px; height:66px; margin-bottom:6px; border:1px solid color-mix(in srgb,var(--border) 65%,transparent); border-radius:8px; background:var(--input); }
 .rename-comparison, .rename-rules { padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
 .rename-preview-row > div:first-child { color:var(--muted); }
@@ -190,5 +192,5 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++ })
 :global([data-theme=dark] .rename-changed mark) { color:#f4b45a; }
 @media(prefers-reduced-motion:reduce) { .rule-expand-enter-active, .rule-expand-leave-active { transition:none; } }
 @media (hover: none) { .rename-preview-row .rename-item-actions { opacity: 1; } }
-@media (max-width:760px) { .rename-preview-scroll { height:350px; flex:auto; }.rename-preview-scroll :deep(.rename-preview) { max-height:none; }.rename-rules { height:380px; } }
+@media (max-width:760px) { .rename-columns{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:8px}.rename-heading{flex-wrap:wrap}.rename-heading-actions{margin-left:auto}.rename-current-directory{flex-basis:40%}.rename-preview-row .rename-item-actions{opacity:1}.rename-preview-scroll :deep(.rename-preview){min-height:0;max-height:none}.rename-rules{height:auto}.rule-checks{flex-wrap:wrap;gap:6px} }
 </style>

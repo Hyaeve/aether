@@ -133,7 +133,7 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 }
 
 // Publish only complete CAS files, retaining existing incremental outputs.
-func writeCASOutput(root *os.Root, name string, data []byte, incremental bool) error {
+func writeCASOutput(root *os.Root, name string, data []byte, incremental bool, strict ...bool) error {
 	if err := root.MkdirAll(path.Dir(name), 0755); err != nil {
 		return err
 	}
@@ -157,6 +157,9 @@ func writeCASOutput(root *os.Root, name string, data []byte, incremental bool) e
 	if incremental {
 		err = root.Link(temp, name)
 		if os.IsExist(err) {
+			if len(strict) > 0 && strict[0] {
+				return err
+			}
 			return nil
 		}
 		return err

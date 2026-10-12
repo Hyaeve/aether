@@ -41,7 +41,7 @@ func stripRuntimeConfig(values map[string]any) {
 	raw, _ := json.Marshal(values["state"])
 	tree, _ := configTree(raw)
 	root := tree.(map[string]any)
-	for _, field := range []string{"logs", "libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory"} {
+	for _, field := range []string{"logs", "libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs"} {
 		delete(root, field)
 	}
 	values["state"] = root
@@ -65,7 +65,7 @@ func (s *Store) runtimeValues() map[string]any {
 		}
 		result[kind] = records
 	}
-	for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory"} {
+	for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs"} {
 		result[field] = state[field]
 	}
 	return result
@@ -131,7 +131,7 @@ func (s *Store) initRuntime(dir string) error {
 				}
 			}
 		}
-		for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory"} {
+		for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs"} {
 			if value, exists := runtime[field]; exists {
 				state[field] = value
 			}
@@ -144,6 +144,11 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for i := range s.state.GenerationJobs {
+		if s.state.GenerationJobs[i].Status == "running" || s.state.GenerationJobs[i].Status == "queued" {
+			s.state.GenerationJobs[i].Status, s.state.GenerationJobs[i].Message = "interrupted", "服务重启，生成已中断，请重新解析"
+		}
+	}
 	for i := range s.state.Tasks {
 		t := &s.state.Tasks[i]
 		if t.Status == "running" {

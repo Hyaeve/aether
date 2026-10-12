@@ -120,6 +120,9 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 	if task.ID == "" {
 		return errors.New("任务不存在")
 	}
+	if reason := taskHealthPause(a.store.snapshotWithLogLimit(0), task); reason != "" {
+		return errors.New(reason)
+	}
 	if task.Kind == "cas" && task.CASOperation != "generate" {
 		return errors.New("旧版 CAS 转 STRM 任务已停用，请重新选择视频源目录并保存")
 	}
@@ -147,8 +150,13 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 		}
 		task.Mode = "full"
 	}
-	ctx, cancel := context.WithCancel(parent)
+	ctx, causeCancel := context.WithCancelCause(parent)
+	cancel := func() { causeCancel(context.Canceled) }
 	a.running[taskID] = cancel
+	if a.taskHealthCancels == nil {
+		a.taskHealthCancels = map[string]func(){}
+	}
+	a.taskHealthCancels[taskID] = func() { causeCancel(errStorageHealthPaused) }
 	a.runningStorage[taskID] = task.StorageID
 	a.gateMu.Lock()
 	a.intervals[task.StorageID] = task.APIInterval
@@ -173,11 +181,27 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 				status, message = "cancelled", "任务已停止"
 			}
 		}
-		a.taskUpdate(taskID, func(t *Task) { t.Status = status; t.Message = message; t.Processed = count })
+		if errors.Is(context.Cause(ctx), errStorageHealthPaused) {
+			status, message, err = "health-paused", errStorageHealthPaused.Error(), errStorageHealthPaused
+		}
+		if persistErr := a.store.update(func(st *State) error {
+			for i := range st.Tasks {
+				if st.Tasks[i].ID == taskID {
+					if status == "health-paused" && taskHealthPause(*st, st.Tasks[i]) == "" {
+						status, message = "idle", "健康已恢复，等待执行"
+					}
+					st.Tasks[i].Status, st.Tasks[i].Message, st.Tasks[i].Processed = status, message, count
+				}
+			}
+			return nil
+		}); persistErr != nil {
+			a.logger.Printf("persist task: %v", persistErr)
+		}
 		a.store.event(status, "tasks", task.Name+"："+message)
 		a.runMu.Lock()
 		delete(a.running, taskID)
 		delete(a.runningStorage, taskID)
+		delete(a.taskHealthCancels, taskID)
 		a.runMu.Unlock()
 		if done != nil {
 			done <- err
@@ -225,7 +249,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	count := 0
 	generated, failed := 0, 0
 	defer func() {
-		if t.Kind == "cas" {
+		if t.Kind == "cas" || t.Kind == "ed2k" {
 			a.taskUpdate(t.ID, func(task *Task) { task.CASGenerated, task.CASFailed = generated, failed })
 		}
 	}()
@@ -372,7 +396,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			if t.Kind == "ed2k" {
 				suffix = ".ed2k.strm"
 			}
-			if t.Kind == "ed2k" && t.ED2KBindingID == "" {
+			if t.Kind == "ed2k" && t.ED2KBindingID == "" && t.ID == "" {
 				suffix = ".ed2k"
 			}
 			if generateCAS {
@@ -401,6 +425,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return err
 				}
 				data := []byte(info.URI() + "\n")
+				if t.ED2KBindingID == "" && t.ID != "" {
+					data = []byte(a.generatedStreamURL(streamClaim{ED2K: &info, Redirect: true}) + "\n")
+				}
 				if t.ED2KBindingID != "" {
 					info.Binding = a.ed2kBindingStamp(t, s, binding)
 					data = []byte(a.signedStreamURL(streamClaim{Storage: binding.ID, File: f.ID, TaskID: t.ID, ED2K: &info, Redirect: true}) + "\n")
@@ -409,6 +436,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return err
 				}
 				count++
+				generated++
+				if t.ID != "" {
+					a.taskUpdate(t.ID, func(task *Task) { task.Processed, task.CASGenerated = count, generated })
+				}
 				continue
 			}
 			if generateCAS {
@@ -432,7 +463,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return fmt.Errorf("%s: %w", f.Name, err)
 				}
 				feature.Provider, feature.PlaybackURL, feature.RetentionHours = "", "", 0
-				link := a.signedStreamURL(streamClaim{CAS: feature, Redirect: true})
+				link := a.generatedStreamURL(streamClaim{CAS: feature, Redirect: true})
 				if err := writeCASOutput(root, filename, []byte(link+"\n"), t.Mode == "incremental"); err != nil {
 					failed++
 					return err
@@ -453,6 +484,24 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				claim.TaskID, claim.RetentionHours = t.ID, casRetentionHours(t.RetentionHours)
 			}
 			link := a.signedStreamURL(claim)
+			if t.Kind == "strm" && (s.Type == "mobile" || s.Type == "tianyi") {
+				link = a.generatedStreamURL(claim)
+			}
+			if t.Kind == "strm" && s.Type == "local" {
+				link = filepath.Join(s.Config["root"], filepath.FromSlash(f.ID))
+			}
+			if t.Kind == "strm" && s.Type == "webdav" {
+				u, e := url.Parse(strings.TrimRight(s.Config["address"], "/"))
+				if e != nil {
+					return e
+				}
+				u.Path = path.Join(u.Path, s.Config["root"], f.ID)
+				u.RawPath = ""
+				u.User = nil
+				u.RawQuery = ""
+				u.Fragment = ""
+				link = u.String()
+			}
 			if t.Kind == "strm" && (s.Type == "115" || s.Type == "quark") {
 				link, err = a.publicSTRMURL(s, f)
 				if err != nil {
@@ -557,10 +606,15 @@ func (a *App) scheduler() {
 					a.logger.Printf("CAS cleanup: %v", err)
 				}
 				cancel()
+				ctxED2K, cancelED2K := context.WithTimeout(a.ctx, 30*time.Second)
+				if _, err := a.cleanupED2K(ctxED2K, nil); err != nil && a.ctx.Err() == nil {
+					a.logger.Printf("ED2K cleanup: %v", err)
+				}
+				cancelED2K()
 			}
 			st := a.store.snapshot()
 			for _, rule := range st.BackupRules {
-				if rule.Enabled && rule.Status != "running" && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
+				if rule.Enabled && backupHealthPause(st, rule) == "" && rule.Status != "running" && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
 					if err := a.startBackupScheduled(rule.ID); err != nil {
 						_ = a.backupUpdate(rule.ID, func(r *BackupRule) { r.NextRun = now.Add(time.Minute) })
 					}
@@ -574,7 +628,7 @@ func (a *App) scheduler() {
 				}
 			}
 			for _, t := range st.Tasks {
-				if t.Enabled && !t.NextRun.IsZero() && !now.Before(t.NextRun) {
+				if t.Enabled && taskHealthPause(st, t) == "" && !t.NextRun.IsZero() && !now.Before(t.NextRun) {
 					if err := a.startTask(t.ID); err != nil {
 						a.taskUpdate(t.ID, func(t *Task) { t.NextRun = now.Add(time.Minute) })
 					}

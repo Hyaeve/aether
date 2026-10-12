@@ -226,6 +226,24 @@ func (a *App) recordStorageHealthResult(s Storage, checkErr error, probe bool) e
 		}
 		a.store.event(level, "storage", s.Name+"："+text)
 	}
+	if err == nil && checkErr != nil && probe {
+		a.pauseUnhealthyWork()
+	}
+	if err == nil && checkErr == nil && changed {
+		_ = a.store.update(func(st *State) error {
+			for i := range st.Tasks {
+				if st.Tasks[i].Status == "health-paused" && taskHealthPause(*st, st.Tasks[i]) == "" {
+					st.Tasks[i].Status, st.Tasks[i].Message = "idle", "健康已恢复，等待执行"
+				}
+			}
+			for i := range st.BackupRules {
+				if st.BackupRules[i].Status == "health-paused" && backupHealthPause(*st, st.BackupRules[i]) == "" {
+					st.BackupRules[i].Status, st.BackupRules[i].Message = "idle", "健康已恢复，等待执行"
+				}
+			}
+			return nil
+		})
+	}
 	return err
 }
 

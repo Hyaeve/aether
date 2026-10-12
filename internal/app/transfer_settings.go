@@ -327,6 +327,25 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State) error {
+	if st.ED2KPoolVersion > 1 {
+		return errors.New("ED2K 绑定池配置版本无效")
+	}
+	pool := normalizedED2KPool(st.ED2KPool)
+	if err := validateED2KPoolShape(pool); err != nil {
+		return err
+	}
+	st.ED2KPool = pool
+	if st.Settings.STRMURL != "" {
+		format := st.Settings.STRM115Format
+		if format == "" {
+			format = "pickcode_name"
+		}
+		if err := validSTRMSettings(strmSettings{st.Settings.STRMURL, format}); err != nil {
+			return err
+		}
+	} else if st.Settings.STRM115Format != "" && st.Settings.STRM115Format != "pickcode_name" && st.Settings.STRM115Format != "pickcode" {
+		return errors.New("115 STRM 格式无效")
+	}
 	if st.TransferVersion != 0 && (st.TransferVersion != 1 || st.TransferSettings.Version != 1 || st.BackupResources.Version != 1) {
 		return errors.New("传输资源配置版本无效")
 	}

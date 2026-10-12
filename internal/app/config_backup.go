@@ -71,6 +71,20 @@ func openBackup(data []byte, password string) ([]byte, error) {
 	return plain, nil
 }
 func validateBundle(b configBundle) error {
+	accounts := map[string]bool{}
+	for _, s := range b.State.Storages {
+		if s.Type != "115" {
+			continue
+		}
+		id, err := account115(s)
+		if err != nil {
+			return err
+		}
+		if accounts[id] {
+			return errors.New("备份包含重复的115账号，不能导入")
+		}
+		accounts[id] = true
+	}
 	if err := validateResourceState(&b.State); err != nil {
 		return err
 	}
@@ -104,6 +118,7 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	b.State.Logs = nil
 	b.State.RenameHistory = nil
 	b.State.CASStats = CASRestoreStats{}
+	b.State.ED2KStats, b.State.ED2KTemporary, b.State.GenerationJobs = CASRestoreStats{}, nil, nil
 	b.State.ToolsRevision = ""
 	b.State.Modules = nil
 	var total int64
@@ -289,6 +304,7 @@ func applyPendingConfig(s *Store) error {
 	s.state = b.State
 	s.state.RenameHistory = nil
 	s.state.CASStats = CASRestoreStats{}
+	s.state.ED2KStats, s.state.ED2KTemporary, s.state.GenerationJobs = CASRestoreStats{}, nil, nil
 	// Imported run results must not be replaced by the old data directory on startup.
 	s.state.RuntimeSeparated = false
 	s.state.Modules = before.Modules

@@ -51,5 +51,6 @@ async function submit() {
   <TaskSourcePicker v-if="picker" :storages="[storage]" :storage="storage.id" :initial="target" :initial-label="targetLabel" @close="picker = false" @select="target = $event.source; targetLabel = $event.sourceLabel; picker = false" />
 </template>
 <style scoped>
-.offline-form .segmented button { font-size:15px; line-height:1.4; min-height:36px; }
+.offline-form .segmented button { font-size:15px; font-weight:600; line-height:1.4; min-height:36px; }
+.offline-file-picker { background:var(--input);border-style:solid;min-height:90px; }.offline-form .selected-driver {padding-left:0;margin-left:0}.offline-form .selected-driver :deep(.provider-icon){background:transparent;border:0;padding:0;border-radius:0}
 </style>

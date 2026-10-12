@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-var pickcodePath = regexp.MustCompile(`^[a-zA-Z0-9]{10,32}\.[a-zA-Z0-9]{1,12}$`)
+var pickcodePath = regexp.MustCompile(`^[a-zA-Z0-9]{10,32}(?:\.[a-zA-Z0-9]{1,12})?$`)
 
 type strmReference struct {
 	Storage string `json:"storage"`
@@ -50,15 +50,27 @@ func (a *App) readSTRMReference(key string) (strmReference, error) {
 }
 
 func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
-	base := strings.TrimRight(a.store.snapshotWithLogLimit(0).Settings.PublicURL, "/")
+	config := a.currentSTRMSettings()
+	base := strings.TrimRight(config.Address, "/")
 	if !safeName(f.Name) {
 		return "", errors.New("文件名称无效")
 	}
 	if s.Type == "115" {
+		if err := unique115Account(s, a.store.snapshotWithLogLimit(0).Storages); err != nil {
+			return "", err
+		}
+		account, err := account115(s)
+		if err != nil {
+			return "", err
+		}
 		key := f.PickCode + strings.ToLower(path.Ext(f.Name))
+		if config.Format == "pickcode" {
+			key = f.PickCode
+		}
 		if !pickcodePath.MatchString(key) {
 			return "", errors.New("115 文件缺少有效 pickcode 或扩展名")
 		}
+		key = account + "/" + key
 		// Only generated references are public, never arbitrary cloud lookups.
 		a.strmIndexMu.Lock()
 		defer a.strmIndexMu.Unlock()
@@ -85,6 +97,9 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 			}
 		}
 		name := strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F", "\r", "%0D", "\n", "%0A").Replace(f.Name)
+		if config.Format == "pickcode" {
+			return base + "/d/" + key, nil
+		}
 		return base + "/d/" + key + "?/" + name, nil
 	}
 	if s.Type == "quark" {
@@ -92,7 +107,7 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 		sig := a.quarkSTRMSign(s.ID, file, f.Name)
 		return base + "/api/strm/play/" + url.PathEscape(s.ID) + "/" + file + "/t/" + sig + "/n/" + url.PathEscape(f.Name), nil
 	}
-	return a.streamURL(s.ID, f.ID, f.PickCode), nil
+	return a.generatedStreamURL(streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode}), nil
 }
 
 func (a *App) quarkSTRMSign(storage, file, name string) string {
@@ -114,13 +129,25 @@ func (a *App) playSTRMReference(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		ref, err = a.readSTRMReference(key)
+		account := r.PathValue("account")
+		if account == "" || len(account) > 20 {
+			http.NotFound(w, r)
+			return
+		}
+		for _, ch := range account {
+			if ch < '0' || ch > '9' {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		ref, err = a.readSTRMReference(account + "/" + key)
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
 		s, err := a.store.storage(ref.Storage)
-		if err != nil || s.Type != "115" {
+		actual, accountErr := account115(s)
+		if err != nil || s.Type != "115" || accountErr != nil || actual != account {
 			http.NotFound(w, r)
 			return
 		}

@@ -19,16 +19,16 @@ test('history has explicit omission, matching icons and button colors; details h
  const history=page.getByRole('button',{name:'历史访问',exact:true}),refresh=page.getByRole('button',{name:'刷新目录',exact:true})
  await expect.poll(()=>history.evaluate(el=>getComputedStyle(el).color)).toBe(await refresh.evaluate(el=>getComputedStyle(el).color))
  await history.click()
- await page.mouse.move(20,100)
+ await page.locator('.file-visit-history [role=listbox]').hover()
  await expect(history).toHaveAttribute('aria-expanded','true')
  expect(await history.evaluate(el=>getComputedStyle(el).color)).not.toBe(await refresh.evaluate(el=>getComputedStyle(el).color))
- await expect(page.locator('.file-visit-history [role=listbox]')).toHaveCSS('width','390px')
+ await expect(page.locator('.file-visit-history [role=listbox]')).toHaveCSS('width','360px')
  const options=page.locator('.file-visit-history [role=option]')
  await expect(options.first().locator('.visit-path')).toContainText('/../')
  await expect(options.first().locator('.visit-deepest')).toHaveText('最深目录')
  await expect(options.last().locator('.visit-path')).toHaveText('/A/B/C')
  await page.locator('.file-visit-history [role=listbox]').evaluate(async el=>await Promise.allSettled(el.getAnimations().map(a=>a.finished)))
- for(const icon of await options.locator('.provider-icon').all()) { const rect=await icon.boundingBox();expect(rect.width).toBe(24);expect(rect.height).toBe(24) }
+ for(const icon of await options.locator('.provider-icon').all()) { const rect=await icon.boundingBox();expect(rect.width).toBe(22);expect(rect.height).toBe(22) }
  await page.screenshot({path:info.outputPath('history-light.png')});await page.keyboard.press('Escape')
  await expect.poll(()=>history.evaluate(el=>getComputedStyle(el).color)).toBe(await refresh.evaluate(el=>getComputedStyle(el).color))
  await page.getByRole('button',{name:'目录0.txt',exact:true}).click({button:'right'});await page.getByRole('button',{name:'查看详情',exact:true}).click()
@@ -38,7 +38,7 @@ test('history has explicit omission, matching icons and button colors; details h
  const alignment=await drawer.locator('dl').evaluate(el=>{const dt=[...el.querySelectorAll('dt')].find(el=>el.textContent==='位置');return Math.abs(dt.getBoundingClientRect().top-dt.nextElementSibling.querySelector('button').getBoundingClientRect().top)})
  expect(alignment).toBeLessThan(2)
  await page.screenshot({path:info.outputPath('details-light.png')});await page.evaluate(()=>document.documentElement.dataset.theme='dark');await page.screenshot({path:info.outputPath('details-dark.png')})
- await refresh.click();await expect(drawer).toHaveCount(0)
+ await page.locator('.breadcrumbs').click();await expect(drawer).toHaveCount(0)
  await page.getByRole('button',{name:'展开收藏栏',exact:true}).click();await expect(page.locator('.file-favorites')).not.toContainText('暂无收藏')
 })
 test('folders stay first for both directions of every sort and virtual files gradually scroll the outer header',async({page},info)=>{
@@ -47,7 +47,7 @@ test('folders stay first for both directions of every sort and virtual files gra
   await page.getByRole('button',{name:label,exact:true}).click()
   expect(await page.locator('.file-row .file-name strong').first().textContent()).toMatch(/^目录/)
  }
- await expect(page.locator('.file-item-count')).toHaveText('共 180 项')
+ await expect(page.locator('.file-item-count')).toHaveText('180 项')
  const outer=page.locator('.page-scroll > .thin-scroll-area'),inner=page.locator('.file-view')
  const box=await inner.boundingBox();await page.mouse.move(box.x+100,box.y+70)
  const before=await outer.evaluate(el=>el.scrollTop)
@@ -64,7 +64,7 @@ test('folders stay first for both directions of every sort and virtual files gra
 })
 test('empty mount task and transfer panels share the eight pixel bottom inset',async({page},info)=>{
  await setup(page,0)
- for(const [url,selector] of [['/files/mounts','.workspace-empty'],['/tasks/ed2k','.task-empty'],['/tasks/automation','.automation-list'],['/transfer','.transfer-table'],['/transfer/backup','.backup-content'],['/files','.file-browser']]) {
+ for(const [url,selector] of [['/files/mounts','.workspace-empty'],['/tasks/automation','.automation-list'],['/transfer','.transfer-table'],['/transfer/backup','.backup-content'],['/files','.file-browser']]) {
   await page.goto(url);await expect(page.locator(selector)).toBeVisible()
   const box=await page.locator(selector).boundingBox();expect(box.y+box.height, url).toBeCloseTo(992,0)
   expect(await page.locator('.page-scroll > .thin-scroll-area').evaluate(el=>el.scrollHeight-el.clientHeight)).toBeLessThan(2)

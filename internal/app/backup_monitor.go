@@ -93,6 +93,9 @@ func (a *App) backupMonitor() {
 					continue
 				}
 				active[r.ID] = true
+				if backupHealthPause(st, r) != "" {
+					continue
+				}
 				ctx, cancel := context.WithTimeout(a.ctx, 4*time.Second)
 				digest, err := backupFingerprint(ctx, r, st)
 				cancel()

@@ -10,7 +10,7 @@ test('local CAS generation and persisted named directory navigation', async ({ p
   await page.getByRole('button', { name: '登录工作空间', exact: true }).click()
   await page.getByRole('link', { name: '任务管理', exact: true }).click()
   await page.getByRole('link', { name: 'CAS 任务', exact: true }).click()
-  await page.getByRole('button', { name: '添加任务', exact: true }).click()
+  await page.getByRole('button', { name: '添加 CAS 任务卡片', exact: true }).click()
   await page.getByLabel('任务名称').fill('本地 CAS 哈希')
   await expect(page.getByRole('button', { name: '绑定存储', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '选择目录', exact: true })).toBeEnabled()

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, state, reload, notify, notices, bytes } from './lib'
 import Icon from './components/Icon.vue'
@@ -10,6 +10,7 @@ import { audioSession, closeAudio } from './audio-session'
 import { embyNoticeDisplay, noticeTime } from './library-notices'
 import ShareTransfer from './components/ShareTransfer.vue'
 import { watchShareClipboard } from './share-clipboard'
+import { clipboardEnabled, clipboardStatus } from './clipboard-settings'
 import { replacementJobs, refreshReplacementNotices } from './replacement-notices'
 import { recentNotices, noticeResult } from './task-notices'
 import ProviderIcon from './components/ProviderIcon.vue'
@@ -36,13 +37,20 @@ import TransferSettings from './components/TransferSettings.vue'
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
 const clipboardShare = ref(null)
+let clipboardQueue = [], clipboardGeneration = 0
+async function nextClipboardShare() {
+  const generation = clipboardGeneration
+  clipboardShare.value = null
+  await nextTick()
+  if (generation === clipboardGeneration && state.authenticated) clipboardShare.value = clipboardQueue.shift() || null
+}
 watch(() => [state.authenticated, state.username], () => closeAudio(), { flush: 'sync' })
 let stopClipboard
-watch(() => [state.loaded && state.authenticated, state.username], ([ready]) => {
-  stopClipboard?.(); clipboardShare.value = null
-  if (ready) stopClipboard = watchShareClipboard({ ready: () => state.loaded && state.authenticated, open: share => { clipboardShare.value = share; closeMenus() }, blocked: reason => notify(reason === 'insecure' ? '自动监听剪贴板需要 HTTPS 或 localhost；当前页面可按 Ctrl+V 粘贴分享链接。' : '请允许浏览器读取剪贴板；也可按 Ctrl+V 粘贴分享链接。', true) })
-}, { flush: 'post' })
-function listenShares() { closeMenus(); window.dispatchEvent(new Event('aether:listen-shares')) }
+watch(() => [state.loaded && state.authenticated, state.username, clipboardEnabled.value], ([ready, , enabled]) => {
+  stopClipboard?.(); clipboardGeneration++; clipboardQueue = []; clipboardShare.value = null
+  clipboardStatus.value = 'unknown'
+  if (ready && enabled) stopClipboard = watchShareClipboard({ ready: () => state.loaded && state.authenticated && clipboardEnabled.value && !clipboardQueue.length && !clipboardShare.value, open: share => { clipboardQueue = [...share.batches]; clipboardShare.value = clipboardQueue.shift(); closeMenus() }, status: value => { clipboardStatus.value = value }, blocked: reason => notify(reason === 'insecure' ? '自动监听剪贴板需要 HTTPS 或 localhost；当前页面可按 Ctrl+V 粘贴分享链接。' : reason === 'unavailable' ? '当前浏览器不支持自动读取剪贴板，可按 Ctrl+V 粘贴分享链接。' : '请允许浏览器读取剪贴板；也可按 Ctrl+V 粘贴分享链接。', true) })
+}, { flush: 'sync' })
 const theme = ref(localStorage.getItem('aether-theme') || 'light')
 const themes = [{ id: 'light', label: '日光', icon: 'Sun' }, { id: 'dark', label: '夜间', icon: 'Moon' }, { id: 'system', label: '跟随系统', icon: 'Monitor' }]
 const activeTheme = computed(() => themes.find(t => t.id === theme.value) || themes[0])
@@ -53,7 +61,7 @@ watch(theme, () => { localStorage.setItem('aether-theme', theme.value); applyThe
 applyTheme()
 const navigation = [
   { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
-  { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'ArrowLeftRight' },
+  { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
   { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
@@ -158,15 +166,15 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
           </div>
           <div class="account-control" @click.stop>
             <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>
-            <div v-if="accountMenu" class="account-dropdown"><button @click="router.push('/settings/account'); closeMenus()"><Icon name="UserRound" :size="22" />账号设置</button><button @click="listenShares"><Icon name="Share2" :size="22" />监听分享链接</button><button @click="router.push('/settings/about'); closeMenus()"><Icon name="Info" :size="22" />关于以太</button><button @click="logout"><Icon name="LogOut" :size="22" />退出登录</button></div>
+            <div v-if="accountMenu" class="account-dropdown"><button @click="router.push('/settings/account'); closeMenus()"><Icon name="UserRound" :size="22" />账号设置</button><button @click="router.push('/settings/about'); closeMenus()"><Icon name="Info" :size="22" />关于以太</button><button @click="logout"><Icon name="LogOut" :size="22" />退出登录</button></div>
           </div>
         </div>
       </header>
-      <ThinScroll class="page-scroll" :thickness="currentPath === '/logs' || currentPath.startsWith('/tasks') || currentPath === '/files' ? 5 : 3" :key="currentPath">
+      <ThinScroll class="page-scroll" :thickness="7" :key="currentPath">
       <main class="page-content">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />
-        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
+        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k','/tasks/ed2k/pool', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />
         <template v-else-if="currentPath === '/transfer/backup/settings'"><section class="task-heading"><button class="btn" @click="router.push('/transfer/backup')"><Icon name="ArrowLeft" />返回备份规则</button></section><TransferSettings mode="backup" /></template>
         <TransfersPage v-else-if="currentPath.startsWith('/transfer') || currentPath === '/backup'" :rules="currentPath === '/transfer/backup' || currentPath === '/backup'" />
@@ -178,8 +186,9 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <AutomationPage v-else-if="currentPath === '/tasks/automation'" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
         <CASPoolPage v-else-if="currentPath === '/tasks/cas/pool'" />
+        <CASPoolPage v-else-if="currentPath === '/tasks/ed2k/pool'" kind="ed2k" />
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
-        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : 'account'" />
+        <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : currentPath.endsWith('strm')?'strm':'account'" />
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
         <LogsPage v-else-if="currentPath === '/logs'" />
@@ -189,7 +198,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
       </ThinScroll>
     </div>
   </div>
-  <ShareTransfer v-if="clipboardShare && state.authenticated" :provider="clipboardShare.provider" :initial-links="clipboardShare.links" @close="clipboardShare = null" />
+  <ShareTransfer v-if="clipboardShare && state.authenticated" :provider="clipboardShare.provider" :initial-links="clipboardShare.links" @close="nextClipboardShare" />
   <AudioPlayer v-if="audioSession.file && state.authenticated" :file="audioSession.file" :queue="audioSession.queue" :activation="audioSession.activation" @change="audioSession.file = $event" @close="closeAudio" />
   <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : n.progress !== undefined && n.progress < 1 ? 'LoaderCircle' : 'Check'" :size="15" /></span><span>{{ n.message }}<progress v-if="n.progress !== undefined" :value="n.progress" max="1" aria-label="转存提交进度" style="display:block;width:100%;height:4px;margin-top:6px;accent-color:var(--primary)" /></span><button class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>
 </template>

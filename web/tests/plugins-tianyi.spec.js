@@ -31,7 +31,7 @@ test('TMDB AI proxy and Emby plugins have working forms and actions', async ({ p
   await page.getByLabel('API 密钥', { exact: true }).fill('tmdb-secret')
   await expect(page.getByLabel('请求间隔', { exact: true })).toHaveValue('250')
   const control = page.getByLabel('请求间隔', { exact: true }).locator('..')
-  await expect(control.locator('.number-unit')).toHaveCSS('font-size', '14px')
+  await expect(control.locator('.number-unit')).toHaveCSS('font-size', await page.getByLabel('请求间隔', { exact: true }).evaluate(el => getComputedStyle(el).fontSize))
   await page.getByLabel('请求间隔', { exact: true }).hover()
   await expect(control.locator('.number-unit')).toHaveCSS('opacity', '1')
   await control.locator('.number-accessory').hover()

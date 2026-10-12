@@ -89,7 +89,7 @@ test('scrape selection keeps separated shift ranges, Dock confirms and Esc exits
   await page.screenshot({path:info.outputPath('match-candidates.png')})
   await dialog.getByRole('button',{name:'确认匹配'}).click()
   await expect(cards.first().locator('.scrape-poster img')).toBeVisible({timeout:10000})
-  await cards.first().hover();await expect(cards.first().locator('.scrape-actions')).toHaveCSS('opacity','1')
+  await cards.first().hover();await expect(cards.first().locator('.scrape-actions button').first()).toHaveCSS('opacity','1')
   await page.screenshot({path:info.outputPath('selected-poster.png')})
   await page.setViewportSize({width:390,height:844});await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await expect(page.getByRole('button',{name:'刷新刮削索引'})).toBeEnabled({timeout:10000})

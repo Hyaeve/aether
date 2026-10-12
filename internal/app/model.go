@@ -48,6 +48,7 @@ type MountConfig struct {
 }
 
 type Task struct {
+	HealthPause        string           `json:"healthPause,omitempty"`
 	ScrapeExcluded     bool             `json:"scrapeExcluded,omitempty"`
 	RetainedExtensions *string          `json:"retainedExtensions,omitempty"`
 	ED2KBindingID      string           `json:"ed2kBindingId,omitempty"`
@@ -90,6 +91,8 @@ type DirectoryCrumb struct {
 }
 
 type Settings struct {
+	STRMURL          string `json:"strmURL,omitempty"`
+	STRM115Format    string `json:"strm115Format,omitempty"`
 	LogDays          int    `json:"logDays"`
 	LogMaxEntries    int    `json:"logMaxEntries"`
 	SessionDays      int    `json:"sessionDays"`
@@ -112,6 +115,11 @@ type LogEntry struct {
 }
 
 type State struct {
+	ED2KPool         ED2KPoolConfig             `json:"ed2kPool"`
+	ED2KPoolVersion  int                        `json:"ed2kPoolVersion,omitempty"`
+	ED2KTemporary    []ED2KTemporary            `json:"ed2kTemporary,omitempty"`
+	ED2KStats        CASRestoreStats            `json:"ed2kStats"`
+	GenerationJobs   []GenerationJob            `json:"generationJobs,omitempty"`
 	TransferSettings TransferSettings           `json:"transferSettings"`
 	BackupResources  BackupResources            `json:"backupResources"`
 	TransferVersion  int                        `json:"transferVersion,omitempty"`

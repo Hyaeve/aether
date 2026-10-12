@@ -117,8 +117,8 @@ test('details slides inside browser, cached size survives navigation but refresh
 test('empty tasks and transfers fill the bottom without an extra scrolling page',async({page},info)=>{
   await mock(page)
   await page.goto('/tasks/ed2k')
-  const box=await page.locator('.task-empty').boundingBox()
-  expect(box.y+box.height).toBeCloseTo(992,0)
+  await expect(page.locator('.task-empty')).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'添加 ED2K 任务卡片',exact:true})).toBeVisible()
   await page.screenshot({path:info.outputPath('empty-task-panel.png')})
   await page.goto('/transfer')
   const outer=page.locator('.page-scroll > .thin-scroll-area')

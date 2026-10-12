@@ -29,7 +29,7 @@ test('new plugins open from tools and STRM replacement reaches activity', async 
   await expect(page.getByRole('heading', { name: '115 同播复制', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'STRM 替换', exact: true }).click()
-  await page.getByLabel('容器目录', { exact: true }).fill('/media')
+  await page.getByLabel('替换目录', { exact: true }).fill('/media')
   await page.getByLabel('匹配字段', { exact: true }).fill('old.example')
   await page.getByLabel('替换字段', { exact: true }).fill('new.example')
   await page.getByRole('button', { name: '执行替换', exact: true }).click()

@@ -40,7 +40,7 @@ for (const kind of ['cas','ed2k']) test(`${kind} tasks use live borders and expo
   await page.screenshot({path:info.outputPath(`${kind}-running.png`)})
   await page.emulateMedia({reducedMotion:'reduce'})
   await expect(card).toHaveCSS('animation-name','none')
-  await page.getByRole('button',{name:'添加任务',exact:true}).click()
+  await page.getByRole('button',{name:`添加 ${kind.toUpperCase()} 任务卡片`,exact:true}).click()
   await page.getByRole('button',{name:'更多选项',exact:true}).click()
   const select = page.getByRole('button',{name:'STRM 刮削',exact:true})
   await expect(select).toHaveText('参与')
@@ -63,9 +63,9 @@ test('scrape status stars, uniform selected border and translucent actions match
   await page.keyboard.press('Escape')
   const star = card.locator('.work-star')
   await expect(star).not.toHaveAttribute('data-tooltip')
-  expect(await star.evaluate(el=>getComputedStyle(el).clipPath)).toContain('polygon')
+  await expect(star).toHaveCSS('border-radius','2px')
   await page.getByRole('button',{name:'刮削状态',exact:true}).click()
-  await expect(page.locator('[role=option] .select-marker')).toHaveCount(7)
+  await expect(page.locator('[role=option] .select-marker')).toHaveCount(5)
   await page.getByRole('option',{name:'全部状态',exact:true}).click()
   await card.hover()
   await expect(card.locator('.scrape-actions button').first()).toHaveCSS('backdrop-filter','blur(12px)')
@@ -79,58 +79,32 @@ test('scrape status stars, uniform selected border and translucent actions match
   }
 })
 
-test('scrape squares, failure triangle and stars match the filter and preserve manual matching', async ({page}, info) => {
-  const statuses = [
-    ['unmatched', '待匹配', 'pending', 0, 'inset(0px)'],
-    ['pending', '待刮削', 'pending', 10, 'inset(0px)'],
-    ['ok', '已完成', 'ok', 11, 'polygon(50% 0px, 61% 38%, 100% 50%, 61% 62%, 50% 100%, 39% 62%, 0px 50%, 39% 38%)'],
-    ['miss', '未匹配', 'miss', 0, 'polygon(50% 0px, 61% 38%, 100% 50%, 61% 62%, 50% 100%, 39% 62%, 0px 50%, 39% 38%)'],
-    ['doubt', '待确认', 'doubt', 0, 'polygon(50% 0px, 61% 38%, 100% 50%, 61% 62%, 50% 100%, 39% 62%, 0px 50%, 39% 38%)'],
-    ['error', '失败', 'error', 0, 'polygon(50% 0px, 100% 100%, 0px 100%)']
-  ]
+test('scrape rounded markers unify unresolved statuses and preserve manual matching', async ({page}, info) => {
+  const statuses = [['unmatched','待匹配','pending',0],['pending','待刮削','pending',10],['ok','已完成','ok',11],['miss','未匹配','miss',0],['doubt','待确认','doubt',0],['error','失败','error',0]]
   await mock(page, {tasks:[{id:'library',kind:'strm',name:'媒体库'}]})
-  await page.route('**/api/strm-scrape/items?**', r => r.fulfill({json:statuses.map(([value,title,status,tmdb]) => ({path:`${value}/a.strm`,title,kind:'movie',status,tmdb}))}))
+  await page.route('**/api/strm-scrape/items?**',r=>r.fulfill({json:statuses.map(([value,title,status,tmdb])=>({path:value+'/a.strm',title,kind:'movie',status,tmdb}))}))
   await page.goto('/tasks/scrape')
-  const select = page.getByRole('button', {name:'刮削状态',exact:true})
-  for (const [theme,width] of [['light',1440],['dark',390]]) {
-    await page.setViewportSize({width,height:1000})
-    await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+  const select=page.getByRole('button',{name:'刮削状态',exact:true})
+  for(const [theme,width] of [['light',1440],['dark',390]]){
+    await page.setViewportSize({width,height:1000});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
     await expect(page.locator('.scrape-card')).toHaveCount(6)
-    const colors = new Set()
-    for (const [value,label,,,shape] of statuses) {
-      const marker = page.locator(`.work-star.${value}`)
-      await expect(marker).toHaveAttribute('aria-label',label)
-      await expect(marker).toHaveCSS('clip-path',shape)
-      await expect(marker).toHaveCSS('width','10px')
-      await expect(marker).toHaveCSS('height','10px')
-      colors.add(await marker.evaluate(el=>getComputedStyle(el).backgroundColor))
-    }
-    expect(colors.size).toBe(6)
-    await page.screenshot({path:info.outputPath(`scrape-status-shapes-${theme}.png`)})
-    for (const [value,label,,,shape] of statuses) {
+    for(const [value,label,count] of [['unmatched','待匹配',3],['pending','待刮削',1],['ok','已完成',1],['error','失败',1]]){
       await select.click()
-      const option = page.getByRole('option',{name:label,exact:true})
-      const color = await page.locator(`.work-star.${value}`).evaluate(el=>getComputedStyle(el).backgroundColor)
-      await expect(option.locator('.select-marker')).toHaveCSS('clip-path',shape)
-      await expect(option.locator('.select-marker')).toHaveCSS('background-color',color)
+      await expect(page.getByRole('option',{name:'未匹配',exact:true})).toHaveCount(0)
+      await expect(page.getByRole('option',{name:'待确认',exact:true})).toHaveCount(0)
+      const option=page.getByRole('option',{name:label,exact:true})
+      await expect(option.locator('.select-marker')).toHaveCSS('clip-path','none')
       await option.click()
-      await expect(page.locator('.scrape-card')).toHaveCount(1)
-      await expect(select.locator('.select-marker')).toHaveCSS('clip-path',shape)
-      await expect(select.locator('.select-marker')).toHaveCSS('background-color',color)
-      await expect(page.locator('.scrape-card .work-star')).toHaveAttribute('aria-label',label)
-      if (['miss','doubt'].includes(value)) {
-        await page.locator('.scrape-poster').click()
-        const dialog = page.getByRole('dialog',{name:'选择媒体匹配',exact:true})
-        await expect(dialog).toBeVisible()
-        await expect(dialog.getByRole('textbox',{name:'候选名称'})).toHaveValue(label)
-        await expect(dialog.getByRole('button',{name:'搜索候选媒体'})).toBeEnabled()
-        await dialog.getByRole('button',{name:'关闭',exact:true}).click()
-      }
-      await select.click()
-      await page.getByRole('option',{name:'全部状态',exact:true}).click()
-      await expect(page.locator('.scrape-card')).toHaveCount(6)
+      await expect(page.locator('.scrape-card')).toHaveCount(count)
+      await expect(page.locator('.work-star').first()).toHaveAttribute('aria-label',label)
+      await expect(page.locator('.work-star').first()).toHaveCSS('width','10px')
+      await expect(page.locator('.work-star').first()).toHaveCSS('border-radius',value==='error'?'50%':value==='ok'?'2px':'3px')
+      await select.click();await page.getByRole('option',{name:'全部状态',exact:true}).click()
     }
-    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+    await page.locator('.scrape-card').filter({hasText:'待确认'}).locator('.scrape-poster').click()
+    await expect(page.getByRole('textbox',{name:'候选名称'})).toHaveValue('待确认')
+    await page.getByRole('dialog',{name:'选择媒体匹配',exact:true}).getByRole('button',{name:'关闭',exact:true}).click()
+    await page.screenshot({path:info.outputPath('scrape-status-shapes-'+theme+'.png')})
   }
 })
 

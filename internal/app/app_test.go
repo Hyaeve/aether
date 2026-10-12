@@ -212,11 +212,8 @@ func TestSTRMGenerationFilteringAndIncremental(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(content), a.store.snapshot().Settings.PublicURL+"/stream/") {
-		t.Fatal("stream does not reuse port")
-	}
-	if !strings.Contains(string(content), "?sign=") {
-		t.Fatal("stream not signed")
+	if strings.TrimSpace(string(content)) != filepath.Join(s.Config["root"], "Film.MP4") {
+		t.Fatal("local STRM must use the physical source path", string(content))
 	}
 	task.Mode = "incremental"
 	writeTest(t, filename, "preserved")

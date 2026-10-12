@@ -5,6 +5,7 @@ test('file alignment, ED2K tab, mount metadata and virtual playback', async ({ p
   const events = Array.from({ length: 2000 }, (_, i) => ({ time: '2026-10-07T15:00:00+08:00', upstream: 'library', outcome: 'redirect', target: `https://example.com/file-${i}`, userAgent: `Player ${i}`, client: '2001:db8::1', durationMs: 123 }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'polish', storages, tasks: [], settings: {}, cache: {}, traffic: {}, logs: [] } }))
+  await page.route('**/api/generation/jobs', r => r.fulfill({ json: [] }))
   await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '/book', name: 'Book', isDir: true }] }))
   await page.route('**/api/links', r => r.fulfill({ json: [{ id: 'library', name: '四字上游', type: 'emby', enabled: true }] }))
   await page.route('**/api/link-playback', r => r.fulfill({ json: { recentEvents: events } }))

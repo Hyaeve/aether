@@ -8,6 +8,7 @@ const links = {
 }
 const storages = ['115', 'quark', 'mobile'].map(type => ({ id:type, type, name:`${type}资料`, enabled:true, config:{mode:'native'} }))
 async function base(page, extra = {}) {
+  await page.addInitScript(()=>{localStorage.setItem('aether-clipboard-enabled:clipboard-ui','true');localStorage.setItem('aether-clipboard-enabled:clipboard-ui:consent','1')})
   await page.route('**/api/auth/status', r => r.fulfill({json:{initialized:true,authenticated:true}}))
   await page.route('**/api/state', r => r.fulfill({json:{username:'clipboard-ui',storages,tasks:[],settings:{},cache:{},...extra}}))
   await page.route('**/api/plugins/**', r => r.fulfill({json:{}}))
@@ -15,7 +16,7 @@ async function base(page, extra = {}) {
 }
 
 test('clipboard parser accepts exact share hosts and preserves passwords', () => {
-  for (const [provider, url] of Object.entries(links)) expect(clipboardShares(`[${url}](${url})`)).toEqual({provider,links:url})
+  for (const [provider, url] of Object.entries(links)) expect(clipboardShares(`[${url}](${url})`)).toEqual({provider,links:url,batches:[{provider,links:url}]})
   for (const url of ['https://115cdn.com.attacker.test/s/abc', 'https://user:secret@115cdn.com/s/abc', 'https://pan.quark.cn/file/123', 'https://yun.139.com/', 'http://115cdn.com/s/abc']) expect(clipboardShares(url)).toBeNull()
   expect(clipboardShares('普通文字')).toBeNull()
   expect(clipboardShares('a'.repeat(200001))).toBeNull()
@@ -39,6 +40,150 @@ test('clipboard polls while focused and detects all providers without another cl
   }
 })
 
+test('mixed clipboard batches preserve passwords and advance on cancel, submit and close', async ({page},info) => {
+  await page.addInitScript(() => {
+    window.shareText = ''
+    Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>window.shareText}})
+    Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'granted'})}})
+  })
+  await base(page)
+  const submitted=[]
+  await page.route('**/api/files/share/*',r=>{
+    const body=r.request().postDataJSON()
+    if(r.request().url().endsWith('/preview')) { submitted.push(body);return r.fulfill({json:{preview:'batch',batches:1}}) }
+    return r.fulfill({json:{status:'submitted'}})
+  })
+  await page.goto('/storage')
+  const shares={
+    '115':Array.from({length:2},(_,i)=>`https://115cdn.com/s/test${i} 提取码: a00${i}`),
+    mobile:Array.from({length:3},(_,i)=>`https://yun.139.com/shareweb/#/w/i/test${i} 提取码: b00${i}`),
+    quark:Array.from({length:5},(_,i)=>`https://pan.quark.cn/s/test${i} 提取码: c00${i}`)
+  }
+  const mixed=[shares.quark[0],shares.mobile[0],shares['115'][0],shares.quark[1],shares.mobile[1],shares.quark[2],shares['115'][1],shares.quark[3],shares.mobile[2],shares.quark[4]].join('\n').replaceAll(' 提取码:', '\n提取码:')
+  await page.evaluate(text=>{window.shareText=text;window.dispatchEvent(new Event('focus'))},mixed)
+  const modal=page.getByRole('dialog',{name:'分享转存',exact:true})
+  await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText('115资料')
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(shares['115'].join('\n'))
+  await expect(modal.locator('.share-link-editor mark')).toHaveCount(2)
+  await modal.getByRole('button',{name:'取消',exact:true}).click()
+  await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText('mobile资料')
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(shares.mobile.join('\n'))
+  for(const [theme,width] of [['light',1440],['dark',390]]){
+    await page.setViewportSize({width,height:844});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+    await expect(modal.locator('.share-link-editor mark')).toHaveCount(3)
+    expect(await modal.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+    await page.screenshot({path:info.outputPath('passwords-'+theme+'.png')})
+  }
+  await modal.getByRole('button',{name:'开始转存',exact:true}).click()
+  await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText('quark资料')
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(shares.quark.join('\n'))
+  await expect.poll(()=>submitted.length).toBe(3)
+  expect(submitted.map(body=>body.url)).toEqual(shares.mobile)
+  expect(submitted.every(body=>body.storageId==='mobile')).toBe(true)
+  await modal.getByRole('button',{name:'关闭',exact:true}).click()
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+  await expect(modal).toHaveCount(0)
+  await page.waitForTimeout(1700)
+  await expect(modal).toHaveCount(0)
+})
+
+test('returning to focus reads new clipboard even when an input retained focus',async({page})=>{
+  await page.addInitScript(()=>{
+    window.shareText='';window.clipboardReads=0
+    Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>{window.clipboardReads++;return window.shareText}}})
+    Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'granted'})}})
+    window.pageFocused=true
+    Object.defineProperty(document,'hasFocus',{value:()=>window.pageFocused})
+  })
+  await base(page)
+  await page.route('**/api/files?**',r=>r.fulfill({json:[]}))
+  await page.goto('/files?storage=mobile')
+  await expect.poll(()=>page.evaluate(()=>window.clipboardReads)).toBeGreaterThan(0)
+  await page.locator('.files-heading-actions input').focus()
+  // Headless Chromium keeps every tab focused; model the OS focus boundary explicitly.
+  await page.evaluate(()=>{window.pageFocused=false;window.dispatchEvent(new Event('blur'))})
+  await expect.poll(()=>page.evaluate(()=>document.hasFocus())).toBe(false)
+  const reads=await page.evaluate(()=>window.clipboardReads)
+  await page.evaluate(()=>{window.shareText='链接: https://yun.139.com/shareweb/#/w/i/2ygb7gk5b1gfy\n提取码: x2ol'})
+  await page.waitForTimeout(1700)
+  expect(await page.evaluate(()=>window.clipboardReads)).toBe(reads)
+  await page.evaluate(()=>{window.pageFocused=true;window.dispatchEvent(new Event('focus'))})
+  const modal=page.getByRole('dialog',{name:'分享转存',exact:true})
+  await expect(modal).toBeVisible()
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue('https://yun.139.com/shareweb/#/w/i/2ygb7gk5b1gfy 提取码: x2ol')
+  await expect(modal.locator('mark')).toHaveText('提取码: x2ol')
+})
+
+test('focus resume can read after a previous quiet permission denial',async({page})=>{
+  await page.addInitScript(()=>{
+    window.allowClipboard=false;window.shareText='';window.reads=0
+    Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'prompt'})}})
+    Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>{window.reads++;if(!window.allowClipboard)throw new DOMException('Denied','NotAllowedError');return window.shareText}}})
+  })
+  await base(page);await page.goto('/storage')
+  await page.getByRole('button',{name:'任务通知',exact:true}).click()
+  await page.getByRole('button',{name:'任务通知',exact:true}).click()
+  await expect.poll(()=>page.evaluate(()=>window.reads)).toBe(1)
+  await page.evaluate(()=>{window.allowClipboard=true;window.shareText='https://pan.quark.cn/s/new123\n提取码: Ab12';window.dispatchEvent(new Event('focus'))})
+  await expect(page.getByRole('dialog',{name:'分享转存'}).getByRole('textbox',{name:'分享链接'})).toHaveValue('https://pan.quark.cn/s/new123 提取码: Ab12')
+})
+
+test('changes in later provider batches are not hidden by deduplication',async({page})=>{
+  await page.addInitScript(()=>{
+    window.shareText=''
+    Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>window.shareText}})
+    Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'granted'})}})
+  })
+  await base(page);await page.goto('/storage')
+  const modal=page.getByRole('dialog',{name:'分享转存'})
+  for(const password of ['Ab12','Cd34']){
+    await page.evaluate(code=>{window.shareText=`https://115cdn.com/s/one\nhttps://pan.quark.cn/s/two 提取码: ${code}`;window.dispatchEvent(new Event('focus'))},password)
+    await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText('115资料')
+    await modal.getByRole('button',{name:'取消',exact:true}).click()
+    await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(`https://pan.quark.cn/s/two 提取码: ${password}`)
+    await modal.getByRole('button',{name:'取消',exact:true}).click()
+    await expect(modal).toHaveCount(0)
+  }
+})
+
+test('over fifty shares advance through same-provider windows without dropping entries',async({page})=>{
+  await page.addInitScript(()=>{
+    window.shareText=''
+    Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>window.shareText}})
+    Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'granted'})}})
+  })
+  await base(page);await page.goto('/storage')
+  const lines=Array.from({length:51},(_,i)=>`https://pan.quark.cn/s/test${i} 提取码: Ab12`)
+  await page.evaluate(text=>{window.shareText=text;window.dispatchEvent(new Event('focus'))},lines.join('\n'))
+  const modal=page.getByRole('dialog',{name:'分享转存'})
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(lines.slice(0,50).join('\n'))
+  await page.keyboard.press('Escape')
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(lines[50])
+  await page.keyboard.press('Escape')
+  await expect(modal).toHaveCount(0)
+})
+
+test('password highlighting follows editing and scrolling, while conflicting codes block submit',async({page},info)=>{
+  await base(page)
+  await page.route('**/api/files?**',r=>r.fulfill({json:[]}))
+  await page.goto('/files?storage=mobile')
+  await page.getByRole('button',{name:'工具',exact:true}).click()
+  await page.getByRole('menuitem',{name:'分享转存',exact:true}).click()
+  const modal=page.getByRole('dialog',{name:'分享转存',exact:true}), input=modal.getByRole('textbox',{name:'分享链接'})
+  const lines=Array.from({length:20},(_,i)=>`https://yun.139.com/shareweb/#/w/i/test${i}\n提取码: x2ol`).join('\n')
+  await input.fill(lines)
+  await expect(modal.locator('mark')).toHaveCount(20)
+  await input.evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new Event('scroll'))})
+  await expect.poll(()=>modal.locator('.share-link-editor').evaluate(el=>Math.abs(el.querySelector('pre').scrollTop-el.querySelector('textarea').scrollTop))).toBeLessThan(2)
+  await page.screenshot({path:info.outputPath('password-editor-scrolled.png')})
+  await input.fill('https://yun.139.com/shareweb/?password=abcd#/w/i/test\n提取码: efgh')
+  await expect(modal.getByRole('button',{name:'开始转存',exact:true})).toBeDisabled()
+  await expect(modal.getByRole('alert')).toContainText('不同提取码')
+  await input.fill('https://yun.139.com/shareweb/#/w/i/test\n提取码: Ab12')
+  await expect(modal.getByRole('button',{name:'开始转存',exact:true})).toBeEnabled()
+  await expect(modal.locator('mark')).toHaveText('提取码: Ab12')
+})
+
 test('clipboard authorization can be retried explicitly', async ({page},info) => {
   await page.addInitScript(() => {
     window.allowClipboard=false; window.shareText='https://pan.quark.cn/s/33702e8b82b9'
@@ -50,23 +195,23 @@ test('clipboard authorization can be retried explicitly', async ({page},info) =>
   })
   await base(page); await page.goto('/storage')
   await page.getByRole('button',{name:'账号菜单'}).click()
-  await page.getByRole('button',{name:'监听分享链接',exact:true}).click()
+  await page.getByRole('button',{name:'账号设置',exact:true}).click()
+  await page.getByRole('button',{name:'授权剪贴板',exact:true}).click()
   await expect(page.locator('.toast').filter({hasText:'请允许浏览器读取剪贴板'})).toBeVisible()
   await page.evaluate(()=>{window.allowClipboard=true})
-  await page.getByRole('button',{name:'账号菜单'}).click()
-  await page.getByRole('button',{name:'监听分享链接',exact:true}).click()
+  await page.getByRole('button',{name:'授权剪贴板',exact:true}).click()
   await expect(page.getByRole('dialog',{name:'分享转存',exact:true})).toBeVisible()
   await page.getByRole('dialog',{name:'分享转存',exact:true}).getByRole('button',{name:'取消',exact:true}).click()
-  await page.getByRole('button',{name:'账号菜单'}).click()
-  await page.screenshot({path:info.outputPath('share-listener-menu.png')})
+  await page.screenshot({path:info.outputPath('share-listener-settings.png')})
 })
 
 test('unavailable clipboard explains secure-context restriction', async ({page}) => {
   await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:undefined}))
   await base(page);await page.goto('/storage')
   await page.getByRole('button',{name:'账号菜单'}).click()
-  await page.getByRole('button',{name:'监听分享链接',exact:true}).click()
-  await expect(page.locator('.toast').filter({hasText:'自动监听剪贴板需要 HTTPS 或 localhost'})).toBeVisible()
+  await page.getByRole('button',{name:'账号设置',exact:true}).click()
+  await expect(page.getByRole('button',{name:'授权剪贴板',exact:true})).toBeDisabled()
+  await expect(page.locator('.clipboard-setting [role=status]')).toHaveText('当前浏览器仅支持主动粘贴')
 })
 
 test('authorized clipboard opens matching share modal once and never submits automatically', async ({page},info) => {

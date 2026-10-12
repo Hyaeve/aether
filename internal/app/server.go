@@ -29,21 +29,25 @@ import (
 )
 
 type App struct {
-	thumbnails       *thumbnailService
-	usageMu          sync.Mutex
-	usageCache       map[string]*storageUsageEntry
-	healthMu         sync.Mutex
-	healthChecks     map[string]*storageHealthCheck
-	backupMu         sync.Mutex
-	textMu           sync.Mutex
-	backupRuns       map[string]context.CancelFunc
-	automationMu     sync.Mutex
-	automationRuns   map[string]context.CancelFunc
-	fuseReadOnce     sync.Once
-	fuseReadRevision atomic.Uint64
-	fuseReads        *fuseReadCache
-	mountReadMu      sync.Mutex
-	mountReadPools   map[string]*mountReadPool
+	taskHealthCancels   map[string]func()
+	backupHealthCancels map[string]func()
+	generationMu        sync.Mutex
+	generationPreviewMu sync.Mutex
+	thumbnails          *thumbnailService
+	usageMu             sync.Mutex
+	usageCache          map[string]*storageUsageEntry
+	healthMu            sync.Mutex
+	healthChecks        map[string]*storageHealthCheck
+	backupMu            sync.Mutex
+	textMu              sync.Mutex
+	backupRuns          map[string]context.CancelFunc
+	automationMu        sync.Mutex
+	automationRuns      map[string]context.CancelFunc
+	fuseReadOnce        sync.Once
+	fuseReadRevision    atomic.Uint64
+	fuseReads           *fuseReadCache
+	mountReadMu         sync.Mutex
+	mountReadPools      map[string]*mountReadPool
 
 	simulcast      *pan115Simulcast
 	transfers      transferLog
@@ -277,6 +281,12 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("GET /api/cas/status", a.protected(http.HandlerFunc(a.casStatus)))
 	mux.Handle("POST /api/cas/cleanup", a.protected(http.HandlerFunc(a.casCleanup)))
 	mux.Handle("/api/cas/pool", a.protected(http.HandlerFunc(a.casPoolSettings)))
+	mux.Handle("/api/ed2k/pool", a.protected(http.HandlerFunc(a.ed2kPoolSettings)))
+	mux.Handle("GET /api/ed2k/status", a.protected(http.HandlerFunc(a.ed2kStatus)))
+	mux.Handle("POST /api/ed2k/cleanup", a.protected(http.HandlerFunc(a.ed2kCleanup)))
+	mux.Handle("POST /api/generation/preview", a.protected(http.HandlerFunc(a.generationPreview)))
+	mux.Handle("/api/generation/jobs", a.protected(http.HandlerFunc(a.generationJobs)))
+	mux.Handle("/api/strm/settings", a.protected(http.HandlerFunc(a.strmSettings)))
 	mux.Handle("GET /api/version", a.protected(http.HandlerFunc(a.version)))
 	mux.Handle("GET /api/version/check", a.protected(http.HandlerFunc(a.checkVersion)))
 	mux.Handle("POST /api/authorization/{provider}/start", a.protected(http.HandlerFunc(a.startAuthorization)))
@@ -358,7 +368,8 @@ func (a *App) Handler(webDir string) http.Handler {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 	})))
 	mux.HandleFunc("/stream/{token}", a.stream)
-	mux.HandleFunc("/d/{key}", a.playSTRMReference)
+	mux.HandleFunc("/d/{account}/{key}", a.playSTRMReference)
+	mux.HandleFunc("/d/{key}", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("/api/strm/play/{storage}/{file}/t/{signature}/n/{name}", a.playSTRMReference)
 	mux.HandleFunc("/dav", a.serveDAV)
 	mux.HandleFunc("/dav/", a.serveDAV)
@@ -562,6 +573,9 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := a.store.snapshotWithLogLimit(30)
+	for i := range st.Tasks {
+		st.Tasks[i].HealthPause = taskHealthPause(st, st.Tasks[i])
+	}
 	for i := range st.Storages {
 		if st.Storages[i].Usage != nil && st.Storages[i].Usage.Stamp != storageRevision(st.Storages[i]) {
 			st.Storages[i].Usage = nil
@@ -646,7 +660,7 @@ func validateStorage(s *Storage) error {
 		if !valid115Device(s.Config["device"]) {
 			return errors.New("无效的 115 CK 设备类型")
 		}
-		if _, err := credential115(s.Config["cookie"]); err != nil {
+		if _, err := account115(*s); err != nil {
 			return err
 		}
 		delete(s.Config, "accessToken")
@@ -727,6 +741,9 @@ func (a *App) storages(w http.ResponseWriter, r *http.Request) {
 	s.ID, s.CreatedAt, s.Status, s.LastError = id(), time.Now(), "unchecked", ""
 	s.Health, s.Usage = nil, nil
 	err := a.store.update(func(st *State) error {
+		if err := unique115Account(s, st.Storages); err != nil {
+			return err
+		}
 		for _, v := range st.Storages {
 			if strings.EqualFold(v.Name, s.Name) {
 				return errors.New("存储池名称已存在")
@@ -855,6 +872,10 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 			if err := validateStorage(&incoming); err != nil {
 				return err
 			}
+			incoming.ID = sid
+			if err := unique115Account(incoming, st.Storages); err != nil {
+				return err
+			}
 			for _, other := range st.Storages {
 				if other.ID != sid && strings.EqualFold(other.Name, incoming.Name) {
 					return errors.New("存储池名称已存在")
@@ -948,6 +969,7 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) validateTask(t *Task) error {
+	t.HealthPause = ""
 	t.Cron = strings.TrimSpace(t.Cron)
 	var extensionErr error
 	if t.RetainedExtensions != nil {
@@ -985,8 +1007,13 @@ func (a *App) validateTask(t *Task) error {
 	case "strm", "cas", "ed2k":
 		if t.Kind == "ed2k" {
 			s, _ := a.store.storage(t.StorageID)
-			if _, err := a.validateED2KBinding(*t, s); err != nil {
-				return err
+			if s.Type != "local" && s.Type != "115" {
+				return errors.New("ED2K 源仅支持本地或115存储")
+			}
+			if t.ED2KBindingID != "" {
+				if _, err := a.validateED2KBinding(*t, s); err != nil {
+					return err
+				}
 			}
 		}
 		if t.Kind == "cas" {
@@ -1147,6 +1174,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Session policy changes go through the account endpoint and rotate sessions.
+	s.STRMURL, s.STRM115Format = a.store.snapshotWithLogLimit(0).Settings.STRMURL, a.store.snapshotWithLogLimit(0).Settings.STRM115Format
 	s.SessionDays = a.store.snapshot().Settings.SessionDays
 	if s.LogDays == 0 {
 		s.LogDays = 15
@@ -1167,7 +1195,11 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("外部访问地址应为 HTTP(S) 源站地址，不能包含子路径或参数"))
 		return
 	}
-	if err := a.store.update(func(st *State) error { st.Settings = s; return nil }); err != nil {
+	if err := a.store.update(func(st *State) error {
+		s.STRMURL, s.STRM115Format = st.Settings.STRMURL, st.Settings.STRM115Format
+		st.Settings = s
+		return nil
+	}); err != nil {
 		fail(w, 500, err)
 		return
 	}
@@ -1261,7 +1293,9 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var s Storage
-	if claim.CAS != nil && claim.Storage == "" {
+	if claim.ED2K != nil && claim.Storage == "" {
+		s, claim.RetentionHours, err = a.selectED2KStorage(*claim.ED2K, time.Now())
+	} else if claim.CAS != nil && claim.Storage == "" {
 		s, claim.RetentionHours, err = a.selectCASStorage(*claim.CAS, time.Now())
 	} else {
 		s, err = a.store.storage(claim.Storage)
@@ -1274,6 +1308,9 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 	if claim.ED2K != nil {
 		d, err = a.ed2kDownloadWithUA(r.Context(), s, claim, r.UserAgent())
 		if err != nil {
+			if claim.Storage == "" {
+				_ = a.store.update(func(st *State) error { st.ED2KStats.Failed++; return nil })
+			}
 			fail(w, 502, err)
 			return
 		}

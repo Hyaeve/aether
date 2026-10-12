@@ -47,6 +47,21 @@ func (a *App) ed2kBindingStamp(t Task, source, binding Storage) string {
 }
 
 func (a *App) checkED2KClaim(s Storage, claim streamClaim) error {
+	if claim.Storage == "" && claim.ED2K != nil {
+		if err := validED2KInfo(*claim.ED2K); err != nil {
+			return err
+		}
+		st := a.store.snapshotWithLogLimit(0)
+		for _, sid := range requiredED2KPool(st.ED2KPool, st).StorageIDs {
+			if sid == s.ID {
+				current, e := a.store.storage(sid)
+				if e == nil && current.Enabled && current.Type == "115" && ed2kRevision(current) == ed2kRevision(s) {
+					return nil
+				}
+			}
+		}
+		return errors.New("ED2K 绑定池或存储凭据已改变")
+	}
 	i := claim.ED2K
 	if i == nil || claim.TaskID == "" || claim.Storage != s.ID || !safeName(i.Name) || strings.ContainsAny(i.Name, "\r\n|") || i.Size <= 0 || i.Size > 1<<40 {
 		return errors.New("ED2K 播放声明无效")
@@ -154,7 +169,12 @@ func (a *App) ed2kDownloadWithUA(ctx context.Context, s Storage, claim streamCla
 			}
 			defer func() { <-ed2kFolderGate }()
 			// ID 0 is the account root, independent of the configured browsing root.
-			folder, _, err := a.uploadParent(ctx, s, "0", "Aether/ed2k/.placeholder")
+			directory := "Aether/ed2k"
+			if claim.Storage == "" {
+				directory = strings.TrimPrefix(normalizedED2KPool(a.store.snapshotWithLogLimit(0).ED2KPool).Directory, "/")
+				directory += "/ed2k-" + ed2kPoolKey(s, *claim.ED2K)
+			}
+			folder, _, err := a.uploadParent(ctx, s, "0", directory+"/.placeholder")
 			return folder, err
 		},
 		submit: func(ctx context.Context, folder, uri string) (string, error) {
@@ -207,6 +227,13 @@ func (a *App) ed2kDownloadWithUA(ctx context.Context, s Storage, claim streamCla
 func (a *App) ed2kDownloadWith(ctx context.Context, s Storage, claim streamClaim, ops ed2kPlaybackOps) (Download, error) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	pooled := claim.Storage == ""
+	if pooled {
+		if e := a.acquireCAS(ctx); e != nil {
+			return Download{}, e
+		}
+		defer func() { <-a.casGate }()
+	}
 	fail := func(err error) (Download, error) { return Download{}, err }
 	if err := a.checkED2KClaim(s, claim); err != nil {
 		return fail(err)
@@ -226,11 +253,17 @@ func (a *App) ed2kDownloadWith(ctx context.Context, s Storage, claim streamClaim
 	b, _ := json.Marshal([]any{claim.TaskID, info})
 	sum := sha256.Sum256(b)
 	key := hex.EncodeToString(sum[:])
+	if pooled {
+		key = ed2kPoolKey(s, info)
+	}
 	record, err := a.readED2KRecord(key)
 	if err != nil && !os.IsNotExist(err) {
 		return fail(err)
 	}
 	if os.IsNotExist(err) {
+		if pooled && len(a.store.snapshotWithLogLimit(0).ED2KTemporary) >= 10000 {
+			return fail(errors.New("秒传临时文件已达10000项，请先清理"))
+		}
 		folder, err := ops.folder(ctx)
 		if err != nil {
 			return fail(err)
@@ -294,6 +327,27 @@ func (a *App) ed2kDownloadWith(ctx context.Context, s Storage, claim streamClaim
 					}
 					if err := a.checkED2KClaim(s, claim); err != nil {
 						return fail(err)
+					}
+					if pooled {
+						now := time.Now()
+						item := ED2KTemporary{Key: key, StorageID: s.ID, Revision: ed2kRevision(s), Folder: record.Folder, FileID: f.ID, Name: f.Name, Size: f.Size, LastUsed: now, ExpiresAt: now.Add(time.Duration(casRetentionHours(claim.RetentionHours)) * time.Hour)}
+						if e := a.store.update(func(st *State) error {
+							found := false
+							for j, i := range st.ED2KTemporary {
+								if i.Key == key {
+									st.ED2KTemporary[j] = item
+									found = true
+									break
+								}
+							}
+							if !found {
+								st.ED2KTemporary = append(st.ED2KTemporary, item)
+							}
+							st.ED2KStats.Success++
+							return nil
+						}); e != nil {
+							return fail(e)
+						}
 					}
 					return d, nil
 				}

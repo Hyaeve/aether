@@ -58,6 +58,6 @@ onUnmounted(() => {
 .thin-scroll-area::-webkit-scrollbar { display: none !important; }
 .thin-scroll-rail { position: absolute; inset: 0 0 0 auto; width: 8px; pointer-events: none; z-index: 2; }
 .thin-scroll-thumb { width: 8px; position: absolute; right: 0; top: 0; pointer-events: auto; touch-action: none; }
-.thin-scroll-thumb::after { content: ''; position: absolute; right: 1px; inset-block: 0; width: var(--hairline, 1px); border-radius: 4px; background: color-mix(in srgb,var(--text) 42%,transparent); }
+.thin-scroll-thumb::after { content: ''; position: absolute; right: 1px; inset-block: 0; width: var(--hairline, 1px); border-radius: 4px; background: color-mix(in srgb,var(--text) 28%,transparent); }
 .thin-scroll-thumb:hover::after { background: color-mix(in srgb,var(--primary) 60%,transparent); }
 </style>

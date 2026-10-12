@@ -14,7 +14,7 @@ const satellites = []
 let observer, motionPreference, frame = 0, elapsed = 0, previous = 0
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
-let galaxy, spiral, moon, rocks = []
+let galaxy, spiral, moon, rocks = [], nebula, spiralPositions=[]
 let meteorCycle = -1, meteors = []
 const tilt = -18 * Math.PI / 180
 
@@ -42,6 +42,7 @@ function resize() {
     speed: .45 + random() * 1.1, warm: random() > .89
   }))
   buildGalaxy(random, scale)
+  if(!spiralPositions.length)spiralPositions=[[.17,.18],[.2,.83],[.8,.82]].map(([x,y])=>[x+(Math.random()-.5)*.08,y+(Math.random()-.5)*.08, .9+Math.random()*.25,(Math.random()-.5)*.7,Math.random()*6,.016+Math.random()*.012,.9])
   buildMoon(random)
   buildRocks(random)
   paint(elapsed)
@@ -64,6 +65,9 @@ function buildMoon(random) {
 }
 
 function buildGalaxy(random, scale) {
+  nebula=document.createElement('canvas');nebula.width=canvas.value.width;nebula.height=canvas.value.height
+  const cloud=nebula.getContext('2d');cloud.scale(scale,scale)
+  for(let i=0;i<12000;i++) {const t=random(),spread=Math.sqrt(-2*Math.log(Math.max(random(),.0001)))*Math.cos(random()*Math.PI*2),x=width*(.08+t*.86),y=height*(.88+.045*Math.sin(t*18))+spread*height*.045,alpha=.035*Math.exp(-spread*spread*.4);cloud.fillStyle=i%3===0?`rgba(179,137,201,${alpha})`:`rgba(113,164,211,${alpha})`;cloud.fillRect(x,y,1+random()*3,1+random()*2)}
   galaxy = document.createElement('canvas')
   galaxy.width = canvas.value.width
   galaxy.height = canvas.value.height
@@ -186,12 +190,10 @@ function paint(time) {
     ctx.drawImage(galaxy, Math.sin(time * .04) * 5, Math.cos(time * .04) * 3, width, height)
     ctx.restore()
   }
+  if(nebula){ctx.save();ctx.globalAlpha=.75+Math.sin(time*.055)*.1;ctx.drawImage(nebula,Math.sin(time*.016)*4,0,width,height);ctx.restore()}
   if (spiral) {
-    for (const [x, y, size, inclination, phase, speed, alpha] of [
-      [.76, .77, 1, -.35, 0, .035, 1],
-      [.22, .88, .62, .5, 1.8, -.022, .9]
-    ]) {
-      const radius = Math.min(width * .2, height * .23, 210) * size
+    for (const [x, y, size, inclination, phase, speed, alpha] of spiralPositions) {
+      const radius = Math.min(width * .24, height * .26, 245) * size
       ctx.save()
       ctx.globalAlpha = alpha
       ctx.translate(width * x, height * y)

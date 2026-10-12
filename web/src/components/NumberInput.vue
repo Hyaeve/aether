@@ -16,7 +16,7 @@ function step(direction) {
   <span class="number-control">
     <input ref="input" v-bind="$attrs" :value="modelValue" type="number" @input="emit('update:modelValue', $event.target.value === '' ? '' : Number($event.target.value))" />
     <span class="number-accessory">
-      <span class="number-unit">{{ unit }}</span>
+      <span class="number-unit">{{ unit==='分钟'?'min':unit==='秒'?'s':unit }}</span>
       <span class="number-steppers">
         <button type="button" :disabled="!!$attrs.disabled" :aria-label="`增加${$attrs['aria-label'] || ''}`" title="增加" @click.prevent="step(1)"><Icon name="ChevronUp" :size="14" /></button>
         <button type="button" :disabled="!!$attrs.disabled" :aria-label="`减少${$attrs['aria-label'] || ''}`" title="减少" @click.prevent="step(-1)"><Icon name="ChevronDown" :size="14" /></button>

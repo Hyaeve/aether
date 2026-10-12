@@ -32,3 +32,11 @@ test('success chart label describes successes with and without samples', async (
   assert.match(empty, /<strong>—<\/strong>/)
   assert.doesNotMatch(empty, /缓存|命中/)
 })
+
+test('label-only CAS ring preserves the actual accessible rate without visible counters',async()=>{
+  const html=await render({hits:8,misses:2,label:'秒传率',showValue:false})
+  assert.match(html,/aria-label="秒传率 80%"/)
+  assert.match(html,/<small>秒传率<\/small>/)
+  assert.doesNotMatch(html,/<strong>/)
+  assert.match(html,/stroke-dasharray="80 100"/)
+})

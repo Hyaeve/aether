@@ -20,6 +20,8 @@ func TestParseShareLink(t *testing.T) {
 		{"https://yun.139.com/shareweb/#abc", "", "", ""},
 		{"https://yun.139.com/shareweb/abc", "mobile", "abc", ""},
 		{"https://yun.139.com/shareweb/#/w/i/abc", "mobile", "abc", ""},
+		{"https://yun.139.com/shareweb/#/w/i/2ygb7gk5b1gfy 提取码: x2ol", "mobile", "2ygb7gk5b1gfy", "x2ol"},
+		{"https://yun.139.com/shareweb/#/w/i/abc?password=Ab12 提取码: Ab12", "mobile", "abc", "Ab12"},
 		{"https://yun.139.com/w/r?linkID=abc&passwd=XD7G", "mobile", "abc", "XD7G"},
 		{"https://caiyun.139.com/m/i?abc", "mobile", "abc", ""},
 		{"https://pan.quark.cn.evil.test/s/abc", "", "", ""},

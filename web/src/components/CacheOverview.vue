@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { state, bytes } from '../lib'
 import Icon from './Icon.vue'
 import CacheHitChart from './CacheHitChart.vue'
+import SettingsEntry from './SettingsEntry.vue'
 const props = defineProps({ tasks: { type: Array, default: () => [] } })
 const active = computed(() => props.tasks.filter(t => t.status === 'running'))
 function scanDetail(task) {
@@ -31,10 +32,11 @@ const metrics = computed(() => [
       </div>
     </div>
     <dl class="cache-metrics"><div v-for="[label, value, icon] in metrics" :key="label"><dt><Icon :name="icon" :size="18" />{{ label }}</dt><dd>{{ value }}</dd></div></dl>
+    <SettingsEntry class="cache-settings-trigger" to="/tasks/cache/settings" label="打开缓存设置" hint="进入缓存设置" />
   </section>
 </template>
 <style scoped>
-.cache-overview { display: grid; grid-template-columns: 112px minmax(160px, 1fr) minmax(320px, 1.1fr); gap: 18px; align-items: center; padding: 12px 16px 12px 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 10px; }
+.cache-overview { display: grid; grid-template-columns: 112px minmax(160px, 1fr) minmax(280px, 1.1fr) 44px; gap: 18px; align-items: center; padding: 12px 12px 12px 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 10px; }
 dt, .cache-progress small { color: var(--muted); font-size: 12px; }
 .cache-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px 12px; margin: 0; }
 .cache-metrics > div { position: relative; padding-left: 27px; min-width: 0; }
@@ -65,6 +67,6 @@ dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
 .cache-progress-motion { position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: inherit; background: var(--primary); animation: cache-scan 1.8s ease-in-out infinite; }
 @keyframes cache-scan { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
 @media(prefers-reduced-motion: reduce) { .cache-progress-motion { animation: none; left: 32.5%; } }
-@media(max-width: 1050px) { .cache-overview { grid-template-columns: 104px minmax(0,1fr); gap: 12px; } .cache-metrics { grid-column: 1 / -1; } }
+@media(max-width: 1050px) { .cache-overview { grid-template-columns: 104px minmax(0,1fr) 44px; gap: 12px; } .cache-metrics { grid-column: 1 / 3; } .cache-settings-trigger { grid-column:3; grid-row:1 / 3; } }
 @media(max-width: 480px) { .cache-overview { padding: 12px 12px 12px 16px; } .cache-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 </style>

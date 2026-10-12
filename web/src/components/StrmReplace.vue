@@ -62,10 +62,10 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
   <Modal title="STRM 内容替换" compact wide @close="emit('close')">
     <form @submit.prevent="review">
       <div class="modal-body strm-replace">
-        <label>容器目录
+        <label>替换目录
           <span class="strm-replace-directory">
-            <input v-model="form.directory" required :disabled="busy || running" aria-label="容器目录" />
-            <button type="button" class="icon-btn" title="选择容器目录" aria-label="选择容器目录" :disabled="busy || running" @click="picker = true"><Icon name="Folder" /></button>
+            <input v-model="form.directory" required :disabled="busy || running" aria-label="替换目录" />
+            <button type="button" class="icon-btn" aria-label="选择替换目录" :disabled="busy || running" @click="picker = true"><Icon name="FolderOpen" /></button>
           </span>
         </label>
         <label>匹配字段<input v-model="form.find" required maxlength="16384" :disabled="busy || running" /></label>
@@ -95,8 +95,9 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
 <style scoped>
 .strm-replace { display: grid; gap: 16px; }
 .strm-replace label { display: grid; gap: 8px; min-width: 0; }
-.strm-replace-directory { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 8px; }
-.strm-replace-directory .icon-btn { width: 44px; height: 44px; }
+.strm-replace-directory { position:relative;display:block; }
+.strm-replace-directory input { padding-right:44px; }
+.strm-replace-directory .icon-btn { position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px; }
 .strm-replace input, .strm-replace textarea { width: 100%; min-width: 0; box-sizing: border-box; }
 .strm-replace textarea { resize: vertical; }
 .strm-replace-status { border-top: 1px solid var(--border); padding-top: 16px; }

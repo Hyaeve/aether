@@ -14,6 +14,7 @@ import (
 )
 
 type BackupRule struct {
+	HealthPause    string           `json:"healthPause,omitempty"`
 	ID             string           `json:"id"`
 	Name           string           `json:"name"`
 	Enabled        bool             `json:"enabled"`
@@ -129,6 +130,7 @@ func backupSameTree(a, b Storage) bool {
 }
 
 func validateBackup(r *BackupRule, st State) error {
+	r.HealthPause = ""
 	if err := validateBackupOptions(r, st); err != nil {
 		return err
 	}
@@ -259,7 +261,11 @@ func (a *App) backupRulesAPI(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.Method == "GET" && id == "" {
-		rules := a.store.snapshotWithLogLimit(0).BackupRules
+		st := a.store.snapshotWithLogLimit(0)
+		rules := st.BackupRules
+		for i := range rules {
+			rules[i].HealthPause = backupHealthPause(st, rules[i])
+		}
 		if rules == nil {
 			rules = []BackupRule{}
 		}
@@ -358,6 +364,9 @@ func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 	if rule.ID == "" {
 		return errors.New("备份规则不存在")
 	}
+	if reason := backupHealthPause(st, rule); reason != "" {
+		return errors.New(reason)
+	}
 	rule.forceFullSync = full
 	if !rule.Enabled {
 		return errors.New("备份规则已停用")
@@ -384,7 +393,9 @@ func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 			return err
 		}
 	}
-	ctx, cancel := context.WithTimeout(a.ctx, 24*time.Hour)
+	parent, cancelParent := context.WithTimeout(a.ctx, 24*time.Hour)
+	ctx, causeCancel := context.WithCancelCause(parent)
+	cancel := func() { causeCancel(context.Canceled); cancelParent() }
 	rule.Scanned, rule.Copied, rule.Skipped, rule.Deleted = 0, 0, 0, 0
 	rule.Phase, rule.Total, rule.Processed = "scan", 0, 0
 	if err := a.backupUpdate(id, func(r *BackupRule) {
@@ -400,6 +411,10 @@ func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 		a.backupRuns = map[string]context.CancelFunc{}
 	}
 	a.backupRuns[id] = cancel
+	if a.backupHealthCancels == nil {
+		a.backupHealthCancels = map[string]func(){}
+	}
+	a.backupHealthCancels[id] = func() { causeCancel(errStorageHealthPaused) }
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -415,22 +430,37 @@ func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 				status, level = "paused", "info"
 			}
 		}
+		if errors.Is(context.Cause(ctx), errStorageHealthPaused) {
+			status, level = "health-paused", "warn"
+			err = errStorageHealthPaused
+		}
 		message := fmt.Sprintf("扫描 %d · 备份 %d · 跳过 %d · 清理 %d", rule.Scanned, rule.Copied, rule.Skipped, rule.Deleted)
 		if err != nil {
 			message += "：" + err.Error()
 		}
 		a.backupMu.Lock()
 		defer a.backupMu.Unlock()
-		if e := a.backupUpdate(id, func(r *BackupRule) {
-			r.Status, r.Message = status, message
-			r.Scanned, r.Copied, r.Skipped = rule.Scanned, rule.Copied, rule.Skipped
-			r.Deleted = rule.Deleted
-			r.Phase, r.Total, r.Processed = status, rule.Total, rule.Processed
-			r.NextRun = backupNext(*r, time.Now())
+		if e := a.store.update(func(st *State) error {
+			for i := range st.BackupRules {
+				if st.BackupRules[i].ID != id {
+					continue
+				}
+				r := &st.BackupRules[i]
+				if status == "health-paused" && backupHealthPause(*st, *r) == "" {
+					status, message = "idle", "健康已恢复，等待执行"
+				}
+				r.Status, r.Message = status, message
+				r.Scanned, r.Copied, r.Skipped = rule.Scanned, rule.Copied, rule.Skipped
+				r.Deleted = rule.Deleted
+				r.Phase, r.Total, r.Processed = status, rule.Total, rule.Processed
+				r.NextRun = backupNext(*r, time.Now())
+			}
+			return nil
 		}); e != nil {
 			a.logger.Printf("backup state save failed: %v", e)
 		}
 		delete(a.backupRuns, id)
+		delete(a.backupHealthCancels, id)
 		a.store.event(level, "files", rule.Name+"："+message)
 	}()
 	return nil
