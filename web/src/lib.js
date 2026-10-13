@@ -2,7 +2,7 @@ import { reactive, watch } from 'vue'
 
 export const state = reactive({
   loaded: false, initialized: false, authenticated: false, storages: [], tasks: [],
-  settings: {}, logs: [], links: [], libraryNotices: [], shareNotices: [], cache: {}, traffic: {}, username: '', strmRoot: '', uptime: 0
+  settings: {}, logs: [], links: [], fileFavorites: [], fileVisits: [], libraryNotices: [], shareNotices: [], cache: {}, traffic: {}, username: '', strmRoot: '', uptime: 0
 })
 let linksRequest, linksGeneration = 0
 watch(() => state.authenticated, authenticated => {
@@ -10,6 +10,8 @@ watch(() => state.authenticated, authenticated => {
   linksRequest = null
   state.links = []
   state.shareNotices = []
+  state.fileFavorites = []
+  state.fileVisits = []
 }, { flush: 'sync' })
 // Memory-only, redacted cards survive route changes, never logout or another session.
 export function loadLinks() {

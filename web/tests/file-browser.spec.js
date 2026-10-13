@@ -29,6 +29,7 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
     return route.fulfill({ json: { ok: true } })
   })
   await page.route('**/api/files/offline', route => route.fulfill({ json: { ok: true } }))
+  await page.route('**/api/files/visits', route => route.fulfill({json:route.request().postDataJSON().items}))
   await page.goto('/files')
   await expect(page.getByRole('button', { name: 'Movies', exact: true })).toBeVisible()
   await expect(page.locator('.file-row').first()).toContainText('2026')

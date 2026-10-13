@@ -650,6 +650,11 @@ func (a *App) scheduler() {
 					a.logger.Printf("ED2K cleanup: %v", err)
 				}
 				cancelED2K()
+				ctxSim, cancelSim := context.WithTimeout(a.ctx, 30*time.Second)
+				if err := a.simulcast.cleanup(ctxSim); err != nil && a.ctx.Err() == nil {
+					a.logger.Printf("simulcast cleanup: %v", err)
+				}
+				cancelSim()
 			}
 			st := a.store.snapshot()
 			for _, rule := range st.BackupRules {

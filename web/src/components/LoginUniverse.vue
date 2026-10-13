@@ -4,7 +4,7 @@ import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
 import GravityWell from './GravityWell.vue'
 import { createMeteorBatch, meteorOpacity, rockPosition } from '../meteor'
-import { createSpiralPair } from '../starfield'
+import { createSpiralPair, moonRegion } from '../starfield'
 
 const universe = ref(), canvas = ref(), scene = ref()
 const props = defineProps({ decorative: Boolean })
@@ -181,10 +181,10 @@ function paint(time) {
   positionSatellites(time)
   if (!ctx || !width || !height) return
   ctx.clearRect(0, 0, width, height)
-  if (moon) {
-    const size = Math.min(92, width * .14)
-    ctx.save(); ctx.globalAlpha = .62; ctx.drawImage(moon, width * .84, height * .08, size, size); ctx.restore()
-  }
+  const lunar = moonRegion(width, height)
+  // Keep every stellar layer behind the moon, including drifting stars and meteors.
+  ctx.save()
+  ctx.beginPath(); ctx.rect(0, 0, width, height); ctx.moveTo(lunar.cx + lunar.radius + 2, lunar.cy); ctx.arc(lunar.cx, lunar.cy, lunar.radius + 2, 0, Math.PI * 2); ctx.clip('evenodd')
   if (galaxy) {
     ctx.save()
     ctx.globalAlpha = .8 + Math.sin(time * .16) * .15
@@ -251,6 +251,10 @@ function paint(time) {
     const size=10+i%3*4
     if(rocks[i])ctx.drawImage(rocks[i],-size/2,-size/2,size,size)
     ctx.restore()
+  }
+  ctx.restore()
+  if (moon) {
+    ctx.save(); ctx.globalAlpha = .62; ctx.drawImage(moon, lunar.x, lunar.y, lunar.size, lunar.size); ctx.restore()
   }
 }
 

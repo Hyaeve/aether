@@ -33,9 +33,10 @@ type File struct {
 }
 
 type Download struct {
-	URL     string
-	Headers http.Header
-	Local   string
+	URL       string
+	Headers   http.Header
+	Local     string
+	storageID string
 }
 
 var apiClient = &http.Client{Timeout: 45 * time.Second}

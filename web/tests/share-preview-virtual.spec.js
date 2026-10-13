@@ -131,9 +131,30 @@ test('scrape all-state has no marker, status markers shrink and night tabs are w
  const state=page.getByRole('button',{name:'刮削状态',exact:true})
  await expect(state.locator('.select-marker')).toHaveCount(0);await state.click()
  const all=page.getByRole('option',{name:'全部状态',exact:true});await expect(all.locator('.select-marker')).toHaveCount(0)
- for(const marker of await page.getByRole('listbox',{name:'刮削状态选项'}).locator('.select-marker').all())await expect(marker).toHaveCSS('width','8px')
+ for(const marker of await page.getByRole('listbox',{name:'刮削状态选项'}).locator('.select-marker').all()){
+  await expect(marker).toHaveCSS('width','6px')
+  expect(await marker.evaluate(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return Math.abs(a.y+a.height/2-b.y-b.height/2)})).toBeLessThan(1)
+ }
  await page.keyboard.press('Escape');await page.evaluate(()=>document.documentElement.dataset.theme='dark')
  await expect(page.locator('.content-tabs a:not(.active)').first()).toHaveCSS('color','rgb(237, 240, 248)')
  await page.goto('/settings/about');await expect(page.locator('.settings-navigation a.active')).toHaveCSS('color','rgb(244, 237, 189)');await expect(page.locator('.settings-navigation a:not(.active)').first()).toHaveCSS('color','rgb(237, 240, 248)')
  await page.screenshot({path:info.outputPath('about-night-tabs.png')})
+})
+
+test('virtual library tabs use unframed provider outlines in both themes',async({page},info)=>{
+ await mock(page);await page.goto('/virtual/115')
+ const tabs=page.getByRole('navigation',{name:'虚拟链库栏目',exact:true})
+ await expect(tabs.locator('img')).toHaveCount(0)
+ await expect(tabs.locator('.provider-icon')).toHaveCount(0)
+ for(const theme of ['light','dark']){
+  await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+  const icons=tabs.locator('.provider-line-icon')
+  await expect(icons).toHaveCount(4)
+  for(const icon of await icons.all()){
+   await expect(icon).toHaveCSS('width','19px');await expect(icon).toHaveAttribute('stroke','currentColor')
+   await expect(icon).toHaveAttribute('fill','none');await expect(icon).toHaveAttribute('stroke-linecap','round')
+   expect(await icon.locator('path').count()).toBeGreaterThan(0)
+  }
+  await page.screenshot({path:info.outputPath(`virtual-provider-outlines-${theme}.png`)})
+ }
 })

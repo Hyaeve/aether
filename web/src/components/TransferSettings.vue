@@ -77,7 +77,7 @@ watch([form, queueMode, lowerMode], changed, { deep: true, flush: 'sync' })
 onBeforeUnmount(() => { if (automatic.value && timer) saveAutomatically(); alive = false; clearTimeout(timer); generation++; controller?.abort() })
 </script>
 <template>
-  <div ref="panel" class="transfer-settings-form settings-form" :aria-busy="loading || saving" @keydown.enter="automatic && $event.target.tagName === 'INPUT' && ($event.target.blur(), saveAutomatically())">
+  <div ref="panel" class="transfer-settings-form settings-form" :class="{ 'full-width': !backup }" :aria-busy="loading || saving" @keydown.enter="automatic && $event.target.tagName === 'INPUT' && ($event.target.blur(), saveAutomatically())">
     <fieldset :disabled="loading || (!automatic && saving) || !loaded">
       <template v-if="backup">
         <section class="settings-section">
@@ -95,7 +95,10 @@ onBeforeUnmount(() => { if (automatic.value && timer) saveAutomatically(); alive
             <div class="settings-row"><strong>最大下载速度</strong><div class="resource-inputs"><NumberInput v-model="form.downloadSpeed" aria-label="最大下载速度" :min="0" :max="1000000" required /><RoundedSelect v-model="form.downloadUnit" label="下载速度单位" :options="units" /></div></div>
             <div class="settings-row"><strong>最大上传速度</strong><div class="resource-inputs"><NumberInput v-model="form.uploadSpeed" aria-label="最大上传速度" :min="0" :max="1000000" required /><RoundedSelect v-model="form.uploadUnit" label="上传速度单位" :options="units" /></div></div>
           </section>
-          <section class="settings-section temp-section"><div class="settings-section-title"><Icon name="FolderClock" /><h2>临时文件位置</h2></div><label for="transfer-temp-path">路径</label><div class="directory-input"><input id="transfer-temp-path" v-model="form.tempDirectory" placeholder="默认：/data/cache/transfer" @blur="saveAutomatically" /><button type="button" class="icon-btn" aria-label="选择临时文件位置" @click="picker = true"><Icon name="FolderOpen" /></button></div></section>
+          <section class="settings-section temp-section">
+            <div class="settings-section-title"><Icon name="FolderClock" /><h2>临时文件位置</h2></div>
+            <div class="temp-path-row"><label for="transfer-temp-path">路径</label><div class="directory-input"><input id="transfer-temp-path" v-model="form.tempDirectory" placeholder="默认：/data/cache/transfer" @blur="saveAutomatically" /><button type="button" class="icon-btn" aria-label="选择临时文件位置" @click="picker = true"><Icon name="FolderOpen" /></button></div></div>
+          </section>
           </div>
           <section class="settings-section"><div class="settings-section-title"><Icon name="ListChecks" /><h2>任务限制</h2></div>
             <div class="settings-row"><strong>最大预处理任务数</strong><NumberInput v-model="form.maxPreprocess" aria-label="最大预处理任务数" :min="1" :max="64" required /></div>
@@ -118,9 +121,13 @@ onBeforeUnmount(() => { if (automatic.value && timer) saveAutomatically(); alive
 <style scoped>
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }
 .transfer-settings-form { max-width:1040px; }
+.transfer-settings-form.full-width { width:100%; max-width:none; }
 .transfer-settings-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items:start; }
 .speed-and-temp { display:grid; gap:16px; }
 .temp-section label { font-size:14px; }
+.temp-path-row { display:flex; align-items:center; gap:12px; }
+.temp-path-row label { flex-shrink:0; }
+.temp-path-row .directory-input { flex:1; min-width:0; }
 .settings-section { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 18px; }
 .settings-section-title h2 { font-size: 16px; margin: 0; }
 .settings-section-title { gap: 10px; margin-bottom: 12px; color: var(--text); }

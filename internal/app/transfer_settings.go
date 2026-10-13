@@ -335,6 +335,18 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State) error {
+	for _, cfg := range st.Simulcast {
+		if cfg.RetentionHours < 0 || cfg.RetentionHours > 8760 {
+			return errors.New("复制保活须为1至8760 h，旧配置未设置时默认为12 h")
+		}
+	}
+	if st.Rapid115Version > 1 {
+		return errors.New("115秒传配置版本无效")
+	}
+	st.Rapid115 = normalizedRapid115(st.Rapid115)
+	if err := validateRapid115(st.Rapid115, *st, false); err != nil {
+		return err
+	}
 	if st.ED2KPoolVersion > 1 {
 		return errors.New("ED2K 绑定池配置版本无效")
 	}

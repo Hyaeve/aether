@@ -221,7 +221,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-poster span { font-size: 12px; }
 .scrape-card-body { min-width: 0; padding: 9px 10px; font-size: 14px; }
 .scrape-title { display:flex; gap:7px; align-items:flex-start; }.scrape-title strong { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.work-star { --status-color:var(--amber); width:10px; height:10px; flex:none; margin-top:3px; background:var(--status-color); border-radius:3px; }
+.work-star { --status-color:var(--amber); width:7px; height:7px; flex:none; margin-top:4px; background:var(--status-color); border-radius:2px; }
 .work-star.pending { --status-color:var(--primary); }.work-star.ok { --status-color:var(--green);transform:rotate(45deg);border-radius:2px; }.work-star.error { --status-color:var(--red);border-radius:50%; }
 .scrape-card-body > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scrape-card-body > small { margin-top: 5px; color: var(--muted); font-size: 12px; }

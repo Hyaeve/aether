@@ -22,6 +22,22 @@ async function setup(page) {
   })
 }
 
+test('editing a legacy case-sensitive rule normalizes extensions without restoring the removed controls',async({page})=>{
+  await setup(page)
+  const legacy={id:'legacy',name:'旧筛选',enabled:true,status:'idle',sourceId:'source',source:'/A',targetId:'target',target:'/B',caseSensitive:true,filters:[{type:'extension',mode:'include',value:'.MKV;mkv;AVI',matchFile:true,matchDir:false,caseSensitive:true}]}
+  let saved
+  await page.route('**/api/backup-rules',route=>route.fulfill({json:[legacy]}))
+  await page.route('**/api/backup-rules/legacy',route=>{saved=route.request().postDataJSON();return route.fulfill({json:{ok:true}})})
+  await page.goto('/transfer/backup');await page.locator('.backup-name').filter({hasText:'旧筛选'}).click()
+  const modal=page.getByRole('dialog',{name:'编辑备份规则',exact:true})
+  await modal.getByRole('button',{name:'筛选规则',exact:true}).click()
+  await expect(modal.locator('.backup-token > span')).toHaveText(['mkv','avi'])
+  await expect(modal.getByText('更多选项',{exact:true})).toHaveCount(0)
+  await modal.getByRole('button',{name:'保存规则',exact:true}).click()
+  await expect.poll(()=>saved?.caseSensitive).toBe(false)
+  expect(saved.filters[0]).toMatchObject({caseSensitive:false,value:'mkv;avi'})
+})
+
 test('backup rules create, edit, run, stop, toggle and delete with aligned controls',async({page},info)=>{
   await setup(page);await page.goto('/transfer/backup')
   await page.locator('.task-heading').getByRole('button',{name:'添加规则',exact:true}).click()
@@ -245,7 +261,7 @@ test('backup empty action and heading align with the tabs without a refresh cont
   await expect(page.getByRole('dialog',{name:'添加备份规则',exact:true})).toBeVisible()
 })
 
-test('six filter types support wrapped removable tokens, scopes and case-sensitive persistence',async({page},info)=>{
+test('six filter types support wrapped removable tokens and scopes without extra case controls',async({page},info)=>{
   await setup(page);await page.goto('/transfer/backup')
   await page.locator('.task-heading').getByRole('button',{name:'添加规则',exact:true}).click()
   const modal=page.getByRole('dialog',{name:'添加备份规则',exact:true})
@@ -298,21 +314,16 @@ test('six filter types support wrapped removable tokens, scopes and case-sensiti
   await modal.getByLabel('文件夹 2',{exact:true}).check()
   await modal.getByLabel('文件 2',{exact:true}).uncheck()
   await expect(modal.getByLabel('文件夹 2',{exact:true})).toBeChecked()
-  await modal.getByText('更多选项',{exact:true}).click()
-  expect(await modal.locator('.backup-more').evaluate(el=>!!el.closest('.backup-filter-frame'))).toBe(false)
-  const frameLeft=await modal.locator('.backup-filter-frame').evaluate(el=>el.getBoundingClientRect().left)
-  expect(await modal.getByRole('button',{name:'扩展名大小写区分',exact:true}).evaluate(el=>el.getBoundingClientRect().left)).toBeCloseTo(frameLeft,0)
-  await expect(modal.locator('.backup-more summary')).toHaveCSS('font-size','14px')
-  await expect(modal.getByRole('button',{name:'扩展名大小写区分',exact:true})).toContainText('关闭')
-  await modal.getByRole('button',{name:'扩展名大小写区分',exact:true}).click();await page.getByRole('option',{name:'开启',exact:true}).click()
+  await expect(modal.getByText('更多选项',{exact:true})).toHaveCount(0)
+  await expect(modal.getByRole('button',{name:'扩展名大小写区分',exact:true})).toHaveCount(0)
   await extension.getByLabel('匹配内容 1',{exact:true}).fill('.AVI')
   await extension.getByLabel('匹配内容 1',{exact:true}).press('Enter')
-  await expect(extension.locator('.backup-token > span')).toHaveText(['mkv','mp4','AVI'])
+  await expect(extension.locator('.backup-token > span')).toHaveText(['mkv','mp4','avi'])
   await extension.locator('.backup-token').filter({hasText:'mp4'}).hover()
   await expect(extension.getByRole('button',{name:'删除 mp4 规则 1',exact:true}).locator('svg')).toHaveCSS('width','11px')
   await expect(extension.getByRole('button',{name:'删除 mp4 规则 1',exact:true})).toHaveCSS('background-color','rgba(0, 0, 0, 0.4)')
   await extension.getByRole('button',{name:'删除 mp4 规则 1',exact:true}).click()
-  await expect(extension.locator('.backup-token > span')).toHaveText(['mkv','AVI'])
+  await expect(extension.locator('.backup-token > span')).toHaveText(['mkv','avi'])
   await filename.getByLabel('匹配内容 2',{exact:true}).fill('alpha;beta;gamma;delta;epsilon;zeta;eta;theta;iota;kappa;lambda')
   await filename.getByLabel('匹配内容 2',{exact:true}).press('Enter')
   for(const [width,theme] of [[1440,'light'],[390,'dark'],[320,'dark']]){
@@ -328,16 +339,14 @@ test('six filter types support wrapped removable tokens, scopes and case-sensiti
   const saved=page.waitForRequest(req=>req.method()==='POST'&&new URL(req.url()).pathname==='/api/backup-rules')
   await modal.getByRole('button',{name:'保存规则',exact:true}).click()
   const payload=(await saved).postDataJSON()
-  expect(payload.caseSensitive).toBe(true)
+  expect(payload.caseSensitive).toBe(false)
   expect(payload.filters.map(filter=>filter.type)).toEqual(['extension','name','regex','path_prefix','path_regex','size'])
-  expect(payload.filters[0].value).toBe('mkv;AVI')
+  expect(payload.filters[0].value).toBe('mkv;avi')
   expect(payload.filters[1]).toMatchObject({matchFile:false,matchDir:true})
   await page.locator('.backup-name').filter({hasText:'筛选归档'}).click()
   const edit=page.getByRole('dialog',{name:'编辑备份规则',exact:true})
   await edit.getByRole('button',{name:'筛选规则',exact:true}).click()
   await expect(edit.getByLabel('匹配内容 4',{exact:true})).toHaveCSS('height','78px')
-  await edit.getByText('更多选项',{exact:true}).click()
-  await expect(edit.getByRole('button',{name:'扩展名大小写区分',exact:true})).toContainText('开启')
-  await edit.getByRole('button',{name:'扩展名大小写区分',exact:true}).click();await page.getByRole('option',{name:'关闭',exact:true}).click()
+  await expect(edit.getByText('更多选项',{exact:true})).toHaveCount(0)
   await expect(edit.locator('.backup-filter').first().locator('.backup-token > span')).toHaveText(['mkv','avi'])
 })

@@ -45,10 +45,25 @@ test('global transfer tab saves speed units, concurrency and extension rules acr
   await page.getByRole('button',{name:'选择临时文件位置',exact:true}).click()
   await page.getByRole('button',{name:'选择当前目录',exact:true}).click()
   await expect.poll(()=>writes.filter(w=>w.type==='transfer').at(-1)?.value.tempDirectory).toBe('/data/temporary')
-  for (const [theme,width] of [['light',1440],['dark',1440],['light',390],['dark',390]]) {
+  for (const [theme,width] of [['light',1920],['dark',1920],['light',1440],['dark',1440],['light',390],['dark',390]]) {
     await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme); await page.setViewportSize({width,height:900})
     await expect(page.getByRole('button',{name:'下载速度单位',exact:true})).toHaveCSS('background-color',theme==='dark'?'rgb(41, 44, 52)':'rgb(255, 255, 255)')
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
+    const layout=await page.locator('.transfer-settings-form').evaluate(el=>{
+      const rect=node=>{const {x,y,width,height,right}=node.getBoundingClientRect();return {x,y,width,height,right}}
+      return {form:rect(el),parent:rect(el.parentElement),columns:[...el.querySelector('.transfer-settings-columns').children].map(rect),extensions:rect(el.querySelector('fieldset > .settings-section')),label:rect(el.querySelector('label[for="transfer-temp-path"]')),input:rect(el.querySelector('#transfer-temp-path'))}
+    })
+    expect(Math.abs(layout.form.right-layout.parent.right)).toBeLessThan(2)
+    expect(Math.abs(layout.extensions.width-layout.form.width)).toBeLessThan(2)
+    expect(layout.label.right).toBeLessThan(layout.input.x)
+    expect(Math.abs(layout.label.y+layout.label.height/2-layout.input.y-layout.input.height/2)).toBeLessThan(2)
+    if(width>=1440) {
+      expect(Math.abs(layout.columns[0].width-(layout.form.width-16)/2)).toBeLessThan(2)
+      expect(Math.abs(layout.columns[1].right-layout.form.right)).toBeLessThan(2)
+    } else {
+      expect(Math.abs(layout.columns[0].width-layout.form.width)).toBeLessThan(2)
+      expect(layout.columns[1].y).toBeGreaterThan(layout.columns[0].y)
+    }
     await page.screenshot({path:info.outputPath(`transfer-settings-${theme}-${width}.png`)})
   }
   await page.getByRole('link',{name:'账号与安全',exact:true}).click(); await page.getByRole('link',{name:'传输设置',exact:true}).click()

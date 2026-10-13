@@ -19,52 +19,78 @@ test('directory history preserves opaque ids, deepest paths and sibling branches
   expect(validVisits([null,{storage:'bad',id:'/',history:[null]},visit('pan','/',[]),visit('pan','cid-a',[['/','A']]),c])).toEqual([c])
 })
 
-test('history menu jumps to the exact stored cloud directory and persists per browser',async({page,context})=>{
-  await page.route('**/api/**',r=>{
-    const u=new URL(r.request().url())
-    let data={}
-    if(u.pathname==='/api/auth/status')data={initialized:true,authenticated:true}
-    if(u.pathname==='/api/state')data={username:'history-test',storages:[{id:'one',type:'quark',name:'夸克',enabled:true},{id:'two',type:'115',name:'115',enabled:true}],tasks:[],settings:{},cache:{},traffic:{}}
-    if(u.pathname==='/api/files')data=u.searchParams.get('path')==='cid-c'?[{id:'file',name:'命中目录.txt'}]:[{id:'cid-c',name:'C',isDir:true}]
-    return r.fulfill({json:data})
-  })
-  await page.goto('/files')
-  await expect(page.getByRole('button',{name:'C',exact:true})).toBeVisible()
-  await page.evaluate(()=>localStorage.setItem('aether-file-history:history-test',JSON.stringify([{storage:'two',id:'cid-c',history:[{id:'/',name:'A'},{id:'cid-a',name:'B'},{id:'cid-b',name:'C'}]}])))
-  await page.reload()
-  await expect(page.getByRole('button',{name:'选择存储池',exact:true})).toBeEnabled()
-  await page.getByRole('button',{name:'历史访问',exact:true}).click()
-  await page.getByRole('option',{name:'115 / C',exact:true}).click()
-  await expect(page.getByRole('button',{name:'选择存储池',exact:true})).toContainText('115')
-  await expect(page.getByRole('button',{name:'命中目录.txt',exact:true})).toBeVisible()
-  await expect(page.locator('.path-bar')).toContainText('C')
-  await page.reload()
-  await page.getByRole('button',{name:'历史访问',exact:true}).click()
-  await expect(page.getByRole('option',{name:'115 / C',exact:true})).toBeVisible()
-  // Browser-local history survives a new tab/session, independent of the server process.
-  await page.close()
-  const reopened=await context.newPage()
-  await reopened.route('**/api/**',r=>{const path=new URL(r.request().url()).pathname;return r.fulfill({json:path==='/api/auth/status'?{initialized:true,authenticated:true}:path==='/api/state'?{username:'history-test',storages:[{id:'two',type:'115',name:'115',enabled:true}],tasks:[],settings:{},cache:{},traffic:{}}:[]})})
-  await reopened.goto('/files');await reopened.getByRole('button',{name:'历史访问',exact:true}).click()
-  await expect(reopened.getByRole('option',{name:'115 / C',exact:true})).toBeVisible()
+function sharedHistoryMock() {
+  let entries=[],fail=false
+  return {
+    set fail(value){fail=value},
+    get entries(){return entries},
+    async install(context){await context.route('**/api/**',r=>{
+      const u=new URL(r.request().url())
+      let data={}
+      if(u.pathname==='/api/auth/status')data={initialized:true,authenticated:true}
+      if(u.pathname==='/api/state')data={username:'history-owner',fileVisits:entries,storages:[{id:'pool',type:'115',name:'115',enabled:true}],tasks:[],settings:{},cache:{},traffic:{}}
+      if(u.pathname==='/api/files')data=u.searchParams.get('path')==='/'?[{id:'a',name:'A',isDir:true}]:u.searchParams.get('path')==='a'?[{id:'b',name:'B',isDir:true}]:[{id:'file',name:'命中目录.txt'}]
+      if(u.pathname==='/api/files/visits') {
+        if(fail)return r.fulfill({status:500,json:{error:'历史保存失败'}})
+        const {action,items}=r.request().postDataJSON()
+        if(action==='import'){
+          let merged=[]
+          for(const item of [...items].reverse())merged=rememberVisit(merged,item)
+          for(const item of [...entries].reverse())merged=rememberVisit(merged,item)
+          entries=merged
+        }else entries=rememberVisit(entries,items[0])
+        data=entries
+      }
+      return r.fulfill({json:data})
+    })}
+  }
+}
+
+test('history is shared across independent browsers and legacy entries migrate only after success',async({browser,baseURL})=>{
+  const contexts=[await browser.newContext({baseURL}),await browser.newContext({baseURL})]
+  const mock=sharedHistoryMock()
+  for(const context of contexts)await mock.install(context)
+  try {
+    const first=await contexts[0].newPage(),second=await contexts[1].newPage()
+    await first.addInitScript(()=>{if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');localStorage.setItem('aether-file-history:history-owner',JSON.stringify([{storage:'pool',id:'b',history:[{id:'/',name:'A'},{id:'a',name:'B'}]}]))}})
+    mock.fail=true
+    await first.goto('/files')
+    await expect(first.getByRole('alert')).toContainText('历史保存失败')
+    expect(await first.evaluate(()=>JSON.parse(localStorage.getItem('aether-file-history:history-owner')).length)).toBe(1)
+    mock.fail=false
+    await first.reload()
+    const history=first.getByRole('button',{name:'历史访问',exact:true})
+    await expect.poll(()=>mock.entries.length).toBe(1)
+    await expect.poll(()=>first.evaluate(()=>localStorage.getItem('aether-file-history:history-owner'))).toBeNull()
+    await history.click();await first.getByRole('option',{name:'115 / B',exact:true}).click()
+    await expect(first.getByRole('button',{name:'命中目录.txt',exact:true})).toBeVisible()
+    await expect(first.locator('.path-bar')).toContainText('B')
+    await second.goto('/files')
+    await second.getByRole('button',{name:'历史访问',exact:true}).click()
+    await expect(second.getByRole('option',{name:'115 / B',exact:true})).toBeVisible()
+    expect(await second.evaluate(()=>localStorage.getItem('aether-file-history:history-owner'))).toBeNull()
+    await second.reload();await second.getByRole('button',{name:'历史访问',exact:true}).click()
+    await expect(second.getByRole('option',{name:'115 / B',exact:true})).toBeVisible()
+  }finally{for(const context of contexts)await context.close()}
 })
 
-test('a delayed directory response merges history written after the page mounted',async({page})=>{
-  let started, release
-  const pending = new Promise(resolve=>{started=resolve})
-  const gate = new Promise(resolve=>{release=resolve})
-  await page.route('**/api/**',async r=>{
-    const u=new URL(r.request().url())
-    let data={}
-    if(u.pathname==='/api/auth/status')data={initialized:true,authenticated:true}
-    if(u.pathname==='/api/state')data={username:'history-delayed',storages:[{id:'one',type:'quark',name:'夸克',enabled:true},{id:'two',type:'115',name:'115',enabled:true}],tasks:[],settings:{},cache:{},traffic:{}}
-    if(u.pathname==='/api/files'){started();await gate;data=[]}
-    return r.fulfill({json:data})
-  })
-  await page.goto('/files');await pending
-  await page.evaluate(()=>localStorage.setItem('aether-file-history:history-delayed',JSON.stringify([{storage:'two',id:'cid-c',history:[{id:'/',name:'A'},{id:'cid-a',name:'C'}]}])))
-  release()
-  await page.getByRole('button',{name:'历史访问',exact:true}).click()
-  await expect(page.getByRole('option',{name:'115 / C',exact:true})).toBeVisible()
-  await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('aether-file-history:history-delayed')).some(v=>v.storage==='two'&&v.id==='cid-c'))).toBe(true)
+test('empty history remains clickable and hover opens only after 600ms',async({page},info)=>{
+  const mock=sharedHistoryMock();await mock.install(page)
+  await page.goto('/files')
+  const history=page.getByRole('button',{name:'历史访问',exact:true}),menu=page.locator('.file-visit-history [role=listbox]')
+  await expect(history).toBeEnabled()
+  await history.click();await expect(menu).toContainText('暂无访问记录')
+  await page.keyboard.press('Escape');await expect(menu).toHaveCount(0)
+  await page.mouse.move(500,40)
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  await history.hover();await page.clock.runFor(599);await expect(menu).toHaveCount(0)
+  await page.clock.runFor(1);await expect(menu).toBeVisible()
+  await page.clock.resume()
+  await page.screenshot({path:info.outputPath('empty-history.png')})
+  await page.mouse.move(500,40);await expect(menu).toHaveCount(0)
+  await page.locator('.file-view').getByRole('button',{name:'A',exact:true}).dblclick()
+  await page.locator('.file-view').getByRole('button',{name:'B',exact:true}).dblclick()
+  await expect.poll(()=>mock.entries.length).toBe(1)
+  await history.click();await expect(menu.getByRole('option',{name:'115 / B',exact:true})).toBeVisible()
 })

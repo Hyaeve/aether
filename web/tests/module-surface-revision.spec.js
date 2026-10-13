@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test'
 
 async function mock(page, extra = {}) {
+  let visits=[]
   await page.route('**/api/**', r => {
     const path = new URL(r.request().url()).pathname
-    const json = path === '/api/auth/status' ? {initialized:true, authenticated:true} : path === '/api/state' ? {username:'surface-revision',storages:[],tasks:[],settings:{},traffic:{},cache:{},...extra} : path.endsWith('/items') || path === '/api/files' ? [] : {}
+    if(path==='/api/files/visits'){visits=r.request().postDataJSON().items;return r.fulfill({json:visits})}
+    const json = path === '/api/auth/status' ? {initialized:true, authenticated:true} : path === '/api/state' ? {username:'surface-revision',fileVisits:visits,storages:[],tasks:[],settings:{},traffic:{},cache:{},...extra} : path.endsWith('/items') || path === '/api/files' ? [] : {}
     return r.fulfill({json})
   })
 }
@@ -17,10 +19,13 @@ test('history excludes root and first-level visits, and uses the clock arrow but
   await page.goto('/files')
   const history = page.getByRole('button',{name:'历史访问',exact:true})
   await expect(history.locator('svg')).toHaveClass(/lucide-history/)
-  await expect(history).toBeDisabled()
+  await expect(history).toBeEnabled()
+  await history.click()
+  await expect(page.getByRole('status')).toContainText('暂无访问记录')
+  await page.keyboard.press('Escape')
   await page.getByRole('button',{name:'A',exact:true}).dblclick()
   await expect(page.getByRole('button',{name:'B',exact:true})).toBeVisible()
-  await expect(history).toBeDisabled()
+  await expect(history).toBeEnabled()
   await page.getByRole('button',{name:'B',exact:true}).dblclick()
   await expect(history).toBeEnabled()
   await history.click()
@@ -97,8 +102,8 @@ test('scrape rounded markers unify unresolved statuses and preserve manual match
       await option.click()
       await expect(page.locator('.scrape-card')).toHaveCount(count)
       await expect(page.locator('.work-star').first()).toHaveAttribute('aria-label',label)
-      await expect(page.locator('.work-star').first()).toHaveCSS('width','10px')
-      await expect(page.locator('.work-star').first()).toHaveCSS('border-radius',value==='error'?'50%':value==='ok'?'2px':'3px')
+      await expect(page.locator('.work-star').first()).toHaveCSS('width','7px')
+      await expect(page.locator('.work-star').first()).toHaveCSS('border-radius',value==='error'?'50%':'2px')
       await select.click();await page.getByRole('option',{name:'全部状态',exact:true}).click()
     }
     await page.locator('.scrape-card').filter({hasText:'待确认'}).locator('.scrape-poster').click()

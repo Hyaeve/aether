@@ -45,7 +45,7 @@ func durableConfigWrite(name string, data []byte) error {
 	return syncConfigDirectory(filepath.Dir(name))
 }
 
-var jsonModules = []string{"storage/storage", "storage/settings", "task/strm", "task/cas", "task/cas-pool", "task/ed2k", "task/ed2k-pool", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "tool/tmdb", "tool/proxy", "tool/ai", "tool/emby", "tool/quark-takeover", "tool/115-simulcast", "file/webdav", "file/mount", "transfer/backup", "transfer/settings", "transfer/resources", "state"}
+var jsonModules = []string{"storage/storage", "storage/settings", "task/strm", "task/cas", "task/cas-pool", "task/ed2k", "task/ed2k-pool", "task/cache", "task/other", "task/automation", "link/links", "tool/config", "tool/tmdb", "tool/proxy", "tool/ai", "tool/emby", "tool/quark-takeover", "tool/115-simulcast", "tool/115-rapid", "file/webdav", "file/mount", "transfer/backup", "transfer/settings", "transfer/resources", "state"}
 
 type jsonConfig struct {
 	Version int             `json:"version"`
@@ -213,12 +213,15 @@ func (s *Store) jsonValues() map[string]any {
 	}
 	v["tool/quark-takeover"] = toolSettings{QuarkTV: s.state.QuarkTV, Enabled: s.state.QuarkTVEnabled}
 	v["tool/115-simulcast"] = s.state.Simulcast
+	v["tool/115-rapid"] = normalizedRapid115(s.state.Rapid115)
 	p := s.state
 	p.CASPool, p.CASPoolVersion = CASPoolConfig{}, 1
 	p.ED2KPool, p.ED2KPoolVersion = ED2KPoolConfig{}, 1
 	p.TransferSettings, p.BackupResources, p.TransferVersion = TransferSettings{}, BackupResources{}, 1
 	p.Storages, p.Tasks, p.Automations, p.Links, p.Mounts, p.DAVUsers, p.BackupRules = nil, nil, nil, nil, nil, nil, nil
 	p.Plugins, p.QuarkTV, p.Simulcast, p.QuarkTVEnabled = nil, nil, nil, nil
+	p.Rapid115 = Rapid115Settings{}
+	p.Rapid115Version = 1
 	p.Settings, p.Modules, p.ToolsRevision, p.ModuleVersion = Settings{}, nil, "", 3
 	p.TaskOrder = make([]string, 0, len(s.state.Tasks))
 	for _, t := range s.state.Tasks {
@@ -230,6 +233,10 @@ func (s *Store) jsonValues() map[string]any {
 	v["state"] = p
 	if s.state.RuntimeSeparated {
 		stripRuntimeConfig(v)
+		// Keep legacy favorites until the data directory has been opened and saved.
+		if s.runtimeDir == "" && len(s.state.FileFavorites) > 0 {
+			v["state"].(map[string]any)["fileFavorites"] = s.state.FileFavorites
+		}
 	}
 	return v
 }
@@ -455,6 +462,12 @@ func (s *Store) readJSONModules() error {
 			return err
 		}
 		raw, err := os.ReadFile(name)
+		if key == "tool/115-rapid" && os.IsNotExist(err) && s.state.Rapid115Version == 0 {
+			s.state.Rapid115 = normalizedRapid115(Rapid115Settings{})
+			s.state.Rapid115Version = 1
+			missingTransfer = append(missingTransfer, key)
+			continue
+		}
 		if (key == "transfer/settings" || key == "transfer/resources") && os.IsNotExist(err) && s.state.TransferVersion == 0 {
 			missingTransfer = append(missingTransfer, key)
 			continue
@@ -506,6 +519,8 @@ func (s *Store) readJSONModules() error {
 			target = &tools
 		case "tool/115-simulcast":
 			target = &s.state.Simulcast
+		case "tool/115-rapid":
+			target = &s.state.Rapid115
 		case "tool/tmdb", "tool/proxy", "tool/ai", "tool/emby":
 			target = &plugin
 		default:

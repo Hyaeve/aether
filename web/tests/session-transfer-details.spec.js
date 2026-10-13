@@ -1,13 +1,16 @@
 import { test, expect } from '@playwright/test'
+import { rememberVisit } from '../src/visit-history.js'
 
 async function mock(page, transfers = []) {
   let computedSize = false
   const paths = []
   let calculations = 0
+  let visits = []
   await page.route('**/api/**', async r => {
     const u = new URL(r.request().url()); let json = {}
     if(u.pathname === '/api/auth/status') json = {initialized:true,authenticated:true}
-    if(u.pathname === '/api/state') json = {username:'session-revision',storages:[{id:'pan',name:'115资料',type:'115',enabled:true,config:{}}],tasks:[],settings:{},cache:{},traffic:{},logs:[]}
+    if(u.pathname === '/api/state') json = {username:'session-revision',fileVisits:visits,storages:[{id:'pan',name:'115资料',type:'115',enabled:true,config:{}}],tasks:[],settings:{},cache:{},traffic:{},logs:[]}
+    if(u.pathname === '/api/files/visits') { visits=rememberVisit(visits,r.request().postDataJSON().items[0]);json=visits }
     if(u.pathname === '/api/files') {
       paths.push(u.searchParams.get('path'))
       if(u.searchParams.get('refresh') === 'true') computedSize = false

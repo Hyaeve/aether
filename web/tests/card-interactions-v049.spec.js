@@ -175,15 +175,18 @@ test('real mobile touch holds follow and reorder all four card types', async ({ 
   } finally { await context.close() }
 })
 
-test('nested backup editor reveals expanded content inside its own viewport', async ({ page }) => {
+test('compact backup filter editor offers rules directly without an extra disclosure', async ({ page }) => {
   await fixture(page)
   await page.setViewportSize({ width: 390, height: 500 })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/transfer/backup')
   await page.locator('.backup-heading').getByRole('button', { name: '添加规则', exact: true }).click()
   await page.getByRole('navigation', { name: '备份配置步骤' }).getByRole('button', { name: '筛选规则', exact: true }).click()
-  const summary = page.locator('.backup-more summary')
-  await summary.click()
-  await expect(summary).toHaveCSS('font-size', '14px')
-  await expect.poll(() => page.locator('.backup-more').evaluate(el => el.open && el.getBoundingClientRect().bottom <= el.closest('.backup-editor').getBoundingClientRect().bottom)).toBe(true)
+  const modal = page.getByRole('dialog', { name: '添加备份规则', exact: true })
+  await expect(modal.getByText('更多选项', { exact: true })).toHaveCount(0)
+  await modal.getByRole('button', { name: '添加规则', exact: true }).click()
+  await page.getByRole('dialog', { name: '选择规则类型', exact: true }).getByRole('button', { name: '最大最小', exact: true }).click()
+  await modal.getByRole('spinbutton', { name: '最大值 1', exact: true }).fill('20')
+  await expect(modal.getByRole('spinbutton', { name: '最大值 1', exact: true })).toHaveValue('20')
+  expect(await modal.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
 })

@@ -34,6 +34,7 @@ import TransfersPage from './pages/TransfersPage.vue'
 import CASPoolPage from './pages/CASPoolPage.vue'
 import TransferSettings from './components/TransferSettings.vue'
 import VirtualLibraryPage from './pages/VirtualLibraryPage.vue'
+import Rapid115Page from './pages/Rapid115Page.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -192,6 +193,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : currentPath.endsWith('strm')?'strm':'account'" />
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
+        <Rapid115Page v-else-if="currentPath === '/tools/115-rapid'" />
         <VirtualLibraryPage v-else-if="currentPath.startsWith('/virtual')" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />

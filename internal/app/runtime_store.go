@@ -17,6 +17,7 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -41,7 +42,7 @@ func stripRuntimeConfig(values map[string]any) {
 	raw, _ := json.Marshal(values["state"])
 	tree, _ := configTree(raw)
 	root := tree.(map[string]any)
-	for _, field := range []string{"logs", "libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs"} {
+	for _, field := range append([]string{"logs"}, runtimeRootFields...) {
 		delete(root, field)
 	}
 	values["state"] = root
@@ -65,7 +66,7 @@ func (s *Store) runtimeValues() map[string]any {
 		}
 		result[kind] = records
 	}
-	for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs"} {
+	for _, field := range runtimeRootFields {
 		result[field] = state[field]
 	}
 	return result
@@ -102,6 +103,26 @@ func (s *Store) initRuntime(dir string) error {
 	}
 	s.runtimeDir = dir
 	raw, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err == nil && !s.state.RuntimeSeparated {
+		// Configuration import resets task results, not the administrator's file records.
+		var records struct {
+			Favorites          []FileFavorite       `json:"fileFavorites"`
+			Visits             []FileVisit          `json:"fileVisits"`
+			RapidAttempts      map[string]bool      `json:"rapid115Attempts"`
+			RapidRecords       []Rapid115Record     `json:"rapid115Records"`
+			SimulcastTemporary []SimulcastTemporary `json:"simulcastTemporary"`
+		}
+		if err := s.decodeJSONConfig("runtime/state", raw, &records); err != nil {
+			return err
+		}
+		if records.Favorites != nil {
+			s.state.FileFavorites = records.Favorites
+		}
+		if records.Visits != nil {
+			s.state.FileVisits = records.Visits
+		}
+		s.state.Rapid115Attempts, s.state.Rapid115Records, s.state.SimulcastTemporary = records.RapidAttempts, records.RapidRecords, records.SimulcastTemporary
+	}
 	if err == nil && s.state.RuntimeSeparated {
 		var plain json.RawMessage
 		if err := s.decodeJSONConfig("runtime/state", raw, &plain); err != nil {
@@ -131,8 +152,28 @@ func (s *Store) initRuntime(dir string) error {
 				}
 			}
 		}
-		for _, field := range []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs"} {
+		for _, field := range runtimeRootFields {
 			if value, exists := runtime[field]; exists {
+				if field == "fileFavorites" && len(s.state.FileFavorites) > 0 {
+					var saved []FileFavorite
+					raw, _ := json.Marshal(value)
+					if err := json.Unmarshal(raw, &saved); err != nil {
+						return err
+					}
+					for _, legacy := range s.state.FileFavorites {
+						found := false
+						for _, item := range saved {
+							if item.Storage == legacy.Storage && item.ID == legacy.ID {
+								found = true
+								break
+							}
+						}
+						if !found && len(saved) < 2000 {
+							saved = append(saved, legacy)
+						}
+					}
+					value = saved
+				}
 				state[field] = value
 			}
 		}
@@ -144,6 +185,12 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for i := range s.state.Rapid115Records {
+		if s.state.Rapid115Records[i].Status == "running" {
+			s.state.Rapid115Records[i].Status = "failed"
+			s.state.Rapid115Records[i].Message = "服务重启，执行结果未确认；源文件保留，请检查网盘"
+		}
+	}
 	for i := range s.state.GenerationJobs {
 		if s.state.GenerationJobs[i].Status == "running" || s.state.GenerationJobs[i].Status == "queued" {
 			s.state.GenerationJobs[i].Status, s.state.GenerationJobs[i].Message = "interrupted", "服务重启，生成已中断，请重新解析"

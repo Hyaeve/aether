@@ -50,7 +50,7 @@ test('transfer menu controls and removed tools', async ({ page }, info) => {
   await page.getByRole('button', { name: '删除', exact: true }).click()
   await expect(page.getByText('暂无传输任务')).toBeVisible()
   await page.goto('/tools')
-  await expect(page.locator('.plugin-card')).toHaveCount(12)
+  await expect(page.locator('.plugin-card')).toHaveCount(13)
   await expect(page.getByText('115 STRM 增强', { exact: true })).toHaveCount(0)
   await expect(page.getByText('115 分享 STRM', { exact: true })).toHaveCount(0)
 })

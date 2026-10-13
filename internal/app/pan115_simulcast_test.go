@@ -185,7 +185,7 @@ func TestPan115SimulcastRegisteredSettingsAndToolsRestore(t *testing.T) {
 	}
 	h := a.Handler(t.TempDir())
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
-	configs := map[string]SimulcastConfig{s.ID: {Enabled: true, Directory: "99", DirectoryLabel: "Copies"}}
+	configs := map[string]SimulcastConfig{s.ID: {Enabled: true, Directory: "99", DirectoryLabel: "Copies", RetentionHours: 12}}
 	for _, method := range []string{"GET", "PUT"} {
 		if w := request(t, h, method, "/api/115-simulcast", configs, nil); w.Code != 401 {
 			t.Fatal("route lacks auth", method, w.Code)

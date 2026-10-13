@@ -10,6 +10,7 @@ async function setup(page, count=180) {
   if(u.pathname==='/api/auth/status')json={initialized:true,authenticated:true}
   if(u.pathname==='/api/state')json={username:'layout-test',storages:[{id:'local',name:'本地',type:'local',enabled:true,config:{}},{id:'quark',name:'夸克',type:'quark',enabled:true,config:{}}],tasks:[],settings:{},cache:{},traffic:{}}
   if(u.pathname==='/api/files')json=Array.from({length:count},(_,i)=>({id:`${i}`,name:`${i%2?'文件':'目录'}${i}.txt`,isDir:i%2===0,size:i*100,modified:`2026-10-${String(i%9+1).padStart(2,'0')}T10:00:00Z`,sizeKnown:true,countsKnown:true,folderCount:0,fileCount:0}))
+  if(u.pathname==='/api/files/visits')json=r.request().postDataJSON().items
   if(u.pathname==='/api/mounts'||u.pathname==='/api/transfers'||u.pathname==='/api/backups'||u.pathname==='/api/webdav/users')json=[]
   return r.fulfill({json})
  })

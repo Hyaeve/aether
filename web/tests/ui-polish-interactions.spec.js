@@ -9,6 +9,7 @@ async function setup(page,count=120) {
     if(path==='/api/auth/status')json={initialized:true,authenticated:true}
     if(path==='/api/state')json={username:'polish',storages:[{id:'local',name:'本地资料',type:'local',enabled:true,config:{}}],tasks:[],settings:{},cache:{},traffic:{}}
     if(path==='/api/files')json=files
+    if(path==='/api/files/visits')json=r.request().postDataJSON().items
     if(path==='/api/files/rename-rules')json=[]
     return r.fulfill({json})
   })

@@ -5,6 +5,7 @@ for (const succeeds of [true, false]) {
     await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
     await page.route('**/api/state', r => r.fulfill({ json: { username: 'share-owner', storages: [{ id: 'p115', type: '115', name: '115', enabled: true, config: {} }], tasks: [], settings: {}, traffic: {}, cache: {} } }))
     const requests = []
+    await page.route('**/api/files/visits', r => r.fulfill({json:r.request().postDataJSON().items}))
     await page.route('**/api/files?**', r => {
       const query = new URL(r.request().url()).searchParams
       requests.push({ path: query.get('path'), refresh: query.get('refresh') })

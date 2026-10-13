@@ -6,11 +6,12 @@ import Modal from './Modal.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import RoundedSelect from './RoundedSelect.vue'
 import TaskSourcePicker from './TaskSourcePicker.vue'
+import NumberInput from './NumberInput.vue'
 
 const emit = defineEmits(['close'])
 const configs = ref({}), loaded = ref(false), busy = ref(false), error = ref('')
 const editing = ref(false), original = ref(''), picker = ref(false), removing = ref('')
-const form = reactive({ storageId: '', enabled: true, directory: '', directoryLabel: '' })
+const form = reactive({ storageId: '', enabled: true, directory: '', directoryLabel: '', retentionHours:12 })
 const storages = computed(() => state.storages.filter(s => s.type === '115' && s.enabled))
 const options = computed(() => storages.value.filter(s => !configs.value[s.id] || s.id === original.value).map(s => ({ value: s.id, label: s.name })))
 const canAdd = computed(() => storages.value.some(s => !configs.value[s.id]))
@@ -24,7 +25,8 @@ async function load() {
 onMounted(load)
 function edit(id = '') {
   original.value = id
-  Object.assign(form, { storageId: id, enabled: true, directory: '', directoryLabel: '' }, configs.value[id] || {})
+  Object.assign(form, { storageId: id, enabled: true, directory: '', directoryLabel: '', retentionHours:12 }, configs.value[id] || {})
+  form.retentionHours ||= 12
   error.value = ''; editing.value = true
 }
 async function persist(next) {
@@ -37,7 +39,7 @@ async function save() {
   if (!form.storageId || !form.directory) { error.value = '请选择存储和复制目录'; return }
   const next = { ...configs.value }
   delete next[original.value]
-  next[form.storageId] = { enabled: form.enabled, directory: form.directory, directoryLabel: form.directoryLabel }
+  next[form.storageId] = { enabled: form.enabled, directory: form.directory, directoryLabel: form.directoryLabel, retentionHours:form.retentionHours }
   if (await persist(next)) editing.value = false
 }
 async function remove() {
@@ -67,7 +69,7 @@ function select(value) {
   <Modal v-if="editing" :title="original ? '编辑同播复制' : '添加同播复制'" @close="!busy && (editing = false)">
     <form @submit.prevent="save">
       <div class="modal-body simulcast-form">
-        <label>115 存储<RoundedSelect v-model="form.storageId" label="115 存储" placeholder="选择存储" :options="options" :disabled="busy || !!original" /></label>
+        <div class="simulcast-binding"><label>115 存储<RoundedSelect v-model="form.storageId" label="115 存储" placeholder="选择存储" :options="options" :disabled="busy || !!original" /></label><label>复制保活<NumberInput v-model="form.retentionHours" aria-label="复制保活" unit="h" :min="1" :max="8760" required :disabled="busy" /></label></div>
         <label>复制目录<button type="button" class="btn simulcast-directory" aria-label="选择复制目录" :disabled="busy || !form.storageId" @click="picker = true"><Icon name="Folder" /><span>{{ form.directoryLabel || form.directory || '选择目录' }}</span></button></label>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       </div>
@@ -95,6 +97,7 @@ function select(value) {
 .simulcast-add { display: flex; justify-content: center; align-items: center; gap: 8px; border: 1px dashed var(--border); border-radius: 8px; min-height: 48px; color: var(--muted); background: transparent; cursor: pointer; }
 .simulcast-add:disabled { opacity: .5; cursor: default; }
 .simulcast-form { display: grid; gap: 18px; }
+.simulcast-binding { display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:14px; }
 .simulcast-form label { display: grid; gap: 8px; min-width: 0; }
 .simulcast-form .toggle-line { display: flex; }
 .simulcast-directory { width: 100%; justify-content: flex-start; min-width: 0; }

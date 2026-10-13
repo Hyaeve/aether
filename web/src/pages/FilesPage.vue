@@ -21,7 +21,7 @@ import RenameWorkbench from '../components/RenameWorkbench.vue'
 import OfflineDownload from '../components/OfflineDownload.vue'
 import ShareTransfer from '../components/ShareTransfer.vue'
 import { useVirtualList } from '../virtual-list'
-import { rememberVisit, validVisits } from '../visit-history'
+import { validVisits } from '../visit-history'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import VisitPath from '../components/VisitPath.vue'
 import { listWheel } from '../nested-scroll'
@@ -33,7 +33,32 @@ const viewPreferenceKey = 'aether-files-view'
 let savedMode = saved.mode
 try { savedMode = localStorage.getItem(viewPreferenceKey) || savedMode } catch {}
 try { if (savedMode === 'grid' || savedMode === 'list') localStorage.setItem(viewPreferenceKey, savedMode) } catch {}
-const mode = ref(savedMode === 'grid' ? 'grid' : 'list'), favoritesOpen = ref(!!saved.open), favorites = ref(Array.isArray(saved.favorites) ? saved.favorites : [])
+const mode = ref(savedMode === 'grid' ? 'grid' : 'list'), favoritesOpen = ref(!!saved.open)
+const favorites = computed(() => Array.isArray(state.fileFavorites) ? state.fileFavorites : [])
+const favoritesBusy = ref(false)
+const favoritesOwner = state.username
+let favoritesAlive = true
+onMounted(async () => {
+  const legacy = Array.isArray(saved.favorites) ? saved.favorites : []
+  if (!legacy.length) return
+  favoritesBusy.value = true
+  try {
+    const result = await api('/files/favorites', 'POST', { action: 'import', items: legacy })
+    if (favoritesAlive && state.authenticated && state.username === favoritesOwner && Array.isArray(result)) {
+      state.fileFavorites = result
+      if (legacy.length) {
+        delete saved.favorites
+        try {
+          const preferences = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {}
+          delete preferences.favorites
+          localStorage.setItem(preferenceKey, JSON.stringify(preferences))
+        } catch {}
+      }
+    }
+  } catch (e) { if (favoritesAlive) notify(e.message, true) }
+  finally { favoritesBusy.value = false }
+})
+onUnmounted(() => { favoritesAlive = false })
 watch(mode, value => {
   try { localStorage.setItem(viewPreferenceKey, value) } catch { /* Storage may be disabled by the browser. */ }
 }, { flush: 'sync' })
@@ -45,7 +70,23 @@ const current = ref(restoredLocation?.id || '/'), history = ref(restoredLocation
 const visitKey = `aether-file-history:${state.username}`
 let previousVisits = []
 try { previousVisits = validVisits(JSON.parse(localStorage.getItem(visitKey) || '[]')) } catch {}
-const visits = ref(previousVisits), visitChoice = ref('')
+const visits = computed(() => validVisits(state.fileVisits)), visitChoice = ref('')
+let visitsQueue = Promise.resolve()
+function saveVisit(action, items) {
+  visitsQueue = visitsQueue.then(async () => {
+    if (!favoritesAlive || !state.authenticated || state.username !== favoritesOwner) return
+    try {
+      const result = await api('/files/visits', 'POST', { action, items })
+      if (favoritesAlive && state.authenticated && state.username === favoritesOwner && Array.isArray(result)) {
+        state.fileVisits = result
+        if (action === 'import') {
+          try { localStorage.removeItem(visitKey) } catch {}
+        }
+      }
+    } catch (e) { if (favoritesAlive) notify(e.message, true) }
+  })
+}
+onMounted(() => { if (previousVisits.length) saveVisit('import', previousVisits) })
 const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => { const pool = state.storages.find(s => s.id === v.storage); return { value: String(v.index), provider: pool.type, pool: pool.name, parents: v.history.slice(0,-1).map(h => h.name), deepest: v.history.at(-1)?.name || '根目录', label: `${pool.name} / ${v.history.at(-1)?.name || '根目录'}` } }))
 async function visitJump(value) {
   const item = visits.value[Number(value)]
@@ -188,8 +229,8 @@ async function showDetails() {
 }
 const fileUpload = ref(null), folderUpload = ref(null), uploadBusy = ref(false), uploadProgress = ref(''), offline = ref(false)
 const sortKey = ref(['name', 'size', 'type', 'modified'].includes(saved.sortKey) ? saved.sortKey : 'name'), ascending = ref(saved.ascending !== false), selection = ref([]), anchor = ref(''), menu = ref(null), renameID = ref(''), newName = ref(''), operation = ref(''), deleting = ref(false), folderDownload = ref(null)
-watch([favoritesOpen, favorites, selected, sortKey, ascending], () => {
-  try { localStorage.setItem(preferenceKey, JSON.stringify({ open: favoritesOpen.value, favorites: favorites.value, storage: selected.value, sortKey: sortKey.value, ascending: ascending.value })) } catch {}
+watch([favoritesOpen, selected, sortKey, ascending], () => {
+  try { localStorage.setItem(preferenceKey, JSON.stringify({ ...saved, open: favoritesOpen.value, storage: selected.value, sortKey: sortKey.value, ascending: ascending.value })) } catch {}
 }, { deep: true, flush: 'sync' })
 const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'type', label: '类型' }, { key: 'modified', label: '修改时间' }]
 const type = f => f.isDir ? '文件夹' : f.name.split('.').at(-1).toUpperCase()
@@ -345,10 +386,16 @@ onMounted(() => { document.addEventListener('click', clearSelection); document.a
 onUnmounted(() => { clearDeepSearch(); document.removeEventListener('click', clearSelection); document.removeEventListener('click', closeMenu); document.removeEventListener('pointerdown', outsideEdit); document.removeEventListener('click', outsideCreate); document.removeEventListener('keydown', keys); requestId++ })
 const poolFavorites = computed(() => favorites.value.filter(f => f.storage === selected.value && f.id !== '/' && f.history?.length))
 const isFavorite = computed(() => poolFavorites.value.some(f => f.id === current.value))
-function star() {
-  if (!selected.value || !history.value.length || current.value === '/') return
-  if (isFavorite.value) favorites.value = favorites.value.filter(f => !(f.storage === selected.value && f.id === current.value))
-  else favorites.value.push({ storage: selected.value, id: current.value, name: history.value.at(-1)?.name || '根目录', history: JSON.parse(JSON.stringify(history.value)) })
+async function star() {
+  if (favoritesBusy.value || !selected.value || !history.value.length || current.value === '/') return
+  const item = { storage: selected.value, id: current.value, name: history.value.at(-1)?.name || '根目录', history: history.value.map(h => ({ ...h })) }
+  const action = isFavorite.value ? 'remove' : 'add'
+  favoritesBusy.value = true
+  try {
+    const result = await api('/files/favorites', 'POST', { action, items: [item] })
+    if (favoritesAlive && state.authenticated && state.username === favoritesOwner && Array.isArray(result)) state.fileFavorites = result
+  } catch (e) { if (favoritesAlive) notify(e.message, true) }
+  finally { favoritesBusy.value = false }
 }
 function jump(index) {
   if (renameID.value || uploadBusy.value) return
@@ -363,7 +410,6 @@ function favoriteJump(item) {
   const trail = item.history || []
   const descendant = trail.findIndex(crumb => crumb.id === item.id)
   const restored = (descendant < 0 ? trail : trail.slice(0, descendant)).map(crumb => ({ ...crumb }))
-  if (descendant >= 0) item.history = restored.map(crumb => ({ ...crumb }))
   selection.value = []; anchor.value = ''; query.value = ''; searchInput.value = ''
   current.value = item.id; history.value = restored
   resetScroll(); load()
@@ -379,10 +425,8 @@ async function load(refresh = false) {
     if (id === requestId) {
       files.value = result
       writeSession(state.username, 'directory', { storage: selected.value, id: current.value, history: history.value })
-      let persisted = visits.value
-      try { persisted = validVisits(JSON.parse(localStorage.getItem(visitKey) || '[]')) } catch {}
-      visits.value = rememberVisit(persisted, { storage: selected.value, id: current.value, history: history.value })
-      try { localStorage.setItem(visitKey, JSON.stringify(visits.value)) } catch {}
+      const visit = { storage: selected.value, id: current.value, history: history.value.map(h => ({ ...h })) }
+      if (validVisits([visit]).length) saveVisit('visit', [visit])
     }
   } catch (e) { if (id === requestId) { error.value = e.message; files.value = [] } }
   finally { if (id === requestId) busy.value = false }
@@ -395,7 +439,7 @@ load()
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :source-label="'/'+history.map(item=>item.name).join('/')" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
-    <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
+  <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :hover-delay="600" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
       <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
@@ -408,7 +452,7 @@ load()
   <div class="file-browser" :class="{ 'has-file-overflow': !busy && displayItems.length && fileOverflow }">
 <div class="file-toolbar"><button class="icon-btn" aria-label="展开收藏栏" :aria-expanded="favoritesOpen" @click="favoritesOpen = !favoritesOpen"><Icon name="PanelLeft" /></button><RoundedSelect class="file-pool-select" v-model="selected" label="选择存储池" hide-check :disabled="!!renameID || uploadBusy" :options="state.storages.filter(s => s.enabled).map(s => ({ value: s.id, label: s.name, provider: s.type }))"><template #selected="{option}"><ProviderIcon v-if="option" :type="option.provider" compact /><span>{{option?.label}}</span></template><template #option="{option}"><ProviderIcon :type="option.provider" compact /><span>{{option.label}}</span></template></RoundedSelect><div class="path-bar"><PathBreadcrumbs :entries="history" :disabled="busy || !!renameID || uploadBusy" @jump="jump" /></div><button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button><button class="icon-btn" :disabled="!!renameID" :aria-label="mode === 'list' ? '当前列表视图，切换网格' : '当前网格视图，切换列表'" @click="mode = mode === 'list' ? 'grid' : 'list'"><Icon :name="mode === 'list' ? 'List' : 'LayoutGrid'" /></button></div>
   <div class="file-workspace" :class="{ 'with-favorites': favoritesOpen }">
-  <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="!selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div></aside>
+  <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="favoritesBusy || !selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div></aside>
   <section ref="viewport" class="file-view" :class="{ 'deep-search-results': !!searchResults }" @scroll="measureCount" @wheel="listWheel" @contextmenu="blankTools">
   <div v-if="error" class="error-message" role="alert">{{ error }}</div>
   <div v-if="busy" class="empty-state"><Icon name="LoaderCircle" class="spin" :size="30" /><p>正在读取目录…</p></div>

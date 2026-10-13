@@ -18,7 +18,7 @@ const accounts = computed(() => Object.fromEntries(groups.map(({ type }) => [typ
 )])))
 const busy = computed(() => loading.value || saving.value)
 const rotationHours = computed({ get: () => form.rotationMinutes === '' ? '' : form.rotationMinutes / 60, set: value => { form.rotationMinutes = value === '' ? '' : value * 60; changed() } })
-let active = true, requestId = 0, controller
+let active = true, requestId = 0, controller, saveTimer, queuedBody
 function defaults() { return props.kind==='ed2k'?{'115':{storageIds:[],retentionHours:24},directory:'/最近接收/Aether',rotationMinutes:1440}:{mobile: { storageIds: [], retentionHours: 12 }, tianyi: { storageIds: [], retentionHours: 12 }, preferred: 'mobile', rotationMinutes:720} }
 function normalize(value) {
   const next = defaults()
@@ -32,7 +32,7 @@ function normalize(value) {
   return next
 }
 function invalidate() { requestId++; controller?.abort() }
-function changed() { saved.value = false; error.value = '' }
+function changed() { saved.value = false; error.value = ''; if(loaded.value&&!loading.value){clearTimeout(saveTimer);saveTimer=setTimeout(save,350)} }
 function unavailable(type) { return form[type].storageIds.filter(id => !accounts.value[type].some(s => s.id === id)) }
 function accountName(id) { return state.storages.find(s => s.id === id)?.name || id }
 function remove(type, id) { form[type].storageIds = form[type].storageIds.filter(value => value !== id); changed() }
@@ -61,23 +61,28 @@ async function request(method, body) {
   loading.value = method === 'GET'; saving.value = method === 'PUT'; error.value = ''; saved.value = false
   try {
     const response = await fetch(`/api/${props.kind}/pool`, { method, credentials: 'same-origin', signal: abort.signal,
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+      keepalive:method==='PUT', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
     let result
     try { result = await response.json() } catch { throw new Error('服务响应异常，请检查后端连接') }
     if (!active || token !== requestId) return
     if (!response.ok) throw new Error(result.error || '请求失败')
-    Object.assign(form, normalize(result))
+    if(method==='GET')Object.assign(form, normalize(result))
     for (const { type } of groups) { const first=accounts.value[type][0]?.id; if(first)form[type].storageIds=[first,...form[type].storageIds.filter(id=>id!==first)] }
     loaded.value = true
     if (method === 'PUT') { saved.value = true; emit('saved', normalize(result)) }
   } catch (e) { if (active && token === requestId && e.name !== 'AbortError') error.value = e.message }
-  finally { if (active && token === requestId) { loading.value = false; saving.value = false; controller = undefined } }
+  finally { if (token === requestId) { loading.value = false; saving.value = false; controller = undefined; if(queuedBody){const body=queuedBody;queuedBody=undefined;request('PUT',body)} } }
 }
 function save() {
-  if (busy.value || !loaded.value) return
+  clearTimeout(saveTimer)
+  saveTimer = undefined
+  if (loading.value || !loaded.value) return
   if (!formElement.value?.reportValidity()) return
   error.value = validationError()
-  if (!error.value) request('PUT', props.kind==='ed2k'?{storageIds:form['115'].storageIds,retentionHours:form['115'].retentionHours,directory:form.directory,rotationMinutes:Math.round(form.rotationMinutes)}:{ ...normalize(form), rotationMinutes: Math.round(form.rotationMinutes) })
+  if (!error.value) {
+    const body=props.kind==='ed2k'?{storageIds:[...form['115'].storageIds],retentionHours:form['115'].retentionHours,directory:form.directory,rotationMinutes:Math.round(form.rotationMinutes)}:{ ...normalize(form), rotationMinutes: Math.round(form.rotationMinutes) }
+    if(saving.value)queuedBody=body;else request('PUT',body)
+  }
 }
 const directoryPrefix=computed({get:()=>form.directory.endsWith('/Aether')?form.directory.slice(0,-7):form.directory,set:value=>{form.directory=value;changed()}})
 function normalizeDirectory(){let value=form.directory.trim().replace(/\/+$/,'');if(!value.endsWith('/Aether'))value+='/Aether';form.directory=value;changed();save()}
@@ -86,14 +91,14 @@ watch(loaded, value => emit('ready', value), { immediate: true })
 watch(accounts, () => { for(const {type} of groups) { const first=accounts.value[type][0]?.id; if(first && !form[type].storageIds.includes(first))form[type].storageIds.unshift(first) } })
 watch(() => state.authenticated, () => { loaded.value = false; invalidate(); emit('close') }, { flush: 'sync' })
 onMounted(() => request('GET'))
-onBeforeUnmount(() => { active = false; invalidate() })
+onBeforeUnmount(() => { if(saveTimer)save();active = false;clearTimeout(saveTimer);if(!saving.value)invalidate() })
 defineExpose({ save })
 </script>
 <template>
   <section class="cas-pool" :class="{'ed2k-pool':kind==='ed2k'}" :aria-label="`${kind.toUpperCase()} 存储绑定池`" :aria-busy="busy">
-    <form ref="formElement" @submit.prevent="save" @input="changed" @change="changed">
+    <form ref="formElement" @submit.prevent="save" @input="changed" @change="changed" @keydown.enter="$event.target.tagName==='INPUT' && ($event.preventDefault(),save())">
       <p v-if="loading" class="cas-pool-feedback" role="status"><Icon name="LoaderCircle" />加载中...</p>
-      <fieldset class="cas-pool-fields" :disabled="busy || !loaded">
+      <fieldset class="cas-pool-fields" :disabled="loading || !loaded">
         <div class="cas-pool-groups">
           <section v-for="group in groups" :key="group.type" class="cas-pool-group" :aria-label="group.name">
             <header><ProviderIcon :type="group.type" small /><h3>{{ group.name }}</h3></header>
@@ -117,20 +122,21 @@ defineExpose({ save })
           <div class="cas-pool-options">
             <div v-if="kind!=='ed2k'" class="field"><label>优先秒传</label><RoundedSelect v-model="form.preferred" label="优先秒传" :disabled="busy || !loaded" :options="[{ value: 'mobile', label: '移动云盘' }, { value: 'tianyi', label: '天翼云盘' }]" @update:model-value="changed" /></div>
             <div class="field"><label :for="`${id}-rotation`">轮换时间</label><NumberInput :id="`${id}-rotation`" v-model="rotationHours" aria-label="轮换时间" unit="h" :min="1 / 60" :max="24" :step="1 / 60" required :disabled="busy || !loaded" /></div>
-            <div v-for="group in groups" :key="group.type" class="field"><label :for="`${id}-${group.type}-retention`">{{ {'mobile':'移动保活','tianyi':'天翼保活','115':'秒传保活'}[group.type] }}</label><NumberInput :id="`${id}-${group.type}-retention`" v-model="form[group.type].retentionHours" :aria-label="{'mobile':'移动保活','tianyi':'天翼保活','115':'秒传保活'}[group.type]" unit="h" :min="1" :max="8760" :step="1" required :disabled="busy || !loaded" /></div>
+            <div v-for="group in groups" :key="group.type" class="field"><label :for="`${id}-${group.type}-retention`">{{ {'mobile':'移动保活','tianyi':'天翼保活','115':'秒传保活'}[group.type] }}</label><NumberInput :id="`${id}-${group.type}-retention`" v-model="form[group.type].retentionHours" :aria-label="{'mobile':'移动保活','tianyi':'天翼保活','115':'秒传保活'}[group.type]" unit="h" :min="1" :max="8760" :step="1" required :disabled="busy || !loaded" @update:model-value="changed" /></div>
             <div v-if="kind==='ed2k'" class="field full"><label :for="`${id}-directory`">临时目录</label><div class="ed2k-directory"><input :id="`${id}-directory`" v-model="directoryPrefix" aria-label="临时目录" @blur="normalizeDirectory" @keydown.enter.prevent="normalizeDirectory" /><span aria-hidden="true">/Aether</span></div></div>
           </div>
         </section>
       </fieldset>
       <p v-if="error" class="cas-pool-feedback cas-pool-error" role="alert"><Icon name="CircleAlert" /><span>{{ error }}</span></p>
       <p v-if="saved" class="cas-pool-feedback cas-pool-saved" role="status"><Icon name="CircleCheck" />存储绑定池已保存</p>
+      <button v-if="loaded && error" type="button" class="btn" :disabled="busy" @click="save"><Icon name="RefreshCw" />重试保存</button>
       <button v-if="!loaded && !loading" type="button" class="btn" @click="request('GET')"><Icon name="RefreshCw" />重新加载</button>
     </form>
   </section>
 </template>
 <style scoped>
 .cas-pool { min-width:0; color:var(--text); }
-.ed2k-pool .cas-pool-groups{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.ed2k-directory{position:relative}.ed2k-directory input{width:100%;padding-right:82px}.ed2k-directory span{position:absolute;right:12px;top:11px;color:var(--primary);font-size:14px;pointer-events:none}
+.ed2k-pool .cas-pool-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}.ed2k-pool .cas-pool-groups{grid-template-columns:minmax(0,1fr)}.ed2k-pool .cas-pool-advanced{margin-top:0;padding-top:12px;border-top:0}.ed2k-pool .cas-pool-options{grid-template-columns:minmax(0,1fr);gap:12px}.ed2k-directory{position:relative}.ed2k-directory input{width:100%;padding-right:82px}.ed2k-directory span{position:absolute;right:12px;top:11px;color:var(--primary);font-size:14px;pointer-events:none}
 .cas-pool-fields { margin:0; padding:0; border:0; min-width:0; }
 .cas-pool-groups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
 .cas-pool-group { min-width:0; }
@@ -160,6 +166,6 @@ defineExpose({ save })
 .cas-pool-options :deep(.rounded-select-trigger) { height:40px; }
 .cas-pool-feedback { display:flex; align-items:center; gap:8px; margin:12px 0; font-size:13px; overflow-wrap:anywhere; }
 .cas-pool-error { color:var(--red); }.cas-pool-saved { color:var(--green); }
-@media(max-width:600px) { .cas-pool-groups,.cas-pool-options,.ed2k-pool .cas-pool-groups { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:600px) { .cas-pool-groups,.cas-pool-options,.ed2k-pool .cas-pool-groups,.ed2k-pool .cas-pool-fields { grid-template-columns:minmax(0,1fr); } }
 @media(prefers-reduced-motion:reduce) { .cas-pool-account { transition:none; } }
 </style>

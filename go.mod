@@ -7,6 +7,7 @@ require (
 	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/anacrolix/torrent v1.61.0
 	github.com/bodgit/sevenzip v1.6.5
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/nwaples/rardecode/v2 v2.4.1

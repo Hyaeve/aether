@@ -144,6 +144,10 @@ func (a *App) casPoolSettings(w http.ResponseWriter, r *http.Request) {
 // Prefer a still-live restore before time-window rotation; playback never writes
 // to an account outside the explicitly configured pool.
 func (a *App) selectCASStorage(info CASInfo, now time.Time) (Storage, int, error) {
+	return a.selectCASStorageExcept(info, now, "")
+}
+
+func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind string) (Storage, int, error) {
 	if err := validateCAS(info); err != nil {
 		return Storage{}, 0, err
 	}
@@ -160,6 +164,9 @@ func (a *App) selectCASStorage(info CASInfo, now time.Time) (Storage, int, error
 	groups := map[string]CASPoolGroup{"mobile": p.Mobile, "tianyi": p.Tianyi}
 	available := map[string][]Storage{}
 	for _, kind := range kinds {
+		if kind == excludedKind {
+			continue
+		}
 		group := groups[kind]
 		eligible := []Storage{}
 		for _, sid := range group.StorageIDs {

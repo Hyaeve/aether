@@ -29,6 +29,9 @@ import (
 )
 
 type App struct {
+	rapid115Mu          sync.Mutex
+	rapid115Running     bool
+	rapid115Upload      func(context.Context, Storage, string, string, *os.File, int64, bool) (bool, string, error)
 	taskHealthCancels   map[string]func()
 	backupHealthCancels map[string]func()
 	generationMu        sync.Mutex
@@ -197,6 +200,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	a.wg.Add(1)
 	go a.backupMonitor()
 	a.wg.Add(1)
+	go a.rapid115Monitor()
+	a.wg.Add(1)
 	go a.storageHealthLoop()
 	a.wg.Add(1)
 	go func() {
@@ -276,10 +281,16 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/mounts/{id}/{action}", a.protected(http.HandlerFunc(a.mountAction)))
 	mux.Handle("GET /api/local-directories", a.protected(http.HandlerFunc(a.localDirectories)))
 	mux.Handle("POST /api/local-directories", a.protected(http.HandlerFunc(a.createLocalDirectory)))
+	mux.Handle("GET /api/files/favorites", a.protected(http.HandlerFunc(a.fileFavorites)))
+	mux.Handle("POST /api/files/favorites", a.protected(http.HandlerFunc(a.fileFavorites)))
+	mux.Handle("POST /api/files/visits", a.protected(http.HandlerFunc(a.fileVisits)))
 	a.RegisterStrmReplace(mux)
 	mux.Handle("POST /api/virtual-library/115/{action}", a.protected(http.HandlerFunc(a.virtualLibrary)))
 	mux.HandleFunc("/s/{key}", a.playVirtualShare)
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
+	mux.Handle("/api/115-rapid", a.protected(http.HandlerFunc(a.rapid115Settings)))
+	mux.Handle("POST /api/115-rapid/run", a.protected(http.HandlerFunc(a.rapid115Start)))
+	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, a.store.logSnapshot())
 	})))
@@ -600,7 +611,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "links": redactedMediaLinks(st.Links), "libraryNotices": st.LibraryNotices, "shareNotices": st.ShareNotices, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
+	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "fileFavorites": visibleFavorites(st.FileFavorites), "fileVisits": st.FileVisits, "links": redactedMediaLinks(st.Links), "libraryNotices": st.LibraryNotices, "shareNotices": st.ShareNotices, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
 		"cache": a.cache.stats(), "traffic": map[string]any{"uploaded": a.uploaded.Load(), "downloaded": a.downloaded.Load()}, "uptime": int(time.Since(a.started).Seconds()), "strmRoot": a.outputDir})
 }
 
@@ -1350,6 +1361,9 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		var release func()
 		d, release, err = a.casDownload(r.Context(), s, claim)
 		defer release()
+		if err == nil && d.storageID != "" {
+			s, err = a.store.storage(d.storageID)
+		}
 	} else {
 		file := File{ID: claim.File, PickCode: claim.Pick}
 		if a.simulcast != nil && s.Type == "115" && r.URL.Query().Get("download") != "1" {

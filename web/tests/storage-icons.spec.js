@@ -36,6 +36,7 @@ test('file selectors and history normalize provider artwork without changing sto
   await page.addInitScript(types => localStorage.setItem('aether-file-history:compact-icons',JSON.stringify(types.map(type=>({storage:type,id:'b',history:[{id:'/',name:'A'},{id:'a',name:'B'}]})))),types)
   await page.route('**/api/**',r=>{
     const pathname=new URL(r.request().url()).pathname
+    if(pathname==='/api/files/visits')return r.fulfill({json:r.request().postDataJSON().items})
     const json=pathname==='/api/auth/status'?{initialized:true,authenticated:true}:pathname==='/api/state'?{username:'compact-icons',storages:types.map(type=>({id:type,type,name:type,enabled:true,config:{}})),tasks:[],settings:{},traffic:{},cache:{}}:pathname==='/api/files'?[]:{}
     return r.fulfill({json})
   })

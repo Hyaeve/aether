@@ -84,7 +84,7 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
             <input v-model="form.directory" required :disabled="busy || running" aria-label="替换目录" />
             <button type="button" class="icon-btn" aria-label="选择替换目录" :disabled="busy || running" @click="picker = true"><Icon name="FolderOpen" /></button>
           </span>
-        </label><label>替换模式<RoundedSelect v-model="form.mode" label="替换模式" :disabled="busy || running" :options="[{value:'literal',label:'常规替换'},{value:'regex',label:'正则替换'}]" /></label></div>
+        </label><label>替换模式<RoundedSelect v-model="form.mode" class="replace-mode" hide-check label="替换模式" :disabled="busy || running" :options="[{value:'literal',label:'常规替换'},{value:'regex',label:'正则替换'}]" /></label></div>
         <label>匹配字段<input v-model="form.find" required maxlength="16384" :disabled="busy || running" /></label>
         <label>替换字段<input v-model="form.replace" maxlength="16384" :disabled="busy || running" /></label>
         <section v-if="task" class="strm-replace-status" role="status" aria-live="polite" aria-atomic="true" :aria-busy="running">
@@ -95,7 +95,7 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
         </section>
         <p v-if="error || pollError" class="error-message" role="alert">{{ error || pollError }}</p>
       </div>
-      <footer class="modal-footer"><button type="button" class="btn" @click="emit('close')">关闭</button><button type="button" class="btn" :disabled="!loaded || busy || running || !form.directory || !form.find" @click="review(true)"><Icon name="Eye" />预览</button><button class="btn primary" :disabled="!loaded || busy || running || !form.directory || !form.find"><Icon name="Play" />执行替换</button></footer>
+      <footer class="modal-footer"><button type="button" class="btn" @click="emit('close')">关闭</button><button type="button" class="btn preview-btn" :disabled="!loaded || busy || running || !form.directory || !form.find" @click="review(true)"><Icon name="Eye" />预览</button><button class="btn primary" :disabled="!loaded || busy || running || !form.directory || !form.find"><Icon name="Play" />执行替换</button></footer>
     </form>
   </Modal>
   <Modal v-if="preview" title="替换预览" standard @close="preview = null">
@@ -115,6 +115,9 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
 
 <style scoped>
 .strm-replace { display: grid; gap: 16px; }
+.preview-btn { background:color-mix(in srgb,#e9d78a 12%,var(--surface));border-color:color-mix(in srgb,#e9d78a 28%,var(--border)); }
+.replace-mode :deep(.rounded-select-option[aria-selected=true]) { background:var(--primary-soft); }
+.replace-mode :deep(.rounded-select-option.focused:not([aria-selected=true])) { background:color-mix(in srgb,var(--primary-soft) 45%,var(--surface)); }
 .replace-first-row { display:grid;grid-template-columns:2fr 1fr;gap:14px;min-width:0; }
 .replace-comparison { display:grid;grid-template-columns:1fr 1fr;gap:12px; }.replace-comparison > div { min-width:0; }
 .replace-preview section { margin-top:18px; }.replace-preview strong { display:block;overflow-wrap:anywhere;font-size:13px; }

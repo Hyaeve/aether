@@ -20,6 +20,7 @@ import (
 
 // SimulcastConfig is keyed by storage ID in State and the encrypted tool snapshot.
 type SimulcastConfig struct {
+	RetentionHours int    `json:"retentionHours,omitempty"`
 	Enabled        bool   `json:"enabled"`
 	Directory      string `json:"directory"`
 	DirectoryLabel string `json:"directoryLabel,omitempty"`
@@ -34,9 +35,10 @@ const (
 )
 
 type simulcastClient struct {
-	seen time.Time
-	file File
-	err  error
+	storageID string
+	seen      time.Time
+	file      File
+	err       error
 }
 
 type pan115Simulcast struct {
@@ -77,6 +79,12 @@ func (a *App) pan115SimulcastSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		err := a.store.update(func(st *State) error {
 			for storageID, cfg := range configs {
+				if cfg.RetentionHours == 0 {
+					cfg.RetentionHours = 12
+				}
+				if cfg.RetentionHours < 1 || cfg.RetentionHours > 8760 {
+					return errors.New("复制保活须为1至8760 h")
+				}
 				var storage *Storage
 				for i := range st.Storages {
 					if st.Storages[i].ID == storageID {
@@ -174,6 +182,11 @@ func (p *pan115Simulcast) PlayFile(r *http.Request, s Storage, source File) (Fil
 	clients := p.sessions[key]
 	if entry := clients[clientKey]; entry != nil {
 		entry.seen = now
+		if entry.err == nil && entry.file.ID != source.ID {
+			if err := p.touchTemporary(s, entry.file, cfg); err != nil {
+				return File{}, err
+			}
+		}
 		return entry.file, entry.err
 	}
 	if total >= simulcastTotal || len(clients) >= simulcastClients || (clients == nil && len(p.sessions) >= simulcastFiles) {
@@ -183,14 +196,133 @@ func (p *pan115Simulcast) PlayFile(r *http.Request, s Storage, source File) (Fil
 		clients = make(map[[32]byte]*simulcastClient)
 		p.sessions[key] = clients
 	}
-	entry := &simulcastClient{seen: now, file: source}
+	entry := &simulcastClient{storageID: s.ID, seen: now, file: source}
 	if len(clients) > 0 {
 		// Cache failures as well: a timed-out upstream mutation must not be replayed.
 		entry.file, entry.err = p.copy(ctx, s, cfg, source)
 		entry.seen = p.now()
+		if entry.err == nil {
+			entry.err = p.touchTemporary(s, entry.file, cfg)
+		}
 	}
 	clients[clientKey] = entry
 	return entry.file, entry.err
+}
+
+type SimulcastTemporary struct {
+	Cleaning  bool      `json:"cleaning,omitempty"`
+	StorageID string    `json:"storageId"`
+	FileID    string    `json:"fileId"`
+	Parent    string    `json:"parent"`
+	Name      string    `json:"name"`
+	PickCode  string    `json:"pickcode"`
+	Size      int64     `json:"size"`
+	Revision  string    `json:"revision"`
+	Expires   time.Time `json:"expires"`
+}
+
+func (p *pan115Simulcast) touchTemporary(s Storage, f File, cfg SimulcastConfig) error {
+	hours := cfg.RetentionHours
+	if hours == 0 {
+		hours = 12
+	}
+	item := SimulcastTemporary{StorageID: s.ID, FileID: f.ID, Parent: cfg.Directory, Name: f.Name, PickCode: f.PickCode, Size: f.Size, Revision: rapid115Stamp(s.Config), Expires: p.now().Add(time.Duration(hours) * time.Hour)}
+	return p.app.store.update(func(st *State) error {
+		for i, v := range st.SimulcastTemporary {
+			if v.StorageID == s.ID && v.FileID == f.ID {
+				if v.Cleaning {
+					return errors.New("同播副本清理结果未确认，请检查云端文件")
+				}
+				st.SimulcastTemporary[i] = item
+				return nil
+			}
+		}
+		if len(st.SimulcastTemporary) >= 4096 {
+			return errors.New("同播临时记录达到上限，副本保留")
+		}
+		st.SimulcastTemporary = append(st.SimulcastTemporary, item)
+		return nil
+	})
+}
+func (p *pan115Simulcast) cleanup(ctx context.Context) error {
+	select {
+	case p.gate <- struct{}{}:
+		defer func() { <-p.gate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	st := p.app.store.snapshotWithLogLimit(0)
+	for _, item := range st.SimulcastTemporary {
+		if item.Cleaning || p.now().Before(item.Expires) {
+			continue
+		}
+		storage, err := backupStorage(st, item.StorageID)
+		if err != nil || storage.Type != "115" || storageHealthPaused(storage) || rapid115Stamp(storage.Config) != item.Revision {
+			continue
+		}
+		c, err := client115(ctx, storage)
+		if err != nil {
+			return err
+		}
+		file, err := c.GetFile(item.FileID)
+		if err != nil {
+			continue
+		}
+		if file.IsDirectory || file.FileID != item.FileID || file.ParentID != item.Parent || file.Name != item.Name || file.Size != item.Size || file.PickCode != item.PickCode {
+			continue
+		}
+		// Verify the registered identity again immediately before deletion.
+		current := p.app.store.snapshotWithLogLimit(0)
+		valid := false
+		for _, s := range current.Storages {
+			if s.ID == item.StorageID && s.Enabled && rapid115Stamp(s.Config) == item.Revision {
+				valid = true
+			}
+		}
+		if !valid {
+			continue
+		}
+		if err = p.app.waitAPI(ctx, storage.ID); err != nil {
+			return err
+		}
+		if err = p.app.store.update(func(st *State) error {
+			for i, v := range st.SimulcastTemporary {
+				if v.StorageID == item.StorageID && v.FileID == item.FileID {
+					st.SimulcastTemporary[i].Cleaning = true
+					return nil
+				}
+			}
+			return errors.New("同播清理记录已变化")
+		}); err != nil {
+			return err
+		}
+		if err = c.Delete(item.FileID); err != nil {
+			return errors.New("同播副本清理未确认，请检查云端结果")
+		}
+		if err = p.app.store.update(func(st *State) error {
+			for i, v := range st.SimulcastTemporary {
+				if v.StorageID == item.StorageID && v.FileID == item.FileID {
+					st.SimulcastTemporary = append(st.SimulcastTemporary[:i], st.SimulcastTemporary[i+1:]...)
+					break
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for key, clients := range p.sessions {
+			for client, entry := range clients {
+				if entry.file.ID == item.FileID && entry.storageID == item.StorageID {
+					delete(clients, client)
+				}
+			}
+			if len(clients) == 0 {
+				delete(p.sessions, key)
+			}
+		}
+		p.app.cache.clear()
+	}
+	return nil
 }
 
 func (p *pan115Simulcast) current(s Storage, cfg SimulcastConfig) bool {

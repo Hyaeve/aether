@@ -261,10 +261,10 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	done := func() {}
-	if !casStorage(s) || claim.CAS == nil {
+	if claim.CAS == nil {
 		return Download{}, done, errors.New("CAS 播放仅支持原生移动新版个人云或天翼个人云")
 	}
-	if err := validateCASFor(s, *claim.CAS); err != nil {
+	if err := validateCAS(*claim.CAS); err != nil {
 		return Download{}, done, err
 	}
 	if err := a.acquireCAS(ctx); err != nil {
@@ -278,6 +278,40 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 			return Download{}, done, err
 		}
 	}
+	if !casStorage(s) {
+		return Download{}, done, errors.New("CAS 播放仅支持原生移动新版个人云或天翼个人云")
+	}
+	if err := validateCASFor(s, *claim.CAS); err != nil {
+		return Download{}, done, err
+	}
+	dual := claim.Storage == "" && claim.CAS.SHA256 != "" && claim.CAS.MD5 != ""
+	attempt := ctx
+	stop := func() {}
+	if dual {
+		attempt, stop = context.WithTimeout(ctx, 45*time.Second)
+	}
+	d, release, err := a.casDownloadAttempt(attempt, s, claim)
+	stop()
+	if err == nil || !dual || ctx.Err() != nil {
+		return d, release, err
+	}
+	other, hours, selectErr := a.selectCASStorageExcept(*claim.CAS, time.Now(), s.Type)
+	if selectErr != nil {
+		return Download{}, done, err
+	}
+	// Switch providers once; never replay a possibly accepted write in the same account.
+	claim.RetentionHours = hours
+	a.store.event("warn", "tasks", "CAS 优先存储未取得直链，转交另一类绑定存储")
+	d, release, fallbackErr := a.casDownloadAttempt(ctx, other, claim)
+	if fallbackErr != nil {
+		return Download{}, done, errors.Join(err, fallbackErr)
+	}
+	return d, release, nil
+}
+
+// The caller holds casGate across both attempts and pool configuration changes.
+func (a *App) casDownloadAttempt(ctx context.Context, s Storage, claim streamClaim) (Download, func(), error) {
+	done := func() {}
 	retention := casRetentionHours(claim.RetentionHours)
 	for _, task := range a.store.snapshot().Tasks {
 		if claim.TaskID != "" && task.ID == claim.TaskID && task.Kind == "cas" && (task.CASBindingID == s.ID || task.StorageID == s.ID) {
@@ -385,6 +419,9 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 		rapidSuccess = true
 	}
 	d, err := a.casLink(ctx, s, host, entry.FileID)
+	if err == nil && d.URL == "" {
+		err = errors.New("CAS 秒传未取得有效直链")
+	}
 	if err != nil {
 		if a.casActive[key] == 0 {
 			_ = a.store.update(func(st *State) error {
@@ -427,6 +464,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (Do
 			return nil
 		})
 	}
+	d.storageID = s.ID
 	return d, release, nil
 }
 

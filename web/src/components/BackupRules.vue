@@ -21,7 +21,6 @@ const filterTypes = [{value:'extension',label:'扩展名',icon:FileText},{value:
 const filterType = filter => filterTypes.find(t=>t.value===filter.type) || filterTypes[1]
 const sizeUnits = ['KB','MB','GB']
 function cycleUnit(filter, key) { filter[key] = sizeUnits[(sizeUnits.indexOf(filter[key] || filter.unit || 'MB') + 1) % sizeUnits.length] }
-async function moreToggle(event) { if(event.target.open) { await nextTick(); event.target.querySelector('.backup-filters')?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}) } }
 const detail = computed(()=>rules.value.find(r=>r.id===detailId.value))
 const locations = (r,kind) => r[kind+'s']?.length ? r[kind+'s'] : [{storageId:r[kind+'Id'],path:r[kind],label:r[kind+'Label']}]
 const blankLocation = () => ({storageId:'',path:'',label:''})
@@ -49,6 +48,11 @@ function open(rule) {
   const defaults = {name:'',enabled:true,sourceId:'',source:'',sourceLabel:'',targetId:'',target:'',targetLabel:'',replace:'skip',completionRule:'keep',monitorEnabled:false,caseSensitive:false,extensions:'',exclude:'',minSize:0,maxSize:0,cron:'',scanInterval:0,filters:[],syncMode:'one_way',deletionRule:'keep',syncDelete:false,conflictRule:'keep_both',conflictMarker:'conflict copy',historyDays:0,deleteLimit:20,targetOnly:'copy',syncMarker:true,fullScan:true,fullScanEvery:8,fullScanHours:24}
   Object.keys(form).forEach(key=>delete form[key])
   Object.assign(form,defaults,rule ? JSON.parse(JSON.stringify(rule)) : {})
+  form.caseSensitive = false
+  for(const filter of form.filters) {
+    filter.caseSensitive = false
+    if(filter.type === 'extension') filter.value = [...new Set(tokens(filter).map(token=>token.replace(/^\./,'').toLowerCase()))].join(';')
+  }
   for(const filter of form.filters) { if(['path_prefix','path_regex'].includes(filter.type)) filter.matchFile = filter.matchDir = true }
   form.sources = rule ? JSON.parse(JSON.stringify(locations(rule,'source'))) : [blankLocation()]
   form.targets = rule ? JSON.parse(JSON.stringify(locations(rule,'target'))) : [blankLocation()]
@@ -83,9 +87,6 @@ function setScope(filter,key,event) {
   if(!filter.matchFile && !filter.matchDir)filter[key]=true
   event.target.checked=filter[key]
 }
-watch(()=>form.caseSensitive,value=>{
-  if(!value)for(const filter of form.filters || [])if(filter.type==='extension')filter.value=[...new Set(tokens(filter).map(token=>token.replace(/^\./,'').toLowerCase()))].join(';')
-})
 function copyRule(rule) { open(rule); editing.value=''; form.name=rule.name+' 副本'; form.enabled=false }
 const phaseText = r => r.healthPause ? '健康异常，暂时停止' : r.phase==='scan' ? '扫描源目录' : r.phase==='copy' ? '复制文件' : statuses[r.status] || '等待执行'
 const percent = r => r.total > 0 ? Math.min(100,Math.round((r.processed || 0)/r.total*100)) : 0
@@ -167,9 +168,6 @@ defineExpose({ open, load })
       </article>
       <button class="btn backup-add-filter" type="button" :disabled="form.filters.length>=32" @click="filterPicker=true"><Icon name="Plus" />添加规则</button>
       </div>
-      <details class="backup-more link-more" @toggle="moreToggle"><summary>更多选项</summary><div class="backup-filters">
-        <div class="field backup-case-option"><label>扩展名大小写区分</label><RoundedSelect v-model="form.caseSensitive" label="扩展名大小写区分" :options="[{value:false,label:'关闭'},{value:true,label:'开启'}]" /></div>
-      </div></details>
       </section>
       <p v-if="error" class="error-message" role="alert">{{error}}</p>
     </div></div><footer class="modal-footer"><button class="btn primary" :disabled="busy || form.sources.some(p=>!p.storageId) || form.targets.some(p=>!p.storageId)"><Icon name="Check" />保存规则</button><button type="button" class="btn" :disabled="busy" @click="modal=false">取消</button></footer></form>
@@ -221,9 +219,7 @@ defineExpose({ open, load })
 .backup-filter-types button { display:flex; align-items:center; gap:12px; min-height:44px; padding:10px 12px; border:0; border-radius:6px; background:none; color:var(--text); text-align:left; font-size:14px; }
 .backup-filter-types button:hover,.backup-filter-types button:focus-visible { background:var(--primary-soft); color:var(--primary); }
 .backup-filter-types svg,.backup-filter header strong svg { flex:none; }
-.backup-more summary { font-size:14px; }
-.backup-more { margin-top:20px; }.backup-more summary { display:list-item; padding:7px 9px; font-weight:400; list-style:disclosure-closed; }.backup-more[open] summary { list-style:disclosure-open; }
-.backup-case-option { width:50%; min-width:0; }.backup-size { grid-template-columns:repeat(2,minmax(0,1fr)); }.backup-size>*:last-child { grid-column:auto; }
+.backup-size { grid-template-columns:repeat(2,minmax(0,1fr)); }.backup-size>*:last-child { grid-column:auto; }
 .backup-size-input { display:block; position:relative; min-width:0; }.backup-size-input input { width:100%; padding-right:44px; appearance:textfield; }.backup-size-input input::-webkit-inner-spin-button { appearance:none; }.backup-size-input button { position:absolute; inset:0 0 0 auto; border:0; background:transparent; color:var(--muted); width:42px; font-size:14px; }.backup-size-input button:hover { color:var(--primary); }
 .backup-path-prefix { resize:vertical; height:78px; min-height:78px; line-height:22px; padding:5px 9px; font-size:14px; overflow:auto; }
 .backup-filter > div > input { width:100%; }
