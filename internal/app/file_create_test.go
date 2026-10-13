@@ -127,7 +127,7 @@ func TestFileUploadCloudDAVAndIncomplete(t *testing.T) {
 	if err := a.receiveFile(ctx, s, "/", "cancel.txt", strings.NewReader("hello"), 5); err == nil {
 		t.Fatal("cancelled upload accepted")
 	}
-	pending, _ := filepath.Glob(filepath.Join(a.dataDir, "cache", "file-upload", "*"))
+	pending, _ := filepath.Glob(filepath.Join(a.transferTempDirectory(), "file-upload", "*"))
 	if len(pending) != 0 {
 		t.Fatal("upload temporary files leaked", pending)
 	}

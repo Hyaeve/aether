@@ -10,9 +10,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -27,6 +30,20 @@ type strmReplaceRequest struct {
 	Find      string `json:"find"`
 	Replace   string `json:"replace"`
 	Confirmed bool   `json:"confirmed"`
+	Mode      string `json:"mode"`
+	preview   *strmReplacePreview
+}
+
+type strmReplaceSample struct {
+	Name         string   `json:"name"`
+	Before       string   `json:"before"`
+	After        string   `json:"after"`
+	Matches      [][2]int `json:"matches"`
+	Replacements [][2]int `json:"replacements"`
+}
+type strmReplacePreview struct {
+	Count   int                 `json:"count"`
+	Samples []strmReplaceSample `json:"samples"`
 }
 
 type strmReplaceTask struct {
@@ -49,6 +66,7 @@ type strmReplaceManager struct {
 }
 
 var strmReplaceManagers sync.Map // *App -> bounded, memory-only task history
+var strmReplacementReferences = regexp.MustCompile(`\$(\$|\{[a-zA-Z0-9_]+\}|[a-zA-Z0-9_]+)`)
 
 func (a *App) strmReplacements() *strmReplaceManager {
 	m, _ := strmReplaceManagers.LoadOrStore(a, &strmReplaceManager{})
@@ -59,6 +77,7 @@ func (a *App) strmReplacements() *strmReplaceManager {
 func (a *App) RegisterStrmReplace(mux *http.ServeMux) {
 	mux.Handle("GET /api/strm-replace", a.protected(http.HandlerFunc(a.strmReplace)))
 	mux.Handle("POST /api/strm-replace", a.protected(http.HandlerFunc(a.strmReplace)))
+	mux.Handle("POST /api/strm-replace/preview", a.protected(http.HandlerFunc(a.strmReplace)))
 }
 
 func (a *App) strmReplace(w http.ResponseWriter, r *http.Request) {
@@ -92,11 +111,35 @@ func (a *App) strmReplace(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("请求只能包含一个 JSON 对象"))
 		return
 	}
-	if !in.Confirmed || in.Find == "" || len(in.Find) > 16384 || len(in.Replace) > 16384 || !filepath.IsAbs(in.Directory) || strings.ContainsRune(in.Directory, 0) {
+	preview := r.URL.Path == "/api/strm-replace/preview"
+	if (!preview && !in.Confirmed) || in.Find == "" || len(in.Find) > 16384 || len(in.Replace) > 16384 || !filepath.IsAbs(in.Directory) || strings.ContainsRune(in.Directory, 0) || (in.Mode != "" && in.Mode != "literal" && in.Mode != "regex") {
 		fail(w, 400, errors.New("请选择绝对目录、填写查找内容并二次确认（字段上限 16 KiB）"))
 		return
 	}
 	in.Directory = filepath.Clean(in.Directory)
+	if in.Mode == "regex" {
+		if _, err := regexp.Compile(in.Find); err != nil {
+			fail(w, 400, fmt.Errorf("正则表达式无效: %w", err))
+			return
+		}
+		re, _ := regexp.Compile(in.Find)
+		if re.NumSubexp() > 32 {
+			fail(w, 400, errors.New("正则最多支持32个捕获组"))
+			return
+		}
+	}
+	if preview {
+		result := strmReplacePreview{Samples: []strmReplaceSample{}}
+		in.preview = &result
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		if err := scanStrmReplace(ctx, in, &strmReplaceTask{}, func() {}); err != nil {
+			fail(w, 400, err)
+			return
+		}
+		jsonResponse(w, 200, result)
+		return
+	}
 	m.mu.Lock()
 	if len(m.tasks) > 0 && m.tasks[0].Status == "running" {
 		m.mu.Unlock()
@@ -242,7 +285,24 @@ func scanStrmReplace(ctx context.Context, in strmReplaceRequest, task *strmRepla
 						progress()
 						continue
 					}
-					changed, err := replaceStrmFile(root, entry.Name(), in.Find, in.Replace, nil)
+					if in.preview != nil {
+						data, _, err := readStrmFile(root, entry.Name())
+						if err != nil {
+							return err
+						}
+						output, matches, replacements, err := transformStrm(data, in.Find, in.Replace, in.Mode)
+						if err != nil {
+							return err
+						}
+						if !bytes.Equal(data, output) {
+							in.preview.Count++
+							if len(in.preview.Samples) < 4 {
+								in.preview.Samples = append(in.preview.Samples, strmReplaceSample{Name: filepath.Join(root.Name(), entry.Name()), Before: string(data), After: string(output), Matches: matches, Replacements: replacements})
+							}
+						}
+						continue
+					}
+					changed, err := replaceStrmFileMode(root, entry.Name(), in.Find, in.Replace, in.Mode, nil)
 					if err != nil {
 						return fmt.Errorf("%s: %w", entry.Name(), err)
 					}
@@ -299,6 +359,84 @@ func sameStrmFile(a, b os.FileInfo) bool {
 // beforeCommit is an internal test seam. No HTTP caller can supply it.
 // Revalidation detects concurrent edits, but portable rename is not a filesystem CAS.
 func replaceStrmFile(root *os.Root, name, find, replacement string, beforeCommit func()) (bool, error) {
+	return replaceStrmFileMode(root, name, find, replacement, "literal", beforeCommit)
+}
+
+// Build incrementally so regex expansion cannot allocate an unbounded result.
+func transformStrm(data []byte, find, replacement, mode string) ([]byte, [][2]int, [][2]int, error) {
+	if find == "" {
+		return nil, nil, nil, errors.New("查找内容不能为空")
+	}
+	pattern := regexp.QuoteMeta(find)
+	if mode == "regex" {
+		pattern = find
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if re.NumSubexp() > 32 {
+		return nil, nil, nil, errors.New("正则最多支持32个捕获组")
+	}
+	indices := re.FindAllSubmatchIndex(data, 65537)
+	if len(indices) > 65536 {
+		return nil, nil, nil, errors.New("单个STRM匹配次数超过65536，请缩小匹配范围")
+	}
+	output := []byte{}
+	matches, replacements := [][2]int{}, [][2]int{}
+	last := 0
+	beforeRunes, afterRunes := 0, 0
+	for _, match := range indices {
+		value := []byte(replacement)
+		if mode == "regex" {
+			length := len(replacement)
+			for _, ref := range strmReplacementReferences.FindAllStringSubmatchIndex(replacement, -1) {
+				name := strings.Trim(replacement[ref[2]:ref[3]], "{}")
+				length -= ref[1] - ref[0]
+				if name == "$" {
+					length++
+					continue
+				}
+				group, e := strconv.Atoi(name)
+				if e != nil {
+					group = re.SubexpIndex(name)
+				}
+				if group >= 0 && group < len(match)/2 && match[group*2] >= 0 {
+					length += match[group*2+1] - match[group*2]
+				}
+				if length > strmReplaceMaxBytes {
+					return nil, nil, nil, errors.New("替换后内容超过 1 MiB")
+				}
+			}
+			value = re.Expand(nil, []byte(replacement), data, match)
+		}
+		if len(output)+match[0]-last+len(value) > strmReplaceMaxBytes {
+			return nil, nil, nil, errors.New("替换后内容超过 1 MiB")
+		}
+		output = append(output, data[last:match[0]]...)
+		start := len(output)
+		output = append(output, value...)
+		// Browser offsets are Unicode code points, not UTF-8 bytes.
+		if len(matches) < 256 {
+			gap := utf8.RuneCount(data[last:match[0]])
+			beforeRunes += gap
+			afterRunes += gap
+			matched := utf8.RuneCount(data[match[0]:match[1]])
+			inserted := utf8.RuneCount(output[start:])
+			matches = append(matches, [2]int{beforeRunes, beforeRunes + matched})
+			replacements = append(replacements, [2]int{afterRunes, afterRunes + inserted})
+			beforeRunes += matched
+			afterRunes += inserted
+		}
+		last = match[1]
+	}
+	if len(output)+len(data)-last > strmReplaceMaxBytes {
+		return nil, nil, nil, errors.New("替换后内容超过 1 MiB")
+	}
+	return append(output, data[last:]...), matches, replacements, nil
+}
+
+func replaceStrmFileMode(root *os.Root, name, find, replacement, mode string, beforeCommit func()) (bool, error) {
 	if find == "" {
 		return false, errors.New("查找内容不能为空")
 	}
@@ -306,15 +444,13 @@ func replaceStrmFile(root *os.Root, name, find, replacement string, beforeCommit
 	if err != nil {
 		return false, err
 	}
-	count := bytes.Count(data, []byte(find))
-	if count == 0 || find == replacement {
+	output, _, _, err := transformStrm(data, find, replacement, mode)
+	if err != nil {
+		return false, err
+	}
+	if bytes.Equal(data, output) {
 		return false, nil
 	}
-	outputSize := int64(len(data)) + int64(count)*(int64(len(replacement))-int64(len(find)))
-	if outputSize > strmReplaceMaxBytes {
-		return false, errors.New("替换后内容超过 1 MiB")
-	}
-	output := bytes.ReplaceAll(data, []byte(find), []byte(replacement))
 	temp := ".aether-strm-replace-" + id()
 	f, err := root.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {

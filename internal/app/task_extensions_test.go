@@ -23,6 +23,56 @@ func TestTaskExtensions(t *testing.T) {
 	}
 }
 
+func TestFeatureTaskOutputPreservesFullMediaName(t *testing.T) {
+	for _, kind := range []string{"cas", "ed2k"} {
+		for _, retained := range []string{"", "iso", "mp4;mkv"} {
+			for _, provider := range []string{"local", "openlist", "115"} {
+				for _, name := range []string{"Series/episode.S01E01.MKV", "Music/song.flac", "disc.ISO"} {
+					suffix := "." + kind + ".strm"
+					got := taskOutputName(Task{Kind: kind, RetainedExtensions: &retained}, Storage{Type: provider}, name, suffix)
+					if got != name+suffix {
+						t.Fatalf("%s/%s retained %q: %q", kind, provider, retained, got)
+					}
+				}
+			}
+		}
+	}
+	empty, iso := "", "iso"
+	for _, tc := range []struct {
+		provider, name, want string
+		retained             *string
+	}{
+		{"local", "film.mkv", "film.mkv.strm", nil},
+		{"openlist", "film.mkv", "film.strm", nil},
+		{"local", "film.mkv", "film.strm", &empty},
+		{"local", "film.mkv", "film.strm", &iso},
+		{"local", "disc.ISO", "disc.ISO.strm", &iso},
+	} {
+		if got := taskOutputName(Task{Kind: "strm", RetainedExtensions: tc.retained}, Storage{Type: tc.provider}, tc.name, ".strm"); got != tc.want {
+			t.Fatalf("STRM behavior changed: %q, want %q", got, tc.want)
+		}
+	}
+}
+
+func TestFeatureTaskValidationRemovesRetainedExtensions(t *testing.T) {
+	a := testApp(t)
+	s := addLocal(t, a)
+	for _, kind := range []string{"cas", "ed2k", "strm"} {
+		retained := ".ISO"
+		task := Task{Name: kind, Kind: kind, StorageID: s.ID, Source: "/", Target: "generated", Mode: "incremental", RetainedExtensions: &retained}
+		if err := a.validateTask(&task); err != nil {
+			t.Fatal(err)
+		}
+		if kind == "strm" {
+			if task.RetainedExtensions == nil || *task.RetainedExtensions != "iso" {
+				t.Fatal("STRM setting lost", task.RetainedExtensions)
+			}
+		} else if task.RetainedExtensions != nil {
+			t.Fatal("obsolete setting retained", kind)
+		}
+	}
+}
+
 func TestTaskMetadataCopy(t *testing.T) {
 	a := testApp(t)
 	s := addLocal(t, a)

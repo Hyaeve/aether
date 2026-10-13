@@ -93,6 +93,9 @@ type App struct {
 	extracting     atomic.Int32
 	started        time.Time
 	dav            *webdav.Handler
+
+	virtualGrantCount int
+	virtualGrantReady bool
 }
 
 func env(key, fallback string) string {
@@ -274,6 +277,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("GET /api/local-directories", a.protected(http.HandlerFunc(a.localDirectories)))
 	mux.Handle("POST /api/local-directories", a.protected(http.HandlerFunc(a.createLocalDirectory)))
 	a.RegisterStrmReplace(mux)
+	mux.Handle("POST /api/virtual-library/115/{action}", a.protected(http.HandlerFunc(a.virtualLibrary)))
+	mux.HandleFunc("/s/{key}", a.playVirtualShare)
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, a.store.logSnapshot())
@@ -972,6 +977,15 @@ func (a *App) validateTask(t *Task) error {
 	t.HealthPause = ""
 	t.Cron = strings.TrimSpace(t.Cron)
 	var extensionErr error
+	if t.CompletionAction != "" && t.CompletionAction != "keep" && t.CompletionAction != "delete" {
+		return errors.New("完成动作无效")
+	}
+	if t.Kind != "cas" && t.Kind != "ed2k" && t.CompletionAction == "delete" {
+		return errors.New("仅 CAS 和 ED2K 任务支持删除源文件")
+	}
+	if t.Kind == "cas" || t.Kind == "ed2k" {
+		t.RetainedExtensions = nil
+	}
 	if t.RetainedExtensions != nil {
 		value, err := normalizeExtensions(*t.RetainedExtensions)
 		if err != nil {
@@ -1038,6 +1052,14 @@ func (a *App) validateTask(t *Task) error {
 			if _, err := cronParser.Parse(t.Cron); err != nil {
 				return errors.New("Cron 格式错误，需要五个字段")
 			}
+		}
+		if t.CompletionAction == "delete" {
+			s, _ := a.store.storage(t.StorageID)
+			cleanup, err := a.newFeatureCleanup(*t, s)
+			if err != nil {
+				return err
+			}
+			cleanup.close()
 		}
 	case "cache":
 		if t.Interval < 1 || t.Interval > 525600 {

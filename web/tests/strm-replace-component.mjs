@@ -15,7 +15,7 @@ const server = await createServer({
       server.middlewares.use('/__strm-replace-test', async (req, res) => {
         res.setHeader('Content-Type', 'text/html')
         res.end(await server.transformIndexHtml('/__strm-replace-test', `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div><script type="module">
-          import { createApp, h } from '/node_modules/.vite/deps/vue.js'
+          import { createApp, h } from 'vue'
           import StrmReplace from '/src/components/StrmReplace.vue'
           import '/src/style.css'
           createApp({render: () => h(StrmReplace)}).mount('#app')
@@ -36,17 +36,18 @@ try {
     await page.route('**/api/**', async route => {
       const request = route.request()
       if (request.url().includes('/local-directories')) return route.fulfill({ json: { path: '/media', items: [] } })
+      if (request.url().endsWith('/strm-replace/preview')) return route.fulfill({json:{count:1,samples:[{name:'one.strm',before:'old/path',after:'/path',matches:[[0,3]],replacements:[[0,0]]}]}})
       assert.ok(request.url().endsWith('/strm-replace'))
       if (request.method() === 'POST') {
         posts++
-        assert.deepEqual(request.postDataJSON(), { directory: '/media', find: 'old', replace: '', confirmed: true })
+        assert.deepEqual(request.postDataJSON(), { directory: '/media', find: 'old', replace: '', mode:'literal', confirmed: true })
         task = { id: 'job', status: 'running', scanned: 3, processed: 2, changed: 1, skipped: 0 }
         return route.fulfill({ status: 202, json: task })
       }
       return route.fulfill({ json: { tasks: task ? [task] : [] } })
     })
     await page.goto(server.resolvedUrls.local[0] + '__strm-replace-test')
-    await page.getByRole('button', { name: '选择容器目录', exact: true }).click()
+    await page.getByRole('button', { name: '选择替换目录', exact: true }).click()
     await page.getByRole('button', { name: '选择当前目录' }).click()
     await page.getByLabel('匹配字段', { exact: true }).fill('old')
     await page.getByRole('button', { name: '执行替换' }).click()

@@ -33,6 +33,7 @@ import ScrapePage from './pages/ScrapePage.vue'
 import TransfersPage from './pages/TransfersPage.vue'
 import CASPoolPage from './pages/CASPoolPage.vue'
 import TransferSettings from './components/TransferSettings.vue'
+import VirtualLibraryPage from './pages/VirtualLibraryPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -62,7 +63,7 @@ applyTheme()
 const navigation = [
   { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
-  { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
+  { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
   { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
 ]
@@ -191,6 +192,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : currentPath.endsWith('strm')?'strm':'account'" />
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
+        <VirtualLibraryPage v-else-if="currentPath.startsWith('/virtual')" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />
         <div v-else class="empty-state"><h1>页面不存在</h1><RouterLink class="btn" to="/storage">返回存储管理</RouterLink></div>

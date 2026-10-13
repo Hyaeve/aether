@@ -6,7 +6,11 @@ import Icon from './Icon.vue'
 import LocalDirectoryPicker from './LocalDirectoryPicker.vue'
 const props=defineProps({kind:String})
 const emit=defineEmits(['close','queued'])
-const mode=ref('text'),text=ref(''),files=ref([]),target=ref(state.strmRoot||''),picker=ref(false),input=ref(null),step=ref(1),busy=ref(false),error=ref(''),preview=ref(null),signature=ref('')
+const targetKey=`aether-generation-target:${state.username}:${props.kind}`
+function previousTarget(){
+  try{return localStorage.getItem(targetKey)?.trim()||state.strmRoot||''}catch{return state.strmRoot||''}
+}
+const mode=ref('text'),text=ref(''),files=ref([]),target=ref(previousTarget()),picker=ref(false),input=ref(null),step=ref(1),busy=ref(false),error=ref(''),preview=ref(null),signature=ref('')
 const title=computed(()=>props.kind.toUpperCase())
 let alive=true
 onUnmounted(()=>{alive=false})
@@ -25,7 +29,7 @@ async function parse(){
     if(alive){preview.value=value;signature.value=key;step.value=2}
   }catch(e){if(alive)error.value=e.message}finally{if(alive)busy.value=false}
 }
-async function queue(){busy.value=true;error.value='';try{await api('/generation/jobs','POST',{preview:preview.value.preview,target:target.value});if(alive){notify('已加入生成队列');emit('queued');emit('close')}}catch(e){if(alive){error.value=e.message;if(/过期/.test(e.message))signature.value=''}}finally{if(alive)busy.value=false}}
+async function queue(){busy.value=true;error.value='';try{await api('/generation/jobs','POST',{preview:preview.value.preview,target:target.value});if(alive){try{localStorage.setItem(targetKey,target.value.trim())}catch{}notify('已加入生成队列');emit('queued');emit('close')}}catch(e){if(alive){error.value=e.message;if(/过期/.test(e.message))signature.value=''}}finally{if(alive)busy.value=false}}
 </script>
 <template>
   <Modal :title="`添加 ${title} 任务`" standard @close="!busy&&emit('close')">

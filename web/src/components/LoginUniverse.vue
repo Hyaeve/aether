@@ -4,6 +4,7 @@ import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
 import GravityWell from './GravityWell.vue'
 import { createMeteorBatch, meteorOpacity, rockPosition } from '../meteor'
+import { createSpiralPair } from '../starfield'
 
 const universe = ref(), canvas = ref(), scene = ref()
 const props = defineProps({ decorative: Boolean })
@@ -42,7 +43,7 @@ function resize() {
     speed: .45 + random() * 1.1, warm: random() > .89
   }))
   buildGalaxy(random, scale)
-  if(!spiralPositions.length)spiralPositions=[[.17,.18],[.2,.83],[.8,.82]].map(([x,y])=>[x+(Math.random()-.5)*.08,y+(Math.random()-.5)*.08, .9+Math.random()*.25,(Math.random()-.5)*.7,Math.random()*6,.016+Math.random()*.012,.9])
+  if(!spiralPositions.length)spiralPositions=createSpiralPair()
   buildMoon(random)
   buildRocks(random)
   paint(elapsed)

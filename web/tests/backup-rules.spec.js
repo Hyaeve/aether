@@ -257,7 +257,7 @@ test('six filter types support wrapped removable tokens, scopes and case-sensiti
     await picker.getByRole('button',{name:'选择当前目录',exact:true}).click()
   }
   await modal.getByRole('button',{name:'筛选规则',exact:true}).click()
-  const names=['扩展名','文件名','正则','路径前缀','路径正则','大小']
+  const names=['扩展名','文件名','正则','路径前缀','路径正则','最大最小']
   for(const [index,name] of names.entries()){
     await modal.getByRole('button',{name:'添加规则',exact:true}).click()
     const picker=page.getByRole('dialog',{name:'选择规则类型',exact:true})

@@ -632,7 +632,11 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 	}
 	defer a.cache.clear()
 	// Stage every source version before any write so cyclic changes cannot overwrite a later source.
-	stageDir, err := os.MkdirTemp(filepath.Join(a.dataDir), ".aether-sync-")
+	base := a.transferTempDirectory()
+	if err := os.MkdirAll(base, 0700); err != nil {
+		return err
+	}
+	stageDir, err := os.MkdirTemp(base, ".aether-sync-")
 	if err != nil {
 		return err
 	}

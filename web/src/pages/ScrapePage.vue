@@ -158,7 +158,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     <div class="scrape-toolbar">
       <RoundedSelect v-model="task" label="STRM 任务" placeholder="选择 STRM 任务" :disabled="progress.running" :options="tasks" />
       <button class="btn" aria-label="筛选库目录" :disabled="!task || progress.running" @click="scopeOpen = true"><Icon name="Folder" />{{ excludedScopes.length ? `已排除 ${excludedScopes.length} 个目录` : '全部目录' }}</button>
-      <RoundedSelect v-model="status" label="刮削状态" :options="[{ value: 'all', label: '全部状态', marker: 'all' }, ...Object.entries(statuses).map(([value,label]) => ({value,label,marker:value}))]" />
+      <RoundedSelect v-model="status" label="刮削状态" :options="[{ value: 'all', label: '全部状态' }, ...Object.entries(statuses).map(([value,label]) => ({value,label,marker:value}))]" />
       <button class="btn" :disabled="!task || busy || progress.running" @click="confirmation = {action:'identify'}"><Icon name="ScanSearch" />识别 STRM 库</button>
       <button class="icon-btn scrape-refresh" aria-label="刷新刮削索引" :disabled="!task || busy || progress.running" @click="refreshView"><Icon name="RefreshCw" /></button>
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索刮削记录" placeholder="搜索名称或路径" /></div>

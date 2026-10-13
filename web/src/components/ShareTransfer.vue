@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { state } from '../lib'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { api, state } from '../lib'
 import { transferShares } from '../share-jobs'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
@@ -30,6 +30,38 @@ const links = ref(props.initialLinks || ''), picker = ref(false)
 const parsedLinks = computed(() => shareInput(links.value))
 const lines = computed(() => parsedLinks.value.lines)
 const highlightedLinks = computed(() => shareHighlight(links.value))
+const parsing = ref(false), parsed = ref(null), parseError = ref(''), savedSelections = ref([])
+let alive = true
+onUnmounted(()=>{alive=false})
+watch([links,selected],()=>{savedSelections.value=[]})
+async function parse() {
+  if(parsing.value)return
+  parsing.value=true;parseError.value=''
+  const input=lines.value.slice(), sid=storage.value.id, owner=state.username
+  try {
+    const roots=[]
+    for(let i=0;i<input.length;i++) {
+      if(!alive || !state.authenticated || state.username!==owner)return
+      const result=await api('/files/share/tree','POST',{storageId:sid,url:input[i]})
+      const single=result.items.length===1 && result.items[0].isDir ? result.items[0].name : ''
+      roots.push({url:input[i],name:result.items.map(item=>item.name).slice(0,2).join('、') || `分享 ${i+1}`,single,tree:result.tree || result.items.map(item=>({...item,path:item.name})),excluded:[...(savedSelections.value[i]||[])],opened:new Set(['',...(single?[single]:[])])})
+    }
+    if(alive && state.authenticated && state.username===owner && storage.value?.id===sid && JSON.stringify(lines.value)===JSON.stringify(input))parsed.value=roots
+  } catch(e){if(alive)parseError.value=e.message}
+  finally {if(alive)parsing.value=false}
+}
+const selectedPath=(root,key)=>!root.excluded.some(prefix=>key===prefix||key.startsWith(prefix+'/'))
+function toggleRoot(root, checked) { root.excluded=checked?[]:root.tree.filter(item=>!item.path.includes('/')).map(item=>item.path) }
+function togglePath(root,key) {
+  if(selectedPath(root,key))root.excluded=[...root.excluded,key]
+  else {
+    const ancestor=root.excluded.find(prefix=>key.startsWith(prefix+'/'))
+    root.excluded=root.excluded.filter(prefix=>prefix!==key && !key.startsWith(prefix+'/'))
+    if(ancestor) root.excluded.push(...root.tree.filter(item=>item.path.startsWith(ancestor+'/') && item.path!==key && !key.startsWith(item.path+'/') && !item.path.startsWith(key+'/')).map(item=>item.path))
+  }
+}
+function shownTree(root) {return root.tree.filter(item=>{if(item.path===root.single)return false;const parts=item.path.split('/');parts.pop();return parts.every((_,i)=>root.opened.has(parts.slice(0,i+1).join('/')))})}
+function applySelection(){savedSelections.value=parsed.value.map(root=>[...root.excluded]);parsed.value=null}
 const placeholder = computed(() => `${{ '115': '115 网盘', quark: '夸克网盘', mobile: '移动云盘' }[storage.value?.type] || storage.value?.name || ''}分享链接，一行一条`)
 watch([target, targetLabel, targetHistory], () => { if (!restoring && storage.value) { try { localStorage.setItem(key.value, JSON.stringify({ path: target.value, label: targetLabel.value, history: targetHistory.value })) } catch {} } }, { deep: true, flush: 'sync' })
 function chooseTarget(value) {
@@ -42,12 +74,12 @@ function submit() {
   const history = targetHistory.value.map(c => ({ ...c }))
   const root = storage.value.config?.root || (['115', 'quark'].includes(storage.value.type) ? '0' : '/')
   if (!['/', root].includes(target.value) && !history.length) history.push({ id: '/', name: targetLabel.value })
-  transferShares(storage.value, target.value, lines.value, history)
+  transferShares(storage.value, target.value, lines.value, history, savedSelections.value)
   emit('close')
 }
 </script>
 <template>
-  <Modal title="分享转存" compact @close="emit('close')">
+  <Modal v-if="!parsed" title="分享转存" compact @close="emit('close')">
     <form @submit.prevent="submit">
       <div class="modal-body share-transfer">
         <div v-if="!props.storage" class="field"><label>存储池</label><RoundedSelect v-model="selected" label="转存存储池" :options="pools.map(s => ({value:s.id,label:s.name}))" /></div>
@@ -55,15 +87,23 @@ function submit() {
         <p v-if="parsedLinks.conflict" class="error-message" role="alert">同一分享链接检测到不同提取码，请确认输入后再转存。</p>
         <div class="field"><label>转存目录</label><button type="button" class="source-trigger" :disabled="!supported" aria-label="选择转存目录" @click="picker = true"><span>{{ targetLabel }}</span><Icon name="FolderOpen" /></button></div>
         <p v-if="!supported" class="error-message">当前存储不支持分享转存。</p>
+        <p v-if="parseError" class="error-message" role="alert">{{ parseError }}</p>
         <p v-if="lines.length > 50" class="error-message">一次最多提交 50 条分享链接。</p>
       </div>
-      <footer class="modal-footer"><button type="button" class="btn cancel" @click="emit('close')">取消</button><button class="btn primary" :disabled="!supported || parsedLinks.conflict || !lines.length || lines.length > 50"><Icon name="FolderInput" />开始转存</button></footer>
+      <footer class="modal-footer"><button type="button" class="btn cancel" @click="emit('close')">取消</button><button type="button" class="btn" :disabled="parsing || !supported || parsedLinks.conflict || !lines.length || lines.length > 50" @click="parse"><Icon name="ScanSearch" />{{ parsing?'解析中…':'解析' }}</button><button class="btn primary" :disabled="parsing || !supported || parsedLinks.conflict || !lines.length || lines.length > 50"><Icon name="FolderInput" />转存</button></footer>
     </form>
+  </Modal>
+  <Modal v-if="parsed" title="分享内容" standard @close="parsed=null">
+    <div class="modal-body share-tree"><section v-for="root in parsed" :key="root.url"><div class="share-tree-row"><button class="icon-btn" :aria-label="`展开分享 ${root.name}`" @click="root.opened.has('')?root.opened.delete(''):root.opened.add('')"><Icon :name="root.opened.has('')?'ChevronDown':'ChevronRight'" /></button><input type="checkbox" :aria-label="`选择分享 ${root.name}`" :checked="!root.excluded.length" @change="toggleRoot(root,$event.target.checked)" /><Icon name="Folder" /><strong>{{ root.name }}</strong></div><template v-if="root.opened.has('')"><div v-for="item in shownTree(root)" :key="item.path" class="share-tree-row" :style="{paddingLeft:`${20+item.path.split('/').length*16}px`}"><button v-if="item.isDir" class="icon-btn" :aria-label="`展开 ${item.name}`" @click="root.opened.has(item.path)?root.opened.delete(item.path):root.opened.add(item.path)"><Icon :name="root.opened.has(item.path)?'ChevronDown':'ChevronRight'" /></button><span v-else class="tree-spacer" /><input type="checkbox" :aria-label="`选择 ${item.path}`" :checked="selectedPath(root,item.path)" @change="togglePath(root,item.path)" /><Icon :name="item.isDir?'Folder':'File'" /><span>{{ item.name }}</span></div></template></section></div>
+<footer class="modal-footer"><button class="btn" @click="parsed=null"><Icon name="ArrowLeft" />返回</button><button class="btn primary" @click="applySelection"><Icon name="Check" />应用</button></footer>
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="[storage]" :storage="storage.id" :initial="target" :initial-label="targetLabel" :initial-trail="pickerTrail" @close="picker = false" @select="chooseTarget" />
 </template>
 <style scoped>
 .share-transfer { display: grid; gap: 16px; }
+.share-tree { height:min(440px,55dvh);overflow:auto;scrollbar-width:none; }.share-tree::-webkit-scrollbar { display:none; }
+:global(.modal:has(.share-tree)) { scrollbar-width:none; }:global(.modal:has(.share-tree)::-webkit-scrollbar) { display:none; }
+.share-tree-row { display:flex;align-items:center;gap:8px;min-height:38px; }.share-tree-row > span,.share-tree-row > strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }.share-tree-row input { width:16px;height:16px;flex:none; }.share-tree-row svg { flex:none; }.tree-spacer { width:32px;flex:none; }
 .share-link-editor { position:relative; min-width:0; }
 .share-link-editor pre, .share-link-editor textarea { box-sizing:border-box; width:100%; min-height:130px; margin:0; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font:inherit; line-height:1.5; letter-spacing:inherit; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2; scrollbar-gutter:stable; }
 .share-link-editor pre { position:absolute; inset:0; overflow:auto; pointer-events:none; color:var(--text); background:var(--input); }

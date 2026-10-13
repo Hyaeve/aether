@@ -4,8 +4,10 @@ import Icon from './Icon.vue'
 defineProps({ to: String, label: String, hint: String })
 const router = useRouter()
 </script>
-<template><button type="button" class="icon-btn settings-entry" :aria-label="label" :data-tooltip="hint" data-tooltip-always @click="router.push(to)"><Icon name="ChevronLeft" :size="32" /></button></template>
+<template><button type="button" class="icon-btn settings-entry" :aria-label="label" :data-tooltip="hint" data-tooltip-always data-tooltip-stationary @click="router.push(to)"><Icon name="ChevronLeft" :size="32" preserveAspectRatio="none" /></button></template>
 <style scoped>
-.settings-entry { width:44px; height:76px; color:var(--primary); border-radius:16px; align-self:center; }
-.settings-entry :deep(svg) { width:25px; height:46px; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; }
+.settings-entry { width:44px; height:76px; color:color-mix(in srgb,var(--primary) 70%,var(--muted)); align-self:center; }
+.settings-entry:hover,.settings-entry:focus-visible { background:transparent; color:var(--primary); }
+.settings-entry :deep(svg) { width:25px; height:64px; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; transition:color .18s; }
+.settings-entry :deep(svg path) { vector-effect:non-scaling-stroke; }
 </style>

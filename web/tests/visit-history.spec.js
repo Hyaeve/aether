@@ -19,7 +19,7 @@ test('directory history preserves opaque ids, deepest paths and sibling branches
   expect(validVisits([null,{storage:'bad',id:'/',history:[null]},visit('pan','/',[]),visit('pan','cid-a',[['/','A']]),c])).toEqual([c])
 })
 
-test('history menu jumps to the exact stored cloud directory and persists per browser',async({page})=>{
+test('history menu jumps to the exact stored cloud directory and persists per browser',async({page,context})=>{
   await page.route('**/api/**',r=>{
     const u=new URL(r.request().url())
     let data={}
@@ -41,6 +41,12 @@ test('history menu jumps to the exact stored cloud directory and persists per br
   await page.reload()
   await page.getByRole('button',{name:'历史访问',exact:true}).click()
   await expect(page.getByRole('option',{name:'115 / C',exact:true})).toBeVisible()
+  // Browser-local history survives a new tab/session, independent of the server process.
+  await page.close()
+  const reopened=await context.newPage()
+  await reopened.route('**/api/**',r=>{const path=new URL(r.request().url()).pathname;return r.fulfill({json:path==='/api/auth/status'?{initialized:true,authenticated:true}:path==='/api/state'?{username:'history-test',storages:[{id:'two',type:'115',name:'115',enabled:true}],tasks:[],settings:{},cache:{},traffic:{}}:[]})})
+  await reopened.goto('/files');await reopened.getByRole('button',{name:'历史访问',exact:true}).click()
+  await expect(reopened.getByRole('option',{name:'115 / C',exact:true})).toBeVisible()
 })
 
 test('a delayed directory response merges history written after the page mounted',async({page})=>{

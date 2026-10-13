@@ -18,6 +18,7 @@ import (
 )
 
 type TransferSettings struct {
+	TempDirectory     string   `json:"tempDirectory,omitempty"`
 	Version           int      `json:"version"`
 	DownloadSpeed     int64    `json:"downloadSpeed"`
 	DownloadUnit      string   `json:"downloadUnit"`
@@ -58,6 +59,10 @@ func speedBytes(value int64, unit string) int64 {
 	return value * 1024
 }
 func validateTransferSettings(s *TransferSettings) error {
+	s.TempDirectory = strings.TrimSpace(s.TempDirectory)
+	if s.TempDirectory != "" && (!filepath.IsAbs(s.TempDirectory) || strings.ContainsAny(s.TempDirectory, "\x00\r\n") || len(s.TempDirectory) > 4096) {
+		return errors.New("临时文件位置须为容器内绝对目录")
+	}
 	if s.Version != 1 || s.DownloadSpeed < 0 || s.UploadSpeed < 0 || s.DownloadSpeed > 1000000 || s.UploadSpeed > 1000000 || (s.DownloadUnit != "KB/s" && s.DownloadUnit != "MB/s") || (s.UploadUnit != "KB/s" && s.UploadUnit != "MB/s") || s.MaxPreprocess < 1 || s.MaxPreprocess > 64 || s.MaxUploads < 1 || s.MaxUploads > 64 || s.UploadDelay < 0 || s.UploadDelay > 86400 || len(s.IgnoredExtensions) > 128 {
 		return errors.New("传输设置无效：速度须为非负整数，并发须为1至64，延迟须为0至86400秒")
 	}
@@ -190,6 +195,9 @@ func (a *App) acquireTransferResource(ctx context.Context, kind string) (func(),
 		}
 		if kind == "publish" {
 			limit = 1
+		}
+		if kind == "feature-hash" {
+			limit = 2
 		}
 		if limit < 1 {
 			return nil, errors.New("资源并发设置无效")

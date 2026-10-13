@@ -317,7 +317,7 @@ func TestED2KBoundGenerationAndNaming(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatal(n, err)
 	}
-	for _, name := range []string{"movie.ed2k.strm", "disc.ISO.ed2k.strm"} {
+	for _, name := range []string{"movie.mkv.ed2k.strm", "disc.ISO.ed2k.strm"} {
 		b, err := os.ReadFile(filepath.Join(a.outputDir, task.Target, "Series", name))
 		if err != nil {
 			t.Fatal(err)
@@ -337,8 +337,13 @@ func TestED2KBoundGenerationAndNaming(t *testing.T) {
 	}
 	writeTest(t, filepath.Join(source.Config["root"], "Series", "movie.mp4"), "abc")
 	a.cache.clear()
-	if _, err := a.executeTask(context.Background(), task, source); err == nil || !strings.Contains(err.Error(), "冲突") {
-		t.Fatal("collision accepted", err)
+	if n, err := a.executeTask(context.Background(), task, source); err != nil || n != 3 {
+		t.Fatal("distinct media extensions failed", n, err)
+	}
+	for _, name := range []string{"movie.mkv.ed2k.strm", "movie.mp4.ed2k.strm"} {
+		if _, err := os.Stat(filepath.Join(a.outputDir, task.Target, "Series", name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, tc := range []struct {
 		kind, provider, name, suffix, want string
@@ -347,7 +352,7 @@ func TestED2KBoundGenerationAndNaming(t *testing.T) {
 		{"strm", "local", "a.mkv", ".strm", "a.mkv.strm", nil},
 		{"strm", "openlist", "a.mkv", ".strm", "a.strm", nil},
 		{"cas", "local", "a.mkv", ".cas", "a.mkv.cas", nil},
-		{"cas", "local", "a.mkv", ".cas", "a.cas", task.RetainedExtensions},
+		{"cas", "local", "a.mkv", ".cas", "a.mkv.cas", task.RetainedExtensions},
 		{"cas", "local", "a.iso", ".cas", "a.iso.cas", task.RetainedExtensions},
 	} {
 		if got := taskOutputName(Task{Kind: tc.kind, RetainedExtensions: tc.retained}, Storage{Type: tc.provider}, tc.name, tc.suffix); got != tc.want {

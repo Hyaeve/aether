@@ -84,7 +84,7 @@ func TestMountWebDAVWriteLifecycle(t *testing.T) {
 	if err := fs.RemoveAll(ctx, "/books"); err == nil {
 		t.Fatal("readonly remove")
 	}
-	pending, _ := filepath.Glob(filepath.Join(a.dataDir, "cache", "mount-upload", "pending-*"))
+	pending, _ := filepath.Glob(filepath.Join(a.transferTempDirectory(), "mount-upload", "pending-*"))
 	if len(pending) != 1 {
 		t.Fatal("failed stage not retained", pending)
 	}

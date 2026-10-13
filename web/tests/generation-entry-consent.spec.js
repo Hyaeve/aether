@@ -11,7 +11,7 @@ test('clipboard cannot read before consent and cancellation keeps it disabled',a
  await expect(toggle).not.toBeChecked();expect(await page.evaluate(()=>window.reads)).toBe(0)
  await toggle.click();const dialog=page.getByRole('dialog',{name:'剪贴板监听与隐私说明'})
  await expect(dialog).toContainText('不会将原始剪贴板内容上传到开发者服务器')
- await expect(dialog).toContainText('仅当您确认转存时')
+ await expect(dialog).toContainText('仅当您点击解析或确认转存时')
  expect(await page.evaluate(()=>window.reads)).toBe(0)
  await dialog.getByRole('button',{name:'取消',exact:true}).click();await expect(toggle).not.toBeChecked()
  await toggle.click();await page.screenshot({path:info.outputPath('clipboard-consent.png')})
@@ -46,6 +46,40 @@ for(const kind of ['cas','ed2k'])test(`${kind} dashed card edits directory tasks
  await dialog.getByRole('button',{name:'上一步',exact:true}).click();await dialog.getByRole('textbox',{name:`${kind.toUpperCase()} 信息`}).fill('valid again')
  await dialog.getByRole('button',{name:'解析',exact:true}).click();await expect(dialog.locator('.generation-preview')).toBeVisible();await expect(dialog.getByRole('button',{name:'加入生成队列'})).toBeEnabled();expect((await dialog.getByRole('button',{name:'上一步',exact:true}).boundingBox()).x).toBeLessThan((await dialog.getByRole('button',{name:'加入生成队列'}).boundingBox()).x);await page.screenshot({path:info.outputPath(`${kind}-preview.png`)})
  await dialog.getByRole('button',{name:'加入生成队列'}).click();await expect(dialog).toHaveCount(0);expect(submitted).toEqual({preview:'p',target:'/media/generated'})
+ await page.getByRole('button',{name:'添加任务',exact:true}).click();await expect(dialog.getByLabel('生成目录',{exact:true})).toHaveValue('/media/generated')
+ await dialog.getByLabel('生成目录',{exact:true}).fill('/cancelled');await page.keyboard.press('Escape')
+ await page.reload();await page.getByRole('button',{name:'添加任务',exact:true}).click();await expect(dialog.getByLabel('生成目录',{exact:true})).toHaveValue('/media/generated');await page.keyboard.press('Escape')
+ const other=kind==='cas'?'ed2k':'cas'
+ await page.goto(`/tasks/${other}`);await page.getByRole('button',{name:'添加任务',exact:true}).click();await expect(page.getByLabel('生成目录',{exact:true})).toHaveValue('/strm')
+ await page.keyboard.press('Escape');await page.evaluate(()=>localStorage.setItem('aether-generation-target:another-user:cas','/another-account'))
+ await page.evaluate(()=>localStorage.removeItem('aether-generation-target:consent-generation:cas'))
+ await page.goto('/tasks/cas');await page.getByRole('button',{name:'添加任务',exact:true}).click();await expect(page.getByLabel('生成目录',{exact:true})).toHaveValue('/strm')
+})
+
+for(const kind of ['cas','ed2k'])test(`${kind} failed generation preserves the previous directory`,async({page})=>{
+ await mock(page)
+ await page.addInitScript(k=>localStorage.setItem(`aether-generation-target:consent-generation:${k}`,'/last-success'),kind)
+ await page.route('**/api/generation/preview',r=>r.fulfill({json:{preview:'p',valid:true,items:[{path:`Film.${kind}.strm`,size:123}]}}))
+ await page.route('**/api/generation/jobs',r=>r.fulfill(r.request().method()==='POST'?{status:400,json:{error:'生成目录不可写'}}:{json:[]}))
+ await page.goto(`/tasks/${kind}`);await page.getByRole('button',{name:'添加任务',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:`添加 ${kind.toUpperCase()} 任务`})
+ await expect(dialog.getByLabel('生成目录',{exact:true})).toHaveValue('/last-success')
+ await dialog.getByLabel('生成目录',{exact:true}).fill('/failed-target');await dialog.getByRole('textbox',{name:`${kind.toUpperCase()} 信息`}).fill('valid')
+ await dialog.getByRole('button',{name:'解析',exact:true}).click();await dialog.getByRole('button',{name:'加入生成队列'}).click()
+ await expect(dialog.getByRole('alert')).toHaveText('生成目录不可写')
+ expect(await page.evaluate(k=>localStorage.getItem(`aether-generation-target:consent-generation:${k}`),kind)).toBe('/last-success')
+ await page.keyboard.press('Escape');await page.getByRole('button',{name:'添加任务',exact:true}).click();await expect(dialog.getByLabel('生成目录',{exact:true})).toHaveValue('/last-success')
+})
+
+test('generation remains usable when browser storage is unavailable',async({page})=>{
+ await mock(page)
+ await page.addInitScript(()=>{const get=Storage.prototype.getItem,set=Storage.prototype.setItem;Storage.prototype.getItem=function(key){if(key.startsWith('aether-generation-target:'))throw new Error('blocked');return get.call(this,key)};Storage.prototype.setItem=function(key,value){if(key.startsWith('aether-generation-target:'))throw new Error('blocked');return set.call(this,key,value)}})
+ await page.route('**/api/generation/preview',r=>r.fulfill({json:{preview:'p',valid:true,items:[{path:'Film.cas.strm',size:123}]}}))
+ await page.route('**/api/generation/jobs',r=>r.fulfill({json:r.request().method()==='POST'?{id:'j'}:[]}))
+ await page.goto('/tasks/cas');await page.getByRole('button',{name:'添加任务',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'添加 CAS 任务'})
+ await expect(dialog.getByLabel('生成目录',{exact:true})).toHaveValue('/strm')
+ await dialog.getByRole('textbox',{name:'CAS 信息'}).fill('valid');await dialog.getByRole('button',{name:'解析',exact:true}).click();await dialog.getByRole('button',{name:'加入生成队列'}).click();await expect(dialog).toHaveCount(0)
 })
 test('file parsing uploads multiple files and ED2K pool uses required first account and automatic Aether suffix',async({page},info)=>{
  await mock(page);let saved,upload
@@ -59,7 +93,7 @@ test('file parsing uploads multiple files and ED2K pool uses required first acco
  await expect(page.getByRole('button',{name:'绑定 账号 0',exact:true})).toBeDisabled()
  await expect(page.getByRole('button',{name:'绑定 账号 0',exact:true})).toHaveAttribute('aria-pressed','true')
  await page.getByRole('button',{name:'绑定 账号 1',exact:true}).click();await expect(page.getByRole('spinbutton',{name:'轮换时间'})).toHaveValue('24')
- const field=page.getByRole('textbox',{name:'秒传目录'});await field.fill('/自定义/接收');await field.press('Enter')
+ const field=page.getByRole('textbox',{name:'临时目录'});await field.fill('/自定义/接收');await field.press('Enter')
  await expect.poll(()=>saved?.directory).toBe('/自定义/接收/Aether');expect(saved.storageIds).toEqual(['s0','s1'])
  for(const [theme,width]of[['light',1440],['dark',390]]){await page.setViewportSize({width,height:900});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await expect.poll(()=>page.locator('.temporary-preview').evaluate(el=>getComputedStyle(el).backgroundColor)).toBe(theme==='dark'?'rgb(41, 44, 52)':'rgb(255, 255, 255)');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath(`ed2k-pool-${theme}.png`)})}
 })

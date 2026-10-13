@@ -42,6 +42,11 @@ func (a *App) generateED2K(ctx context.Context, s Storage, f File) ([]byte, erro
 
 func (a *App) generateED2KInfo(ctx context.Context, s Storage, f File) (ED2KInfo, error) {
 	if s.Type == "115" {
+		release, err := a.acquireTransferResource(ctx, "feature-hash")
+		if err != nil {
+			return ED2KInfo{}, err
+		}
+		defer release()
 		if f.IsDir || f.Size <= 0 || f.Size > 1<<40 {
 			return ED2KInfo{}, fmt.Errorf("ED2K 源文件大小无效")
 		}

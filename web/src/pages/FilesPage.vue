@@ -204,16 +204,22 @@ const displayItems = computed(() => draft.value ? [{ id: '__new__', name: '', is
 const gridMode = computed(() => mode.value === 'grid')
 const { shown, top, bottom, columns: gridColumns, reset: resetScroll, reveal } = useVirtualList(displayItems, viewport, { rowHeight: computed(() => gridMode.value ? 148 : 52), header: computed(() => gridMode.value ? 0 : 44), grid: gridMode })
 const baselineHeight = ref(500)
+const countVisible = ref(true)
+function measureCount() {
+  const el = viewport.value
+  countVisible.value = !!el && el.scrollHeight - el.clientHeight - el.scrollTop <= 2
+}
 const fileOverflow = computed(() => Math.ceil(displayItems.value.length / (gridMode.value ? gridColumns.value : 1)) * (gridMode.value ? 148 : 52) + (gridMode.value ? 0 : 44) > baselineHeight.value)
 let layoutObserver
 function measureFileSpace() {
+  measureCount()
   const browser = viewport.value?.closest('.file-browser'), page = browser?.closest('.page-scroll .thin-scroll-area')
   if (!page) return
   const before = browser.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop
   baselineHeight.value = Math.max(100, page.clientHeight - before - browser.querySelector('.file-toolbar').offsetHeight - 24 - 8)
 }
 onMounted(() => { layoutObserver = new ResizeObserver(measureFileSpace); if (viewport.value) { layoutObserver.observe(viewport.value); layoutObserver.observe(viewport.value.closest('.page-scroll .thin-scroll-area')) }; measureFileSpace() })
-watch([mode, favoritesOpen], () => nextTick(measureFileSpace))
+watch([mode, favoritesOpen, displayItems], () => nextTick(measureFileSpace))
 onUnmounted(() => layoutObserver?.disconnect())
 watch([query, sortKey, ascending, mode], resetScroll)
 const detailFiles = computed(() => activeFiles.value.filter(f => selection.value.includes(f.id)))
@@ -403,7 +409,7 @@ load()
 <div class="file-toolbar"><button class="icon-btn" aria-label="展开收藏栏" :aria-expanded="favoritesOpen" @click="favoritesOpen = !favoritesOpen"><Icon name="PanelLeft" /></button><RoundedSelect class="file-pool-select" v-model="selected" label="选择存储池" hide-check :disabled="!!renameID || uploadBusy" :options="state.storages.filter(s => s.enabled).map(s => ({ value: s.id, label: s.name, provider: s.type }))"><template #selected="{option}"><ProviderIcon v-if="option" :type="option.provider" compact /><span>{{option?.label}}</span></template><template #option="{option}"><ProviderIcon :type="option.provider" compact /><span>{{option.label}}</span></template></RoundedSelect><div class="path-bar"><PathBreadcrumbs :entries="history" :disabled="busy || !!renameID || uploadBusy" @jump="jump" /></div><button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button><button class="icon-btn" :disabled="!!renameID" :aria-label="mode === 'list' ? '当前列表视图，切换网格' : '当前网格视图，切换列表'" @click="mode = mode === 'list' ? 'grid' : 'list'"><Icon :name="mode === 'list' ? 'List' : 'LayoutGrid'" /></button></div>
   <div class="file-workspace" :class="{ 'with-favorites': favoritesOpen }">
   <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="!selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div></aside>
-  <section ref="viewport" class="file-view" :class="{ 'deep-search-results': !!searchResults }" @wheel="listWheel" @contextmenu="blankTools">
+  <section ref="viewport" class="file-view" :class="{ 'deep-search-results': !!searchResults }" @scroll="measureCount" @wheel="listWheel" @contextmenu="blankTools">
   <div v-if="error" class="error-message" role="alert">{{ error }}</div>
   <div v-if="busy" class="empty-state"><Icon name="LoaderCircle" class="spin" :size="30" /><p>正在读取目录…</p></div>
   <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : searchInput ? '没有匹配结果' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>
@@ -417,7 +423,7 @@ load()
     <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name"><Icon :name="fileIcon(f)" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" :size="21" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
     <tr v-if="bottom" class="file-spacer" :style="{ height: `${bottom}px` }" aria-hidden="true"><td colspan="4" /></tr>
   </tbody></table></div>
-  </section></div><footer class="file-item-count">{{ visible.length }} 项</footer></div>
+  </section></div><footer v-show="countVisible" class="file-item-count">{{ visible.length }} 项</footer></div>
   <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
     <button :disabled="!downloadable" @click="downloadFile"><Icon name="Download" />下载</button>
     <button v-if="extractable" @click="showExtract"><Icon name="ArchiveRestore" />解压</button>

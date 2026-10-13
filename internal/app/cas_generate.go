@@ -40,6 +40,9 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 		return info, err
 	}
 	if s.Type != "local" {
+		if s.Type != "mobile" && s.Type != "tianyi" {
+			return a.downloadCASInfo(ctx, s, f)
+		}
 		if info.SHA256 == "" && info.MD5 == "" {
 			return info, errCASMissingHash
 		}

@@ -9,6 +9,7 @@ import WebDAVUsers from '../components/WebDAVUsers.vue'
 import AccountFields from '../components/AccountFields.vue'
 import TransferSettings from '../components/TransferSettings.vue'
 import STRMSettings from '../components/STRMSettings.vue'
+import ClipboardConsent from '../components/ClipboardConsent.vue'
 import { usePageSlide } from '../page-slide'
 import { authorizeClipboard, clipboardCapability, clipboardEnabled, clipboardStatus } from '../clipboard-settings'
 const props = defineProps({ section: { default: 'cache' } })
@@ -50,7 +51,7 @@ async function clear() {
   <div class="settings-layout" :class="{ 'has-navigation': ['account', 'general', 'about', 'logs', 'transfer','strm'].includes(section), 'page-slide':section==='cache', leaving:section==='cache'&&leaving }">
   <nav v-tab-scroll v-if="['account', 'general', 'about', 'logs', 'transfer','strm'].includes(section)" class="settings-navigation" aria-label="系统设置栏目">
     <RouterLink to="/settings/account" :class="{ active: section === 'account' }"><Icon name="UserRound" />账号与安全</RouterLink>
-    <RouterLink to="/settings/transfer" :class="{ active: section === 'transfer' }"><Icon name="ArrowLeftRight" />传输设置</RouterLink>
+    <RouterLink to="/settings/transfer" :class="{ active: section === 'transfer' }"><Icon name="Cable" />传输设置</RouterLink>
     <RouterLink to="/settings/strm" :class="{ active: section === 'strm' }"><Icon name="FileSymlink" />STRM 配置</RouterLink>
     <RouterLink to="/settings/logs" :class="{ active: section === 'logs' }"><Icon name="FileClock" />日志管理</RouterLink>
     <RouterLink to="/settings/about" :class="{ active: section === 'about' }"><Icon name="Info" />关于以太</RouterLink>
@@ -71,7 +72,7 @@ async function clear() {
     </section>
     <section class="account-panel account-security">
       <div class="settings-row"><strong>会话有效期</strong><NumberInput v-model="account.sessionDays" aria-label="会话有效期" unit="天" min="1" max="365" required /></div>
-      <div class="clipboard-setting"><label for="clipboard-listening"><strong>剪贴板监听</strong><small role="status">{{ clipboardLabel }}</small></label><div class="clipboard-controls"><button type="button" class="icon-btn" aria-label="授权剪贴板" data-tooltip="授权剪贴板" :disabled="!clipboardEnabled || clipboardEnvironment !== 'available'" @click="authorizeClipboard"><Icon name="KeyRound" /></button><input id="clipboard-listening" aria-label="剪贴板监听" :checked="clipboardEnabled" type="checkbox" role="switch" class="switch" @change="toggleClipboard" /></div></div>
+      <div class="clipboard-setting"><label for="clipboard-listening"><strong>剪贴板监听</strong><small role="status">{{ clipboardLabel }}</small></label><div class="clipboard-controls"><button v-if="clipboardEnabled && clipboardEnvironment === 'available'" type="button" class="icon-btn" aria-label="授权剪贴板" data-tooltip="授权剪贴板" @click="authorizeClipboard"><Icon name="KeyRound" /></button><span v-else class="clipboard-security-mark" aria-hidden="true"><Icon name="KeyRound" /></span><input id="clipboard-listening" aria-label="剪贴板监听" :checked="clipboardEnabled" type="checkbox" role="switch" class="switch" @change="toggleClipboard" /></div></div>
     </section>
   </form>
   <form v-else id="cache-settings-form" class="settings-form" :class="{ 'dav-settings': section === 'webdav' }" @submit.prevent="save">
@@ -103,12 +104,7 @@ async function clear() {
   </form>
   </div>
   <WebDAVUsers v-if="section === 'webdav'" />
-  <Modal v-if="clipboardConsent" title="剪贴板监听与隐私说明" standard confirmation @close="clipboardConsent=false"><div class="modal-body clipboard-consent">
-    <p>开启后，在浏览器允许读取的情况下，Aether 会在管理页面处于前台及恢复焦点时读取剪贴板，识别 115、移动云盘和夸克的分享链接及提取码，并打开转存窗口。不会自动提交转存操作。</p>
-    <p>链接识别在当前浏览器本地进行。Aether 不会将原始剪贴板内容上传到开发者服务器、广告平台或分析服务，也不会将完整剪贴板内容持久化保存。</p>
-    <p>仅当您确认转存时，所选分享链接、提取码和目标目录会发送至您部署的 Aether 服务，并由其向对应网盘提交请求；执行结果可能出现在任务日志和通知中。请勿提交无权访问的内容，妥善保护分享链接、提取码及服务访问权限。</p>
-    <p>您可随时关闭此开关，立即停止监听并清空待处理批次。浏览器读取授权另由浏览器管理；HTTPS、安全上下文及权限限制仍然适用。开启即表示您已了解上述处理范围并同意使用该功能。</p>
-  </div><footer class="modal-footer"><button class="btn" @click="clipboardConsent=false">取消</button><button class="btn primary" @click="acceptClipboard"><Icon name="Check" />我已阅读并同意</button></footer></Modal>
+  <ClipboardConsent v-if="clipboardConsent" @close="clipboardConsent=false" @accept="acceptClipboard" />
   <Modal v-if="clearConfirm" title="清空缓存" @close="clearConfirm = false"><div class="modal-body">确认清空所有目录缓存及磁盘快照？存储中的文件不会受影响。</div><footer class="modal-footer"><button class="btn" @click="clearConfirm = false">取消</button><button class="btn danger" :disabled="busy" @click="clear">清空缓存</button></footer></Modal>
 </template>
 
@@ -122,5 +118,5 @@ async function clear() {
 .clipboard-setting { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:18px; padding-top:18px; border-top:1px solid var(--border); }
 .clipboard-setting label { min-width:0; gap:6px; }.clipboard-setting strong { font-size:14px; font-weight:500; }.clipboard-setting small { font-size:12px; overflow-wrap:anywhere; }
 .clipboard-controls { display:flex; align-items:center; gap:10px; flex:none; }
-.clipboard-consent p { margin:0 0 14px; font-size:14px; line-height:1.7; }.clipboard-consent p:last-child { margin-bottom:0; }
+.clipboard-security-mark { display:grid; place-items:center; width:33px; height:33px; color:var(--muted); pointer-events:none; }
 </style>

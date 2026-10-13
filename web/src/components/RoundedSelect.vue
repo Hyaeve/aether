@@ -44,7 +44,7 @@ onUnmounted(() => {clearTimeout(hoverTimer);document.removeEventListener('pointe
 <style scoped>
 .select-label { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .select-label svg { flex-shrink: 0; }
-.select-marker { width:10px; height:10px; flex:none; background:var(--muted);border-radius:3px; }
+.select-marker { width:8px; height:8px; flex:none; background:var(--muted);border-radius:2px; }
 .marker-pending { background:var(--primary); }.marker-ok { background:var(--green);transform:rotate(45deg);border-radius:2px; }.marker-error { background:var(--red);border-radius:50%; }
 .marker-unmatched { background:var(--amber); }.marker-all { background:var(--muted);border-radius:50%; }
 .opens-up .rounded-select-popup { top: auto; bottom: calc(100% + 6px); transform-origin: bottom; }

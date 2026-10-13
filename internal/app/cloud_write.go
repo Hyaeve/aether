@@ -153,7 +153,7 @@ func (d mountFS) openCloudWrite(ctx context.Context, s Storage, source, rel stri
 	if flag&os.O_TRUNC == 0 {
 		return nil, errors.New("云盘写入需要完整文件提交")
 	}
-	dir := filepath.Join(d.app.dataDir, "cache", "mount-upload")
+	dir := filepath.Join(d.app.transferTempDirectory(), "mount-upload")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}

@@ -291,7 +291,7 @@ func TestBackupShortReadDoesNotPublishOrRetainStaging(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(targetRoot, "book.epub")); !os.IsNotExist(err) {
 		t.Fatal("target appeared")
 	}
-	files, err := os.ReadDir(filepath.Join(a.dataDir, "cache", "backup"))
+	files, err := os.ReadDir(a.transferTempDirectory())
 	if err != nil || len(files) != 0 {
 		t.Fatal("staging leaked", err)
 	}

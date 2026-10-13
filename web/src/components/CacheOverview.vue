@@ -18,7 +18,7 @@ const metrics = computed(() => [
 </script>
 <template>
   <section class="cache-overview" aria-label="缓存命中统计">
-    <CacheHitChart :hits="state.cache.hits || 0" :misses="state.cache.misses || 0" />
+    <CacheHitChart task :hits="state.cache.hits || 0" :misses="state.cache.misses || 0" />
     <div class="cache-progress">
       <div v-if="!active.length" class="cache-progress-item">
         <div class="cache-progress-heading"><small>暂无执行中的任务</small><span class="cache-progress-status">空闲</span></div>

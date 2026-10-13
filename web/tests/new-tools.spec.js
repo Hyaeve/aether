@@ -12,7 +12,8 @@ test('new plugins open from tools and STRM replacement reaches activity', async 
     else if (url.pathname === '/api/115-simulcast') {
       if (method === 'PUT') configs = r.request().postDataJSON()
       data = configs
-    } else if (url.pathname === '/api/strm-replace') {
+    } else if (url.pathname === '/api/strm-replace/preview') data = {count:7,samples:[]}
+    else if (url.pathname === '/api/strm-replace') {
       if (method === 'POST') {
         const body = r.request().postDataJSON()
         expect(body.confirmed).toBe(true)

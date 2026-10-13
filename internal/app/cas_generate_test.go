@@ -29,6 +29,9 @@ func TestLocalCASGeneration(t *testing.T) {
 	if task.CASOperation != "generate" {
 		t.Fatal(task.CASOperation)
 	}
+	// Existing task configurations must not strip media extensions either.
+	retained := "iso"
+	task.RetainedExtensions = &retained
 	count, err := a.executeTask(context.Background(), task, s)
 	if err != nil || count < 1 {
 		t.Fatalf("%d %v", count, err)

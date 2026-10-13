@@ -122,6 +122,17 @@ func TestRenameHistoryDirectoryRestoreAndRuntime(t *testing.T) {
 	if err != nil || len(reopened.snapshotWithLogLimit(0).RenameHistory) != 5 {
 		t.Fatal("history recovery", err)
 	}
+	for i, d := range reopened.snapshotWithLogLimit(0).RenameHistory {
+		if d.ID != history[i].ID || d.Source != history[i].Source || len(d.Items) != len(history[i].Items) || d.Items[0].Name != history[i].Items[0].Name || d.Items[0].NewName != history[i].Items[0].NewName {
+			t.Fatal("reopened history lost order or records", i)
+		}
+	}
+	// A new workbench operation in an older directory moves that directory to the front.
+	run("C", "another.txt", "renamed.txt")
+	history = a.store.snapshot().RenameHistory
+	if len(history) != 5 || history[0].Source != "/C" || history[1].Source != "/F" {
+		t.Fatal("latest operated directory not first", history)
+	}
 	values := a.store.jsonValues()
 	stripRuntimeConfig(values)
 	raw, _ := json.Marshal(values)

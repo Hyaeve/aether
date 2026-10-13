@@ -33,6 +33,7 @@ func TestTransferSettingsModulePersistenceMigrationAndProtection(t *testing.T) {
 	s := a.transferConfig()
 	s.UploadDelay = 0
 	s.UploadSpeed = 17
+	s.TempDirectory = filepath.Join(t.TempDir(), "transfer-temp")
 	s.IgnoredExtensions = []string{".TMP", "tmp", " .FLAC "}
 	if w := request(t, h, "PUT", "/api/transfer/settings", s, cookie); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
@@ -58,7 +59,7 @@ func TestTransferSettingsModulePersistenceMigrationAndProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := normalizedTransferSettings(store.state.TransferSettings); got.UploadDelay != 0 || got.UploadSpeed != 17 || !reflect.DeepEqual(got.IgnoredExtensions, []string{"tmp", "flac"}) {
+	if got := normalizedTransferSettings(store.state.TransferSettings); got.TempDirectory != s.TempDirectory || got.UploadDelay != 0 || got.UploadSpeed != 17 || !reflect.DeepEqual(got.IgnoredExtensions, []string{"tmp", "flac"}) {
 		t.Fatal(got)
 	}
 	if normalizedBackupResources(store.state.BackupResources).QueueUpper != 2 {
@@ -77,7 +78,7 @@ func TestTransferSettingsLimitsValidation(t *testing.T) {
 	if s.MaxPreprocess != 5 || s.MaxUploads != 5 || s.UploadDelay != 10 || !s.CrossCloudTemp || len(s.IgnoredExtensions) != 8 {
 		t.Fatal(s)
 	}
-	for _, change := range []func(*TransferSettings){func(s *TransferSettings) { s.UploadSpeed = -1 }, func(s *TransferSettings) { s.MaxUploads = 0 }, func(s *TransferSettings) { s.UploadUnit = "bogus" }, func(s *TransferSettings) { s.IgnoredExtensions = []string{"../txt"} }} {
+	for _, change := range []func(*TransferSettings){func(s *TransferSettings) { s.TempDirectory = "../relative" }, func(s *TransferSettings) { s.TempDirectory = "/data/tmp\nunsafe" }, func(s *TransferSettings) { s.UploadSpeed = -1 }, func(s *TransferSettings) { s.MaxUploads = 0 }, func(s *TransferSettings) { s.UploadUnit = "bogus" }, func(s *TransferSettings) { s.IgnoredExtensions = []string{"../txt"} }} {
 		bad := s
 		change(&bad)
 		if validateTransferSettings(&bad) == nil {

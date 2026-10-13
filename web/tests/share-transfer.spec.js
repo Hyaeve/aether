@@ -27,7 +27,7 @@ for (const succeeds of [true, false]) {
     await picker.getByRole('button', { name: '电影', exact: true }).click()
     await picker.getByRole('button', { name: '选择当前目录', exact: true }).click()
     await page.getByLabel('分享链接', { exact: true }).fill('https://115.com/s/test?password=1234')
-    await page.getByRole('button', { name: '开始转存', exact: true }).click()
+    await page.getByRole('button', { name: '转存', exact: true }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     if (succeeds) {
       await expect(page.locator('.path-bar [aria-current=location]')).toHaveText('电影')
@@ -74,7 +74,7 @@ test('share transfer previews selection, submits once and reports confirmed Quar
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: info.outputPath('share-mobile.png') })
   expect(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
-  await page.getByRole('button', { name: '开始转存', exact: true }).click()
+  await page.getByRole('button', { name: '转存', exact: true }).click()
   await expect(page.locator('.toast')).toContainText('转存已完成')
   expect(saves).toBe(2)
   expect(payload).toEqual({ storageId: 'quark', preview: 'private-session', parent: '/', batch: 0 })

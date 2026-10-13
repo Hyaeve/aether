@@ -46,8 +46,7 @@ for (const kind of ['cas','ed2k']) test(`${kind} tasks use live borders and expo
   await expect(select).toHaveText('参与')
   await select.click(); await page.getByRole('option',{name:'不参与',exact:true}).click()
   await expect(select).toHaveText('不参与')
-  const a = await page.getByLabel('保留扩展名',{exact:true}).boundingBox(), b = await select.boundingBox()
-  expect(Math.abs(a.y-b.y)).toBeLessThan(5)
+  await expect(page.getByLabel('保留扩展名',{exact:true})).toHaveCount(0)
 })
 
 test('scrape status stars, uniform selected border and translucent actions match both themes', async ({page}, info) => {
@@ -65,7 +64,8 @@ test('scrape status stars, uniform selected border and translucent actions match
   await expect(star).not.toHaveAttribute('data-tooltip')
   await expect(star).toHaveCSS('border-radius','2px')
   await page.getByRole('button',{name:'刮削状态',exact:true}).click()
-  await expect(page.locator('[role=option] .select-marker')).toHaveCount(5)
+  await expect(page.locator('[role=option] .select-marker')).toHaveCount(4)
+  await expect(page.getByRole('option',{name:'全部状态',exact:true}).locator('.select-marker')).toHaveCount(0)
   await page.getByRole('option',{name:'全部状态',exact:true}).click()
   await card.hover()
   await expect(card.locator('.scrape-actions button').first()).toHaveCSS('backdrop-filter','blur(12px)')

@@ -467,11 +467,7 @@ func TestCASPoolRevisionImportTreeAndRuntimeCounters(t *testing.T) {
 		t.Fatalf("import runtime state: %+v", state)
 	}
 	for _, name := range []string{"films/raw.mkv", "series/season/base64.mkv", "series/season/unpadded.mkv", "music/pointer.mkv"} {
-		outputName := name
-		if strings.Contains(name, "base64") || strings.Contains(name, "unpadded") {
-			outputName = strings.TrimSuffix(name, ".mkv")
-		}
-		content, err := os.ReadFile(filepath.Join(a.outputDir, "portable", filepath.FromSlash(outputName+".cas.strm")))
+		content, err := os.ReadFile(filepath.Join(a.outputDir, "portable", filepath.FromSlash(name+".cas.strm")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -533,7 +529,7 @@ func TestCASPoolRevisionImportTreeAndRuntimeCounters(t *testing.T) {
 	if err := a.store.decodeJSONConfig("task/cas", after, &config); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"casGenerated", "casFailed", "casBindingId"} {
+	for _, field := range []string{"casGenerated", "casFailed", "casBindingId", "retainedExtensions"} {
 		if _, ok := config[0][field]; ok {
 			t.Fatalf("%s stored in task config", field)
 		}
@@ -568,7 +564,7 @@ func TestCASPoolRevisionPartialHashImport(t *testing.T) {
 			if n, err := a.executeTask(context.Background(), task, s); err != nil || n != 1 {
 				t.Fatalf("partial import: %d %v", n, err)
 			}
-			output, err := os.ReadFile(filepath.Join(a.outputDir, "partial", "Renamed.cas.strm"))
+			output, err := os.ReadFile(filepath.Join(a.outputDir, "partial", "Renamed.mkv.cas.strm"))
 			if err != nil {
 				t.Fatal(err)
 			}

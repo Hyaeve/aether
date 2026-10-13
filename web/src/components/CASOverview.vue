@@ -21,7 +21,7 @@ const failed = computed(() => casTasks.value.reduce((sum, t) => sum + count(t.ca
 <template>
   <div class="cas-overview-area">
     <section class="cas-overview" :aria-label="`${kind.toUpperCase()} 生成统计`">
-      <CacheHitChart label="成功率" :hits="successes" :misses="executed.length - successes" title="按各任务最近一次执行结果统计：成功 /（成功 + 失败 + 取消 + 中断），仅计入有有效执行时间的已结束任务" />
+      <CacheHitChart task label="成功率" :hits="successes" :misses="executed.length - successes" title="按各任务最近一次执行结果统计：成功 /（成功 + 失败 + 取消 + 中断），仅计入有有效执行时间的已结束任务" />
       <div class="cas-progress">
         <div v-if="!active.length" class="cas-progress-item">
           <div class="cas-progress-heading"><small>暂无执行中的任务</small><span class="cas-progress-status">空闲</span></div>
@@ -45,7 +45,7 @@ const failed = computed(() => casTasks.value.reduce((sum, t) => sum + count(t.ca
 
 <style scoped>
 .cas-overview-area { min-width: 0; margin-bottom: 10px; overflow-x: clip; }
-.cas-overview { display: grid; grid-template-columns: 112px minmax(160px,1fr) minmax(180px,.6fr) 44px; align-items: center; gap: 18px; padding: 12px 12px 12px 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); --cache-hit-color: var(--green); --cache-miss-color: color-mix(in srgb,var(--red) 55%,var(--surface)); }
+.cas-overview { display: grid; grid-template-columns: 112px minmax(160px,1fr) minmax(180px,.6fr) 44px; align-items: center; gap: 18px; padding: 12px 12px 12px 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);  }
 .cas-progress { min-width: 0; }
 .cas-progress-item + .cas-progress-item { margin-top: 10px; }
 .cas-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }

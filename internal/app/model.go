@@ -48,6 +48,7 @@ type MountConfig struct {
 }
 
 type Task struct {
+	CompletionAction   string           `json:"completionAction,omitempty"`
 	HealthPause        string           `json:"healthPause,omitempty"`
 	ScrapeExcluded     bool             `json:"scrapeExcluded,omitempty"`
 	RetainedExtensions *string          `json:"retainedExtensions,omitempty"`

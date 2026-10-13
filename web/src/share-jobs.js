@@ -1,6 +1,6 @@
 import { api, notices, state } from './lib'
 
-export async function transferShares(storage, parent, links, history = []) {
+export async function transferShares(storage, parent, links, history = [], selections = []) {
   const owner = state.username
   const id = Date.now() + Math.random()
   notices.push({ id, message: `${storage.name}：准备转存`, progress: 0 })
@@ -9,7 +9,7 @@ export async function transferShares(storage, parent, links, history = []) {
   try {
     for (let i = 0; i < links.length; i++) {
       session()
-      const plan = await api('/files/share/preview', 'POST', { storageId: storage.id, url: links[i] })
+      const plan = await api('/files/share/preview', 'POST', { storageId: storage.id, url: links[i], excluded: selections[i] || [] })
       for (let batch = 0; batch < plan.batches; batch++) {
         session()
         update({ message: `${storage.name}：链接 ${i + 1}/${links.length}，批次 ${batch + 1}/${plan.batches}` })

@@ -506,7 +506,7 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	if f.Size < 0 || f.Size > limit {
 		return errors.New("备份单文件上限100GiB")
 	}
-	rootDir := filepath.Join(a.dataDir, "cache", "backup")
+	rootDir := a.transferTempDirectory()
 	if err := os.MkdirAll(rootDir, 0700); err != nil {
 		return err
 	}

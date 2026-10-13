@@ -27,6 +27,7 @@ type ED2KTemporary struct {
 	FileID    string    `json:"fileId"`
 	Name      string    `json:"name"`
 	Size      int64     `json:"size"`
+	SHA1      string    `json:"sha1,omitempty"`
 	LastUsed  time.Time `json:"lastUsed"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
@@ -250,6 +251,25 @@ func (a *App) cleanupED2K(ctx context.Context, keys []string) (int, error) {
 			}
 		}
 		if found {
+			if item.SHA1 != "" {
+				c, e := client115(ctx, s)
+				if e != nil {
+					return n, e
+				}
+				files, e := (&pan115Simulcast{app: a}).list(ctx, s, c, item.Folder)
+				if e != nil {
+					return n, e
+				}
+				verified := false
+				for _, f := range files {
+					if f.FileID == item.FileID && !f.IsDirectory && f.Name == item.Name && f.Size == item.Size && strings.EqualFold(f.Sha1, item.SHA1) {
+						verified = true
+					}
+				}
+				if !verified {
+					return n, errors.New("分享临时文件内容身份已改变，拒绝删除")
+				}
+			}
 			if e = a.cloudFileAction(ctx, s, s, fileActionRequest{Action: "delete", IDs: []string{item.FileID}}); e != nil {
 				return n, e
 			}

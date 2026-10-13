@@ -196,7 +196,7 @@ func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, b
 			return errors.New("上传路径无效")
 		}
 	}
-	dir := filepath.Join(a.dataDir, "cache", "file-upload")
+	dir := filepath.Join(a.transferTempDirectory(), "file-upload")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}

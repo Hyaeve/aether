@@ -118,7 +118,7 @@ defineExpose({ save })
             <div v-if="kind!=='ed2k'" class="field"><label>优先秒传</label><RoundedSelect v-model="form.preferred" label="优先秒传" :disabled="busy || !loaded" :options="[{ value: 'mobile', label: '移动云盘' }, { value: 'tianyi', label: '天翼云盘' }]" @update:model-value="changed" /></div>
             <div class="field"><label :for="`${id}-rotation`">轮换时间</label><NumberInput :id="`${id}-rotation`" v-model="rotationHours" aria-label="轮换时间" unit="h" :min="1 / 60" :max="24" :step="1 / 60" required :disabled="busy || !loaded" /></div>
             <div v-for="group in groups" :key="group.type" class="field"><label :for="`${id}-${group.type}-retention`">{{ {'mobile':'移动保活','tianyi':'天翼保活','115':'秒传保活'}[group.type] }}</label><NumberInput :id="`${id}-${group.type}-retention`" v-model="form[group.type].retentionHours" :aria-label="{'mobile':'移动保活','tianyi':'天翼保活','115':'秒传保活'}[group.type]" unit="h" :min="1" :max="8760" :step="1" required :disabled="busy || !loaded" /></div>
-            <div v-if="kind==='ed2k'" class="field full"><label :for="`${id}-directory`">秒传目录</label><div class="ed2k-directory"><input :id="`${id}-directory`" v-model="directoryPrefix" aria-label="秒传目录" @blur="normalizeDirectory" @keydown.enter.prevent="normalizeDirectory" /><span aria-hidden="true">/Aether</span></div></div>
+            <div v-if="kind==='ed2k'" class="field full"><label :for="`${id}-directory`">临时目录</label><div class="ed2k-directory"><input :id="`${id}-directory`" v-model="directoryPrefix" aria-label="临时目录" @blur="normalizeDirectory" @keydown.enter.prevent="normalizeDirectory" /><span aria-hidden="true">/Aether</span></div></div>
           </div>
         </section>
       </fieldset>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ func cloudUsageType(kind string) bool {
 }
 
 func usableStorageQuota(value storageUsage) bool {
-	return value.Total > 0 && value.Used >= 0 && value.Used <= value.Total
+	return value.Total > 0 && value.Used >= 0
 }
 
 func (a *App) storageUsageAPI(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +229,9 @@ func (a *App) readStorageUsage(ctx context.Context, s Storage) storageUsage {
 			if a.mobilePost(ctx, s, "https://user-njs.yun.139.com/user/disk/quota/detail", map[string]string{"userDomainId": s.Config["userDomainId"]}, false, &quota) == nil {
 				total, e1 := quota.Total.Int64()
 				free, e2 := quota.Free.Int64()
-				if e1 == nil && e2 == nil && total > 0 && free >= 0 && free <= total && total <= int64(^uint64(0)>>1)/(1<<20) {
+				// Expired quota can leave negative free space; preserve the actual usage.
+				const maxMiB = math.MaxInt64 / (1 << 20)
+				if e1 == nil && e2 == nil && total > 0 && total <= maxMiB && free <= total && free >= total-maxMiB {
 					value.Total, value.Used = total*(1<<20), (total-free)*(1<<20)
 				}
 			}

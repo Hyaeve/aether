@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"path"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -14,7 +16,84 @@ type shareBatch struct {
 	Items     []shareEntry
 }
 
+const shareTransferBatchLimit = 499
+
+type shareTreeEntry struct {
+	Path  string `json:"path"`
+	Name  string `json:"name"`
+	IsDir bool   `json:"isDir"`
+}
+
+func shareTree(items []shareEntry, batches []shareBatch) []shareTreeEntry {
+	entries := map[string]shareTreeEntry{}
+	for _, item := range items {
+		entries[item.Name] = shareTreeEntry{Path: item.Name, Name: item.Name, IsDir: item.IsDir}
+	}
+	for _, batch := range batches {
+		directory := batch.Directory
+		for directory != "" && directory != "." {
+			entries[directory] = shareTreeEntry{Path: directory, Name: path.Base(directory), IsDir: true}
+			directory = path.Dir(directory)
+		}
+		for _, item := range batch.Items {
+			key := path.Join(batch.Directory, item.Name)
+			entries[key] = shareTreeEntry{Path: key, Name: item.Name, IsDir: item.IsDir}
+		}
+	}
+	result := []shareTreeEntry{}
+	for _, entry := range entries {
+		result = append(result, entry)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	return result
+}
+
+func selectedShareBatches(batches []shareBatch, tree []shareTreeEntry, excluded []string) ([]shareBatch, error) {
+	known := map[string]bool{}
+	for _, item := range tree {
+		known[item.Path] = true
+	}
+	if len(excluded) > 5000 {
+		return nil, errors.New("选择项目过多")
+	}
+	for _, key := range excluded {
+		if !known[key] {
+			return nil, errors.New("分享目录已变化，请重新解析")
+		}
+	}
+	blocked := func(key string) bool {
+		for _, prefix := range excluded {
+			if key == prefix || strings.HasPrefix(key, prefix+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	result := []shareBatch{}
+	for _, batch := range batches {
+		if blocked(batch.Directory) {
+			continue
+		}
+		items := []shareEntry{}
+		for _, item := range batch.Items {
+			if !blocked(path.Join(batch.Directory, item.Name)) {
+				items = append(items, item)
+			}
+		}
+		if len(items) > 0 || len(batch.Items) == 0 {
+			batch.Items = items
+			result = append(result, batch)
+		}
+	}
+	return result, nil
+}
+
 func (a *App) planShare(ctx context.Context, s Storage, code, pass string, items []shareEntry) ([]shareBatch, error) {
+	return a.planShareSession(ctx, &s, code, pass, "", items)
+}
+
+func (a *App) planShareSession(ctx context.Context, session *Storage, code, pass, token string, items []shareEntry) ([]shareBatch, error) {
+	s := *session
 	result := []shareBatch{}
 	seen, count := map[string]bool{}, 0
 	var walk func([]shareEntry, string, string, int) error
@@ -26,7 +105,7 @@ func (a *App) planShare(ctx context.Context, s Storage, code, pass string, items
 		if count > 5000 {
 			return errors.New("分享文件总数超过5000，请缩小分享范围")
 		}
-		limit := 100
+		limit := shareTransferBatchLimit
 		files := []shareEntry{}
 		names := map[string]bool{}
 		for _, item := range entries {
@@ -46,9 +125,12 @@ func (a *App) planShare(ctx context.Context, s Storage, code, pass string, items
 				if nativeMobile(s) && item.Token != "" {
 					childSource = item.Token
 				}
-				_, children, err := a.readShareAt(ctx, s, code, pass, childSource)
+				nextToken, children, err := a.readShareSession(ctx, session, code, pass, childSource, token)
 				if err != nil {
 					return err
+				}
+				if s.Type == "quark" {
+					token = nextToken
 				}
 				if err := walk(children, path.Join(directory, item.Name), item.ID, depth+1); err != nil {
 					return err
@@ -102,14 +184,15 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	a.shareMu.Lock()
 	p.Next++
 	a.shareMu.Unlock()
+	session := shareStorageSession(s, preview)
 	if batch.Directory != "" {
-		parent, _, err = a.uploadParent(ctx, s, parent, path.Join(batch.Directory, ".aether-share-placeholder"))
+		parent, _, err = a.uploadParent(ctx, session, parent, path.Join(batch.Directory, ".aether-share-placeholder"))
 		if err != nil {
 			failure(err)
 			return
 		}
 	}
-	existing, err := a.rawList(ctx, s, parent)
+	existing, err := a.rawList(ctx, session, parent)
 	if err != nil {
 		failure(errors.New("转存目录不可访问"))
 		return
@@ -131,7 +214,7 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	preview.SourceParent = batch.Source
 	task := ""
 	if len(batch.Items) > 0 {
-		task, err = submitShare(ctx, s, preview, parent, batch.Items)
+		task, err = submitShareSession(ctx, &session, preview, parent, batch.Items)
 		if err != nil {
 			failure(errors.New(err.Error() + "；请检查网盘结果，勿直接重复提交"))
 			return
@@ -139,6 +222,7 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	}
 	a.shareMu.Lock()
 	p.TaskID = task
+	p.Cookie = session.Config["cookie"]
 	p.Skipped += skipped
 	p.Submitted += len(batch.Items)
 	p.Expires = time.Now().Add(10 * time.Minute)

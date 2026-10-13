@@ -16,6 +16,9 @@ const taskAudioExtensions = "mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus"
 var extensionToken = regexp.MustCompile(`^[a-z0-9]{1,16}$`)
 
 func taskOutputName(t Task, s Storage, name, suffix string) string {
+	if t.Kind == "cas" || t.Kind == "ed2k" {
+		return name + suffix
+	}
 	if t.RetainedExtensions != nil {
 		if !excludedType(name, *t.RetainedExtensions) {
 			name = strings.TrimSuffix(name, path.Ext(name))

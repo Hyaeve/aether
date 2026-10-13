@@ -19,3 +19,31 @@ test('rename history uses page virtualization, discontinuous selection and guard
  await page.setViewportSize({width:390,height:844});await page.evaluate(()=>document.documentElement.dataset.theme='dark');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await expect.poll(()=>page.locator('.history-directory-trigger').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true);await page.screenshot({path:info.outputPath('rename-history-dark-mobile.png')})
  const panel=await page.locator('.rename-history-panel').boundingBox();expect(panel.y+panel.height).toBeCloseTo(836,0)
 })
+
+test('history directory selector fills the heading gap, keeps its width on hover and preserves deepest paths',async({page},info)=>{
+ const directories=Array.from({length:5},(_,i)=>({id:String(i),storageId:'local',source:'/directory-'+i,pathLabel:`/Older/${'An-Extremely-Long-Parent-Directory-That-Must-Be-Omitted'.repeat(3)}/Directory-${i}`,items:[{id:'file'+i,name:'old.txt',newName:'new.txt',modified:'2026-10-13T08:00:00Z'}]}))
+ await page.route('**/api/**',r=>{const path=new URL(r.request().url()).pathname;return r.fulfill({json:path==='/api/auth/status'?{initialized:true,authenticated:true}:path==='/api/state'?{username:'fixed-history',storages:[{id:'local',name:'文库',type:'local',enabled:true,config:{}}],tasks:[],settings:{},cache:{},logs:[]}:path==='/api/files'?[{id:'/old.txt',name:'old.txt'}]:path==='/api/files/rename-history'?directories:[]})})
+ const open=async()=>{await page.getByRole('button',{name:'工具',exact:true}).click();await page.getByRole('menuitem',{name:'重命名',exact:true}).click();await page.getByRole('button',{name:'历史记录',exact:true}).click()}
+ await page.goto('/files');await open()
+ const selector=page.locator('.history-directory-control'),trigger=page.getByRole('button',{name:'选择历史目录',exact:true})
+ await expect(trigger).toContainText('Directory-0')
+ const start=await selector.boundingBox(),title=await page.getByRole('heading',{name:'历史命名记录',exact:true}).boundingBox(),all=await page.getByRole('button',{name:'全选',exact:true}).boundingBox()
+ expect(start.x).toBeCloseTo(title.x+title.width+10,0);expect(start.x+start.width).toBeCloseTo(all.x-10,0)
+ await selector.hover();expect((await selector.boundingBox()).width).toBeCloseTo(start.width,0)
+ await trigger.click();const menu=page.getByRole('listbox',{name:'历史目录'}),options=menu.getByRole('option')
+ expect((await menu.boundingBox()).width).toBeCloseTo(start.width,0)
+ await expect(options.locator('.visit-deepest')).toHaveText(directories.map((_,i)=>`Directory-${i}`))
+ await expect(options.first()).toContainText('/../')
+ await options.nth(3).click();await expect(trigger).toContainText('Directory-3');expect((await selector.boundingBox()).width).toBeCloseTo(start.width,0)
+ await page.mouse.move(1400,800);expect((await selector.boundingBox()).width).toBeCloseTo(start.width,0)
+ await page.screenshot({path:info.outputPath('fixed-history-desktop.png')})
+ await page.setViewportSize({width:390,height:844});await page.evaluate(()=>document.documentElement.dataset.theme='dark')
+ await trigger.click();await expect(menu).toBeVisible()
+ const mobile=await selector.boundingBox();expect((await menu.boundingBox()).width).toBeCloseTo(mobile.width,0)
+ for(const el of [trigger,...await options.all()]){
+   await expect(el.locator('strong')).toHaveText('文库');await expect(el.locator('.provider-icon')).toBeVisible()
+   expect(await el.locator('.visit-deepest').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+ }
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ await page.screenshot({path:info.outputPath('fixed-history-dark-mobile.png')})
+})

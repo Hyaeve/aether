@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
-const text = ref(''), left = ref(0), top = ref(0), popup = ref(null), stationary = ref(false)
+const text = ref(''), left = ref(0), top = ref(0), popup = ref(null), stationary = ref(false), playback = ref(false)
 let target, timer, value = ''
 let pointerX = 0, pointerY = 0
 function move(event) {
@@ -28,7 +28,7 @@ function show(event) {
   const content = el.dataset.tooltip || el.textContent
   const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight
   if (!content || (!clipped && !el.hasAttribute('data-tooltip-always')) || target === el) return
-  hide(); target = el; value = content; stationary.value = !!el.closest('.playback-scroller')
+  hide(); target = el; value = content; playback.value = !!el.closest('.playback-scroller'); stationary.value = playback.value || el.hasAttribute('data-tooltip-stationary')
   const r = el.getBoundingClientRect()
   pointerX = event.clientX ?? r.left; pointerY = event.clientY ?? r.bottom
   schedule()
@@ -38,4 +38,4 @@ function key(event) { if (event.key === 'Escape') hide() }
 onMounted(() => { document.addEventListener('mousemove', move); document.addEventListener('mouseover', show); document.addEventListener('mouseout', out); document.addEventListener('focusin', show); document.addEventListener('focusout', hide); document.addEventListener('keydown', key); window.addEventListener('scroll', hide, true) })
 onUnmounted(() => { hide(); document.removeEventListener('mousemove', move); document.removeEventListener('mouseover', show); document.removeEventListener('mouseout', out); document.removeEventListener('focusin', show); document.removeEventListener('focusout', hide); document.removeEventListener('keydown', key); window.removeEventListener('scroll', hide, true) })
 </script>
-<template><Teleport to="body"><div v-if="text" ref="popup" role="tooltip" class="overflow-tooltip" :class="{'playback-tooltip':stationary}" :style="{ left: `${left}px`, top: `${top}px` }">{{ text }}</div></Teleport></template>
+<template><Teleport to="body"><div v-if="text" ref="popup" role="tooltip" class="overflow-tooltip" :class="{'playback-tooltip':playback}" :style="{ left: `${left}px`, top: `${top}px` }">{{ text }}</div></Teleport></template>

@@ -43,5 +43,5 @@ onUnmounted(() => { if (!document.querySelector('.modal')) document.body.style.o
   </Teleport>
 </template>
 <style scoped>
-.standard-modal { width:min(640px,calc(100vw - 32px)); }
+.modal.standard-modal { width:min(var(--modal-standard-width),calc(100vw - 32px)); }
 </style>

@@ -17,7 +17,7 @@ const filterKey = filter => { if(!filterKeys.has(filter))filterKeys.set(filter,+
 const twoWay = computed(() => form.syncMode === 'two_way')
 watch(twoWay, value => { if (value) form.completionRule = 'keep' })
 const steps = ['基本设置','备份规则','扫描规则','筛选规则']
-const filterTypes = [{value:'extension',label:'扩展名',icon:FileText},{value:'name',label:'文件名',icon:File},{value:'regex',label:'正则',icon:CodeXml},{value:'path_prefix',label:'路径前缀',icon:FolderTree},{value:'path_regex',label:'路径正则',icon:Route},{value:'size',label:'大小',icon:Weight}]
+const filterTypes = [{value:'extension',label:'扩展名',icon:FileText},{value:'name',label:'文件名',icon:File},{value:'regex',label:'正则',icon:CodeXml},{value:'path_prefix',label:'路径前缀',icon:FolderTree},{value:'path_regex',label:'路径正则',icon:Route},{value:'size',label:'最大最小',icon:Weight}]
 const filterType = filter => filterTypes.find(t=>t.value===filter.type) || filterTypes[1]
 const sizeUnits = ['KB','MB','GB']
 function cycleUnit(filter, key) { filter[key] = sizeUnits[(sizeUnits.indexOf(filter[key] || filter.unit || 'MB') + 1) % sizeUnits.length] }

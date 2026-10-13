@@ -23,6 +23,8 @@ type shareEntry struct {
 	Name  string `json:"name"`
 	IsDir bool   `json:"isDir"`
 	Token string `json:"-"`
+	Size  int64  `json:"size,omitempty"`
+	SHA1  string `json:"-"`
 }
 
 type sharePreview struct {
@@ -36,6 +38,7 @@ type sharePreview struct {
 	Code         string
 	Pass         string
 	Token        string
+	Cookie       string
 	Items        []shareEntry
 	Expires      time.Time
 	Used         bool
@@ -152,6 +155,11 @@ func shareConfig(s Storage) [32]byte {
 
 // Only fixed provider endpoints reach this client. Never follow redirects with credentials.
 func shareRequest(ctx context.Context, s Storage, method, address string, body any, out any) error {
+	return shareSessionRequest(ctx, &s, method, address, body, out)
+}
+
+func shareSessionRequest(ctx context.Context, session *Storage, method, address string, body any, out any) error {
+	s := *session
 	headers := cloudHeaders(s)
 	if s.Type == "115" {
 		headers.Set("User-Agent", pan115ShareUA)
@@ -203,6 +211,9 @@ func shareRequest(ctx context.Context, s Storage, method, address string, body a
 		return errors.New("分享服务连接失败，请检查网络后重试")
 	}
 	defer res.Body.Close()
+	if s.Type == "quark" && (res.Request == nil || (res.Request.URL.Scheme == req.URL.Scheme && res.Request.URL.Host == req.URL.Host)) {
+		*session = mergeQuarkCookies(s, res.Header)
+	}
 	if res.StatusCode != 200 {
 		if s.Type == "115" {
 			stage := "预览"
@@ -210,6 +221,20 @@ func shareRequest(ctx context.Context, s Storage, method, address string, body a
 				stage = "转存"
 			}
 			return &shareHTTPError{status: res.StatusCode, message: fmt.Sprintf("115 分享%s失败（%s %s，HTTP %d）；上游未接受请求，不能据此判断CK是否失效；转存写请求不会自动重试", stage, method, req.URL.Host+req.URL.Path, res.StatusCode)}
+		}
+		if s.Type == "quark" {
+			stage := "读取"
+			switch req.URL.Path {
+			case "/1/clouddrive/share/sharepage/token":
+				stage = "获取分享令牌"
+			case "/1/clouddrive/share/sharepage/detail":
+				stage = "读取分享目录"
+			case "/1/clouddrive/share/sharepage/save":
+				stage = "提交转存"
+			case "/1/clouddrive/task":
+				stage = "查询转存结果"
+			}
+			return &shareHTTPError{status: res.StatusCode, message: fmt.Sprintf("夸克分享%s被上游拒绝（HTTP %d）；请核对账号授权、分享有效性及服务器网络出口，不能仅据此判断 Cookie 已失效", stage, res.StatusCode)}
 		}
 		return fmt.Errorf("分享服务 HTTP %d，请检查授权或网络", res.StatusCode)
 	}
@@ -246,15 +271,19 @@ func (a *App) readShare(ctx context.Context, s Storage, code, pass string) (stri
 	return a.readShareAt(ctx, s, code, pass, "root")
 }
 func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent string) (string, []shareEntry, error) {
+	return a.readShareSession(ctx, &s, code, pass, parent, "")
+}
+
+func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass, parent, token string) (string, []shareEntry, error) {
+	s := *session
 	items := []shareEntry{}
-	token := ""
-	if s.Type == "quark" {
+	if s.Type == "quark" && token == "" {
 		var result struct {
 			Data struct {
 				Token string `json:"stoken"`
 			} `json:"data"`
 		}
-		err := shareRequest(ctx, s, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/token?pr=ucpro&fr=pc", map[string]string{"pwd_id": code, "passcode": pass}, &result)
+		err := shareSessionRequest(ctx, session, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/token?pr=ucpro&fr=pc", map[string]string{"pwd_id": code, "passcode": pass}, &result)
 		if err != nil {
 			return "", nil, err
 		}
@@ -277,9 +306,11 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 				Data struct {
 					Count int `json:"count"`
 					List  []struct {
-						ID   string `json:"fid"`
-						CID  string `json:"cid"`
-						Name string `json:"n"`
+						ID   string                `json:"fid"`
+						CID  string                `json:"cid"`
+						Name string                `json:"n"`
+						Size driver115.StringInt64 `json:"s"`
+						SHA1 string                `json:"sha"`
 					} `json:"list"`
 				} `json:"data"`
 			}
@@ -296,7 +327,7 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 				if id == "" {
 					id = f.CID
 				}
-				batch = append(batch, shareEntry{ID: id, Name: f.Name, IsDir: f.ID == ""})
+				batch = append(batch, shareEntry{ID: id, Name: f.Name, IsDir: f.ID == "", Size: int64(f.Size), SHA1: f.SHA1})
 			}
 		case "quark":
 			var result struct {
@@ -316,7 +347,7 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 			if parent != "root" {
 				q.Set("pdir_fid", parent)
 			}
-			if err := shareRequest(ctx, s, "GET", "https://drive.quark.cn/1/clouddrive/share/sharepage/detail?"+q.Encode(), nil, &result); err != nil {
+			if err := shareSessionRequest(ctx, session, "GET", "https://drive.quark.cn/1/clouddrive/share/sharepage/detail?"+q.Encode(), nil, &result); err != nil {
 				return "", nil, err
 			}
 			total = result.Metadata.Total
@@ -404,6 +435,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		Parent    string   `json:"parent"`
 		IDs       []string `json:"ids"`
 		Batch     int      `json:"batch"`
+		Excluded  []string `json:"excluded"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -423,7 +455,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		a.saveShareBatch(w, r, ctx, s, in.Preview, in.Parent, in.Batch)
 		return
 	}
-	if r.PathValue("action") == "preview" {
+	if r.PathValue("action") == "preview" || r.PathValue("action") == "tree" {
 		provider, code, pass, err := parseShareLink(in.URL, in.Password)
 		if err != nil {
 			fail(w, 400, err)
@@ -433,12 +465,23 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, errors.New("分享链接与目标存储类型不一致，不支持跨网盘转存"))
 			return
 		}
-		token, items, err := a.readShare(ctx, s, code, pass)
+		session := s
+		token, items, err := a.readShareSession(ctx, &session, code, pass, "root", "")
 		if err != nil {
 			fail(w, 400, err)
 			return
 		}
-		batches, err := a.planShare(ctx, s, code, pass, items)
+		batches, err := a.planShareSession(ctx, &session, code, pass, token, items)
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		tree := shareTree(items, batches)
+		if r.PathValue("action") == "tree" {
+			jsonResponse(w, 200, map[string]any{"items": items, "tree": tree})
+			return
+		}
+		batches, err = selectedShareBatches(batches, tree, in.Excluded)
 		if err != nil {
 			fail(w, 400, err)
 			return
@@ -458,9 +501,9 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			fail(w, 429, errors.New("分享预览过多，请稍后再试"))
 			return
 		}
-		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Items: items, Batches: batches, Expires: time.Now().Add(10 * time.Minute)}
+		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Cookie: session.Config["cookie"], Items: items, Batches: batches, Expires: time.Now().Add(10 * time.Minute)}
 		a.shareMu.Unlock()
-		jsonResponse(w, 200, map[string]any{"preview": key, "items": items, "batches": len(batches)})
+		jsonResponse(w, 200, map[string]any{"preview": key, "items": items, "tree": tree, "batches": len(batches)})
 		return
 	}
 	if r.PathValue("action") != "save" {
@@ -473,13 +516,19 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			task := p.TaskID
+			session := shareStorageSession(s, *p)
 			a.shareMu.Unlock()
 			var result struct {
 				Data struct {
 					Status int `json:"status"`
 				} `json:"data"`
 			}
-			err := shareRequest(ctx, s, "GET", "https://drive.quark.cn/1/clouddrive/task?pr=ucpro&fr=pc&retry_index=0&task_id="+url.QueryEscape(task), nil, &result)
+			err := shareSessionRequest(ctx, &session, "GET", "https://drive.quark.cn/1/clouddrive/task?pr=ucpro&fr=pc&retry_index=0&task_id="+url.QueryEscape(task), nil, &result)
+			a.shareMu.Lock()
+			if p.TaskID == task {
+				p.Cookie = session.Config["cookie"]
+			}
+			a.shareMu.Unlock()
 			if err != nil {
 				fail(w, 502, err)
 				return
@@ -517,8 +566,8 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	preview := *p
 	a.shareMu.Unlock()
-	if len(in.IDs) == 0 || len(in.IDs) > 100 {
-		fail(w, 400, errors.New("每次选择 1–100 项"))
+	if len(in.IDs) == 0 || len(in.IDs) > shareTransferBatchLimit {
+		fail(w, 400, fmt.Errorf("每次选择 1–%d 项", shareTransferBatchLimit))
 		return
 	}
 	chosen := []shareEntry{}
@@ -538,7 +587,8 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	if in.Parent == "" || in.Parent == "/" {
 		in.Parent = rootOf(s)
 	}
-	existing, err := a.rawList(ctx, s, in.Parent)
+	session := shareStorageSession(s, preview)
+	existing, err := a.rawList(ctx, session, in.Parent)
 	if err != nil {
 		fail(w, 400, errors.New("目标目录不可访问"))
 		return
@@ -584,7 +634,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	// A lost response may still have created an upstream job. Do not automatically retry.
 	taskID := ""
 	if len(chosen) > 0 {
-		taskID, err = submitShare(ctx, s, preview, in.Parent, chosen)
+		taskID, err = submitShareSession(ctx, &session, preview, in.Parent, chosen)
 	}
 	a.cache.clear()
 	if err != nil {
@@ -593,6 +643,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	a.shareMu.Lock()
 	p.TaskID = taskID
+	p.Cookie = session.Config["cookie"]
 	p.Submitted = len(chosen)
 	p.Skipped = len(in.IDs) - len(chosen)
 	p.Parent = in.Parent
@@ -604,6 +655,27 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func submitShare(ctx context.Context, s Storage, p sharePreview, parent string, items []shareEntry) (string, error) {
+	return submitShareSession(ctx, &s, p, parent, items)
+}
+
+// Rotated cookies belong only to this preview; do not overwrite edited account credentials.
+func shareStorageSession(s Storage, p sharePreview) Storage {
+	if s.Type == "quark" && p.Cookie != "" {
+		config := make(map[string]string, len(s.Config))
+		for key, value := range s.Config {
+			config[key] = value
+		}
+		config["cookie"] = p.Cookie
+		s.Config = config
+	}
+	return s
+}
+
+func submitShareSession(ctx context.Context, session *Storage, p sharePreview, parent string, items []shareEntry) (string, error) {
+	s := *session
+	if len(items) == 0 || len(items) > shareTransferBatchLimit {
+		return "", fmt.Errorf("每批转存须为 1–%d 项", shareTransferBatchLimit)
+	}
 	ids, tokens := []string{}, []string{}
 	for _, item := range items {
 		ids = append(ids, item.ID)
@@ -627,7 +699,7 @@ func submitShare(ctx context.Context, s Storage, p sharePreview, parent string, 
 		if source == "" || source == "root" {
 			source = "0"
 		}
-		err = shareRequest(ctx, s, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/save?pr=ucpro&fr=pc", map[string]any{"fid_list": ids, "fid_token_list": tokens, "to_pdir_fid": parent, "pwd_id": p.Code, "stoken": p.Token, "pdir_fid": source, "scene": "link"}, &result)
+		err = shareSessionRequest(ctx, session, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/save?pr=ucpro&fr=pc", map[string]any{"fid_list": ids, "fid_token_list": tokens, "to_pdir_fid": parent, "pwd_id": p.Code, "stoken": p.Token, "pdir_fid": source, "scene": "link"}, &result)
 	case "mobile":
 		account, _, e := mobileAccount(s)
 		if e != nil {

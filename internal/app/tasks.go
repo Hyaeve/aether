@@ -231,6 +231,11 @@ func (a *App) outputLocation(target string) (string, string, error) {
 }
 
 func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
+	cleanup, err := a.newFeatureCleanup(t, s)
+	if err != nil {
+		return 0, err
+	}
+	defer cleanup.close()
 	var root *os.Root
 	target := ""
 	outputDir := a.outputDir
@@ -293,7 +298,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			return errors.New("目录嵌套超过安全上限 128 层")
 		}
 		visited[dir] = true
-		files, err := a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache")
+		files, err := a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil)
 		if err != nil {
 			return err
 		}
@@ -307,7 +312,17 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				})
 			}
 		}
-		for _, f := range files {
+		if cleanup != nil {
+			for _, f := range files {
+				if safeName(f.Name) {
+					if err := cleanup.observe(ctx, a, dir, f); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		precomputed := map[string]casPrecomputed{}
+		for fileIndex, f := range files {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -325,6 +340,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if err := walk(f.ID, child, depth+1); err != nil {
 					return err
 				}
+				cleanup.directory(dir, f)
 				continue
 			}
 			var info *CASInfo
@@ -389,6 +405,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if err := a.copyTaskMetadata(ctx, s, f, root, metadataPath, t.Mode == "incremental"); err != nil {
 					return err
 				}
+				if err := cleanup.published(ctx, root, f, metadataPath, true); err != nil {
+					return err
+				}
 				count++
 				continue
 			}
@@ -403,13 +422,6 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				suffix = ".cas.strm"
 			}
 			filename := path.Join(target, taskOutputName(t, s, child, suffix))
-			if featureSource {
-				base := f.Name[:len(f.Name)-len(".cas")]
-				if strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm") {
-					base = f.Name[:len(f.Name)-len(".cas.strm")]
-				}
-				filename = path.Join(target, rel, base+".cas.strm")
-			}
 			if outputs[strings.ToLower(filename)] {
 				return fmt.Errorf("输出文件名冲突：%s", filename)
 			}
@@ -424,6 +436,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if err != nil {
 					return err
 				}
+				if err := cleanup.verifyED2K(f, info); err != nil {
+					return err
+				}
 				data := []byte(info.URI() + "\n")
 				if t.ED2KBindingID == "" && t.ID != "" {
 					data = []byte(a.generatedStreamURL(streamClaim{ED2K: &info, Redirect: true}) + "\n")
@@ -432,7 +447,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					info.Binding = a.ed2kBindingStamp(t, s, binding)
 					data = []byte(a.signedStreamURL(streamClaim{Storage: binding.ID, File: f.ID, TaskID: t.ID, ED2K: &info, Redirect: true}) + "\n")
 				}
-				if err := writeCASOutput(root, filename, data, t.Mode == "incremental"); err != nil {
+				if err := writeCASOutput(root, filename, data, t.Mode == "incremental", cleanup != nil); err != nil {
+					return err
+				}
+				if err := cleanup.published(ctx, root, f, filename, false); err != nil {
 					return err
 				}
 				count++
@@ -446,8 +464,20 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				feature := info
 				err = nil
 				if feature == nil {
-					parsed, e := a.generateCASInfo(ctx, s, f)
+					key := f.ID + "\x00" + f.Name
+					result, ok := precomputed[key]
+					if !ok {
+						for key, value := range a.precomputeRemoteCAS(ctx, t, s, files[fileIndex:], rel, outputDir, target) {
+							precomputed[key] = value
+						}
+						result, ok = precomputed[key]
+					}
+					if !ok {
+						result.info, result.err = a.generateCASInfo(ctx, s, f)
+					}
+					parsed, e := result.info, result.err
 					feature, err = &parsed, e
+					delete(precomputed, key)
 				}
 				if errors.Is(err, errCASMissingHash) {
 					failed++
@@ -463,9 +493,15 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return fmt.Errorf("%s: %w", f.Name, err)
 				}
 				feature.Provider, feature.PlaybackURL, feature.RetentionHours = "", "", 0
+				if err := cleanup.verifyCAS(f, *feature, featureSource); err != nil {
+					return err
+				}
 				link := a.generatedStreamURL(streamClaim{CAS: feature, Redirect: true})
-				if err := writeCASOutput(root, filename, []byte(link+"\n"), t.Mode == "incremental"); err != nil {
+				if err := writeCASOutput(root, filename, []byte(link+"\n"), t.Mode == "incremental", cleanup != nil); err != nil {
 					failed++
+					return err
+				}
+				if err := cleanup.published(ctx, root, f, filename, false); err != nil {
 					return err
 				}
 				count++
@@ -531,7 +567,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			return 0, errors.New("源目录名称缺失或无效，请重新选择源目录")
 		}
 	}
-	err := walk(t.Source, sourceRel, 0)
+	err = walk(t.Source, sourceRel, 0)
+	if err == nil && cleanup != nil {
+		err = cleanup.finish(ctx, a, root)
+	}
 	return count, err
 }
 
