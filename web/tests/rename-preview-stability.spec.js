@@ -16,7 +16,7 @@ test('rename previews preserve scrolled rows and ignore stale responses and inco
   })
   await page.goto('/files')
   await page.getByRole('button',{name:'工具',exact:true}).click()
-  await page.getByRole('menuitem',{name:'重命名',exact:true}).click()
+  await page.getByRole('menuitem',{name:'命名工作台',exact:true}).click()
   const viewport=page.locator('.rename-preview-scroll .thin-scroll-area'),rows=page.locator('.rename-preview-row')
   await viewport.evaluate(el=>{el.scrollTop=600;el.dispatchEvent(new Event('scroll'))})
   await expect.poll(()=>viewport.evaluate(el=>el.scrollTop)).toBe(600)

@@ -1,26 +1,19 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { CodeXml, File, FileText, FolderTree, Route, Weight } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, state, notify, date } from '../lib'
 import Icon from './Icon.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import Modal from './Modal.vue'
 import RoundedSelect from './RoundedSelect.vue'
 import NumberInput from './NumberInput.vue'
+import BackupFilterEditor from './BackupFilterEditor.vue'
 import TaskSourcePicker from './TaskSourcePicker.vue'
 const rules = ref([]), modal = ref(false), editing = ref(''), busy = ref(false), error = ref(''), picker = ref(''), deleting = ref(null), menu = ref('')
 const form = reactive({}), step = ref(0), detailId = ref(''), pickerIndex = ref(0), deleteConfirmation = ref(null)
-const filterPicker = ref(false), tokenDrafts = reactive(new Map())
-const filterKeys = new WeakMap()
-let nextFilterKey = 0
-const filterKey = filter => { if(!filterKeys.has(filter))filterKeys.set(filter,++nextFilterKey);return filterKeys.get(filter) }
+const filterEditor = ref(null)
 const twoWay = computed(() => form.syncMode === 'two_way')
 watch(twoWay, value => { if (value) form.completionRule = 'keep' })
 const steps = ['基本设置','备份规则','扫描规则','筛选规则']
-const filterTypes = [{value:'extension',label:'扩展名',icon:FileText},{value:'name',label:'文件名',icon:File},{value:'regex',label:'正则',icon:CodeXml},{value:'path_prefix',label:'路径前缀',icon:FolderTree},{value:'path_regex',label:'路径正则',icon:Route},{value:'size',label:'最大最小',icon:Weight}]
-const filterType = filter => filterTypes.find(t=>t.value===filter.type) || filterTypes[1]
-const sizeUnits = ['KB','MB','GB']
-function cycleUnit(filter, key) { filter[key] = sizeUnits[(sizeUnits.indexOf(filter[key] || filter.unit || 'MB') + 1) % sizeUnits.length] }
 const detail = computed(()=>rules.value.find(r=>r.id===detailId.value))
 const locations = (r,kind) => r[kind+'s']?.length ? r[kind+'s'] : [{storageId:r[kind+'Id'],path:r[kind],label:r[kind+'Label']}]
 const blankLocation = () => ({storageId:'',path:'',label:''})
@@ -44,7 +37,7 @@ function escape(event) { if(event.key === 'Escape') closeMenu() }
 onMounted(() => { load(); document.addEventListener('click',closeMenu); document.addEventListener('keydown',escape) })
 onUnmounted(() => { alive = false; clearTimeout(timer); document.removeEventListener('click',closeMenu); document.removeEventListener('keydown',escape) })
 function open(rule) {
-  closeMenu(); editing.value = rule?.id || ''; error.value = ''; step.value=0; filterPicker.value=false; tokenDrafts.clear()
+  closeMenu(); editing.value = rule?.id || ''; error.value = ''; step.value=0
   const defaults = {name:'',enabled:true,sourceId:'',source:'',sourceLabel:'',targetId:'',target:'',targetLabel:'',replace:'skip',completionRule:'keep',monitorEnabled:false,caseSensitive:false,extensions:'',exclude:'',minSize:0,maxSize:0,cron:'',scanInterval:0,filters:[],syncMode:'one_way',deletionRule:'keep',syncDelete:false,conflictRule:'keep_both',conflictMarker:'conflict copy',historyDays:0,deleteLimit:20,targetOnly:'copy',syncMarker:true,fullScan:true,fullScanEvery:8,fullScanHours:24}
   Object.keys(form).forEach(key=>delete form[key])
   Object.assign(form,defaults,rule ? JSON.parse(JSON.stringify(rule)) : {})
@@ -64,38 +57,16 @@ function choose(value) {
 }
 function pick(kind,index) { picker.value=kind; pickerIndex.value=index }
 const picked = computed(()=>picker.value ? form[picker.value+'s'][pickerIndex.value] : null)
-async function addFilter(type) {
-  form.filters.push({type,mode:type==='extension'||type==='size'?'include':'exclude',value:'',matchFile:true,matchDir:['path_prefix','path_regex'].includes(type),minSize:0,maxSize:0,unit:'MB',minUnit:'MB',maxUnit:'MB'})
-  filterPicker.value=false
-  await nextTick()
-  document.querySelector('.backup-filter:last-of-type input:not([type=radio]):not([type=checkbox])')?.focus()
-}
 const tokens = filter => (filter.value || '').split(';').map(value=>value.trim()).filter(Boolean)
-function addToken(filter) {
-  const draft = tokenDrafts.get(filter) || ''
-  let values = draft.split(';').map(value=>value.trim()).filter(Boolean)
-  if(filter.type==='extension')values=values.map(value=>value.replace(/^\./,'')).filter(Boolean).map(value=>form.caseSensitive?value:value.toLowerCase())
-  if(filter.type==='extension' && values.some(value=>! /^[a-z0-9]{1,16}$/i.test(value))) { error.value='扩展名仅包含1至16个字母或数字'; return false }
-  const all=[...tokens(filter),...values], seen=new Set()
-  const unique=all.filter(value=>{const key=form.caseSensitive?value:value.toLowerCase();if(seen.has(key))return false;seen.add(key);return true})
-  if(new TextEncoder().encode(unique.join(';')).length>2048){error.value='筛选匹配内容最多2048字节';return false}
-  filter.value=unique.join(';');tokenDrafts.delete(filter);error.value='';return true
-}
-function removeToken(filter,index) { const values=tokens(filter);values.splice(index,1);filter.value=values.join(';') }
-function setScope(filter,key,event) {
-  filter[key]=event.target.checked
-  if(!filter.matchFile && !filter.matchDir)filter[key]=true
-  event.target.checked=filter[key]
-}
 function copyRule(rule) { open(rule); editing.value=''; form.name=rule.name+' 副本'; form.enabled=false }
 const phaseText = r => r.healthPause ? '健康异常，暂时停止' : r.phase==='scan' ? '扫描源目录' : r.phase==='copy' ? '复制文件' : statuses[r.status] || '等待执行'
 const percent = r => r.total > 0 ? Math.min(100,Math.round((r.processed || 0)/r.total*100)) : 0
 async function save() {
   if(busy.value) return
   if (!form.name.trim()) { step.value=0; error.value='请填写备份名称'; return }
+  if(filterEditor.value && !filterEditor.value.flush()){step.value=3;return}
   for(const filter of form.filters){
     if(filter.type==='size' && ['minSize','maxSize'].some(key=>!Number.isSafeInteger(filter[key])||filter[key]<0)){step.value=3;error.value='大小仅允许0或正整数';return}
-    if(['extension','name'].includes(filter.type) && !addToken(filter)){step.value=3;return}
     if(filter.type!=='size' && !filter.value.trim()){step.value=3;error.value='请填写筛选规则的匹配内容';return}
     if(!filter.matchFile && !filter.matchDir){step.value=3;error.value='筛选规则至少选择文件或文件夹';return}
     filter.caseSensitive=form.caseSensitive
@@ -158,21 +129,11 @@ defineExpose({ open, load })
       </section>
       <section v-show="step===2" class="backup-section"><label>Cron 表达式<input v-model="form.cron" aria-label="Cron 表达式" /></label><div class="field"><label>自动扫描间隔</label><NumberInput v-model="form.scanInterval" aria-label="自动扫描间隔" unit="秒" min="0" max="31536000" /></div><label v-if="twoWay" class="backup-monitor"><span>同步删除</span><input v-model="form.syncDelete" type="checkbox" role="switch" class="switch" /></label></section>
       <section v-show="step===3" class="backup-section">
-      <div class="backup-filter-frame">
-      <article v-for="(filter,index) in form.filters" :key="filterKey(filter)" class="backup-filter">
-        <header><strong><component :is="filterType(filter).icon" :size="16" aria-hidden="true" /><span>{{index+1}}. {{filterType(filter).label}}</span></strong><div class="backup-filter-controls"><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="exclude" :aria-label="'黑名单 '+(index+1)" />黑名单</label><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="include" :aria-label="'白名单 '+(index+1)" />白名单</label><template v-if="!['path_prefix','path_regex'].includes(filter.type)"><label><input :checked="filter.matchDir" type="checkbox" :disabled="filter.type==='extension'||filter.type==='size'" :aria-label="'文件夹 '+(index+1)" @change="setScope(filter,'matchDir',$event)" />文件夹</label><label><input :checked="filter.matchFile" type="checkbox" :aria-label="'文件 '+(index+1)" @change="setScope(filter,'matchFile',$event)" />文件</label></template><button type="button" class="icon-btn danger-text" :aria-label="'删除筛选规则 '+(index+1)" @click="tokenDrafts.delete(filter);form.filters.splice(index,1)"><Icon name="Trash2" :size="16" /></button></div></header>
-        <div v-if="filter.type==='extension'||filter.type==='name'" class="backup-token-editor"><div v-if="tokens(filter).length" class="backup-tokens"><span v-for="(token,tokenIndex) in tokens(filter)" :key="token" class="backup-token"><span>{{token}}</span><button type="button" :aria-label="'删除 '+token+' 规则 '+(index+1)" @click="removeToken(filter,tokenIndex)"><Icon name="X" :size="14" /></button></span></div><div class="backup-token-input"><input :value="tokenDrafts.get(filter) || ''" :aria-label="'匹配内容 '+(index+1)" :placeholder="filter.type==='extension'?'添加扩展名':'添加文件名'" maxlength="2048" @input="tokenDrafts.set(filter,$event.target.value)" @keydown.enter.prevent="!$event.isComposing && addToken(filter)" @blur="addToken(filter)" /></div></div>
-        <textarea v-else-if="filter.type==='path_prefix'" v-model="filter.value" class="backup-path-prefix" rows="3" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" />
-        <div v-else-if="filter.type!=='size'"><input v-model="filter.value" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" /></div>
-        <div v-else class="backup-size"><label v-for="bound in ['min','max']" :key="bound">{{bound==='min'?'最小值':'最大值'}}<span class="backup-size-input"><input v-model.number="filter[bound+'Size']" type="number" min="0" step="1" required :aria-label="(bound==='min'?'最小值 ':'最大值 ')+(index+1)" @keydown="['e','E','-','+','.'].includes($event.key) && $event.preventDefault()" /><button type="button" :aria-label="(bound==='min'?'最小值单位 ':'最大值单位 ')+(index+1)" @click="cycleUnit(filter,bound+'Unit')">{{filter[bound+'Unit'] || filter.unit || 'MB'}}</button></span></label></div>
-      </article>
-      <button class="btn backup-add-filter" type="button" :disabled="form.filters.length>=32" @click="filterPicker=true"><Icon name="Plus" />添加规则</button>
-      </div>
+      <BackupFilterEditor ref="filterEditor" :form="form" />
       </section>
       <p v-if="error" class="error-message" role="alert">{{error}}</p>
     </div></div><footer class="modal-footer"><button class="btn primary" :disabled="busy || form.sources.some(p=>!p.storageId) || form.targets.some(p=>!p.storageId)"><Icon name="Check" />保存规则</button><button type="button" class="btn" :disabled="busy" @click="modal=false">取消</button></footer></form>
   </Modal>
-  <Modal v-if="modal && filterPicker" compact title="选择规则类型" @close="filterPicker=false"><div class="backup-filter-types modal-body"><button v-for="type in filterTypes" :key="type.value" type="button" @click="addFilter(type.value)"><component :is="type.icon" :size="20" aria-hidden="true" /><span>{{type.label}}</span></button></div></Modal>
   <TaskSourcePicker v-if="picker" :storages="storages" :storage="picked.storageId" :initial="picked.path || '/'" :initial-label="picked.label" @select="choose" @close="picker=''" />
   <Modal v-if="detail" title="备份执行详情" @close="detailId=''"><div class="modal-body backup-detail"><h3>{{detail.name}}</h3><div class="backup-phase">{{phaseText(detail)}}<span v-if="detail.phase==='copy'">{{percent(detail)}}%</span></div><progress v-if="detail.status==='running'" aria-label="执行详情进度" :max="Math.max(1,detail.total || 0)" :value="detail.phase==='scan'?undefined:(detail.processed || 0)" /><dl><div><dt>扫描文件</dt><dd>{{detail.scanned || 0}}</dd></div><div><dt>已复制</dt><dd>{{detail.copied || 0}}</dd></div><div><dt>已跳过</dt><dd>{{detail.skipped || 0}}</dd></div><div><dt>已处理 / 复制总数</dt><dd>{{detail.processed || 0}} / {{detail.total || 0}}</dd></div></dl><p>{{detail.message || '尚未执行'}}</p><time>{{detail.lastRun && !detail.lastRun.startsWith('0001') ? date(detail.lastRun) : ''}}</time></div><footer class="modal-footer"><button class="btn" @click="detailId=''">关闭</button></footer></Modal>
   <Modal v-if="deleting" title="删除备份规则" compact confirmation @close="deleting=null"><div class="modal-body">确认删除「{{deleting.name}}」？</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="remove">确认</button><button class="btn" @click="deleting=null">取消</button></footer></Modal>
@@ -188,7 +149,7 @@ defineExpose({ open, load })
 .backup-card:hover{border-color:color-mix(in srgb,var(--primary) 30%,var(--border))}.backup-card.failed{border-color:color-mix(in srgb,var(--danger) 45%,var(--border))}.backup-card.disabled{opacity:.65}
 .backup-card header{display:flex;align-items:center;gap:10px;margin-bottom:14px}.provider-toggle{flex:none}.backup-name{flex:1;min-width:0;background:none;border:0;text-align:left;color:var(--text);display:grid;gap:5px}.backup-name strong{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.backup-name small{font-size:12px;color:var(--muted)}
 .backup-path{display:flex;gap:8px;align-items:center;margin:7px 0;font-size:13px;color:var(--muted)}.backup-path span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.backup-menu{position:relative}.backup-card footer{display:flex;gap:10px;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:14px}.backup-card footer span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.backup-card footer time{flex:none}.backup-card progress{width:100%;height:6px;margin-top:10px;accent-color:var(--primary)}
-.backup-editor{height:min(65dvh,520px)}.backup-editor :deep(.backup-fields){display:grid;gap:14px;align-content:start}.backup-editor :deep(input),.backup-editor :deep(.rounded-select-trigger),.backup-editor :deep(.source-trigger){height:36px;min-height:36px;font-size:14px}.backup-editor :deep(.form-grid){gap:14px}.backup-editor :deep(label){font-size:14px}.backup-editor :deep(summary){display:flex;align-items:center;gap:8px;color:var(--muted);cursor:pointer;font-size:14px;list-style:none}.backup-editor :deep(summary:hover){color:var(--primary)}.backup-editor :deep(summary svg:last-child){margin-left:auto}.backup-filters{display:grid;gap:14px;margin-top:14px}
+.backup-editor{height:min(65dvh,520px)}.backup-editor :deep(.backup-fields){display:grid;gap:14px;align-content:start}.backup-editor :deep(input),.backup-editor :deep(.rounded-select-trigger),.backup-editor :deep(.source-trigger){height:40px;min-height:40px;font-size:14px}.backup-editor :deep(.form-grid){gap:14px}.backup-editor :deep(label){font-size:14px}.backup-editor :deep(summary){display:flex;align-items:center;gap:8px;color:var(--muted);cursor:pointer;font-size:14px;list-style:none}.backup-editor :deep(summary:hover){color:var(--primary)}.backup-editor :deep(summary svg:last-child){margin-left:auto}.backup-filters{display:grid;gap:14px;margin-top:14px}
 .backup-editor :deep(.backup-filter-range label){flex-direction:row}
 .backup-steps{display:flex;gap:4px;margin:0 24px;padding:8px 0 12px;border-bottom:1px solid var(--border)}.backup-steps button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:none;color:var(--text);font-size:15px;font-weight:600;min-height:36px;padding:4px}.backup-steps button.active{color:var(--primary);background:color-mix(in srgb,var(--primary) 8%,transparent);border-radius:6px}
 .backup-section{display:grid;gap:14px;min-width:0}.backup-field-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}.backup-location{display:flex;align-items:center;gap:6px;margin:5px 0;min-width:0}.backup-location .source-trigger{flex:1;min-width:0}.backup-location .source-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.backup-filter{padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:grid;gap:10px;min-width:0}.backup-filter header{display:flex;align-items:center;justify-content:space-between}.backup-filter strong{font-size:13px;font-weight:500}.backup-filter-range{display:flex;gap:20px}.backup-filter-range label{display:flex;align-items:center;gap:6px}.backup-filter-range input[type=checkbox]{height:16px;min-height:16px;width:16px}.backup-size{display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;min-width:0}.backup-size>*{min-width:0}.backup-add-filter{width:100%;font-size:14px;min-height:36px}.backup-tags{display:flex;flex-wrap:wrap;gap:12px;color:var(--muted);font-size:12px;margin-top:10px}.backup-detail h3{font-size:16px;margin:0 0 16px}.backup-phase{display:flex;justify-content:space-between;font-size:14px}.backup-detail progress{width:100%;height:6px;accent-color:var(--primary)}.backup-detail dl{display:grid;grid-template-columns:1fr 1fr;gap:16px}.backup-detail dl div{display:grid;gap:6px}.backup-detail dt,.backup-detail time{font-size:13px;color:var(--muted)}.backup-detail dd{margin:0;font-size:18px}.backup-detail p{font-size:14px;overflow-wrap:anywhere}.backup-detail .backup-phase span{color:var(--primary)}
@@ -198,33 +159,5 @@ defineExpose({ open, load })
 .backup-editor { overflow:auto; scrollbar-width:none; }.backup-editor::-webkit-scrollbar { display:none; }.backup-fields { display:grid; gap:14px; }.backup-editor .backup-monitor { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:10px; }.backup-editor .backup-monitor input.switch { width:32px; height:18px; min-height:18px; }.backup-sync-advanced { border-top:1px solid var(--border); padding-top:12px; }
 .backup-modal :deep(.modal) { background:var(--bg); }
 .backup-fields { padding:14px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
-.backup-fields.filter-step { padding:0; border:0; background:none; }.backup-filter-frame { display:grid;gap:14px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface); }
-.backup-filter { background:color-mix(in srgb,var(--surface) 65%,var(--input)); }
-.backup-filter header { flex-wrap:wrap; gap:8px; padding-bottom:10px; border-bottom:1px solid var(--border); }
-.backup-filter header strong { display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; }
-.backup-filter-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }
-.backup-filter-controls label,.backup-editor .backup-case-sensitive { display:flex; flex-direction:row; align-items:center; gap:4px; white-space:nowrap; }
-.backup-filter-controls input[type=radio],.backup-filter-controls input[type=checkbox],.backup-editor .backup-case-sensitive input { width:16px; height:16px; min-height:16px; margin:0; accent-color:var(--primary); }
-.backup-filter-controls .icon-btn { width:30px; height:30px; min-height:30px; }
-.backup-token-editor { display:grid; gap:10px; min-width:0; }
-.backup-tokens { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
-.backup-token { position:relative; display:inline-flex; align-items:center; max-width:100%; padding:4px 7px; border-radius:6px; background:var(--bg); font-size:14px; }
-.backup-token > span { min-width:0; overflow-wrap:anywhere; }
-.backup-token button { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:inherit; background:#0006; color:#fff; opacity:0; transition:opacity .15s; }
-.backup-token:hover button,.backup-token:focus-within button { opacity:1; }
-.backup-token button :deep(svg) { width:11px; height:11px; }
-.backup-token-input { width:50%; min-width:0; }
-.backup-token-input input { width:100%; min-width:0; }
-.backup-filter-types { display:grid; gap:4px; }
-.backup-filter-types button { display:flex; align-items:center; gap:12px; min-height:44px; padding:10px 12px; border:0; border-radius:6px; background:none; color:var(--text); text-align:left; font-size:14px; }
-.backup-filter-types button:hover,.backup-filter-types button:focus-visible { background:var(--primary-soft); color:var(--primary); }
-.backup-filter-types svg,.backup-filter header strong svg { flex:none; }
-.backup-size { grid-template-columns:repeat(2,minmax(0,1fr)); }.backup-size>*:last-child { grid-column:auto; }
-.backup-size-input { display:block; position:relative; min-width:0; }.backup-size-input input { width:100%; padding-right:44px; appearance:textfield; }.backup-size-input input::-webkit-inner-spin-button { appearance:none; }.backup-size-input button { position:absolute; inset:0 0 0 auto; border:0; background:transparent; color:var(--muted); width:42px; font-size:14px; }.backup-size-input button:hover { color:var(--primary); }
-.backup-path-prefix { resize:vertical; height:78px; min-height:78px; line-height:22px; padding:5px 9px; font-size:14px; overflow:auto; }
-.backup-filter > div > input { width:100%; }
-.backup-editor .backup-case-sensitive { gap:10px; }
-.backup-editor .backup-case-sensitive input.switch { width:32px; height:18px; min-height:18px; }
-@media(max-width:600px){.backup-filter header strong{width:100%}.backup-filter-controls{margin-left:0;gap:7px}.backup-filter-controls label{font-size:13px}.backup-filter-controls .icon-btn{margin-left:auto}.backup-token-input{width:50%}}
-@media(prefers-reduced-motion:reduce){.backup-token button{transition:none}}
+.backup-fields.filter-step { padding:0; border:0; background:none; }
 </style>

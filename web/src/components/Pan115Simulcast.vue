@@ -47,7 +47,7 @@ async function remove() {
   if (await persist(next)) removing.value = ''
 }
 function select(value) {
-  form.directory = value.source; form.directoryLabel = value.sourceLabel; picker.value = false
+  form.directory = value.source; form.directoryLabel = value.sourcePath || value.sourceLabel; picker.value = false
 }
 </script>
 
@@ -76,7 +76,7 @@ function select(value) {
       <footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="editing = false">取消</button><button class="btn primary" :disabled="busy || !form.storageId || !form.directory">{{ busy ? '保存中…' : '保存' }}</button></footer>
     </form>
   </Modal>
-  <TaskSourcePicker v-if="picker" :storages="storages.filter(s => s.id === form.storageId)" :storage="form.storageId" :initial="form.directory" :initial-label="form.directoryLabel" @select="select" @close="picker = false" />
+  <TaskSourcePicker include-full-path v-if="picker" :storages="storages.filter(s => s.id === form.storageId)" :storage="form.storageId" :initial="form.directory" :initial-label="form.directoryLabel" @select="select" @close="picker = false" />
   <Modal v-if="removing" title="删除同播配置" @close="!busy && (removing = '')">
     <div class="modal-body">确认删除「{{ poolName(removing) }}」的配置？已生成的云端副本将保留。<p v-if="error" class="error-message" role="alert">{{ error }}</p></div>
     <footer class="modal-footer"><button class="btn" :disabled="busy" @click="removing = ''">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除配置</button></footer>

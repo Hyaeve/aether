@@ -14,7 +14,7 @@ test('individual rename updates path before bulk preview and ignored files are e
   await page.route('**/api/files/rename', r => { executed = r.request().postDataJSON(); if(executed.rules[0]?.findType==='regex')file={...file,id:'/single.mkv',name:'single.mkv'}; return r.fulfill({ json: { processed: 1 } }) })
   await page.goto('/files')
   await page.getByRole('button', { name: '工具', exact: true }).click()
-  await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+  await page.getByRole('menuitem', { name: '命名工作台', exact: true }).click()
   await page.locator('.rename-preview-row').first().hover()
   await page.locator('.rename-preview-row').first().getByRole('button', { name: '修改', exact: true }).click()
   await page.getByLabel('新名称', { exact: true }).fill('single.mkv')

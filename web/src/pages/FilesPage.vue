@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, state, bytes, notify } from '../lib'
 import Icon from '../components/Icon.vue'
+import CASExport from '../components/CASExport.vue'
 import { documentIcon, entryIcon } from '../file-icon'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
@@ -88,6 +89,8 @@ function saveVisit(action, items) {
 }
 onMounted(() => { if (previousVisits.length) saveVisit('import', previousVisits) })
 const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => { const pool = state.storages.find(s => s.id === v.storage); return { value: String(v.index), provider: pool.type, pool: pool.name, parents: v.history.slice(0,-1).map(h => h.name), deepest: v.history.at(-1)?.name || '根目录', label: `${pool.name} / ${v.history.at(-1)?.name || '根目录'}` } }))
+const casExportOpen=ref(false)
+const casExportSupported=computed(()=>{const s=state.storages.find(s=>s.id===selected.value);return s?.type==='local'||s?.type==='tianyi'&&(!s.config?.mode||s.config.mode==='native')||s?.type==='mobile'&&s.config?.mode==='native'})
 async function visitJump(value) {
   const item = visits.value[Number(value)]
   if (!item || renameID.value || uploadBusy.value) return
@@ -442,7 +445,7 @@ load()
   <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :hover-delay="600" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
-      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="Pencil" />重命名</button></div></Transition>
+      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="TextCursorInput" />命名工作台</button><button v-if="casExportSupported" role="menuitem" :disabled="busy || !!searchResults || searching || !files.length" @click="casExportOpen=true;createMenu=false"><Icon name="FileArchive" />导出CAS</button></div></Transition>
     </div>
   </div></div>
   <input ref="fileUpload" type="file" multiple hidden @change="upload" /><input ref="folderUpload" type="file" webkitdirectory multiple hidden @change="upload" />
@@ -496,6 +499,7 @@ load()
   <OfflineDownload v-if="offline" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="offline = false" />
   <ShareTransfer v-if="shareTransfer" :storage="state.storages.find(s => s.id === selected)" :parent="current" :trail="history" @close="shareTransfer = false" />
   </template>
+<CASExport v-if="casExportOpen" :storage="selected" :source="current" :source-label="history.map(h=>h.name).join(' / ')" :files="files" :selected="selection" @close="casExportOpen=false" />
 </template>
 <style scoped>
 .file-browser { position:relative; }

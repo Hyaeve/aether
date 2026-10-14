@@ -18,7 +18,7 @@ test('rename virtual row frames and rule footer remain visible while both panes 
   await workspace(page)
   await page.goto('/files')
   await page.getByRole('button',{name:'工具',exact:true}).click()
-  await page.getByRole('menuitem',{name:'重命名',exact:true}).click()
+  await page.getByRole('menuitem',{name:'命名工作台',exact:true}).click()
   const rows=page.locator('.rename-preview-row')
   await expect(rows.first()).toBeVisible()
   expect(await rows.count()).toBeLessThan(40)

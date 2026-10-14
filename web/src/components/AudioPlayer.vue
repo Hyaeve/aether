@@ -4,6 +4,7 @@ import Icon from './Icon.vue'
 import ThinScroll from './ThinScroll.vue'
 import VirtualList from './VirtualList.vue'
 import { audioSource, readAudioMetadata, readLRC } from '../audio-metadata'
+import {state} from '../lib'
 const props = defineProps({ file: Object, queue: { type: Array, default: () => [] }, activation: Number })
 const emit = defineEmits(['close', 'change'])
 const panel = ref(null), player = ref(null), failed = ref(false), playing = ref(false)
@@ -14,6 +15,10 @@ const isDragging = ref(false)
 const dock = ref({ side: 'right', y: Math.max(56, window.innerHeight * .65), x: null })
 const modes = [{ value: 'order', label: '顺序播放', icon: 'ListMusic' }, { value: 'shuffle', label: '随机播放', icon: 'Shuffle' }, { value: 'loop', label: '列表循环', icon: 'Repeat' }, { value: 'single', label: '单曲循环', icon: 'Repeat1' }]
 const activeMode = computed(() => modes.find(item => item.value === mode.value))
+const modeKey=computed(()=>`aether.audio.mode.${state.username||'admin'}`)
+function restoreMode(){try{const saved=localStorage.getItem(modeKey.value);mode.value=modes.some(m=>m.value===saved)?saved:'order'}catch{mode.value='order'}}
+watch(modeKey,restoreMode,{immediate:true})
+watch(mode,value=>{try{localStorage.setItem(modeKey.value,value)}catch{}})
 const tracks = computed(() => props.queue.length ? props.queue : [props.file])
 const trackIndex = computed(() => tracks.value.findIndex(file => file.id === props.file.id && file.storage === props.file.storage))
 const canSkip = computed(() => tracks.value.length > 1)
@@ -21,7 +26,7 @@ const title = computed(() => metadata.value.title || props.file.name)
 const bitrate = computed(() => Number.isFinite(metadata.value.bitrate) && metadata.value.bitrate > 0 ? Math.round(metadata.value.bitrate / 1000) : null)
 const seekable = computed(() => Number.isFinite(duration.value) && duration.value > 0 && player.value?.readyState >= 1)
 const dockStyle = computed(() => ({ top: `${dock.value.y}px`, left: dock.value.x !== null ? `${dock.value.x}px` : dock.value.side === 'left' ? '0px' : 'auto', right: dock.value.x !== null || dock.value.side === 'left' ? 'auto' : '0px' }))
-const capsuleTitle = computed(() => { const letters = Array.from(title.value); return letters.slice(0,5).join('') + (letters.length > 5 ? '..' : '') })
+const capsuleTitle = computed(() => [title.value,metadata.value.artist].filter(Boolean).join(' - '))
 let previousFocus, controller, artworkURL, generation = 0, deadline, drag, dragged = false
 let shuffleBag = [], shuffleHistory = []
 const activeLine = computed(() => {
@@ -118,6 +123,7 @@ function skip(direction, automatic = false) {
 async function collapse(focus = true) { more.value = false; volumeOpen.value = false; expanded.value = false; if (focus) { await nextTick(); capsule.value?.focus({preventScroll:true}) } }
 async function reopen() { if (dragged) { dragged = false; return }; expanded.value = true; await nextTick(); panel.value?.focus() }
 function outside(event) { if (expanded.value && !event.target.closest('.audio-player, .audio-capsule')) collapse(false) }
+function resetHover(event){if(volumeOpen.value&&!event.target.closest('.audio-volume'))volumeOpen.value=false;if(more.value&&!event.target.closest('.audio-more'))more.value=false}
 function key(event) {
   event.stopPropagation()
   if (event.key === 'Escape') { event.preventDefault(); emit('close') }
@@ -126,6 +132,7 @@ function key(event) {
 function constrainDock() { dock.value.y = Math.min(Math.max(56, dock.value.y), Math.max(56, window.innerHeight - 56)); dock.value.x = null }
 function startDrag(event) {
   if (event.button !== 0) return
+  event.preventDefault()
   const rect = capsule.value.getBoundingClientRect()
   drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, width: rect.width }
   isDragging.value = true
@@ -157,12 +164,14 @@ watch(() => props.activation, () => { expanded.value = true; view.value = 'cover
 onMounted(async () => {
   previousFocus = document.activeElement
   document.addEventListener('pointerdown', outside)
+  document.addEventListener('pointermove',resetHover)
   window.addEventListener('resize', constrainDock)
   constrainDock(); await nextTick(); panel.value?.focus(); play()
 })
 onBeforeUnmount(() => {
   generation++; controller?.abort(); clearTimeout(deadline)
   document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', constrainDock)
+  document.removeEventListener('pointermove',resetHover)
   if (artworkURL) URL.revokeObjectURL(artworkURL)
   player.value?.pause(); player.value?.removeAttribute('src'); player.value?.load()
 })
@@ -170,12 +179,12 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 </script>
 <template>
   <Teleport to="body">
-    <div class="audio-player-shell">
+    <div class="audio-player-shell" :class="{'dock-left':dock.side==='left'}">
       <Transition name="audio-slide" appear>
       <section v-show="expanded" ref="panel" class="audio-player" :class="{ 'has-artwork': cover }" role="dialog" :aria-label="file.name" tabindex="-1" @keydown="key">
         <img v-if="cover" class="audio-ambient" :src="cover" alt="" aria-hidden="true" />
         <div class="audio-shade" aria-hidden="true" />
-        <header><button class="icon-btn" aria-label="收起音频播放" @click="collapse()"><Icon name="ChevronRight" /></button><span>音频播放</span><button class="icon-btn" aria-label="关闭音频播放" @click="emit('close')"><Icon name="X" /></button></header>
+        <header><button class="icon-btn audio-collapse" aria-label="收起音频播放" @click="collapse()"><Icon :name="dock.side==='left'?'ChevronLeft':'ChevronRight'" /></button><span>音频播放</span></header>
         <div class="audio-stage">
           <Transition name="audio-view" mode="out-in">
             <ThinScroll v-if="view === 'cover'" key="cover" class="audio-cover-view">
@@ -194,7 +203,7 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
         <audio ref="player" :src="file.url" class="audio-native" tabindex="-1" aria-hidden="true" preload="metadata" @timeupdate="syncTime" @seeked="syncTime" @loadedmetadata="syncDuration" @durationchange="syncDuration" @play="playing = true" @pause="playing = false" @ended="skip(1, true)" @error="failed = true; playing = false" />
       </section>
       </Transition>
-      <div v-if="!expanded" ref="capsule" class="audio-capsule" :class="{ dragging: isDragging, 'dock-left': dock.side === 'left', 'has-artwork': cover, playing }" :style="dockStyle" role="button" tabindex="0" :aria-label="`展开音乐播放器：${title}`" @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @keydown="dockKey" @keydown.enter.prevent="reopen" @keydown.space.prevent="reopen" @click="reopen"><img v-if="cover" class="capsule-ambient" :src="cover" alt="" /><span class="capsule-disc"><img v-if="cover" class="capsule-cover" :src="cover" alt="" /><Icon v-else name="Music" :size="22" /><i v-if="playing" class="capsule-halo" aria-hidden="true" /></span><span class="capsule-title">{{ capsuleTitle }}</span></div>
+      <div v-if="!expanded" ref="capsule" class="audio-capsule" :class="{ dragging: isDragging, 'dock-left': dock.side === 'left', 'has-artwork': cover, playing }" :style="dockStyle" role="button" tabindex="0" :aria-label="`展开音乐播放器：${title}`" @dragstart.prevent @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @keydown="dockKey" @keydown.enter.prevent="reopen" @keydown.space.prevent="reopen" @click="reopen"><img v-if="cover" class="capsule-ambient" :src="cover" alt="" draggable="false" /><span class="capsule-disc"><img v-if="cover" class="capsule-cover" :src="cover" alt="" draggable="false" /><Icon v-else name="Music" :size="22" /><i v-if="playing" class="capsule-halo" aria-hidden="true" /></span><span class="capsule-title" :title="capsuleTitle">{{ capsuleTitle }}</span></div>
     </div>
   </Teleport>
 </template>
@@ -239,4 +248,8 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 .audio-capsule { width:min(148px,calc(100vw - 16px));height:44px;padding:5px 8px 5px 6px;gap:8px;border-radius:22px 0 0 22px;background:color-mix(in srgb,var(--surface) 48%,transparent);backdrop-filter:blur(24px) saturate(1.5);transition:box-shadow .2s; }.audio-capsule.dock-left { border-radius:0 22px 22px 0; }.audio-capsule .capsule-title {font-size:14px;font-weight:500;opacity:1;text-overflow:clip}.audio-capsule .capsule-disc {position:relative;display:flex;align-items:center;justify-content:center;width:32px;height:32px;flex:none;overflow:visible}.audio-capsule .capsule-cover {width:30px;height:30px;border-radius:50%;object-fit:cover}.capsule-halo {position:absolute;inset:0;border:1px solid #ffffff9c;border-radius:50%;animation:audio-halo 1.8s ease-out infinite;pointer-events:none}.audio-capsule:not(.has-artwork) .capsule-halo {border-color:var(--primary)}.audio-capsule.dragging {transition:none}
 @keyframes audio-halo {from{transform:scale(.9);opacity:.8}to{transform:scale(1.4);opacity:0}}
 @media(prefers-reduced-motion:reduce) {.audio-capsule,.audio-popover,.audio-more::before,.audio-volume::before,.audio-tools-enter-active,.audio-tools-leave-active{transition:none;animation:none}.capsule-halo{animation:none;opacity:.4}}
+</style>
+<style scoped>
+.audio-player-shell.dock-left{justify-content:flex-start}.dock-left .audio-player{border-left:0;border-right:1px solid var(--border);border-radius:0 16px 16px 0;box-shadow:12px 0 50px #0b173321}.audio-player header{justify-content:space-between}.audio-player header>span{flex:1;text-align:center}.dock-left .audio-collapse{order:2}.dock-left .audio-slide-enter-from,.dock-left .audio-slide-leave-to{transform:translateX(-100%)}
+.audio-more::before,.audio-volume::before{background:transparent;backdrop-filter:none;box-shadow:none;border-color:transparent}.audio-more>button,.audio-volume>button{border-radius:5px}.audio-more.open::before,.audio-volume.open::before{backdrop-filter:blur(28px) saturate(1.4);background:color-mix(in srgb,var(--surface) 72%,transparent)}.has-artwork .audio-more.open::before,.has-artwork .audio-volume.open::before{background:#b9cdd14a}.audio-volume.open::before{height:160px}.volume-popover{height:116px}.volume-popover input{height:80px}.audio-more.open::before{height:84px}.audio-more.open>button{opacity:0;pointer-events:none}.audio-more .audio-popover{bottom:0;min-height:84px}.audio-more.open{z-index:5}.audio-capsule{width:min(140px,calc(100vw - 16px));border:0;background:color-mix(in srgb,var(--surface) 78%,transparent);backdrop-filter:blur(30px) saturate(1.3)}.audio-capsule.has-artwork{background:#39454ebd}.audio-capsule.dock-left{flex-direction:row-reverse;padding:5px 6px 5px 8px}.audio-capsule .capsule-title{text-overflow:ellipsis;max-width:5.5em;overflow:hidden}.audio-capsule img{pointer-events:none;-webkit-user-drag:none}
 </style>

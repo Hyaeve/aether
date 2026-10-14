@@ -117,6 +117,7 @@ type LogEntry struct {
 
 type State struct {
 	Rapid115Version    int                        `json:"rapid115Version,omitempty"`
+	CASExportDirectory string                     `json:"casExportDirectory,omitempty"`
 	Rapid115           Rapid115Settings           `json:"rapid115"`
 	Rapid115Records    []Rapid115Record           `json:"rapid115Records,omitempty"`
 	Rapid115Attempts   map[string]bool            `json:"rapid115Attempts,omitempty"`

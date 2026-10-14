@@ -335,6 +335,9 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State) error {
+	if value := st.CASExportDirectory; value != "" && (!filepath.IsAbs(value) || filepath.Clean(value) != value || len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n")) {
+		return errors.New("CAS导出目录须为容器内绝对路径")
+	}
 	for _, cfg := range st.Simulcast {
 		if cfg.RetentionHours < 0 || cfg.RetentionHours > 8760 {
 			return errors.New("复制保活须为1至8760 h，旧配置未设置时默认为12 h")

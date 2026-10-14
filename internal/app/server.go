@@ -282,6 +282,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("GET /api/local-directories", a.protected(http.HandlerFunc(a.localDirectories)))
 	mux.Handle("POST /api/local-directories", a.protected(http.HandlerFunc(a.createLocalDirectory)))
 	mux.Handle("GET /api/files/favorites", a.protected(http.HandlerFunc(a.fileFavorites)))
+	mux.Handle("/api/files/cas-export", a.protected(http.HandlerFunc(a.casExport)))
 	mux.Handle("POST /api/files/favorites", a.protected(http.HandlerFunc(a.fileFavorites)))
 	mux.Handle("POST /api/files/visits", a.protected(http.HandlerFunc(a.fileVisits)))
 	a.RegisterStrmReplace(mux)

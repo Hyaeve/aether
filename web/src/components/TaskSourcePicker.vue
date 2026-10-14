@@ -6,7 +6,7 @@ import Icon from './Icon.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import VirtualList from './VirtualList.vue'
 import PathBreadcrumbs from './PathBreadcrumbs.vue'
-const props = defineProps({ storages: Array, storage: String, initial: String, initialLabel: String, initialTrail: Array, allowAll: Boolean })
+const props = defineProps({ storages: Array, storage: String, initial: String, initialLabel: String, initialTrail: Array, allowAll: Boolean, includeFullPath:Boolean })
 const emit = defineEmits(['select', 'close'])
 const selected = ref(props.storage || '')
 const dir = ref(props.initial || '/'), trail = ref((props.initialTrail || []).map(c => ({ ...c }))), items = ref([]), busy = ref(false), error = ref(''), query = ref('')
@@ -48,6 +48,7 @@ const crumbs = computed(() => {
   if (entries[0]?.id !== '/') entries.unshift({id:'/',name:'根目录'})
   return entries.filter((c,i) => !i || c.id !== entries[i-1].id)
 })
+const fullPath = computed(()=>'/'+crumbs.value.filter(c=>c.id!=='/').map(c=>c.name).join('/'))
 function jump(index) {
   const entry=crumbs.value[index]
   if (!entry || creating.value) return
@@ -69,7 +70,7 @@ onUnmounted(() => generation++)
           <p v-else-if="!visible.length" class="small-empty">当前目录没有匹配的文件夹</p>
           <VirtualList v-if="!busy && !error && visible.length" :items="visible"><template #default="{ item }"><button type="button" class="source-directory" :aria-label="item.name" @click="enter(item)"><Icon name="Folder" /><span>{{ item.name }}</span><time>{{ item.modified && !item.modified.startsWith('0001') ? date(item.modified) : '-' }}</time></button></template></VirtualList>
         </div>
-        <footer class="source-footer"><button type="button" class="btn" :disabled="busy || creating" @click="load"><Icon name="RefreshCw" />刷新</button><button type="button" class="btn primary" :disabled="busy || creating || !!error || (!selected && !allowAll)" @click="emit('select', { storageId: selected, source: dir, sourceLabel: selected ? (wholeStorage ? '根目录' : label) : '所有存储池', sourceTrail: trail })">{{ !selected && allowAll ? '选择所有存储池' : wholeStorage ? '选择整个存储池' : '选择当前目录' }}</button></footer>
+        <footer class="source-footer"><button type="button" class="btn" :disabled="busy || creating" @click="load"><Icon name="RefreshCw" />刷新</button><button type="button" class="btn primary" :disabled="busy || creating || !!error || (!selected && !allowAll)" @click="emit('select', { storageId: selected, source: dir, sourceLabel: selected ? (wholeStorage ? '根目录' : label) : '所有存储池', sourceTrail: trail, ...(includeFullPath ? {sourcePath: fullPath} : {}) })">{{ !selected && allowAll ? '选择所有存储池' : wholeStorage ? '选择整个存储池' : '选择当前目录' }}</button></footer>
       </section>
     </div>
   </Modal>

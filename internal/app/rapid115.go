@@ -21,13 +21,14 @@ import (
 )
 
 type Rapid115Job struct {
-	Source        string `json:"source"`
-	StorageID     string `json:"storageId"`
-	Target        string `json:"target"`
-	TargetLabel   string `json:"targetLabel,omitempty"`
-	Extensions    string `json:"extensions"`
-	SuccessAction string `json:"successAction"`
-	FailureAction string `json:"failureAction"`
+	Filters       []BackupFilter `json:"filters,omitempty"`
+	Source        string         `json:"source"`
+	StorageID     string         `json:"storageId"`
+	Target        string         `json:"target"`
+	TargetLabel   string         `json:"targetLabel,omitempty"`
+	Extensions    string         `json:"extensions"`
+	SuccessAction string         `json:"successAction"`
+	FailureAction string         `json:"failureAction"`
 }
 type Rapid115Watch struct {
 	Rapid115Job
@@ -53,6 +54,10 @@ type Rapid115Record struct {
 }
 
 func normalizeRapid115Job(j Rapid115Job) Rapid115Job {
+	rule := BackupRule{Filters: append([]BackupFilter(nil), j.Filters...)}
+	if validateBackupFilters(&rule) == nil {
+		j.Filters = rule.Filters
+	}
 	if j.SuccessAction == "" {
 		j.SuccessAction = "delete"
 	}
@@ -88,6 +93,10 @@ func rapid115Stamp(v any) string {
 	return hex.EncodeToString(sum[:])
 }
 func validateRapid115Job(j Rapid115Job, st State, complete bool, verifyFiles ...bool) error {
+	rule := BackupRule{Filters: append([]BackupFilter(nil), j.Filters...)}
+	if err := validateBackupFilters(&rule); err != nil {
+		return err
+	}
 	verify := len(verifyFiles) == 0 || verifyFiles[0]
 	if j.SuccessAction != "delete" && j.SuccessAction != "keep" || j.FailureAction != "skip" && j.FailureAction != "upload" {
 		return errors.New("秒传处理方式无效")
@@ -305,6 +314,10 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 	if err := validateRapid115Job(job, st, true); err != nil {
 		return err
 	}
+	filters, err := compileBackupFilters(job.Filters)
+	if err != nil {
+		return err
+	}
 	for _, protected := range []string{a.store.dir, filepath.Join(a.dataDir, "runtime"), filepath.Join(a.dataDir, "cache"), filepath.Join(a.dataDir, "log")} {
 		protected, err := filepath.Abs(protected)
 		if err != nil {
@@ -352,6 +365,9 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 			return nil
 		}
 		if d.IsDir() {
+			if name != "." && !backupFilterAccept(filters, File{Name: d.Name(), IsDir: true}, name) {
+				return fs.SkipDir
+			}
 			fi, err := d.Info()
 			if err != nil {
 				return err
@@ -364,6 +380,9 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 			return err
 		}
 		if !fi.Mode().IsRegular() || strings.HasPrefix(d.Name(), ".aether-") || a.transferIgnored(d.Name()) {
+			return nil
+		}
+		if !backupFilterAccept(filters, File{Name: d.Name(), Size: fi.Size()}, name) {
 			return nil
 		}
 		if job.Extensions != "" {

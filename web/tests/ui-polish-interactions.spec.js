@@ -56,10 +56,10 @@ test('details enter and leave keep both scroll offsets and use a real exit trans
 test('fixed workbench keeps its count at the list end and directory beside the title on both viewports',async({page},info)=>{
   await setup(page)
   await page.getByRole('button',{name:'工具',exact:true}).click()
-  await page.getByRole('menuitem',{name:'重命名',exact:true}).click()
+  await page.getByRole('menuitem',{name:'命名工作台',exact:true}).click()
   const outer=page.locator('.page-scroll > .thin-scroll-area'),left=page.locator('.rename-preview-scroll > .thin-scroll-area'),count=page.locator('.rename-count')
   await expect(page.locator('.rename-current-directory')).toContainText('本地资料')
-  expect(await page.locator('.rename-current-directory').evaluate(el=>el.previousElementSibling.textContent)).toBe('重命名工作台')
+  expect(await page.locator('.rename-current-directory').evaluate(el=>el.previousElementSibling.textContent)).toBe('命名工作台')
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:844})
     await left.evaluate(el=>el.scrollTop=0)

@@ -2,6 +2,7 @@
 import { computed, reactive, ref, onMounted, onUnmounted } from 'vue'
 import { api, state, reload, notify, date, driverOf } from '../lib'
 import Icon from '../components/Icon.vue'
+import ExtensionPresets from '../components/ExtensionPresets.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import Modal from '../components/Modal.vue'
 import TaskSourcePicker from '../components/TaskSourcePicker.vue'
@@ -164,7 +165,7 @@ async function toggle(t) {
         <div v-else class="field"><label for="task-cache">缓存期</label><NumberInput id="task-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
         <label v-if="kind === 'strm' && storage(form.storageId)?.type === 'openlist'" class="toggle-line full"><span>编码路径</span><input v-model="form.encodePath" type="checkbox" role="switch" class="switch" /></label>
         <div v-for="field in kind === 'cache' ? [] : [{ key: 'mediaExtensions', id: 'task-media-extensions', label: '媒体扩展名', groups: ['video', 'audio'] }, { key: 'metadataExtensions', id: 'task-metadata-extensions', label: '元数据扩展名', groups: ['image', 'data'] }]" :key="field.key" class="field full extension-field">
-          <div class="extension-heading"><label :for="field.id">{{ field.label }}</label><span><button v-for="group in field.groups" :key="group" type="button" class="icon-btn extension-preset" :class="group" :aria-label="`${{ video: '视频', audio: '音频', image: '图片', data: '数据' }[group]}扩展名`" :aria-pressed="groupActive(field.key, group)" @click="toggleExtensions(field.key, group)"><Icon :name="{ video: 'Film', audio: 'Music', image: 'Image', data: 'FileJson' }[group]" /></button></span></div>
+          <div class="extension-heading"><label :for="field.id">{{ field.label }}</label><ExtensionPresets v-model="form[field.key]" :groups="field.groups" /></div>
           <input :id="field.id" v-model="form[field.key]" />
         </div>
       </div>
@@ -186,19 +187,4 @@ async function toggle(t) {
 .extension-heading { display: flex; align-items: center; gap: 12px; min-height: 32px; }
 .extension-heading label { margin: 0; }
 .extension-heading > span { display: flex; gap: 4px; margin-left: auto; }
-.extension-field .extension-preset { color: var(--muted); }
-.extension-field .extension-preset[aria-pressed=true], .extension-field .extension-preset:hover { background: transparent; }
-.extension-field .extension-preset[aria-pressed=true] { color: var(--preset-color); }
-.extension-preset.video { --preset-color: #252a34; }
-.extension-preset.video[aria-pressed=true] :deep(svg) { fill:#252a3414; filter:drop-shadow(0 -1px 0 #dce5f1); }
-.extension-preset.audio { --preset-color: #c53849; }
-.extension-preset.image { --preset-color: #21834f; }
-.extension-preset.data { --preset-color: #246bc1; }
-[data-theme=dark] .extension-preset.video { --preset-color: #d0d5df; }
-[data-theme=dark] .extension-preset.audio { --preset-color: #ff8b98; }
-[data-theme=dark] .extension-preset.image { --preset-color: #71d69a; }
-[data-theme=dark] .extension-preset.data { --preset-color: #7dbaff; }
-.extension-preset { position: relative; }
-.extension-preset::after { content: attr(aria-label); position: absolute; bottom: calc(100% + 6px); right: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); font-size: 12px; white-space: nowrap; pointer-events: none; opacity: 0; z-index: 2; }
-.extension-preset:hover::after, .extension-preset:focus-visible::after { opacity: 1; transition: opacity .15s .6s; }
 </style>

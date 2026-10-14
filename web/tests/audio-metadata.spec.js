@@ -78,7 +78,7 @@ test('closing before lyric responses arrive cancels the request without restorin
   await setup(page, true, false, { wait, started })
   await requested
   const panel = page.getByRole('dialog', { name: 'music.wav' })
-  await panel.getByRole('button', { name: '关闭音频播放' }).click()
+  await panel.press('Escape')
   release()
   await expect(panel).toHaveCount(0)
   await expect(page.getByText('Late lyrics')).toHaveCount(0)

@@ -35,8 +35,8 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := testApp(t)
-			mobile := Storage{ID: "mobile", Type: "mobile", Enabled: true, Config: map[string]string{"mode": "native", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:13900000000:token")), "root": "/"}}
-			tianyi := Storage{ID: "tianyi", Type: "tianyi", Enabled: !tc.disabled, Config: map[string]string{"username": "account", "password": "secret"}}
+			mobile := Storage{ID: "mobile", Name: "移动影音", Type: "mobile", Enabled: true, Config: map[string]string{"mode": "native", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:13900000000:token")), "root": "/"}}
+			tianyi := Storage{ID: "tianyi", Name: "天翼影音", Type: "tianyi", Enabled: !tc.disabled, Config: map[string]string{"username": "account", "password": "secret"}}
 			pool := normalizedCASPool(CASPoolConfig{Mobile: CASPoolGroup{StorageIDs: []string{mobile.ID}, RetentionHours: 24}, Tianyi: CASPoolGroup{StorageIDs: []string{tianyi.ID}, RetentionHours: 48}})
 			if tc.preferTianyi {
 				pool.Preferred = "tianyi"
@@ -148,6 +148,21 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 			if strings.Join(writes, ",") != wantWrites {
 				t.Fatalf("must not replay writes: %v want %s", writes, wantWrites)
 			}
+			logs := casTestLogMessages(t, a)
+			if tc.cancel {
+				if !strings.Contains(logs, "已取消") {
+					t.Fatal("cancelled restore not logged", logs)
+				}
+			} else if tc.mobileFailure != "" || tc.preferTianyi {
+				if !strings.Contains(logs, "失败") || !strings.Contains(logs, "影音") {
+					t.Fatal("failed provider not identified", logs)
+				}
+			}
+			if strings.Contains(wantWrites, ",") || tc.live {
+				if !strings.Contains(logs, "转交另一类绑定存储") {
+					t.Fatal("fallback not logged", logs)
+				}
+			}
 			if err != nil {
 				release()
 				return
@@ -160,11 +175,15 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 				t.Fatal("wrong download origin", d)
 			}
 			release()
+			if !strings.Contains(logs, "秒传成功") || !strings.Contains(logs, "直链获取成功") {
+				t.Fatal("successful restore or link not logged", logs)
+			}
 			if len(a.casActive) != 0 {
 				t.Fatal("playback lease leaked")
 			}
 			// A second signed playback reuses the live fallback file without restoring again.
 			before := len(writes)
+			beforeSuccess := strings.Count(casTestLogMessages(t, a), "CAS 秒传成功：")
 			u, _ := url.Parse(a.signedStreamURL(claim))
 			w := httptest.NewRecorder()
 			a.Handler(t.TempDir()).ServeHTTP(w, httptest.NewRequest("GET", u.RequestURI(), nil))
@@ -173,6 +192,10 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 			}
 			if len(a.casActive) != 0 {
 				t.Fatal("stream lease leaked")
+			}
+			logs = casTestLogMessages(t, a)
+			if !strings.Contains(logs, "复用存活秒传文件") || strings.Count(logs, "CAS 秒传成功：") != beforeSuccess {
+				t.Fatal("reuse logged as a new restore", logs)
 			}
 			for _, entry := range a.store.snapshot().CASTemporary {
 				if entry.StorageID == "mobile" && tc.mobileFailure != "" && entry.Ready {
