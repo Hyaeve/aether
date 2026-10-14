@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -351,5 +352,12 @@ func (a *App) casExportFiles(ctx context.Context, s Storage, source string, ids 
 	if len(found) != len(selected) {
 		return nil, false, errors.New("所选项目已移动、删除或不在当前目录范围")
 	}
+	// Directory and cloud listings need not be ordered; ZIP entries must be.
+	for i := range items {
+		items[i].Path = filepath.ToSlash(items[i].Path)
+	}
+	slices.SortFunc(items, func(a, b casExportItem) int {
+		return strings.Compare(a.Path+".cas", b.Path+".cas")
+	})
 	return items, len(ids) == 1 && selectedFile && len(items) == 1, nil
 }

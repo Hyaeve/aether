@@ -28,6 +28,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Verify version numbering and metadata
+        run: node --test scripts/version.test.mjs && node scripts/version.mjs --check
       - run: go vet ./...
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: go test -race ./...

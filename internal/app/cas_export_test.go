@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestCASExportPackagesStructureSingleAndSharedDirectory(t *testing.T) {
 		ids    []string
 		want   []string
 		single bool
-	}{{[]string{"/a.mp4"}, []string{"a.mp4"}, true}, {[]string{"/a.mp4", "/b.flac"}, []string{"a.mp4.cas", "b.flac.cas"}, false}, {[]string{"/Show"}, []string{"Show/Season 1/ep.mkv.cas"}, false}, {[]string{"/Show/Season 1/ep.mkv"}, []string{"ep.mkv"}, true}} {
+	}{{[]string{"/a.mp4"}, []string{"a.mp4"}, true}, {[]string{"/a.mp4", "/b.flac"}, []string{"a.mp4.cas", "b.flac.cas"}, false}, {[]string{"/Show"}, []string{"Show/Season 1/ep.mkv.cas"}, false}, {[]string{"/Show/Season 1/ep.mkv"}, []string{"ep.mkv"}, true}, {[]string{"/b.flac", "/Show", "/a.mp4"}, []string{"Show/Season 1/ep.mkv.cas", "a.mp4.cas", "b.flac.cas"}, false}} {
 		w := request(t, h, "POST", "/api/files/cas-export", casExportRequest{StorageID: s.ID, Source: "/", IDs: tc.ids, Confirm: true}, cookie)
 		if w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
@@ -137,9 +138,9 @@ func TestCASExportCloudHashesWithoutMediaDownload(t *testing.T) {
 				case "/user/route/qryRoutePolicy":
 					body = `{"success":true,"data":{"routePolicyList":[{"modName":"personal","httpsUrl":"https://personal.yun.139.com"}]}}`
 				case "/file/list":
-					body = `{"success":true,"data":{"items":[{"fileId":"file","name":"cloud.mp4","type":"file","size":5,"contentHashAlgorithm":"SHA256","contentHash":"` + strings.Repeat("a", 64) + `"}]}}`
+					body = `{"success":true,"data":{"items":[{"fileId":"file2","name":"z.mp4","type":"file","size":5,"contentHashAlgorithm":"SHA256","contentHash":"` + strings.Repeat("c", 64) + `"},{"fileId":"file","name":"cloud.mp4","type":"file","size":5,"contentHashAlgorithm":"SHA256","contentHash":"` + strings.Repeat("a", 64) + `"}]}}`
 				case "/listFiles.action":
-					body = `{"fileListAO":{"folderList":[],"fileList":[{"id":30,"name":"cloud.mp4","size":5,"md5":"` + strings.Repeat("b", 32) + `"}]}}`
+					body = `{"fileListAO":{"folderList":[],"fileList":[{"id":31,"name":"z.mp4","size":5,"md5":"` + strings.Repeat("d", 32) + `"},{"id":30,"name":"cloud.mp4","size":5,"md5":"` + strings.Repeat("b", 32) + `"}]}}`
 				default:
 					t.Fatalf("must not download media: %s", r.URL.Path)
 				}
@@ -161,6 +162,27 @@ func TestCASExportCloudHashesWithoutMediaDownload(t *testing.T) {
 			}
 			if kind == "mobile" && info.SHA256 == "" || kind == "tianyi" && info.MD5 == "" {
 				t.Fatal("missing cloud feature", info)
+			}
+			secondID := "file2"
+			if kind == "tianyi" {
+				secondID = "31"
+			}
+			for _, ids := range [][]string{{secondID, id}, {id, secondID}} {
+				w := request(t, h, "POST", "/api/files/cas-export", casExportRequest{StorageID: s.ID, Source: "/", IDs: ids, Confirm: true}, cookie)
+				if w.Code != 200 {
+					t.Fatal(w.Code, w.Body.String())
+				}
+				archive, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+				if err != nil {
+					t.Fatal(err)
+				}
+				names := []string{}
+				for _, member := range archive.File {
+					names = append(names, member.Name)
+				}
+				if !reflect.DeepEqual(names, []string{"cloud.mp4.cas", "z.mp4.cas"}) {
+					t.Fatal("ZIP order depends on upstream or selection order", names)
+				}
 			}
 		})
 	}
