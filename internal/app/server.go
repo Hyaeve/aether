@@ -29,6 +29,10 @@ import (
 )
 
 type App struct {
+	casExportMu         sync.Mutex
+	casExportQueue      []*casExportJob
+	casExportJobs       map[string]*casExportJob
+	casExportRunning    bool
 	rapid115Mu          sync.Mutex
 	rapid115Running     bool
 	rapid115Upload      func(context.Context, Storage, string, string, *os.File, int64, bool) (bool, string, error)
@@ -201,6 +205,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.backupMonitor()
 	a.wg.Add(1)
 	go a.rapid115Monitor()
+	go a.recycleCleanupMonitor()
+	go a.casExportResultMonitor()
 	a.wg.Add(1)
 	go a.storageHealthLoop()
 	a.wg.Add(1)
@@ -283,12 +289,20 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/local-directories", a.protected(http.HandlerFunc(a.createLocalDirectory)))
 	mux.Handle("GET /api/files/favorites", a.protected(http.HandlerFunc(a.fileFavorites)))
 	mux.Handle("/api/files/cas-export", a.protected(http.HandlerFunc(a.casExport)))
+	mux.Handle("/api/cloud/preferences", a.protected(http.HandlerFunc(a.cloudSharePreferences)))
+	mux.Handle("POST /api/cloud/shares", a.protected(http.HandlerFunc(a.createCloudShare)))
+	mux.Handle("/api/cloud/manage", a.protected(http.HandlerFunc(a.cloudManagement)))
+	mux.Handle("/api/files/cas-export/jobs", a.protected(http.HandlerFunc(a.casExportJobAPI)))
+	mux.Handle("GET /api/files/cas-export/jobs/{id}", a.protected(http.HandlerFunc(a.casExportJobStatus)))
+	mux.Handle("GET /api/files/cas-export/jobs/{id}/download", a.protected(http.HandlerFunc(a.casExportJobDownload)))
 	mux.Handle("POST /api/files/favorites", a.protected(http.HandlerFunc(a.fileFavorites)))
 	mux.Handle("POST /api/files/visits", a.protected(http.HandlerFunc(a.fileVisits)))
 	a.RegisterStrmReplace(mux)
 	mux.Handle("POST /api/virtual-library/115/{action}", a.protected(http.HandlerFunc(a.virtualLibrary)))
 	mux.HandleFunc("/s/{key}", a.playVirtualShare)
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
+	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
+	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))
 	mux.Handle("/api/115-rapid", a.protected(http.HandlerFunc(a.rapid115Settings)))
 	mux.Handle("POST /api/115-rapid/run", a.protected(http.HandlerFunc(a.rapid115Start)))
 	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))
@@ -335,6 +349,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("PUT /api/files/text", a.protected(http.HandlerFunc(a.fileText)))
 	mux.Handle("POST /api/files/extract", a.protected(http.HandlerFunc(a.fileExtract)))
 	mux.Handle("GET /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
+	mux.Handle("GET /api/files/video-subtitles", a.protected(http.HandlerFunc(a.videoSubtitles)))
 	mux.Handle("GET /api/files/search", a.protected(http.HandlerFunc(a.fileSearch)))
 	mux.Handle("HEAD /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
@@ -876,6 +891,13 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				st.Storages = append(st.Storages[:i], st.Storages[i+1:]...)
+				kept := st.RecycleCleanup.Rules[:0]
+				for _, rule := range st.RecycleCleanup.Rules {
+					if rule.StorageID != sid {
+						kept = append(kept, rule)
+					}
+				}
+				st.RecycleCleanup.Rules = kept
 				return nil
 			}
 			if incoming.Type != s.Type {

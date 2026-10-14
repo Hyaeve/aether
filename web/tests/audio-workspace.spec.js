@@ -139,6 +139,7 @@ test('artwork extends with blur, cover switches to full lyrics and short screens
 
 test('queue navigation and ended modes work; capsule preserves playback across routes and docks on either edge',async({page},info)=>{
   const {panel,audio}=await setup(page,3)
+  for(const name of ['星际回声 2.wav','星际回声 3.wav','星际回声 1.wav']){await page.locator('.breadcrumbs').click();await page.getByRole('button',{name,exact:true}).dblclick()}
   await panel.getByRole('button',{name:'下一首',exact:true}).click()
   await expect(panel.getByRole('heading')).toHaveText('星际回声 2.wav')
   await panel.getByRole('button',{name:'上一首',exact:true}).click()
@@ -210,7 +211,7 @@ test('volume and actions morph from their button surfaces with rounded artwork a
     await expect.poll(async()=>(await surface(volume)).height).toBe(160)
     const glass=await surface(volume)
     expect(glass).toMatchObject({width:44,radius:'22px',bottom:'0px'})
-    expect(glass.blur).toContain('blur(28px)')
+    expect(glass.blur).toContain('blur(36px)')
     await expect(panel.locator('.volume-popover')).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
     const button=await volume.getByRole('button').boundingBox(),popup=await volume.locator('.volume-popover').boundingBox()
     expect(Math.abs(popup.y+popup.height-button.y)).toBeLessThan(1)
@@ -227,6 +228,30 @@ test('volume and actions morph from their button surfaces with rounded artwork a
     await panel.getByRole('button',{name:'音量',exact:true}).focus();await page.keyboard.press('Enter')
     await expect(panel.getByRole('slider',{name:'音量大小',exact:true})).toBeVisible()
   }
+})
+
+test('clicked songs stay queued and removing the playing song stops its source and advances; the last removal closes playback',async({page},info)=>{
+ const {panel,audio,tracks}=await setup(page,3)
+ for(const track of tracks.slice(1)){await page.locator('.breadcrumbs').click();await page.getByRole('button',{name:track.name,exact:true}).dblclick()}
+ await page.locator('.breadcrumbs').click();await page.getByRole('button',{name:tracks[1].name,exact:true}).dblclick()
+ await expect(panel.getByRole('heading')).toHaveText(tracks[1].name)
+ await expect.poll(()=>audio.evaluate(el=>el.paused)).toBe(false)
+ await panel.locator('.audio-more').hover();await panel.getByRole('menuitem',{name:'播放列表',exact:true}).click()
+ await expect(panel.getByRole('option')).toHaveCount(3)
+ await expect(panel.getByRole('option',{name:tracks[1].name,exact:true})).toHaveAttribute('aria-selected','true')
+ const row=panel.locator('.audio-track-row').filter({hasText:tracks[1].name})
+ await row.hover();await expect(row.getByRole('button',{name:`移除 ${tracks[1].name}`,exact:true})).toHaveCSS('opacity','1')
+ await row.getByRole('button',{name:`移除 ${tracks[1].name}`,exact:true}).click()
+ await expect(panel.getByRole('option')).toHaveCount(2)
+ await expect(panel.getByRole('heading')).toHaveText(tracks[2].name)
+ await expect(audio).toHaveAttribute('src',tracks[2].url)
+ await expect.poll(()=>audio.evaluate(el=>el.paused)).toBe(false)
+ await expect(panel.getByRole('option',{name:tracks[2].name,exact:true})).toHaveAttribute('aria-selected','true')
+ await page.screenshot({path:info.outputPath('music-removable-queue.png')})
+ await panel.locator('.audio-track-row').filter({hasText:tracks[0].name}).hover();await panel.getByRole('button',{name:`移除 ${tracks[0].name}`,exact:true}).click()
+ await expect(panel.getByRole('heading')).toHaveText(tracks[2].name)
+ await panel.locator('.audio-track-row').hover();await panel.getByRole('button',{name:`移除 ${tracks[2].name}`,exact:true}).click()
+ await expect(panel).toHaveCount(0)
 })
 
 test('dragging the cover docks left without native image drag and reopens from the left; playback mode survives reload',async({page},info)=>{

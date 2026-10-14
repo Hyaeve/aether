@@ -39,7 +39,9 @@ export async function api(url, method = 'GET', body) {
   try { data = await response.json() } catch { throw new Error('服务响应异常，请检查后端连接') }
   if (!response.ok) {
     if (response.status === 401 && !url.startsWith('/auth/')) state.authenticated = false
-    throw new Error(data.error || '请求失败')
+    const error = new Error(data.error || '请求失败')
+    error.status = response.status
+    throw error
   }
   return data
 }

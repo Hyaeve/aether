@@ -221,13 +221,10 @@ func testNativeFuse115BoundedCacheCallbacks(t *testing.T, diskCache bool) {
 			t.Fatal(status, string(b))
 		}
 		want := int32(1)
-		if i >= 3 {
+		if i == 4 && !diskCache {
 			want = 2
 		}
-		if i == 4 && !diskCache {
-			want = 3
-		}
-		if reads.Load() != want || file.body != nil || len(a.mountReadPools) != 0 {
+		if reads.Load() != want {
 			t.Fatal("cache/network slot regression", reads.Load(), want)
 		}
 	}
@@ -239,9 +236,9 @@ func testNativeFuse115BoundedCacheCallbacks(t *testing.T, diskCache bool) {
 		t.Fatal("disabled disk cache persisted blocks")
 	}
 	a.fuseReadRevision.Add(1)
-	want := int32(3)
+	want := int32(2)
 	if !diskCache {
-		want = 4
+		want = 3
 	}
 	if _, errno := h.Read(ctx, make([]byte, 64), 0); errno != 0 || reads.Load() != want {
 		t.Fatal("hot cache did not invalidate", errno, reads.Load())
@@ -253,7 +250,7 @@ func testNativeFuse115BoundedCacheCallbacks(t *testing.T, diskCache bool) {
 		t.Fatal("changed credentials served old hot cache", errno)
 	}
 	h.Release(ctx)
-	if h.hotBlock != nil {
+	if h.hotBlock != nil || file.body != nil || len(a.mountReadPools) != 0 {
 		t.Fatal("released hot block retained")
 	}
 }

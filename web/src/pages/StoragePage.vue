@@ -6,6 +6,7 @@ import ProviderIcon from '../components/ProviderIcon.vue'
 import Modal from '../components/Modal.vue'
 import NumberInput from '../components/NumberInput.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
+import StorageTabs from '../components/StorageTabs.vue'
 import SecretInput from '../components/SecretInput.vue'
 import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 import { useCardDrag } from '../useCardDrag'
@@ -39,7 +40,7 @@ onUnmounted(() => { document.removeEventListener('click', closeMenu); document.r
 const toggling = ref('')
 async function toggle(storage) {
   toggling.value = storage.id
-  try { await api(`/storages/${storage.id}`, 'PUT', { ...storage, enabled: !storage.enabled }); await reload() }
+  try { const enabled=!storage.enabled;await api(`/storages/${storage.id}`, 'PUT', { ...storage, enabled }); await reload();notify(`${enabled?'已启用':'已停用'}存储池 ${storage.name}`) }
   catch (e) { notify(e.message, true) } finally { toggling.value = '' }
 }
 const authorization = ref(false), qr = ref(null), authError = ref(''), authBusy = ref(false), authGeneration = ref(0)
@@ -203,6 +204,7 @@ async function remove() {
 </script>
 
 <template>
+  <header class="task-heading"><StorageTabs /></header>
   <div class="storage-grid">
     <article v-for="s in visible" :key="s.id" class="storage-card" :data-id="s.id" :class="{ 'quota-full': quotaFull(s.id), 'menu-open': menu === s.id, 'drag-armed': armed === s.id, dragging: dragging === s.id, 'drop-target': dropTarget === s.id, 'storage-disabled': !s.enabled, 'storage-unhealthy': s.enabled && s.status === 'error' }" :draggable="false" tabindex="0" :aria-label="`${s.name}，${s.enabled ? '已启用' : '已停用'}`" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown" @pointerdown="hold($event,s)" @click="cardClick($event,s,open)" @contextmenu.prevent.stop="menu = s.id" @keydown="reorderKey($event, s)" @dragstart.prevent>
       <div class="storage-card-top"><button class="provider-toggle" :aria-label="`${s.enabled ? '停用' : '启用'}存储池 ${s.name}`" :aria-pressed="s.enabled" :disabled="!!toggling" @click.stop="toggle(s)"><ProviderIcon :type="s.type" /></button><div class="storage-card-name"><h3>{{ s.name }}</h3><div v-if="cloudTypes.includes(s.type) && usages[s.id]?.total > 0" class="storage-quota"><div class="storage-quota-track" role="meter" aria-label="云盘空间使用量" :aria-valuenow="usages[s.id].used" :aria-valuemax="usages[s.id].total" aria-valuemin="0" :aria-valuetext="`${bytes(usages[s.id].used)} / ${bytes(usages[s.id].total)}`"><i :style="{width:`${quotaPercent(s.id)}%`}" /></div><small>{{ bytes(usages[s.id].used) }} / {{ bytes(usages[s.id].total) }}</small></div><span v-else>{{ usages[s.id]?.username || driverOf(s.type).name }}</span></div><div class="storage-menu-control" @click.stop><button class="icon-btn" :aria-label="`存储操作 ${s.name}`" :aria-expanded="menu === s.id" @click="menu = menu === s.id ? '' : s.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === s.id" class="storage-menu"><button @click="open(s)"><Icon name="Pencil" />编辑存储</button><button :disabled="testing === s.id || !s.enabled" @click="closeMenu(); test(s)"><Icon name="Activity" />测试连接</button><button @click="closeMenu(); toggle(s)"><Icon name="Power" />{{ s.enabled ? '停用存储' : '启用存储' }}</button><button class="danger-text" @click="closeMenu(); confirmDelete = s"><Icon name="Trash2" />删除存储</button></div></div></div>

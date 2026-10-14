@@ -41,6 +41,9 @@ test('video grid extracts a real frame and player follows only the video boundar
     const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180
     const ctx = canvas.getContext('2d')
     const stream = canvas.captureStream(15), recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' }), chunks = []
+    // Paint before recording: otherwise the first captured frame can be black.
+    ctx.fillStyle = '#174b64'; ctx.fillRect(0, 0, 320, 180)
+    ctx.fillStyle = '#b7e4bd'; ctx.fillRect(20, 35, 90, 100)
     recorder.ondataavailable = e => chunks.push(e.data)
     const complete = new Promise(resolve => { recorder.onstop = resolve })
     recorder.start()
@@ -91,9 +94,18 @@ test('video grid extracts a real frame and player follows only the video boundar
   expect(frameRequests).toBe(firstReadCount)
   await expect(page.locator('.video-thumbnail video')).not.toHaveAttribute('src')
   await page.getByRole('button', { name: '预览.webm', exact: true }).dblclick()
-  await expect(page.locator('.video-viewer video')).toHaveAttribute('controls', '')
+  await expect(page.getByRole('button', { name: '播放视频', exact: true })).toBeVisible()
   await expect.poll(() => page.locator('.video-viewer video').evaluate(v => v.videoWidth)).toBe(320)
   await page.locator('.video-viewer video').evaluate(async video => { await video.play(); video.pause() })
+  await page.locator('.video-viewer').focus()
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('button', { name: '暂停视频', exact: true })).toBeVisible()
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('button', { name: '播放视频', exact: true })).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => page.locator('.video-viewer video').evaluate(v => v.volume)).toBeCloseTo(.95, 4)
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(() => page.locator('.video-viewer video').evaluate(v => v.volume)).toBe(1)
   await page.locator('.video-viewer').evaluate(async el => { await Promise.allSettled(el.getAnimations({ subtree: true }).map(a => a.finished)) })
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 780 }, { width: 780, height: 390 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport)

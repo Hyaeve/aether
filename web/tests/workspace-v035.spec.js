@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
 async function mock(page) {
+	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
+	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'v035', storages: [{ id: 'local', type: 'local', name: '资料', enabled: true, config: {} }], tasks: [], settings: {}, cache: {}, traffic: {}, logs: [] } }))
   await page.route('**/api/plugins/*', r => r.fulfill({ json: {} }))
@@ -26,7 +28,7 @@ test('media preview, grid thumbnails and Ctrl A selection', async ({ page }, inf
   await page.screenshot({ path: info.outputPath('image-preview.png') })
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'b.mp4', exact: true }).dblclick()
-  await expect(page.locator('.video-viewer video')).toHaveAttribute('controls', '')
+  await expect(page.getByRole('button', { name: '播放视频', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '当前列表视图，切换网格' }).click()
   await expect(page.locator('.file-thumbnail')).toBeVisible()
@@ -50,7 +52,7 @@ test('transfer menu controls and removed tools', async ({ page }, info) => {
   await page.getByRole('button', { name: '删除', exact: true }).click()
   await expect(page.getByText('暂无传输任务')).toBeVisible()
   await page.goto('/tools')
-  await expect(page.locator('.plugin-card')).toHaveCount(13)
+  await expect(page.locator('.plugin-card')).toHaveCount(14)
   await expect(page.getByText('115 STRM 增强', { exact: true })).toHaveCount(0)
   await expect(page.getByText('115 分享 STRM', { exact: true })).toHaveCount(0)
 })

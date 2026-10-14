@@ -19,6 +19,8 @@ import (
 
 const casLimit = 1 << 20
 
+var errCASIncomplete = errors.New("CAS信息缺失：需要SHA256，或同时包含MD5与分片MD5，不满足cas.strm生成要求")
+
 func casRetentionHours(hours int) int {
 	if hours < 1 || hours > 8760 {
 		return 12
@@ -38,8 +40,8 @@ type CASInfo struct {
 	Size           int64  `json:"size"`
 	SHA256         string `json:"sha256"`
 	MD5            string `json:"md5"`
-	SliceMD5       string `json:"slice_md5,omitempty"`
-	SliceSize      int64  `json:"slice_size,omitempty"`
+	SliceMD5       string `json:"slice_md5"`
+	SliceSize      int64  `json:"slice_size"`
 }
 
 type CASTemporary struct {
@@ -68,17 +70,18 @@ func validateCAS(info CASInfo) error {
 	}
 	hash, err := hex.DecodeString(info.SHA256)
 	md5, md5Err := hex.DecodeString(info.MD5)
-	if (err != nil || len(hash) != 32) && (md5Err != nil || len(md5) != 16) {
-		return errors.New("CAS 需要有效的 64 位 SHA256 或 32 位 MD5")
-	}
 	if info.SHA256 != "" && (err != nil || len(hash) != 32) || info.MD5 != "" && (md5Err != nil || len(md5) != 16) {
 		return errors.New("CAS 哈希格式无效")
 	}
-	if info.SliceMD5 != "" || info.SliceSize != 0 {
-		slice, err := hex.DecodeString(info.SliceMD5)
-		if err != nil || len(slice) != 16 || info.SliceSize <= 0 || info.SliceSize > 1<<40 || md5Err != nil || len(md5) != 16 {
-			return errors.New("CAS 分片 MD5 或分片大小无效")
-		}
+	slice, sliceErr := hex.DecodeString(info.SliceMD5)
+	if info.SliceMD5 != "" && (sliceErr != nil || len(slice) != 16) {
+		return errors.New("CAS 分片MD5格式无效")
+	}
+	if len(hash) != 32 && (len(md5) != 16 || len(slice) != 16) {
+		return errCASIncomplete
+	}
+	if info.SliceSize < 0 || info.SliceSize > 1<<40 || info.SliceSize != 0 && info.SliceMD5 == "" {
+		return errors.New("CAS 分片大小无效")
 	}
 	return nil
 }
@@ -89,11 +92,17 @@ func validateCASFor(s Storage, info CASInfo) error {
 	}
 	value, size := info.SHA256, 32
 	if nativeTianyi(s) {
+		if info.MD5 == "" || info.SliceMD5 == "" {
+			return errors.New("天翼CAS秒传需要同时包含整文件MD5和分片MD5")
+		}
+		if info.SliceSize <= 0 {
+			return errors.New("天翼CAS缺少分片大小，请补齐生成工具实际使用的slice_size或sliceSize，不能猜测")
+		}
 		value, size = info.MD5, 16
 	}
 	hash, err := hex.DecodeString(value)
 	if err != nil || len(hash) != size {
-		return errors.New("CAS 特征与存储不兼容：移动需 SHA256，天翼需 MD5")
+		return errors.New("CAS 特征与存储不兼容：移动需SHA256，天翼需MD5、分片MD5和分片大小")
 	}
 	return nil
 }
@@ -113,11 +122,13 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 			return info, errors.New("CAS STRM 内容不是有效播放地址")
 		}
 		claimRaw, e := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
-		var claim streamClaim
-		if e != nil || json.Unmarshal(claimRaw, &claim) != nil || claim.CAS == nil {
+		var claim struct {
+			CAS json.RawMessage `json:"cas"`
+		}
+		if e != nil || json.Unmarshal(claimRaw, &claim) != nil || len(claim.CAS) == 0 || string(claim.CAS) == "null" {
 			return info, errors.New("CAS STRM 未包含哈希特征")
 		}
-		raw, err = json.Marshal(claim.CAS)
+		raw = claim.CAS
 	} else if len(content) > 0 && content[0] == '{' {
 		raw = content
 	} else {
@@ -131,17 +142,53 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	}
 	// Some CAS writers serialize the byte count as a decimal string.
 	var data struct {
-		Provider    string          `json:"provider"`
-		Name        string          `json:"name"`
-		Size        json.RawMessage `json:"size"`
-		SHA256      string          `json:"sha256"`
-		MD5         string          `json:"md5"`
-		SliceMD5    string          `json:"slice_md5"`
-		SliceSize   int64           `json:"slice_size"`
-		PlaybackURL string          `json:"playback_url"`
+		Provider       string          `json:"provider"`
+		Name           string          `json:"name"`
+		Size           json.RawMessage `json:"size"`
+		SHA256         string          `json:"sha256"`
+		MD5            string          `json:"md5"`
+		SliceMD5       string          `json:"slice_md5"`
+		CamelSliceMD5  string          `json:"sliceMd5"`
+		SliceSize      json.RawMessage `json:"slice_size"`
+		CamelSliceSize json.RawMessage `json:"sliceSize"`
+		PlaybackURL    string          `json:"playback_url"`
 	}
 	if json.Unmarshal(raw, &data) != nil {
 		return info, errors.New("CAS 内容不是合法 JSON")
+	}
+	if data.SliceMD5 != "" && data.CamelSliceMD5 != "" && !strings.EqualFold(data.SliceMD5, data.CamelSliceMD5) {
+		return info, errors.New("CAS分片MD5字段冲突")
+	}
+	if data.SliceMD5 == "" {
+		data.SliceMD5 = data.CamelSliceMD5
+	}
+	parseSliceSize := func(raw json.RawMessage) (int64, error) {
+		if len(raw) == 0 {
+			return 0, nil
+		}
+		var number json.Number
+		if json.Unmarshal(raw, &number) != nil {
+			return 0, errors.New("CAS分片大小无效")
+		}
+		value, e := number.Int64()
+		if e != nil {
+			return 0, errors.New("CAS分片大小无效")
+		}
+		return value, nil
+	}
+	sliceSize, e := parseSliceSize(data.SliceSize)
+	if e != nil {
+		return info, e
+	}
+	camelSize, e := parseSliceSize(data.CamelSliceSize)
+	if e != nil {
+		return info, e
+	}
+	if sliceSize != 0 && camelSize != 0 && sliceSize != camelSize {
+		return info, errors.New("CAS分片大小字段冲突")
+	}
+	if sliceSize == 0 {
+		sliceSize = camelSize
 	}
 	var size json.Number
 	if json.Unmarshal(data.Size, &size) != nil {
@@ -150,6 +197,10 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	n, err := size.Int64()
 	if err != nil {
 		return info, errors.New("CAS 大小无效")
+	}
+	if sliceSize == 0 && data.SliceMD5 != "" {
+		// Legacy CAS follows the Cloud189PC size-based rule when omitted.
+		sliceSize = tianyiCASPartSize(n)
 	}
 	if !safeName(data.Name) || !safeName(filename) {
 		return info, errors.New("CAS 文件名包含非法路径")
@@ -164,7 +215,7 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	if !taskMedia(Task{}, name) {
 		name += path.Ext(data.Name)
 	}
-	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5), SliceMD5: strings.ToUpper(data.SliceMD5), SliceSize: data.SliceSize, PlaybackURL: data.PlaybackURL}
+	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5), SliceMD5: strings.ToUpper(data.SliceMD5), SliceSize: sliceSize, PlaybackURL: data.PlaybackURL}
 	return info, validateCAS(info)
 }
 

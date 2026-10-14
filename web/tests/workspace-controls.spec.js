@@ -118,6 +118,30 @@ test('mount switches stay adjacent to their labels',async({page})=>{
  }
 })
 
+test('new mount defaults to 0755 while editing preserves explicit existing permissions',async({page})=>{
+ await setup(page)
+ const mounts=[{id:'old',name:'已有挂载',source:'/',mountPoint:'/mnt/old/AetherDrive',mode:0o777,uid:0,gid:0,status:'stopped',readOnly:false,automount:true}]
+ let saved
+ await page.route('**/api/mounts',r=>{
+  if(r.request().method()==='POST'){saved=r.request().postDataJSON();mounts.push({...saved,id:'new',status:'stopped'});return r.fulfill({json:{ok:true}})}
+  return r.fulfill({json:mounts})
+ })
+ await page.goto('/files/mounts')
+ await page.getByRole('button',{name:'添加挂载',exact:true}).click()
+ const modal=page.getByRole('dialog',{name:'添加挂载',exact:true})
+ await modal.getByText('高级设置',{exact:true}).click()
+ await expect(modal.getByLabel('权限',{exact:true})).toHaveValue('0755')
+ await modal.getByLabel('挂载名称',{exact:true}).fill('新挂载')
+ await modal.getByLabel('挂载点',{exact:true}).fill('/mnt/new')
+ await modal.getByRole('button',{name:'保存挂载',exact:true}).click()
+ await expect(modal).toHaveCount(0)
+ expect(saved.mode).toBe(0o755)
+ await page.locator('.mount-card').filter({hasText:'已有挂载'}).click()
+ const editor=page.getByRole('dialog',{name:'编辑挂载',exact:true})
+ await editor.getByText('高级设置',{exact:true}).click()
+ await expect(editor.getByLabel('权限',{exact:true})).toHaveValue('0777')
+})
+
 test('wheel inside an already scrolled list still docks the page first without moving its rows',async({page})=>{
  await setup(page)
  await page.route('**/api/files?**',r=>r.fulfill({json:Array.from({length:180},(_,i)=>({id:String(i),name:`file-${i}.txt`}))}))

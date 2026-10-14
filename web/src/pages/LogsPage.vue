@@ -15,7 +15,7 @@ function toggleView() {
   filters.view = filters.view === 'raw' ? 'structured' : 'raw'
   if (viewKey.value) { try { localStorage.setItem(viewKey.value, filters.view) } catch {} }
 }
-const modules = { audit: '操作审计', files: '文件与备份', storage: '存储与服务', tasks: '任务管理', links: '以太链接', system: '系统' }
+const modules = { audit: '操作审计', files: '文件与备份', transfers: '传输中心', storage: '存储与服务', tasks: '任务管理', links: '以太链接', system: '系统' }
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试' }
 if (!modules[filters.module]) filters.module = 'all'
 if (!levels[filters.level]) filters.level = 'all'

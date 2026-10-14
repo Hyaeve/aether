@@ -17,7 +17,7 @@ test('library and playback notices open the specific correlated log',async({page
   await expect(list).toContainText('Cache file cleanup 已完成')
   await expect(list).toContainText('风信子 开始播放 · 刀剑神域 S01E01')
   await expect(list).not.toContainText('电视剧')
-  await expect(page.getByRole('button',{name:'清除通知',exact:true})).toHaveCSS('width','22px')
+  await expect(page.getByRole('button',{name:'清除通知',exact:true})).toHaveCSS('width','20px')
   await page.screenshot({path:info.outputPath('notice.png')})
   await list.getByRole('button').filter({hasText:'风信子'}).click()
   await expect(page).toHaveURL(/\/logs\?/)

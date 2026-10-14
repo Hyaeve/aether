@@ -1,4 +1,5 @@
 import { clipboardShareBatches } from './share-links.js'
+import {withoutOwnShares} from './own-shares.js'
 
 export function clipboardShares(text) {
   const batches = clipboardShareBatches(text)
@@ -11,7 +12,7 @@ export function watchShareClipboard({ ready, open, blocked = () => {}, status = 
   const available = (resuming = false) => !stopped && ready() && document.visibilityState === 'visible' && document.hasFocus() && !document.querySelector('.modal, .video-viewer, .image-viewer') && (resuming || !document.activeElement?.closest?.(editing))
   function accept(text, explicit = false, resuming = false) {
     if (!available(resuming)) return
-    const share = clipboardShares(text)
+    const share = clipboardShares(withoutOwnShares(text))
     if (!share) { previous = ''; return }
     const signature = JSON.stringify(share.batches)
     if ((explicit || signature !== previous) && open(share) !== false) {

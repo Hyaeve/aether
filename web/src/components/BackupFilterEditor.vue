@@ -65,7 +65,7 @@ defineExpose({flush})
 .backup-filter-controls .icon-btn { width:30px; height:30px; min-height:30px; }
 .backup-token-editor { display:grid; gap:10px; min-width:0; }
 .backup-tokens { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
-.backup-token { position:relative; display:inline-flex; align-items:center; max-width:100%; padding:4px 7px; border-radius:6px; background:var(--bg); font-size:14px; }
+.backup-token { position:relative; display:inline-flex; align-items:center; max-width:100%; padding:4px 7px; border-radius:6px; background:var(--input); font-size:14px; }
 .backup-token > span { min-width:0; overflow-wrap:anywhere; }
 .backup-token button { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:inherit; background:#0006; color:#fff; opacity:0; transition:opacity .15s; }
 .backup-token:hover button,.backup-token:focus-within button { opacity:1; }
@@ -86,4 +86,7 @@ defineExpose({flush})
 @media(prefers-reduced-motion:reduce){.backup-token button{transition:none}}
 
 .backup-filter :is(input:not([type=radio]):not([type=checkbox])){height:var(--control-height);min-height:var(--control-height)}
+</style>
+<style scoped>
+.backup-filter-frame{background:var(--layer-item)}.backup-filter{background:var(--layer-rule)}.backup-filter :is(input:not([type=radio]):not([type=checkbox]),textarea),.backup-token{background:var(--input)}
 </style>

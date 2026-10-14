@@ -33,7 +33,7 @@ func casPoolRevisionConfig() CASPoolConfig {
 }
 
 func casPoolRevisionInfo() CASInfo {
-	return CASInfo{Name: "movie.mkv", Size: 123, SHA256: strings.Repeat("a", 64), MD5: strings.Repeat("b", 32)}
+	return CASInfo{Name: "movie.mkv", Size: 123, SHA256: strings.Repeat("a", 64), MD5: strings.Repeat("b", 32), SliceMD5: strings.Repeat("C", 32), SliceSize: 10 << 20}
 }
 
 func TestCASPoolRevisionValidation(t *testing.T) {
@@ -330,7 +330,7 @@ func TestCASPoolRevisionSelection(t *testing.T) {
 		{name: "next window", at: now.Add(10 * time.Minute), want: "mobile-b", hours: 24},
 		{name: "rotation wraps", at: now.Add(20 * time.Minute), want: "mobile-a", hours: 24},
 		{name: "tianyi preference", change: func(st *State, _ *CASInfo) { st.CASPool.Preferred = "tianyi" }, want: "tianyi-a", hours: 48},
-		{name: "MD5 only falls back", change: func(_ *State, info *CASInfo) { info.SHA256 = "" }, want: "tianyi-a", hours: 48},
+		{name: "dual MD5 without SHA256 falls back", change: func(_ *State, info *CASInfo) { info.SHA256 = "" }, want: "tianyi-a", hours: 48},
 		{name: "SHA256 only falls back", change: func(st *State, info *CASInfo) { st.CASPool.Preferred, info.MD5 = "tianyi", "" }, want: "mobile-a", hours: 24},
 		{name: "disabled account", change: func(st *State, _ *CASInfo) { st.Storages[0].Enabled = false }, want: "mobile-b", hours: 24},
 		{name: "removed account", change: func(st *State, _ *CASInfo) { st.Storages = st.Storages[1:] }, want: "mobile-b", hours: 24},
@@ -554,7 +554,7 @@ func TestCASPoolRevisionPartialHashImport(t *testing.T) {
 			s := addLocal(t, a)
 			info := casPoolRevisionInfo()
 			if field == "sha256" {
-				info.MD5 = ""
+				info.MD5, info.SliceMD5, info.SliceSize = "", "", 0
 			} else {
 				info.SHA256 = ""
 			}

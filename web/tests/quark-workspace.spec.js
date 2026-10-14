@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 
 test('Quark workspace has a binding sidebar, per-account settings and confirmed unbind', async ({ page }, info) => {
+	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
+	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))
   await page.route('**/api/plugins/*', r => r.fulfill({json:{enabled:false}}))
   const storages = ['one','two'].map((id,i) => ({id, name:`夸克 ${i+1}`, type:'quark',enabled:true}))
   let bindings = storages.map(s => ({...s, valid:true,nickname:`账号 ${s.id}`}))

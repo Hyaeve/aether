@@ -59,8 +59,8 @@ function select(value) {
       <article v-for="(config, id) in configs" :key="id" class="simulcast-row">
         <button class="simulcast-toggle" :aria-label="`${config.enabled ? '停用' : '启用'} ${poolName(id)} 同播复制`" :aria-pressed="config.enabled" :disabled="busy" @click="persist({ ...configs, [id]: { ...config, enabled: !config.enabled } })"><ProviderIcon type="115" /></button>
         <div class="simulcast-name"><strong>{{ poolName(id) }}</strong><span>{{ config.directoryLabel || config.directory }}</span></div>
-        <button class="icon-btn" title="编辑" :aria-label="`编辑 ${poolName(id)}`" :disabled="busy" @click="edit(id)"><Icon name="Pencil" /></button>
-        <button class="icon-btn danger-text" title="删除" :aria-label="`删除 ${poolName(id)}`" :disabled="busy" @click="removing = id; error = ''"><Icon name="Trash2" /></button>
+        <button class="icon-btn" :aria-label="`编辑 ${poolName(id)}`" :disabled="busy" @click="edit(id)"><Icon name="Pencil" /></button>
+        <button class="icon-btn danger-text" :aria-label="`删除 ${poolName(id)}`" :disabled="busy" @click="removing = id; error = ''"><Icon name="Trash2" /></button>
       </article>
       <button class="simulcast-add" :disabled="busy || !loaded || !canAdd" @click="edit()"><Icon name="Plus" />存储绑定</button>
     </div>

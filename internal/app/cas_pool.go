@@ -199,5 +199,5 @@ func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind s
 			return eligible[index], group.RetentionHours, nil
 		}
 	}
-	return Storage{}, 0, errors.New("没有可用的 CAS 绑定存储：SHA256 需要移动云盘，MD5 需要天翼云盘，请配置存储绑定池")
+	return Storage{}, 0, errors.New("没有可用的CAS绑定存储：移动需SHA256，天翼需MD5、分片MD5和分片大小，请检查特征与绑定池")
 }

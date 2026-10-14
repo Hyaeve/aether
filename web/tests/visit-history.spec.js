@@ -74,7 +74,7 @@ test('history is shared across independent browsers and legacy entries migrate o
   }finally{for(const context of contexts)await context.close()}
 })
 
-test('empty history remains clickable and hover opens only after 600ms',async({page},info)=>{
+test('empty history remains clickable and hover opens only after 350ms',async({page},info)=>{
   const mock=sharedHistoryMock();await mock.install(page)
   await page.goto('/files')
   const history=page.getByRole('button',{name:'历史访问',exact:true}),menu=page.locator('.file-visit-history [role=listbox]')
@@ -84,7 +84,7 @@ test('empty history remains clickable and hover opens only after 600ms',async({p
   await page.mouse.move(500,40)
   await page.clock.install()
   await page.clock.pauseAt(new Date())
-  await history.hover();await page.clock.runFor(599);await expect(menu).toHaveCount(0)
+  await history.hover();await page.clock.runFor(349);await expect(menu).toHaveCount(0)
   await page.clock.runFor(1);await expect(menu).toBeVisible()
   await page.clock.resume()
   await page.screenshot({path:info.outputPath('empty-history.png')})

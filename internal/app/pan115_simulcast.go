@@ -150,6 +150,9 @@ func (p *pan115Simulcast) PlayFile(r *http.Request, s Storage, source File) (Fil
 		return File{}, ctx.Err()
 	}
 	st := p.app.store.snapshotWithLogLimit(0)
+	if st.SimulcastEnabled != nil && !*st.SimulcastEnabled {
+		return source, nil
+	}
 	cfg, ok := st.Simulcast[s.ID]
 	if !ok || !cfg.Enabled {
 		return source, nil
@@ -327,6 +330,9 @@ func (p *pan115Simulcast) cleanup(ctx context.Context) error {
 
 func (p *pan115Simulcast) current(s Storage, cfg SimulcastConfig) bool {
 	st := p.app.store.snapshotWithLogLimit(0)
+	if st.SimulcastEnabled != nil && !*st.SimulcastEnabled {
+		return false
+	}
 	if current, ok := st.Simulcast[s.ID]; !ok || current != cfg {
 		return false
 	}

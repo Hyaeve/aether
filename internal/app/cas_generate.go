@@ -14,6 +14,22 @@ import (
 
 var errCASMissingHash = errors.New("云端目录接口未返回有效文件哈希，无法生成 CAS")
 
+// Match OpenList's Cloud189PC partSize rule, using integer ceiling division.
+func tianyiCASPartSize(size int64) int64 {
+	const base = int64(10 << 20)
+	if size <= base*999 {
+		return base
+	}
+	if size <= base*2*999 {
+		return base * 2
+	}
+	multiple := size / (base * 1999)
+	if size%(base*1999) != 0 {
+		multiple++
+	}
+	return max(multiple, 5) * base
+}
+
 func (a *App) casBinding(t Task, source Storage) (Storage, error) {
 	bindingID := t.CASBindingID
 	if bindingID == "" && casStorage(source) {
@@ -74,7 +90,7 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 	}
 	info.Size = before.Size()
 	sha, md, slice, aggregate := sha256.New(), md5.New(), md5.New(), md5.New()
-	const sliceSize = int64(10 << 20)
+	sliceSize := tianyiCASPartSize(info.Size)
 	var sliceBytes int64
 	sliceCount := 0
 	finishSlice := func() {

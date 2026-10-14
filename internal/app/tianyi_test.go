@@ -41,7 +41,7 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 	}
 	der, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	hash := strings.Repeat("b", 32)
-	cas := base64.StdEncoding.EncodeToString([]byte(`{"provider":"189","name":"Movie.mkv","size":123,"md5":"` + hash + `"}`))
+	cas := base64.StdEncoding.EncodeToString([]byte(`{"provider":"189","name":"Movie.mkv","size":123,"md5":"` + hash + `","sliceMd5":"` + strings.Repeat("C", 32) + `"}`))
 	logins, commits, deletes := 0, 0, 0
 	needCaptcha, secondDevice, badPassword, badKey, noHit, failedDelete := false, false, false, false, false, false
 	expired := false
@@ -63,8 +63,12 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 		headers := http.Header{}
 		status := 200
 		if r.Header.Get("SessionKey") != "" {
-			mac := hmac.New(sha1.New, []byte("secret"))
-			fmt.Fprintf(mac, "SessionKey=session&Operate=%s&RequestURI=%s&Date=%s", r.Method, r.URL.Path, r.Header.Get("Date"))
+			mac := hmac.New(sha1.New, []byte("0123456789abcdef"))
+			if strings.HasPrefix(r.URL.Path, "/person/") {
+				fmt.Fprintf(mac, "SessionKey=session&Operate=%s&RequestURI=%s&Date=%s&params=%s", r.Method, r.URL.Path, r.Header.Get("Date"), r.URL.Query().Get("params"))
+			} else {
+				fmt.Fprintf(mac, "SessionKey=session&Operate=%s&RequestURI=%s&Date=%s", r.Method, r.URL.Path, r.Header.Get("Date"))
+			}
 			if r.Header.Get("Signature") != strings.ToUpper(hex.EncodeToString(mac.Sum(nil))) {
 				t.Error("bad signature")
 			}
@@ -120,7 +124,7 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 				t.Error("missing PC session exchange parameters")
 			}
 			// Some upstream responses still use XML despite the requested JSON.
-			raw = `<userSession><res_code>0</res_code><sessionKey>session</sessionKey><sessionSecret>secret</sessionSecret></userSession>`
+			raw = `<userSession><res_code>0</res_code><sessionKey>session</sessionKey><sessionSecret>0123456789abcdef</sessionSecret></userSession>`
 		case "/listFiles.action":
 			raw = fmt.Sprintf(`{"fileListAO":{"fileList":[{"id":10,"name":"Movie.mkv.cas","size":%d}],"folderList":[]}}`, len(cas))
 		case "/getFileDownloadUrl.action":
@@ -136,17 +140,22 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 				t.Error("bad temp parent")
 			}
 			raw = `{"id":"20"}`
-		case "/createUploadFile.action":
-			if r.Form.Get("md5") != strings.ToUpper(hash) || r.Form.Get("parentFolderId") != "20" {
+		case "/person/initMultiUpload":
+			params := tianyiTestUploadParams(t, r, "0123456789abcdef")
+			if params.Get("sliceSize") != "10485760" || params.Get("parentFolderId") != "20" {
 				t.Error("wrong restore parameters")
 			}
-			raw = `{"uploadFileId":30,"fileDataExists":1,"fileCommitUrl":"https://upload.cloud.189.cn/commit"}`
+			raw = `{"uploadFileId":"30"}`
 			if noHit {
-				raw = `{"uploadFileId":30,"fileDataExists":0}`
+				raw = `{"res_code":-1}`
 			}
-		case "/commit":
+		case "/person/commitMultiUploadFile":
+			params := tianyiTestUploadParams(t, r, "0123456789abcdef")
+			if params.Get("fileMd5") != strings.ToUpper(hash) || params.Get("sliceMd5") != strings.Repeat("C", 32) {
+				t.Fatal("lost dual MD5", params)
+			}
 			commits++
-			raw = `<file><id>40</id></file>`
+			raw = `{"file":{"userFileId":"40"}}`
 		case "/batch/createBatchTask.action":
 			deletes++
 			if !strings.Contains(r.Form.Get("taskInfos"), `"fileId":"40"`) || r.Form.Get("type") != "DELETE" {

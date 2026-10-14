@@ -70,6 +70,11 @@ func (a *App) importCAS(w http.ResponseWriter, r *http.Request, ctx context.Cont
 }
 
 func (a *App) restoreCASInto(ctx context.Context, s Storage, parent string, info CASInfo) (resultErr error) {
+	record, recordErr := a.beginCloudCASRecord(s, parent, info)
+	if recordErr != nil {
+		return errors.New("无法保存CAS秒传执行记录，未提交")
+	}
+	defer func() { a.finishCloudCASRecord(record, resultErr == nil) }()
 	stage := "离线秒传目标检查"
 	defer func() {
 		if resultErr != nil {

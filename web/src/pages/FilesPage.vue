@@ -3,6 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, state, bytes, notify } from '../lib'
 import Icon from '../components/Icon.vue'
+import CloudShare from '../components/CloudShare.vue'
+const cloudSharing=ref(false)
 import CASExport from '../components/CASExport.vue'
 import { documentIcon, entryIcon } from '../file-icon'
 import RoundedSelect from '../components/RoundedSelect.vue'
@@ -90,7 +92,7 @@ function saveVisit(action, items) {
 onMounted(() => { if (previousVisits.length) saveVisit('import', previousVisits) })
 const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => { const pool = state.storages.find(s => s.id === v.storage); return { value: String(v.index), provider: pool.type, pool: pool.name, parents: v.history.slice(0,-1).map(h => h.name), deepest: v.history.at(-1)?.name || '根目录', label: `${pool.name} / ${v.history.at(-1)?.name || '根目录'}` } }))
 const casExportOpen=ref(false)
-const casExportSupported=computed(()=>{const s=state.storages.find(s=>s.id===selected.value);return s?.type==='local'||s?.type==='tianyi'&&(!s.config?.mode||s.config.mode==='native')||s?.type==='mobile'&&s.config?.mode==='native'})
+const casExportSupported=computed(()=>state.storages.find(s=>s.id===selected.value)?.type==='local')
 async function visitJump(value) {
   const item = visits.value[Number(value)]
   if (!item || renameID.value || uploadBusy.value) return
@@ -198,6 +200,8 @@ async function extract() {
   finally { extractBusy.value = false }
 }
 const previewImages = ref([])
+const previewVideos = ref([])
+function changeVideo(file) { if (previewVideos.value.some(item => item.id === file.id && item.storage === file.storage)) preview.value = file }
 function openFile(event, file) {
   if (renameID.value) return
   if (file.isDir) return enter(file)
@@ -207,10 +211,11 @@ function openFile(event, file) {
       const parent = file.parent ?? current.value
       const companions = activeFiles.value.filter(f => !f.isDir && (f.parent ?? current.value) === parent).map(f => ({ id: f.id, name: f.name }))
       const context = { storage: selected.value, parent, companions }
-      closeMenu(); openAudio({ ...file, ...context }, visible.value.filter(f => audioFile(f) && f.url && (f.parent ?? current.value) === parent).map(f => ({ ...f, ...context })))
+      closeMenu(); openAudio({ ...file, ...context })
       return
     }
     if (imageFile(file)) previewImages.value = visible.value.filter(f => imageFile(f) && f.url).map(f => ({ ...f }))
+    if (videoFile(file)) previewVideos.value = visible.value.filter(f => videoFile(f) && f.url && (f.parent ?? current.value) === (file.parent ?? current.value)).map(f => ({ ...f, storage: selected.value, parent: f.parent ?? current.value }))
     closeMenu(); preview.value = { ...file, storage: selected.value, parent: file.parent ?? current.value, companions: [] }
   } else context(event, file)
 }
@@ -442,7 +447,7 @@ load()
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :source-label="'/'+history.map(item=>item.name).join('/')" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
-  <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :hover-delay="600" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
+  <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :hover-delay="350" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
       <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="TextCursorInput" />命名工作台</button><button v-if="casExportSupported" role="menuitem" :disabled="busy || !!searchResults || searching || !files.length" @click="casExportOpen=true;createMenu=false"><Icon name="FileArchive" />导出CAS</button></div></Transition>
@@ -477,11 +482,13 @@ load()
     <button v-if="selection.length === 1" @click="rename"><Icon name="Pencil" />重命名</button>
     <button @click="operation = 'move'; closeMenu()"><Icon name="FolderInput" />移动到</button><button @click="operation = 'copy'; closeMenu()"><Icon name="Copy" />复制到</button>
     <button class="danger-text" @click="deleting = true; closeMenu()"><Icon name="Trash2" />删除</button>
+    <button v-if="['115','quark','mobile','tianyi'].includes(state.storages.find(s=>s.id===selected)?.type)" :disabled="!['115','quark'].includes(state.storages.find(s=>s.id===selected)?.type)" @click="cloudSharing=true;closeMenu()"><Icon name="Share2" />分享</button>
     <button @click="showDetails"><Icon name="Info" />查看详情</button>
   </div></Teleport>
   <ImageViewer v-if="preview && imageFile(preview)" :images="previewImages" :initial="preview.id" @close="preview = null" />
+  <CloudShare v-if="cloudSharing" :storage="selected" :parent="current" :files="activeFiles.filter(f=>selection.includes(f.id))" @close="cloudSharing=false" />
   <TextFileEditor v-if="textEditor" v-bind="textEditor" @close="textEditor = null; textRequest++" @saved="load(true)" />
-  <VideoViewer v-else-if="preview && videoFile(preview)" :file="preview" @close="preview = null" />
+  <VideoViewer v-else-if="preview && videoFile(preview)" :file="preview" :queue="previewVideos" @change="changeVideo" @close="preview = null" />
   <Modal v-if="extracting" title="解压压缩包" compact @close="closeExtract"><form @submit.prevent="extract"><div class="modal-body extract-form"><p class="muted">{{ extracting.name }}</p><label>解压目录<input v-model="extractFolder" required maxlength="255" :disabled="extractBusy" /></label><label>解压密码<SecretInput v-model="extractPassword" aria-label="解压密码" autocomplete="off" :disabled="extractBusy" /></label><p v-if="extractError" class="error-message" role="alert">{{ extractError }}</p><p v-if="extractBusy" class="muted" role="status">正在解压并写入存储，请保持窗口打开…</p></div><footer class="modal-footer"><button class="btn primary" :disabled="extractBusy || !extractFolder.trim()"><Icon :name="extractBusy ? 'LoaderCircle' : 'ArchiveRestore'" :class="{ spin: extractBusy }" />{{ extractBusy ? '解压中…' : '确认解压' }}</button><button class="btn" type="button" :disabled="extractBusy" @click="closeExtract">取消</button></footer></form></Modal>
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>

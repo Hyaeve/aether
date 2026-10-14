@@ -57,9 +57,9 @@ test('115 rapid center is first plugin, persists manual directories and confirms
   await page.getByRole('button',{name:'返回页面',exact:true}).click()
   await expect(page).toHaveURL(/\/tools$/)
   await page.getByRole('button',{name:'115 秒传',exact:true}).click()
-  await expect(manual).toContainText('/media/incoming')
+  await expect(manual.getByRole('textbox',{name:'待传目录',exact:true})).toHaveValue('/media/incoming')
   await page.reload()
-  await expect(manual).toContainText('115 主账号 /目标')
+  await expect(manual.getByRole('textbox',{name:'目标目录',exact:true})).toHaveValue('/目标')
 })
 
 test('115 rapid monitor edits use standard modal and monitor inner scroll chains to page',async({page},info)=>{
@@ -157,18 +157,40 @@ test('ED2K binding settings sit beside 115 accounts and autosave without a heade
 test('rapid controls share editor height, icon presets and nested day/night surfaces; monitors reuse backup filters',async({page},info)=>{
  const f=await fixture(page);await page.goto('/tools/115-rapid');await expect(page.getByRole('button',{name:'添加监控',exact:true})).toBeEnabled()
  const manual=page.locator('.rapid115-top>.rapid115-section').first()
- const sizes=await manual.locator('.directory-choice,.rounded-select-trigger,.rapid115-extensions input').evaluateAll(els=>els.map(el=>Math.round(el.getBoundingClientRect().height)));expect(new Set(sizes)).toEqual(new Set([40]))
+ const sizes=await manual.locator('.directory-input input,.rounded-select-trigger,.rapid115-extensions input').evaluateAll(els=>els.map(el=>Math.round(el.getBoundingClientRect().height)));expect(new Set(sizes)).toEqual(new Set([40]))
  await expect(page.getByRole('button',{name:'开始秒传',exact:true})).toHaveCSS('height','36px')
- await expect(manual.locator('.directory-choice').first().locator('svg')).toHaveClass(/lucide-folder-open/)
- const rects=await manual.locator('.directory-choice').first().evaluate(el=>({icon:el.querySelector('svg').getBoundingClientRect().x,text:el.querySelector('span').getBoundingClientRect().x}));expect(rects.icon).toBeGreaterThan(rects.text)
+ await expect(manual.locator('.directory-input').first().locator('svg')).toHaveClass(/lucide-folder-open/)
+ const rects=await manual.locator('.directory-input').first().evaluate(el=>({icon:el.querySelector('svg').getBoundingClientRect().x,text:el.querySelector('input').getBoundingClientRect().x}));expect(rects.icon).toBeGreaterThan(rects.text)
  const preset=manual.getByRole('button',{name:'视频扩展名'});const normal=await preset.evaluate(el=>getComputedStyle(el).color);await preset.hover();await expect.poll(()=>preset.evaluate(el=>getComputedStyle(el).color)).not.toBe(normal);const hover=await preset.evaluate(el=>getComputedStyle(el).color);await preset.click();await page.mouse.move(800,80);await expect(preset).toHaveAttribute('aria-pressed','true');expect(await preset.evaluate(el=>getComputedStyle(el).color)).not.toBe(hover);await expect(preset).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
  await page.getByRole('button',{name:'添加监控',exact:true}).click();const modal=page.getByRole('dialog',{name:'添加监控',exact:true});await modal.getByLabel('监控名称').fill('筛选监控');await modal.getByRole('button',{name:'选择待传目录'}).click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click();await modal.getByRole('button',{name:'选择秒传目标目录'}).click();await page.getByRole('dialog',{name:'选择存储目录'}).getByRole('button',{name:'选择当前目录',exact:true}).click()
  await modal.getByRole('button',{name:'添加规则',exact:true}).click();await page.getByRole('dialog',{name:'选择规则类型'}).getByRole('button',{name:'扩展名',exact:true}).click();await modal.getByRole('textbox',{name:'匹配内容 1',exact:true}).fill('.MKV');await modal.getByRole('textbox',{name:'匹配内容 1',exact:true}).press('Enter');await expect(modal.locator('.backup-token')).toHaveText('mkv')
  const luminance=value=>{const c=value.match(/[\d.]+/g).slice(0,3).map(Number);return c[0]+c[1]+c[2]}
- for(const theme of ['light','dark']){await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);const inputColor=theme==='light'?'rgb(255, 255, 255)':'rgb(41, 44, 52)';await expect(modal.locator('.backup-filter input').last()).toHaveCSS('background-color',inputColor);for(const selector of ['.source-trigger','.rounded-select-trigger'])await expect(modal.locator(selector).first()).toHaveCSS('background-color',inputColor);const colors=await modal.evaluate(el=>[el,el.querySelector('.backup-filter-frame'),el.querySelector('.backup-filter'),el.querySelector('.backup-token-input input')].map(e=>getComputedStyle(e).backgroundColor));const levels=colors.map(luminance);expect(levels[3]>levels[2]&&levels[2]>levels[1]).toBe(true);await page.screenshot({path:info.outputPath(`rapid-monitor-filters-${theme}.png`)})}
+ for(const theme of ['light','dark']){await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);const inputColor=theme==='light'?'rgb(255, 255, 255)':'rgb(41, 44, 52)';await expect(modal.locator('.backup-filter input').last()).toHaveCSS('background-color',inputColor);for(const selector of ['.directory-input input','.rounded-select-trigger','.backup-token'])await expect(modal.locator(selector).first()).toHaveCSS('background-color',inputColor);const colors=await modal.evaluate(el=>[el,el.querySelector('.backup-filter-frame'),el.querySelector('.backup-filter'),el.querySelector('.backup-token-input input')].map(e=>getComputedStyle(e).backgroundColor));const levels=colors.map(luminance);expect(levels[3]>levels[2]&&levels[2]>levels[1]).toBe(true);await page.screenshot({path:info.outputPath(`rapid-monitor-filters-${theme}.png`)})}
  await modal.getByRole('button',{name:'添加',exact:true}).click();await expect.poll(()=>f.config.watches[0]?.filters?.[0]?.value).toBe('mkv')
 })
 
 test('simulcast directory picker preserves every chosen path segment',async({page})=>{
  await fixture(page);let saved={};await page.route('**/api/115-simulcast',r=>{if(r.request().method()==='PUT')saved=r.request().postDataJSON();return r.fulfill({json:saved})});await page.route('**/api/files?**',r=>{const path=new URL(r.request().url()).searchParams.get('path');return r.fulfill({json:path==='/'?[{id:'1',name:'影视',isDir:true}]:path==='1'?[{id:'2',name:'副本',isDir:true}]:[]})});await page.goto('/tools');await page.getByRole('button',{name:'115 同播复制',exact:true}).click();await page.getByRole('button',{name:'存储绑定',exact:true}).click();const modal=page.getByRole('dialog',{name:'添加同播复制'});await modal.getByRole('button',{name:'115 存储',exact:true}).click();await modal.getByRole('option',{name:'115 主账号'}).click();await modal.getByRole('button',{name:'选择复制目录'}).click();await page.getByRole('dialog',{name:'选择存储目录'}).getByRole('button',{name:'影视',exact:true}).click();await page.getByRole('button',{name:'副本',exact:true}).click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click();await expect(modal.getByRole('button',{name:'选择复制目录'})).toContainText('/影视/副本');await modal.getByRole('button',{name:'保存',exact:true}).click();expect(saved.p1.directoryLabel).toBe('/影视/副本')
+})
+
+test('editable rapid directories start empty, resolve paths before saving and never reuse an invalid target',async({page})=>{
+ const f=await fixture(page);await page.route('**/api/files?**',r=>{const p=new URL(r.request().url()).searchParams.get('path');return r.fulfill({json:p==='/'?[{id:'1',name:'影视',isDir:true}]:p==='1'?[{id:'2',name:'接收',isDir:true}]:[]})})
+ await page.goto('/tools/115-rapid');const manual=page.locator('.rapid115-top>.rapid115-section').first(),source=manual.getByRole('textbox',{name:'待传目录',exact:true}),target=manual.getByRole('textbox',{name:'目标目录',exact:true})
+ for(const input of [source,target]){await expect(input).toHaveValue('');expect(await input.getAttribute('placeholder')).toBeNull()}
+ await source.fill('/media/incoming');await source.press('Enter');await expect.poll(()=>f.config.manual.source).toBe('/media/incoming')
+ await target.fill('/影视/接收');await target.press('Enter');await expect.poll(()=>f.config.manual.target).toBe('2');expect(f.config.manual.storageId).toBe('p1')
+ await expect(manual.getByRole('button',{name:'开始秒传',exact:true})).toBeEnabled()
+ await target.fill('/不存在');await target.press('Enter');await expect(page.getByRole('alert')).toContainText('目标目录不存在');await expect(manual.getByRole('button',{name:'开始秒传',exact:true})).toBeDisabled()
+ await target.fill('');await target.press('Enter');await expect.poll(()=>f.config.manual.target).toBe('');await expect(target).toHaveValue('')
+ await page.getByRole('button',{name:'添加监控',exact:true}).click();const editor=page.getByRole('dialog',{name:'添加监控',exact:true});await expect(editor.getByRole('textbox',{name:'待传目录',exact:true})).toHaveValue('');await expect(editor.getByRole('textbox',{name:'目标目录',exact:true})).toHaveValue('');await editor.getByLabel('监控名称').fill('手动路径');await editor.getByRole('textbox',{name:'待传目录',exact:true}).fill('/media/watch');await editor.getByRole('textbox',{name:'目标目录',exact:true}).fill('/影视/接收');await editor.getByRole('textbox',{name:'目标目录',exact:true}).press('Enter');await editor.getByRole('button',{name:'添加',exact:true}).click();await expect.poll(()=>f.config.watches[0]?.target).toBe('2')
+})
+
+test('a late directory lookup cannot restore a target after it is cleared',async({page})=>{
+ const f=await fixture(page);let release,started
+ const requested=new Promise(resolve=>started=resolve),gate=new Promise(resolve=>release=resolve)
+ await page.route('**/api/files?**',async r=>{started();await gate;await r.fulfill({json:[{id:'late',name:'迟到',isDir:true}]})})
+ await page.goto('/tools/115-rapid');const target=page.getByRole('textbox',{name:'目标目录',exact:true})
+ await target.fill('/迟到');await target.press('Enter');await requested
+ await target.fill('');await target.press('Enter');release()
+ await expect.poll(()=>f.config.manual.target).toBe('');await expect(target).toHaveValue('');await expect(page.getByRole('button',{name:'开始秒传',exact:true})).toBeDisabled()
 })

@@ -84,18 +84,22 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 					}
 				case "/listFiles.action":
 					raw = `{"fileListAO":{"folderList":[{"id":20,"name":"Aether"}],"fileList":[]}}`
-				case "/createUploadFile.action":
+				case "/person/initMultiUpload":
 					writes = append(writes, "tianyi")
-					_ = r.ParseForm()
-					if r.Form.Get("md5") != strings.Repeat("B", 32) {
-						t.Error("fallback lost MD5")
+					params := tianyiTestUploadParams(t, r, "0123456789abcdef")
+					if params.Get("sliceSize") != "10485760" {
+						t.Error("fallback lost slice size")
 					}
 					if tc.both {
 						status = 503
 					}
-					raw = `{"uploadFileId":30,"fileDataExists":1,"fileCommitUrl":"https://upload.cloud.189.cn/commit"}`
-				case "/commit":
-					raw = `<file><id>40</id></file>`
+					raw = `{"uploadFileId":"30"}`
+				case "/person/commitMultiUploadFile":
+					params := tianyiTestUploadParams(t, r, "0123456789abcdef")
+					if params.Get("fileMd5") != strings.Repeat("B", 32) || params.Get("sliceMd5") != strings.Repeat("C", 32) {
+						t.Error("fallback lost dual MD5")
+					}
+					raw = `{"file":{"userFileId":"40"}}`
 				case "/getFileDownloadUrl.action":
 					raw = `{"fileDownloadUrl":"https://media.example/tianyi"}`
 				default:
@@ -110,7 +114,7 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 			})}
 			info := casPoolRevisionInfo()
 			if tc.single {
-				info.MD5 = ""
+				info.MD5, info.SliceMD5, info.SliceSize = "", "", 0
 			}
 			claim := streamClaim{CAS: &info, Redirect: true}
 			if tc.bound {

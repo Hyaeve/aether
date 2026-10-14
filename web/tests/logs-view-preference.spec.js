@@ -126,3 +126,14 @@ test('day stripes differ from the page background and keep their parity while vi
   expect(nightColors[0]).not.toBe(nightColors[1])
   await page.screenshot({ path: info.outputPath('log-stripes-night.png') })
 })
+
+test('transfer lifecycle logs have a dedicated module filter',async({page})=>{
+  await mockWorkspace(page)
+  await page.route('**/api/logs',route=>route.fulfill({json:[...logs,{time:'2026-10-14T23:00:00+08:00',level:'error',module:'transfers',message:'传输下载：文件 movie.mkv：上游响应提前结束，读取内容不完整'}]}))
+  await page.goto('/logs')
+  await page.getByRole('button',{name:'日志模块',exact:true}).click()
+  await page.getByRole('option',{name:'传输中心',exact:true}).click()
+  await expect(page.locator('.log-panel footer')).toHaveText('1 条记录')
+  await expect(page.locator('.log-entry')).toContainText('movie.mkv')
+  await expect(page.locator('.log-module')).toHaveText('传输中心')
+})

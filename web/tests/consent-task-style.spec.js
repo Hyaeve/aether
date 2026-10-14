@@ -94,6 +94,6 @@ test('entry highlights only its tall icon, tooltip needs a stationary pointer an
   await root.evaluate(async el=>{await Promise.all(el.getAnimations().map(a=>a.finished))})
   await page.screenshot({path:info.outputPath('pool-entered.png')})
   await page.getByRole('button',{name:'返回 CAS 任务',exact:true}).click()
-  await expect(root).toHaveCSS('animation-duration','0.48s')
+  await expect(root).toHaveCSS('animation-duration','0.32s')
   await expect(page).toHaveURL(/\/tasks\/cas$/)
 })

@@ -95,8 +95,8 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s, err := a.store.storage(v.StorageID)
-	if err != nil || !s.Enabled || s.Type != "local" && !casStorage(s) {
-		fail(w, 400, errors.New("CAS导出仅支持本地、原生移动或天翼存储"))
+	if err != nil || !s.Enabled || s.Type != "local" {
+		fail(w, 400, errors.New("CAS导出仅支持本地存储，完整计算SHA256、MD5和分片MD5"))
 		return
 	}
 	if err := storageAuthBlocked(s, time.Now()); err != nil {
@@ -133,6 +133,7 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("所选范围没有符合扩展名的媒体文件"))
 		return
 	}
+	casExportProgress(ctx, 0, len(items))
 	release, err := a.controlPreprocess(ctx)
 	if err != nil {
 		fail(w, 408, err)
@@ -159,7 +160,7 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 		archive = zip.NewWriter(temp)
 	}
 	paths := map[string]bool{}
-	for _, item := range items {
+	for index, item := range items {
 		if err := ctx.Err(); err != nil {
 			fail(w, 408, errors.New("导出已取消或超时"))
 			return
@@ -203,6 +204,7 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, errors.New("导出包超过64MiB"))
 			return
 		}
+		casExportProgress(ctx, index+1, len(items))
 	}
 	if archive != nil {
 		if err = archive.Close(); err != nil {

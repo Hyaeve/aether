@@ -513,18 +513,21 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 	if h.cacheKey != "" && h.cacheSize > 0 {
 		s, e := h.node.backend.app.store.storage(h.cacheStorage)
 		if e != nil {
+			if file, ok := h.file.(*davFile); ok {
+				file.stopMountStream()
+			}
 			return nil, fuseErr(e)
 		}
 		if shareConfig(s) != h.cacheConfig {
+			if file, ok := h.file.(*davFile); ok {
+				file.stopMountStream()
+			}
 			return nil, syscall.ESTALE
 		}
 		read := func(buf []byte, position int64) (int, error) {
 			if s.Type == "115" {
 				if file, ok := h.file.(*davFile); ok {
 					n, err := h.node.backend.app.readMount115(ctx, s.ID, file, buf, position)
-					if e := h.node.backend.app.limitTransferBytes(ctx, "download", n); e != nil {
-						return 0, e
-					}
 					h.progress.add(n)
 					return n, err
 				}
@@ -550,9 +553,12 @@ func (h *nativeFuseHandle) Read(ctx context.Context, data []byte, off int64) (fu
 			start := position / fuseBlockSize * fuseBlockSize
 			if h.hotKey != key || h.hotStart != start || len(h.hotBlock) == 0 {
 				if h.hotKey != "" && h.hotKey != key {
-					if file, ok := h.file.(*davFile); ok && file.body != nil {
-						file.body.Close()
-						file.body = nil
+					if file, ok := h.file.(*davFile); ok {
+						file.stopMountStream()
+						if file.body != nil {
+							file.body.Close()
+							file.body = nil
+						}
 					}
 				}
 				h.hotBlock = nil

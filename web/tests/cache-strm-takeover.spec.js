@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import { captureScreenshot } from './helpers/screenshot.js'
 
 async function workspace(page) {
+	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
+	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))
   await page.route('**/api/plugins/*', r => r.fulfill({ json: { enabled: false, token: '' } }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   const snapshot = {

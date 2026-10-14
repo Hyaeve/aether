@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -93,6 +94,38 @@ type transferProgress struct {
 	resourceMu sync.Mutex
 	release    func()
 	ignored    bool
+	entry      transferEntry
+}
+
+func (a *App) transferEvent(level string, entry transferEntry, result string) {
+	if a == nil || a.store == nil || entry.ID == "" {
+		return
+	}
+	kind := map[string]string{"upload": "上传", "download": "下载", "copy": "复制"}[entry.Kind]
+	if kind == "" {
+		kind = "传输"
+	}
+	a.store.event(level, "transfers", fmt.Sprintf("传输%s：任务 %q，来源 %q，存储池 %q，文件 %q，已处理 %d/%d 字节：%s", kind, entry.ID, entry.Source, entry.Storage, entry.Name, entry.Done, entry.Total, result))
+}
+
+// Error text can contain signed URLs, credentials and upstream response bodies.
+func transferFailureReason(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "已取消或连接中断"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "读取或传输超时"
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "上游响应提前结束，读取内容不完整"
+	case errors.Is(err, io.ErrShortWrite):
+		return "写入内容不完整"
+	case errors.Is(err, os.ErrPermission):
+		return "存储权限不足"
+	case errors.Is(err, os.ErrNotExist):
+		return "源文件或目标目录不存在"
+	default:
+		return "操作失败，请检查存储状态、网络及对应模块日志"
+	}
 }
 
 func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name string, total int64) *transferProgress {
@@ -124,12 +157,14 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 			delete(l.items, oldest)
 		} else {
 			l.mu.Unlock()
-			return &transferProgress{meter: &a.traffic, kind: kind, app: a, ctx: ctx, cancel: cancel}
+			a.transferEvent("info", entry, "开始（任务列表已达上限，仍记录执行结果）")
+			return &transferProgress{meter: &a.traffic, kind: kind, app: a, ctx: ctx, cancel: cancel, entry: entry}
 		}
 	}
 	l.items[entry.ID] = entry
 	l.mu.Unlock()
-	return &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind, ctx: ctx, app: a, cancel: cancel, ignored: kind == "upload" && a.transferIgnored(name)}
+	a.transferEvent("info", entry, "开始")
+	return &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind, ctx: ctx, app: a, cancel: cancel, entry: entry, ignored: kind == "upload" && a.transferIgnored(name)}
 }
 
 // Pause at IO boundaries without buffering the remaining file in memory.
@@ -208,7 +243,15 @@ func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
 	}
 	l := &a.transfers
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	var eventEntry transferEntry
+	var result string
+	level := "info"
+	defer func() {
+		l.mu.Unlock()
+		if result != "" {
+			a.transferEvent(level, eventEntry, result)
+		}
+	}()
 	entry, ok := l.items[in.ID]
 	if !ok {
 		fail(w, 404, errors.New("传输任务不存在"))
@@ -220,12 +263,20 @@ func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, errors.New("此任务不支持暂停或继续，请重新发起失败的传输"))
 			return
 		}
+		before := entry.Status
 		entry.Status = "paused"
 		if in.Action == "resume" {
 			entry.Status = "running"
 		}
 		entry.Updated = time.Now()
 		l.items[in.ID] = entry
+		if before != entry.Status {
+			eventEntry = entry
+			result = "暂停"
+			if in.Action == "resume" {
+				result = "继续"
+			}
+		}
 	case "delete":
 		if entry.Kind == "copy" && entry.Status == "running" {
 			fail(w, 409, errors.New("云端复制提交后不能中断，请等待结束"))
@@ -238,6 +289,11 @@ func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
 		if err := l.saveFailures(); err != nil {
 			fail(w, 500, errors.New("保存传输记录失败"))
 			return
+		}
+		eventEntry = entry
+		result = "清理传输记录"
+		if entry.Status == "running" || entry.Status == "paused" {
+			level, result = "warn", "取消传输并清理记录"
 		}
 	default:
 		fail(w, 400, errors.New("无效的传输操作"))
@@ -290,13 +346,27 @@ func (p *transferProgress) finish(err error) {
 			p.release = nil
 		}
 		p.resourceMu.Unlock()
+		logResult := func(entry transferEntry) {
+			level, result := "info", "完成"
+			if err == nil && entry.Kind == "download" && entry.Total > 0 && entry.Done < entry.Total {
+				result = "读取结束（本次按需读取，未读取整个文件）"
+			}
+			if err != nil {
+				level, result = "error", transferFailureReason(err)
+				if errors.Is(err, context.Canceled) {
+					level = "warn"
+				}
+			}
+			p.app.transferEvent(level, entry, result)
+		}
 		if p.log == nil {
+			logResult(p.entry)
 			return
 		}
 		p.log.mu.Lock()
-		defer p.log.mu.Unlock()
 		entry, ok := p.log.items[p.id]
 		if !ok {
+			p.log.mu.Unlock()
 			return
 		}
 		entry.Status = "completed"
@@ -314,12 +384,15 @@ func (p *transferProgress) finish(err error) {
 				log.Printf("传输失败记录保存失败：%v", saveErr)
 			}
 		}
+		p.log.mu.Unlock()
+		logResult(entry)
 	})
 }
 func (a *App) transferList(w http.ResponseWriter, r *http.Request) {
 	a.transfers.mu.Lock()
 	changed := false
 	items := make([]transferEntry, 0, len(a.transfers.items))
+	cleared := 0
 	for _, item := range a.transfers.items {
 		if (item.Status == "completed" && time.Since(item.Updated) >= time.Minute) || (item.Status == "failed" && time.Since(item.Updated) > 72*time.Hour) {
 			delete(a.transfers.items, item.ID)
@@ -329,6 +402,7 @@ func (a *App) transferList(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "DELETE" && item.Status == "failed" {
 			delete(a.transfers.items, item.ID)
 			changed = true
+			cleared++
 			continue
 		}
 		item.Speed = 0
@@ -345,6 +419,9 @@ func (a *App) transferList(w http.ResponseWriter, r *http.Request) {
 	if saveErr != nil {
 		fail(w, 500, errors.New("保存传输记录失败"))
 		return
+	}
+	if cleared > 0 && a.store != nil {
+		a.store.event("info", "transfers", fmt.Sprintf("清理失败传输记录：%d 项", cleared))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Started.After(items[j].Started) })
 	jsonResponse(w, 200, items)

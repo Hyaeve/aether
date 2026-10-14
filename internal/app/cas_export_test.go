@@ -4,17 +4,13 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestCASExportPackagesStructureSingleAndSharedDirectory(t *testing.T) {
@@ -121,70 +117,30 @@ func TestCASExportCancellationAndSelectionBounds(t *testing.T) {
 	}
 }
 
-func TestCASExportCloudHashesWithoutMediaDownload(t *testing.T) {
-	for _, kind := range []string{"mobile", "tianyi"} {
-		t.Run(kind, func(t *testing.T) {
-			a := testApp(t)
-			s := Storage{ID: kind, Type: kind, Enabled: true, Config: map[string]string{"mode": "native", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:13900000000:token")), "username": "account", "password": "secret"}}
-			if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil }); err != nil {
-				t.Fatal(err)
+func TestCASExportRejectsCloudSourcesBeforeUpstreamRead(t *testing.T) {
+	a := testApp(t)
+	a.store.update(func(st *State) error {
+		st.Storages = []Storage{
+			{ID: "mobile", Type: "mobile", Enabled: true, Config: map[string]string{"mode": "native"}},
+			{ID: "tianyi", Type: "tianyi", Enabled: true, Config: map[string]string{"username": "test", "password": "test"}},
+		}
+		return nil
+	})
+	old := apiClient
+	defer func() { apiClient = old }()
+	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+		t.Fatalf("cloud export contacted upstream: %s", r.URL.Path)
+		return nil, nil
+	})}
+	h := a.Handler(t.TempDir())
+	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
+	for _, sid := range []string{"mobile", "tianyi"} {
+		for _, endpoint := range []string{"/api/files/cas-export", "/api/files/cas-export/jobs"} {
+			w := request(t, h, "POST", endpoint, casExportRequest{StorageID: sid, Source: "/", IDs: []string{"file"}, Confirm: true}, cookie)
+			if w.Code != 400 {
+				t.Fatal("cloud export accepted", w.Code, w.Body.String())
 			}
-			a.tianyiSessions[s.ID] = tianyiSession{Key: "session", Secret: "0123456789abcdef", Credentials: sha256.Sum256([]byte("account\x00secret")), Expires: time.Now().Add(time.Hour)}
-			old := apiClient
-			defer func() { apiClient = old }()
-			apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
-				body := ""
-				switch r.URL.Path {
-				case "/user/route/qryRoutePolicy":
-					body = `{"success":true,"data":{"routePolicyList":[{"modName":"personal","httpsUrl":"https://personal.yun.139.com"}]}}`
-				case "/file/list":
-					body = `{"success":true,"data":{"items":[{"fileId":"file2","name":"z.mp4","type":"file","size":5,"contentHashAlgorithm":"SHA256","contentHash":"` + strings.Repeat("c", 64) + `"},{"fileId":"file","name":"cloud.mp4","type":"file","size":5,"contentHashAlgorithm":"SHA256","contentHash":"` + strings.Repeat("a", 64) + `"}]}}`
-				case "/listFiles.action":
-					body = `{"fileListAO":{"folderList":[],"fileList":[{"id":31,"name":"z.mp4","size":5,"md5":"` + strings.Repeat("d", 32) + `"},{"id":30,"name":"cloud.mp4","size":5,"md5":"` + strings.Repeat("b", 32) + `"}]}}`
-				default:
-					t.Fatalf("must not download media: %s", r.URL.Path)
-				}
-				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
-			})}
-			h := a.Handler(t.TempDir())
-			cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
-			id := "file"
-			if kind == "tianyi" {
-				id = "30"
-			}
-			w := request(t, h, "POST", "/api/files/cas-export", casExportRequest{StorageID: s.ID, Source: "/", IDs: []string{id}, Confirm: true}, cookie)
-			if w.Code != 200 {
-				t.Fatal(w.Code, w.Body.String())
-			}
-			var info CASInfo
-			if json.Unmarshal(w.Body.Bytes(), &info) != nil || validateCAS(info) != nil {
-				t.Fatal(w.Body.String())
-			}
-			if kind == "mobile" && info.SHA256 == "" || kind == "tianyi" && info.MD5 == "" {
-				t.Fatal("missing cloud feature", info)
-			}
-			secondID := "file2"
-			if kind == "tianyi" {
-				secondID = "31"
-			}
-			for _, ids := range [][]string{{secondID, id}, {id, secondID}} {
-				w := request(t, h, "POST", "/api/files/cas-export", casExportRequest{StorageID: s.ID, Source: "/", IDs: ids, Confirm: true}, cookie)
-				if w.Code != 200 {
-					t.Fatal(w.Code, w.Body.String())
-				}
-				archive, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
-				if err != nil {
-					t.Fatal(err)
-				}
-				names := []string{}
-				for _, member := range archive.File {
-					names = append(names, member.Name)
-				}
-				if !reflect.DeepEqual(names, []string{"cloud.mp4.cas", "z.mp4.cas"}) {
-					t.Fatal("ZIP order depends on upstream or selection order", names)
-				}
-			}
-		})
+		}
 	}
 }
 

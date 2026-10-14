@@ -6,7 +6,7 @@ import VirtualList from './VirtualList.vue'
 import { audioSource, readAudioMetadata, readLRC } from '../audio-metadata'
 import {state} from '../lib'
 const props = defineProps({ file: Object, queue: { type: Array, default: () => [] }, activation: Number })
-const emit = defineEmits(['close', 'change'])
+const emit = defineEmits(['close', 'change', 'remove'])
 const panel = ref(null), player = ref(null), failed = ref(false), playing = ref(false)
 const cover = ref(''), metadata = ref({}), lyrics = ref([]), loading = ref(false), position = ref(0), duration = ref(0), lyricsPanel = ref(null)
 const expanded = ref(true), view = ref('cover'), mode = ref('order'), capsule = ref(null)
@@ -20,6 +20,7 @@ function restoreMode(){try{const saved=localStorage.getItem(modeKey.value);mode.
 watch(modeKey,restoreMode,{immediate:true})
 watch(mode,value=>{try{localStorage.setItem(modeKey.value,value)}catch{}})
 const tracks = computed(() => props.queue.length ? props.queue : [props.file])
+const queueRows = computed(() => tracks.value.map(file => ({ id: JSON.stringify([file.storage, file.id]), file })))
 const trackIndex = computed(() => tracks.value.findIndex(file => file.id === props.file.id && file.storage === props.file.storage))
 const canSkip = computed(() => tracks.value.length > 1)
 const title = computed(() => metadata.value.title || props.file.name)
@@ -95,6 +96,11 @@ function selectTrack(index) {
   if (index === trackIndex.value) { seek(0); play(); return }
   emit('change', file)
 }
+function removeTrack(file) {
+  if (file.id === props.file.id && file.storage === props.file.storage) player.value?.pause()
+  emit('remove', file)
+}
+watch(() => props.queue, () => { shuffleBag = []; shuffleHistory = [] })
 function skip(direction, automatic = false) {
   if (automatic && mode.value === 'single') { seek(0); play(); return }
   if (!canSkip.value) {
@@ -192,7 +198,7 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
               <div class="audio-cover-lyrics"><template v-if="lyrics.length"><button v-for="(line, i) in lyrics.slice(Math.max(0, activeLine), Math.max(0, activeLine) + 2)" :key="i" class="lyric-line" :aria-current="line === lyrics[activeLine] ? 'true' : undefined" @click="line.time !== null && seek(line.time)">{{ line.text }}</button></template><p v-else class="audio-lyrics-empty">{{ currentLyric }}</p></div>
             </ThinScroll>
             <div v-else-if="view === 'lyrics'" key="lyrics" class="audio-lyric-view"><button class="audio-view-back" aria-label="返回封面" @click="view = 'cover'"><Icon name="ChevronLeft" :size="17" />{{ metadata.artist || title }}</button><ThinScroll v-if="lyrics.length" ref="lyricsPanel" class="audio-lyrics" content-class="audio-lyrics-lines"><template v-for="(line, i) in lyrics" :key="i"><button v-if="line.time !== null" class="lyric-line" :class="{ current: activeLine === i }" :aria-current="activeLine === i ? 'true' : undefined" :data-line="i" @click="seek(line.time)">{{ line.text }}</button><p v-else class="lyric-line" :data-line="i">{{ line.text }}</p></template></ThinScroll><p v-else class="audio-lyrics-empty">{{ currentLyric }}</p></div>
-            <div v-else key="queue" class="audio-queue-view"><button class="audio-view-back" @click="view = 'cover'"><Icon name="ChevronLeft" :size="17" />播放列表 · {{ tracks.length }}</button><VirtualList :items="tracks" :row-height="52" role="listbox" aria-label="播放列表"><template #default="{ item, index }"><button class="audio-track" role="option" :aria-selected="index === trackIndex" @click="selectTrack(index); view = 'cover'"><Icon :name="index === trackIndex && playing ? 'Music' : 'FileAudio2'" :size="19" /><span>{{ item.name }}</span><Icon v-if="index === trackIndex" name="Check" :size="16" /></button></template></VirtualList></div>
+            <div v-else key="queue" class="audio-queue-view"><button class="audio-view-back" @click="view = 'cover'"><Icon name="ChevronLeft" :size="17" />播放列表 · {{ tracks.length }}</button><VirtualList :items="queueRows" :row-height="52" role="listbox" aria-label="播放列表"><template #default="{ item, index }"><div class="audio-track-row" :class="{active:index === trackIndex}"><button class="audio-track" role="option" :aria-selected="index === trackIndex" @click="selectTrack(index); view = 'cover'"><Icon :name="index === trackIndex && playing ? 'Music' : 'FileAudio2'" :size="19" /><span>{{ item.file.name }}</span></button><button class="icon-btn audio-track-remove" :aria-label="`移除 ${item.file.name}`" @click.stop="removeTrack(item.file)"><Icon name="X" :size="15" /></button></div></template></VirtualList></div>
           </Transition>
         </div>
         <div class="audio-info"><div><h2>{{ title }}</h2><p v-if="metadata.artist || metadata.album" class="audio-artist">{{ [metadata.artist, metadata.album].filter(Boolean).join(' · ') }}</p></div><div class="audio-more" :class="{open:more}" @mouseenter="more = true; volumeOpen = false" @mouseleave="more = false"><button class="icon-btn" aria-label="音频操作" :aria-expanded="more" @click="more = true; volumeOpen = false"><Icon name="Ellipsis" /></button><Transition name="audio-tools"><div v-if="more" class="audio-popover" role="menu"><a role="menuitem" :href="`${file.url}${file.url.includes('?') ? '&' : '?'}download=1`" :download="file.name"><Icon name="Download" :size="18" />下载</a><button role="menuitem" @click="view = 'queue'; more = false"><Icon name="List" :size="18" />播放列表</button></div></Transition></div></div>
@@ -248,6 +254,13 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 .audio-capsule { width:min(148px,calc(100vw - 16px));height:44px;padding:5px 8px 5px 6px;gap:8px;border-radius:22px 0 0 22px;background:color-mix(in srgb,var(--surface) 48%,transparent);backdrop-filter:blur(24px) saturate(1.5);transition:box-shadow .2s; }.audio-capsule.dock-left { border-radius:0 22px 22px 0; }.audio-capsule .capsule-title {font-size:14px;font-weight:500;opacity:1;text-overflow:clip}.audio-capsule .capsule-disc {position:relative;display:flex;align-items:center;justify-content:center;width:32px;height:32px;flex:none;overflow:visible}.audio-capsule .capsule-cover {width:30px;height:30px;border-radius:50%;object-fit:cover}.capsule-halo {position:absolute;inset:0;border:1px solid #ffffff9c;border-radius:50%;animation:audio-halo 1.8s ease-out infinite;pointer-events:none}.audio-capsule:not(.has-artwork) .capsule-halo {border-color:var(--primary)}.audio-capsule.dragging {transition:none}
 @keyframes audio-halo {from{transform:scale(.9);opacity:.8}to{transform:scale(1.4);opacity:0}}
 @media(prefers-reduced-motion:reduce) {.audio-capsule,.audio-popover,.audio-more::before,.audio-volume::before,.audio-tools-enter-active,.audio-tools-leave-active{transition:none;animation:none}.capsule-halo{animation:none;opacity:.4}}
+</style>
+<style scoped>
+.audio-player .audio-more.open::before,.audio-player .audio-volume.open::before{background:color-mix(in srgb,var(--surface) 90%,transparent);backdrop-filter:blur(36px) saturate(1.2);box-shadow:inset 0 1px 0 #ffffff24,0 6px 24px #0002;border-color:color-mix(in srgb,var(--text) 9%,transparent)}
+.audio-player.has-artwork .audio-more.open::before,.audio-player.has-artwork .audio-volume.open::before{background:#465359e0}
+.has-artwork .audio-popover{color:var(--text)}
+.audio-track-row .audio-track-remove{width:28px;height:28px;min-height:28px}
+.audio-track-row{display:flex;align-items:center;position:relative;border-radius:6px;height:52px;min-width:0}.audio-track-row.active{background:var(--primary-soft)}.audio-track-row.active .audio-track{color:var(--primary)}.audio-track{flex:1;min-width:0;height:100%;padding-right:36px}.audio-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.audio-track-remove{position:absolute;right:4px;width:28px;height:28px;opacity:0;transition:opacity .15s}.audio-track-row:hover .audio-track-remove,.audio-track-row:focus-within .audio-track-remove{opacity:1}@media(hover:none){.audio-track-remove{opacity:1}}
 </style>
 <style scoped>
 .audio-player-shell.dock-left{justify-content:flex-start}.dock-left .audio-player{border-left:0;border-right:1px solid var(--border);border-radius:0 16px 16px 0;box-shadow:12px 0 50px #0b173321}.audio-player header{justify-content:space-between}.audio-player header>span{flex:1;text-align:center}.dock-left .audio-collapse{order:2}.dock-left .audio-slide-enter-from,.dock-left .audio-slide-leave-to{transform:translateX(-100%)}

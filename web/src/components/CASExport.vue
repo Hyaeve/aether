@@ -1,17 +1,18 @@
 <script setup>
 import {computed,onMounted,onBeforeUnmount,ref} from 'vue'
-import {api,notify,state} from '../lib'
+import {api,state} from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import VirtualList from './VirtualList.vue'
 import LocalDirectoryPicker from './LocalDirectoryPicker.vue'
 import ExtensionPresets from './ExtensionPresets.vue'
 import {entryIcon} from '../file-icon'
+import {trackCASExport} from '../cas-export-jobs'
 const props=defineProps({storage:String,source:String,sourceLabel:String,files:Array,selected:Array})
 const emit=defineEmits(['close'])
 const owner=state.username
 const scope=ref(!props.selected.length),nodes=ref([]),directory=ref(''),extensions=ref(''),picker=ref(false),confirm=ref(false),busy=ref(false),error=ref(''),chosen=ref([...props.selected])
-let alive=true,controller
+let alive=true
 function make(files,parent=null){return files.map(f=>({file:f,parent,checked:true,open:false,children:null,loading:false}))}
 const mixed=node=>node.children?.some(n=>n.checked||mixed(n))&&!node.checked
 function toggle(node,value){node.checked=value;for(const child of node.children||[])toggle(child,value);for(let parent=node.parent;parent;parent=parent.parent)parent.checked=parent.children.every(n=>n.checked)}
@@ -23,9 +24,9 @@ function apply(){chosen.value=collect();scope.value=false}
 let savePending,saveRunning=false,saveWaiters=[]
 function remember(){savePending=directory.value;const promise=new Promise(resolve=>saveWaiters.push(resolve));if(!saveRunning)drain();return promise}
 async function drain(){saveRunning=true;let ok=true;while(savePending!==undefined){const value=savePending;savePending=undefined;try{await api('/files/cas-export','PUT',{directory:value});if(alive)error.value=''}catch(e){ok=false;if(alive)error.value=e.message}}saveRunning=false;const waiters=saveWaiters;saveWaiters=[];waiters.forEach(resolve=>resolve(ok))}
-async function exportFiles(){if(busy.value)return;busy.value=true;if(!await remember()||!alive||!state.authenticated||state.username!==owner){busy.value=false;return;}error.value='';controller=new AbortController();try{const r=await fetch('/api/files/cas-export',{method:'POST',credentials:'same-origin',signal:controller.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({storageId:props.storage,source:props.source,ids:chosen.value,extensions:extensions.value,directory:directory.value,confirm:true})});if(!r.ok){const data=await r.json();throw new Error(data.error||'CAS导出失败')}if(directory.value){const data=await r.json();notify(`CAS已导出：${data.path}`)}else{const blob=await r.blob(),header=r.headers.get('Content-Disposition')||'',encoded=header.match(/filename\*=utf-8''([^;]+)/i),plain=header.match(/filename="?([^";]+)/i),filename=encoded?decodeURIComponent(encoded[1]):plain?.[1]||'CAS.zip',url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);notify('CAS导出完成')}confirm.value=false;emit('close')}catch(e){if(alive&&e.name!=='AbortError')error.value=e.message}finally{busy.value=false}}
+async function exportFiles(){if(busy.value)return;busy.value=true;if(!await remember()||!alive||!state.authenticated||state.username!==owner){busy.value=false;return}error.value='';try{const job=await api('/files/cas-export/jobs','POST',{storageId:props.storage,source:props.source,ids:chosen.value,extensions:extensions.value,directory:directory.value,confirm:true});if(!alive||!state.authenticated||state.username!==owner)return;trackCASExport(job);confirm.value=false;emit('close')}catch(e){if(alive)error.value=e.message}finally{busy.value=false}}
 onMounted(async()=>{nodes.value=make(props.files);try{const value=await api('/files/cas-export');if(alive)directory.value=value.directory||''}catch(e){error.value=e.message}})
-onBeforeUnmount(()=>{alive=false;controller?.abort()})
+onBeforeUnmount(()=>{alive=false})
 </script>
 <template>
 <Modal v-if="scope" standard title="CAS导出范围" @close="emit('close')"><div class="modal-body cas-export-scope"><label class="export-all"><input type="checkbox" :checked="nodes.every(n=>n.checked)" :indeterminate="nodes.some(n=>n.checked||mixed(n))&&!nodes.every(n=>n.checked)" @change="nodes.forEach(n=>toggle(n,$event.target.checked))" />全部目录</label><p v-if="error" class="error-message" role="alert">{{error}}</p><VirtualList :items="rows" :row-height="42"><template #default="{item}"><div class="export-tree-row" :style="{paddingLeft:item.depth*18+'px'}"><button v-if="item.node.file.isDir" class="icon-btn" :aria-label="`${item.node.open?'折叠':'展开'} ${item.node.file.name}`" @click="expand(item.node)"><Icon :name="item.node.loading?'LoaderCircle':item.node.open?'ChevronDown':'ChevronRight'" :size="16" /></button><span v-else class="export-tree-indent" /><label><input type="checkbox" :aria-label="item.node.file.name" :checked="item.node.checked" :indeterminate="mixed(item.node)" @change="toggle(item.node,$event.target.checked)" /><Icon :name="entryIcon(item.node.file)" :size="18" /><span>{{item.node.file.name}}</span></label></div></template></VirtualList></div><footer class="modal-footer"><button class="btn" @click="emit('close')">取消</button><button class="btn primary" :disabled="!collect().length" @click="apply"><Icon name="Check" />确认范围</button></footer></Modal>

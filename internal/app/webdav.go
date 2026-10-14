@@ -267,7 +267,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	if err != nil {
 		return nil, err
 	}
-	df := &davFile{ctx: ctx, info: davFileInfo(ctx, f)}
+	df := &davFile{ctx: ctx, info: davFileInfo(ctx, f), mountKey: fmt.Sprintf("%s:%x", f.ID, shareConfig(s))}
 	if f.IsDir {
 		files := []File{}
 		if s.ID == "" {
@@ -350,11 +350,14 @@ type davFile struct {
 	refreshed       bool
 	bounded         bool
 	rangeEnd        int64
+	mountStream     *mountReadStream
+	mountKey        string
 }
 
 func (f *davFile) Stat() (os.FileInfo, error) { return f.info, nil }
 func (f *davFile) Write([]byte) (int, error)  { return 0, os.ErrPermission }
 func (f *davFile) Close() (err error) {
+	f.stopMountStream()
 	defer func() { f.progress.finish(err) }()
 	if f.local != nil {
 		return f.local.Close()
@@ -382,6 +385,7 @@ func (f *davFile) Readdir(n int) ([]os.FileInfo, error) {
 	return out, nil
 }
 func (f *davFile) Seek(offset int64, whence int) (int64, error) {
+	f.stopMountStream()
 	if f.info.IsDir() {
 		return 0, os.ErrInvalid
 	}

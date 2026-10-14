@@ -107,6 +107,17 @@ func generatedCASClaim(t *testing.T, content []byte) CASInfo {
 		t.Fatalf("generated CAS contains a binding: %s", raw)
 	}
 	info := *claim.CAS
+	var portable struct {
+		CAS map[string]json.RawMessage `json:"cas"`
+	}
+	if err := json.Unmarshal(raw, &portable); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"sha256", "md5", "slice_md5", "slice_size"} {
+		if _, ok := portable.CAS[key]; !ok {
+			t.Fatalf("generated claim missing %s: %s", key, raw)
+		}
+	}
 	info.PlaybackURL = link
 	return info
 }

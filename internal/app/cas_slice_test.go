@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +19,67 @@ import (
 	"testing"
 	"time"
 )
+
+func TestTianyiCASDynamicPartSizeAndLegacyImport(t *testing.T) {
+	const mib = int64(1 << 20)
+	for _, tc := range []struct{ size, part int64 }{
+		{1, 10 * mib}, {1160375766, 10 * mib},
+		{9990*mib - 1, 10 * mib}, {9990 * mib, 10 * mib}, {9990*mib + 1, 20 * mib},
+		{19980*mib - 1, 20 * mib}, {19980 * mib, 20 * mib}, {19980*mib + 1, 50 * mib},
+		{50 * mib * 1999, 50 * mib}, {50*mib*1999 + 1, 60 * mib},
+		{60 * mib * 1999, 60 * mib}, {60*mib*1999 + 1, 70 * mib},
+		{1 << 40, 530 * mib},
+	} {
+		t.Run(fmt.Sprint(tc.size), func(t *testing.T) {
+			if got := tianyiCASPartSize(tc.size); got != tc.part {
+				t.Fatal("boundary", got, tc.part)
+			}
+			for _, field := range []string{"", `,"sliceSize":0`, `,"slice_size":0`, `,"sliceSize":5242880`} {
+				raw := fmt.Sprintf(`{"name":"video.mkv","size":%d,"md5":"%s","sliceMd5":"%s"%s}`, tc.size, strings.Repeat("a", 32), strings.Repeat("b", 32), field)
+				for _, pointer := range []bool{false, true} {
+					content, name := raw, "video.mkv.cas"
+					if pointer {
+						content = "http://localhost/stream/" + base64.RawURLEncoding.EncodeToString([]byte(`{"cas":`+raw+`}`))
+						name = "video.mkv.cas.strm"
+					}
+					info, err := decodeCAS([]byte(content), name)
+					want := tc.part
+					if field == `,"sliceSize":5242880` {
+						want = 5 * mib
+					}
+					if err != nil || info.SliceSize != want || info.MD5 != strings.Repeat("a", 32) || info.SliceMD5 != strings.Repeat("B", 32) {
+						t.Fatal(info, err, want)
+					}
+				}
+			}
+			shaRaw := fmt.Sprintf(`{"name":"video.mkv","size":%d,"sha256":"%s"}`, tc.size, strings.Repeat("a", 64))
+			if info, err := decodeCAS([]byte(shaRaw), "video.mkv.cas"); err != nil || info.SliceSize != 0 || info.SliceMD5 != "" {
+				t.Fatal("SHA-only gained slice metadata", info, err)
+			}
+		})
+	}
+}
+
+func tianyiTestUploadParams(t *testing.T, r *http.Request, secret string) url.Values {
+	t.Helper()
+	ciphertext, err := hex.DecodeString(r.URL.Query().Get("params"))
+	if err != nil || len(ciphertext) == 0 || len(ciphertext)%16 != 0 {
+		t.Fatal("invalid encrypted request")
+	}
+	block, err := aes.NewCipher([]byte(secret[:16]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < len(ciphertext); i += 16 {
+		block.Decrypt(ciphertext[i:i+16], ciphertext[i:i+16])
+	}
+	plain := ciphertext[:len(ciphertext)-int(ciphertext[len(ciphertext)-1])]
+	params, err := url.ParseQuery(string(plain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return params
+}
 
 func TestLocalCASSliceHashesAndCompatibility(t *testing.T) {
 	a := testApp(t)
@@ -58,6 +120,7 @@ func TestTianyiCASSliceRestore(t *testing.T) {
 	old := apiClient
 	defer func() { apiClient = old }()
 	committed := false
+	expectedSlice := int64(10 << 20)
 	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
 		ciphertext, _ := hex.DecodeString(r.URL.Query().Get("params"))
 		if len(ciphertext) == 0 || len(ciphertext)%16 != 0 {
@@ -72,7 +135,7 @@ func TestTianyiCASSliceRestore(t *testing.T) {
 		raw := `{"uploadFileId":"upload"}`
 		switch r.URL.Path {
 		case "/person/initMultiUpload":
-			if params.Get("sliceSize") != "10485760" || params.Get("parentFolderId") != "folder" {
+			if params.Get("sliceSize") != fmt.Sprint(expectedSlice) || params.Get("parentFolderId") != "folder" {
 				t.Fatal(params)
 			}
 		case "/person/commitMultiUploadFile":
@@ -86,9 +149,17 @@ func TestTianyiCASSliceRestore(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(raw)), Request: r}, nil
 	})}
-	info := CASInfo{Name: "movie.mp4", Size: 123, MD5: strings.Repeat("a", 32), SliceMD5: strings.Repeat("b", 32), SliceSize: 10 << 20}
-	fid, err := a.tianyiRestore(context.Background(), s, "folder", info.Name, info)
-	if err != nil || fid != "restored" || !committed {
-		t.Fatal(fid, err)
+	for _, size := range []int64{123, (9990 << 20) + 1, (19980 << 20) + 1, (50<<20)*1999 + 1} {
+		expectedSlice = tianyiCASPartSize(size)
+		committed = false
+		raw := fmt.Sprintf(`{"name":"movie.mp4","size":%d,"md5":"%s","sliceMd5":"%s"}`, size, strings.Repeat("a", 32), strings.Repeat("b", 32))
+		info, err := decodeCAS([]byte(raw), "movie.mp4.cas")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fid, err := a.tianyiRestore(context.Background(), s, "folder", info.Name, info)
+		if err != nil || fid != "restored" || !committed {
+			t.Fatal(fid, err)
+		}
 	}
 }

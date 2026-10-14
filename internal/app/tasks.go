@@ -369,7 +369,11 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 						return ctx.Err()
 					}
 					failed++
-					skippedCAS = append(skippedCAS, child)
+					reason := "CAS特征损坏或读取失败"
+					if errors.Is(e, errCASIncomplete) {
+						reason = errCASIncomplete.Error()
+					}
+					skippedCAS = append(skippedCAS, path.Join(t.Source, child)+"（"+reason+"）")
 					if len(skippedCAS) >= 50 {
 						flushSkippedCAS()
 					}
@@ -482,7 +486,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				if errors.Is(err, errCASMissingHash) {
 					failed++
 					delete(outputs, strings.ToLower(filename))
-					skippedCAS = append(skippedCAS, child)
+					skippedCAS = append(skippedCAS, path.Join(t.Source, child)+"（CAS信息缺失，不满足cas.strm生成要求）")
 					if len(skippedCAS) >= 50 {
 						flushSkippedCAS()
 					}

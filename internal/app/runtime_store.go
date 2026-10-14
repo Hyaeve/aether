@@ -17,7 +17,7 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary", "cloudCASRecords"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -111,6 +111,7 @@ func (s *Store) initRuntime(dir string) error {
 			RapidAttempts      map[string]bool      `json:"rapid115Attempts"`
 			RapidRecords       []Rapid115Record     `json:"rapid115Records"`
 			SimulcastTemporary []SimulcastTemporary `json:"simulcastTemporary"`
+			CloudCASRecords    []cloudCASRecord     `json:"cloudCASRecords"`
 		}
 		if err := s.decodeJSONConfig("runtime/state", raw, &records); err != nil {
 			return err
@@ -122,6 +123,7 @@ func (s *Store) initRuntime(dir string) error {
 			s.state.FileVisits = records.Visits
 		}
 		s.state.Rapid115Attempts, s.state.Rapid115Records, s.state.SimulcastTemporary = records.RapidAttempts, records.RapidRecords, records.SimulcastTemporary
+		s.state.CloudCASRecords = records.CloudCASRecords
 	}
 	if err == nil && s.state.RuntimeSeparated {
 		var plain json.RawMessage
@@ -185,6 +187,11 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for i := range s.state.CloudCASRecords {
+		if s.state.CloudCASRecords[i].Status == "running" {
+			s.state.CloudCASRecords[i].Status = "interrupted"
+		}
+	}
 	for i := range s.state.Rapid115Records {
 		if s.state.Rapid115Records[i].Status == "running" {
 			s.state.Rapid115Records[i].Status = "failed"

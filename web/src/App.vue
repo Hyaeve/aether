@@ -6,7 +6,7 @@ import Icon from './components/Icon.vue'
 import ThinScroll from './components/ThinScroll.vue'
 import { modulePath, rememberedRoute, writeSession } from './session-navigation'
 import AudioPlayer from './components/AudioPlayer.vue'
-import { audioSession, closeAudio } from './audio-session'
+import { audioSession, closeAudio, removeAudio } from './audio-session'
 import { embyNoticeDisplay, noticeTime } from './library-notices'
 import ShareTransfer from './components/ShareTransfer.vue'
 import { watchShareClipboard } from './share-clipboard'
@@ -18,6 +18,7 @@ import TaskTabs from './components/TaskTabs.vue'
 import FileTabs from './components/FileTabs.vue'
 import LoginPage from './pages/LoginPage.vue'
 import StoragePage from './pages/StoragePage.vue'
+import CloudManagementPage from './pages/CloudManagementPage.vue'
 import TasksPage from './pages/TasksPage.vue'
 import AutomationPage from './pages/AutomationPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -178,6 +179,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <FileTabs v-if="currentPath === '/files/webdav'" />
         <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k','/tasks/ed2k/pool', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />
+        <CloudManagementPage v-else-if="['/storage/shares','/storage/downloads','/storage/trash'].includes(currentPath)" :key="currentPath" :kind="currentPath.split('/').at(-1)" />
         <template v-else-if="currentPath === '/transfer/backup/settings'"><section class="task-heading"><button class="btn" @click="router.push('/transfer/backup')"><Icon name="ArrowLeft" />返回备份规则</button></section><TransferSettings mode="backup" /></template>
         <TransfersPage v-else-if="currentPath.startsWith('/transfer') || currentPath === '/backup'" :rules="currentPath === '/transfer/backup' || currentPath === '/backup'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
@@ -203,6 +205,6 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
     </div>
   </div>
   <ShareTransfer v-if="clipboardShare && state.authenticated" :provider="clipboardShare.provider" :initial-links="clipboardShare.links" @close="nextClipboardShare" />
-  <AudioPlayer v-if="audioSession.file && state.authenticated" :file="audioSession.file" :queue="audioSession.queue" :activation="audioSession.activation" @change="audioSession.file = $event" @close="closeAudio" />
-  <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : n.progress !== undefined && n.progress < 1 ? 'LoaderCircle' : 'Check'" :size="15" /></span><span>{{ n.message }}<progress v-if="n.progress !== undefined" :value="n.progress" max="1" aria-label="转存提交进度" style="display:block;width:100%;height:4px;margin-top:6px;accent-color:var(--primary)" /></span><button class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>
+  <AudioPlayer v-if="audioSession.file && state.authenticated" :file="audioSession.file" :queue="audioSession.queue" :activation="audioSession.activation" @change="audioSession.file = $event" @remove="removeAudio" @close="closeAudio" />
+  <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : n.progress !== undefined && n.progress < 1 ? 'LoaderCircle' : 'Check'" :size="15" /></span><span>{{ n.message }}<progress v-if="n.progress !== undefined" :value="n.progress" max="1" aria-label="任务进度" style="display:block;width:100%;height:4px;margin-top:6px;accent-color:var(--primary)" /></span><button v-if="!n.persistent" class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>
 </template>

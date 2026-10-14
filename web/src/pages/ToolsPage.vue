@@ -6,6 +6,7 @@ import SecretInput from '../components/SecretInput.vue'
 import QuarkTakeover from '../components/QuarkTakeover.vue'
 import StrmReplace from '../components/StrmReplace.vue'
 import Pan115Simulcast from '../components/Pan115Simulcast.vue'
+import RecycleCleanup from '../components/RecycleCleanup.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import Rapid115Icon from '../components/Rapid115Icon.vue'
 import { useRouter } from 'vue-router'
@@ -14,6 +15,9 @@ import { api, notify } from '../lib'
 import { readPlugin, invalidatePlugin } from '../plugin-config'
 import { refreshReplacementNotices } from '../replacement-notices'
 const busy = ref(false)
+const cleanup=ref({enabled:false,rules:[]}),simulcastOn=ref(true)
+onMounted(async()=>{try{cleanup.value=await api('/115-recycle-cleanup');simulcastOn.value=(await api('/115-simulcast/enabled')).enabled}catch{}})
+async function toggle115(which){if(busy.value)return;busy.value=true;try{if(which==='cleanup'){await api('/115-recycle-cleanup','PUT',{...cleanup.value,enabled:!cleanup.value.enabled});cleanup.value.enabled=!cleanup.value.enabled;notify(cleanup.value.enabled?'已启用115回收站清空':'已停用115回收站清空')}else{await api('/115-simulcast/enabled','PUT',{enabled:!simulcastOn.value});simulcastOn.value=!simulcastOn.value;notify(simulcastOn.value?'已启用115同播复制':'已停用115同播复制')}}catch(e){notify(e.message,true)}finally{busy.value=false}}
 const takeover = ref({ enabled: false, bindings: [] })
 const pluginStates = ref({})
 async function togglePlugin(tool) {
@@ -70,6 +74,7 @@ function selectTool(tool){if(tool.name==='115 秒传')router.push('/tools/115-ra
 const tools = [
   {name:'115 秒传',icon:'Zap',detail:'通过 SHA1 哈希秒传本地文件到 115 网盘，无需实际上传文件数据'},
   { name: '115 同播复制', icon: 'Copy', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
+  { name:'115回收站清空',icon:'Trash2',detail:'按计划清理115回收站中超过保留天数的项目' },
   { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '让夸克 STRM 改走 TV 版 302 直链；转码画质和字幕受影响且部分第三方播放器不兼容。' },
   { name: '整理规则', icon: 'FolderTree', file: 'organize-rules.json', detail: '配置媒体命名、目录结构和整理规则' },
   { name: '二级分类', icon: 'Tags', file: 'categories.json', detail: '按媒体类型、地区和分类归档文件' },
@@ -87,11 +92,12 @@ tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', de
   <section class="page-head"><h1>辅助工具</h1></section>
   <div class="plugin-grid">
     <article v-for="tool in tools" :key="tool.name" class="plugin-card" role="button" tabindex="0" :aria-label="tool.name" @click="selectTool(tool)" @keydown.enter.self="selectTool(tool)" @keydown.space.prevent.self="selectTool(tool)">
-      <Rapid115Icon v-if="tool.name==='115 秒传'" /><span v-else-if="tool.name === '115 同播复制'" class="plugin-symbol simulcast-symbol"><ProviderIcon type="115" /><Icon name="Copy" :size="15" /></span><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small v-if="tool.subtitle" class="plugin-subtitle">{{ tool.subtitle }}</small><small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
+      <Rapid115Icon v-if="tool.name==='115 秒传'" /><button v-else-if="['115 同播复制','115回收站清空'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 同播复制'?simulcastOn:cleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 同播复制'?simulcastOn:cleanup.enabled" :disabled="busy" @click.stop="toggle115(tool.name==='115 同播复制'?'simulcast':'cleanup')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small v-if="tool.subtitle" class="plugin-subtitle">{{ tool.subtitle }}</small><small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115回收站清空', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
     </article>
   </div>
   <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" @changed="takeover = $event" />
   <Pan115Simulcast v-else-if="selected?.name === '115 同播复制'" @close="selected = null" />
+  <RecycleCleanup v-else-if="selected?.name === '115回收站清空'" @close="selected=null" @changed="cleanup=$event" />
   <StrmReplace v-else-if="selected?.name === 'STRM 替换'" @close="selected = null" @started="refreshReplacementNotices" />
   <PluginSettings v-else-if="selected?.kind" :key="selected.kind" :kind="selected.kind" :title="selected.name" @close="selected = null" @changed="pluginStates[$event.kind] = $event.enabled" />
   <Modal v-else-if="selected" :title="selected.name" @close="selected = null">

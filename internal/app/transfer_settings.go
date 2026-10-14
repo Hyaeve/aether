@@ -335,6 +335,14 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State) error {
+	for kind, options := range st.CloudShareOptions {
+		if err := validateCloudShareOptions(kind, options); err != nil {
+			return err
+		}
+	}
+	if err := validateRecycleCleanup(st.RecycleCleanup, *st); err != nil {
+		return err
+	}
 	if value := st.CASExportDirectory; value != "" && (!filepath.IsAbs(value) || filepath.Clean(value) != value || len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n")) {
 		return errors.New("CAS导出目录须为容器内绝对路径")
 	}

@@ -34,6 +34,7 @@ func TestConfigBackup(t *testing.T) {
 		st.Tasks = []Task{{ID: "manual", Kind: "strm", Cron: ""}}
 		st.FileFavorites = []FileFavorite{{Storage: "saved-pool", ID: "/a", Name: "a", History: []FavoriteCrumb{{ID: "/", Name: "a"}}}}
 		st.FileVisits = []FileVisit{{Storage: "saved-pool", ID: "/a/b", History: []FavoriteCrumb{{ID: "/", Name: "a"}, {ID: "/a", Name: "b"}}}}
+		st.CloudCASRecords = []cloudCASRecord{{ID: "runtime-cas", StorageID: "saved-pool", Status: "error", CAS: CASInfo{Name: "film.mp4", Size: 4}}}
 		st.BackupRules = []BackupRule{{ID: "backup-rule", Name: "备份规则", SourceID: "saved-pool", Source: "/", TargetID: "saved-pool", Target: "/other", Replace: "skip"}}
 		st.Automations = []Automation{{ID: "rule", Name: "Rule", Enabled: true, Trigger: "manual", Steps: []AutomationStep{{Kind: "refresh", Condition: "always"}}}}
 		return nil
@@ -57,6 +58,9 @@ func TestConfigBackup(t *testing.T) {
 	}
 	if len(bundle.State.FileFavorites) != 0 || len(bundle.State.FileVisits) != 0 {
 		t.Fatal("file records leaked into configuration backup")
+	}
+	if len(bundle.State.CloudCASRecords) != 0 {
+		t.Fatal("CAS run records leaked into configuration backup")
 	}
 	if bytes.Contains(res.Body.Bytes(), []byte("admin")) {
 		t.Fatal("plaintext backup")
@@ -101,6 +105,9 @@ func TestConfigBackup(t *testing.T) {
 	}
 	if a.store.snapshot().Username != "admin" {
 		t.Fatal("restore failed")
+	}
+	if len(a.store.snapshot().CloudCASRecords) != 1 {
+		t.Fatal("import erased CAS run records")
 	}
 	if len(a.store.snapshot().FileFavorites) != 1 || len(a.store.snapshot().FileVisits) != 1 {
 		t.Fatal("configuration import lost existing file records")

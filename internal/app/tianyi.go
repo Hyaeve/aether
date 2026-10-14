@@ -464,65 +464,35 @@ func (a *App) tianyiCASFolder(ctx context.Context, s Storage) (string, error) {
 }
 
 func (a *App) tianyiRestore(ctx context.Context, s Storage, folder, name string, info CASInfo) (string, error) {
-	if info.SliceMD5 != "" {
-		if err := validateCASFor(s, info); err != nil {
-			return "", err
-		}
-		created, err := a.tianyiUploadCall(ctx, s, "initMultiUpload", map[string]string{
-			"parentFolderId": folder, "fileName": url.QueryEscape(name),
-			"fileSize": strconv.FormatInt(info.Size, 10), "sliceSize": strconv.FormatInt(info.SliceSize, 10), "lazyCheck": "1",
-		})
-		if err != nil {
-			return "", err
-		}
-		uploadID := rawText(created["uploadFileId"])
-		if uploadID == "" {
-			return "", errors.New("天翼 CAS 未返回还原会话")
-		}
-		// Commit only hashes. A cache miss must never trigger media uploads.
-		result, err := a.tianyiUploadCall(ctx, s, "commitMultiUploadFile", map[string]string{
-			"uploadFileId": uploadID, "fileMd5": strings.ToUpper(info.MD5),
-			"sliceMd5": strings.ToUpper(info.SliceMD5), "lazyCheck": "1", "opertype": "3",
-		})
-		if err != nil {
-			return "", err
-		}
-		var file struct {
-			ID json.RawMessage `json:"userFileId"`
-		}
-		if json.Unmarshal(result["file"], &file) != nil || rawText(file.ID) == "" {
-			return "", errors.New("天翼 CAS 未确认还原成功，不会上传媒体内容")
-		}
-		return rawText(file.ID), nil
+	if err := validateCASFor(s, info); err != nil {
+		return "", err
 	}
-	var upload struct {
-		UploadFileID   json.Number
-		FileCommitURL  string
-		FileDataExists json.Number
-	}
-	err := a.tianyiRequest(ctx, s, "POST", tianyiAPI+"/createUploadFile.action", url.Values{
-		"parentFolderId": {folder}, "fileName": {name}, "size": {strconv.FormatInt(info.Size, 10)},
-		"md5": {strings.ToUpper(info.MD5)}, "opertype": {"3"}, "flag": {"1"}, "resumePolicy": {"1"}, "isLog": {"0"},
-	}, &upload)
+	created, err := a.tianyiUploadCall(ctx, s, "initMultiUpload", map[string]string{
+		"parentFolderId": folder, "fileName": url.QueryEscape(name),
+		"fileSize": strconv.FormatInt(info.Size, 10), "sliceSize": strconv.FormatInt(info.SliceSize, 10), "lazyCheck": "1",
+	})
 	if err != nil {
 		return "", err
 	}
-	if upload.FileDataExists != "1" {
-		return "", errors.New("天翼 CAS 未命中秒传，不会上传媒体内容")
+	uploadID := rawText(created["uploadFileId"])
+	if uploadID == "" {
+		return "", errors.New("天翼 CAS 未返回还原会话")
 	}
-	if upload.UploadFileID == "" || !trustedTianyi(upload.FileCommitURL) {
-		return "", errors.New("天翼秒传返回无效提交信息")
+	// Commit only hashes. A cache miss must never trigger media uploads.
+	result, err := a.tianyiUploadCall(ctx, s, "commitMultiUploadFile", map[string]string{
+		"uploadFileId": uploadID, "fileMd5": strings.ToUpper(info.MD5),
+		"sliceMd5": strings.ToUpper(info.SliceMD5), "lazyCheck": "1", "opertype": "3",
+	})
+	if err != nil {
+		return "", err
 	}
-	var committed struct {
-		ID string `xml:"id"`
+	var file struct {
+		ID json.RawMessage `json:"userFileId"`
 	}
-	err = a.tianyiRequest(ctx, s, "POST", upload.FileCommitURL, url.Values{
-		"uploadFileId": {string(upload.UploadFileID)}, "opertype": {"1"}, "resumePolicy": {"1"}, "isLog": {"0"},
-	}, &committed)
-	if err == nil && committed.ID == "" {
-		err = errors.New("天翼秒传未返回文件 ID")
+	if json.Unmarshal(result["file"], &file) != nil || rawText(file.ID) == "" {
+		return "", errors.New("天翼 CAS 未确认还原成功，不会上传媒体内容")
 	}
-	return committed.ID, err
+	return rawText(file.ID), nil
 }
 
 func (a *App) tianyiRemove(ctx context.Context, s Storage, fid string) error {
