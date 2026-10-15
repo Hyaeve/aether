@@ -303,6 +303,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
 	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))
+	mux.Handle("/api/115-recycle-cleanup/run", a.protected(http.HandlerFunc(a.recycleCleanupRunAPI)))
 	mux.Handle("/api/115-rapid", a.protected(http.HandlerFunc(a.rapid115Settings)))
 	mux.Handle("POST /api/115-rapid/run", a.protected(http.HandlerFunc(a.rapid115Start)))
 	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))

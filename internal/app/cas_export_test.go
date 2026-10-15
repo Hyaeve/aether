@@ -201,8 +201,11 @@ func TestCASExportMobileSHAOnlySingleArchiveAndQueue(t *testing.T) {
 				t.Fatalf("%s = %v, want %v: %s", key, fields[key], want, raw)
 			}
 		}
-		if len(fields) != 7 || fields["provider"] != "mobile" || fields["playback_url"] != nil || fields["storageId"] != nil {
+		if len(fields) != 6 || fields["provider"] != nil || fields["playback_url"] != nil || fields["storageId"] != nil {
 			t.Fatal("account binding leaked", fields)
+		}
+		if strings.Contains(string(raw), "\n  \"provider\"") || !strings.Contains(string(raw), "\n  \"sha256\"") {
+			t.Fatal("standalone CAS is not the documented indented format", string(raw))
 		}
 	}
 	v := casExportRequest{StorageID: s.ID, Source: "/", IDs: []string{"z"}, Confirm: true}

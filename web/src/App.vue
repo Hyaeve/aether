@@ -63,10 +63,10 @@ function applyTheme() { document.documentElement.dataset.theme = theme.value ===
 watch(theme, () => { localStorage.setItem('aether-theme', theme.value); applyTheme() })
 applyTheme()
 const navigation = [
-  { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
+  { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'Wrench' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
-  { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
+  { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
 ]
 const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/strm' : route.path)

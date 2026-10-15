@@ -29,7 +29,7 @@ test('file alignment, ED2K tab, mount metadata and virtual playback', async ({ p
   await expect(page.getByRole('dialog', { name: '添加 ED2K 任务' })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.goto('/files/mounts')
-  await expect(page.locator('.mount-card')).toContainText('/NetDisk/AetherDrive')
+  await expect(page.locator('.mount-card')).toContainText('/NetDisk/媒体盘')
   await expect(page.locator('.mount-card')).toContainText('UID 0 · GID 0 · 0755')
   await page.screenshot({ path: info.outputPath('mount-details.png') })
   await page.goto('/links/cache')

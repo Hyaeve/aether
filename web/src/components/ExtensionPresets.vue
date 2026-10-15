@@ -3,7 +3,7 @@ import {computed} from 'vue'
 import Icon from './Icon.vue'
 const props=defineProps({modelValue:{type:String,default:''},groups:{type:Array,default:()=>['video','audio']}})
 const emit=defineEmits(['update:modelValue','commit'])
-const presets={video:'mp4;mkv;avi;mov;wmv;flv;webm;m4v;ts;m2ts;mkvb;rm;3gp;iso',audio:'mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus',image:'jpg;jpeg;png;webp',data:'nfo;ass;srt'}
+const presets={video:'mp4;mkv;avi;mov;wmv;flv;webm;m4v;ts;m2ts;mkvb;rm;3gp;iso',audio:'mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus',image:'jpg;jpeg;png;webp',data:'nfo;ass;srt;ssa;sub'}
 const values=computed(()=>new Set(props.modelValue.toLowerCase().split(/[;,\s]+/).map(v=>v.replace(/^\./,'')).filter(Boolean)))
 const active=group=>presets[group].split(';').every(v=>values.value.has(v))
 function toggle(group){const next=new Set(values.value),remove=active(group);presets[group].split(';').forEach(v=>remove?next.delete(v):next.add(v));emit('update:modelValue',[...next].join(';'));emit('commit')}

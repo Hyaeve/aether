@@ -45,8 +45,12 @@ func (a *App) fileText(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ext := strings.ToLower(path.Ext(chosen.Name))
-	if ext != ".strm" && ext != ".nfo" {
-		fail(w, 400, errors.New("仅支持 STRM 和 NFO 编辑"))
+	if ext != ".strm" && ext != ".nfo" && ext != ".cas" {
+		fail(w, 400, errors.New("仅支持 STRM、NFO 和 CAS 阅读"))
+		return
+	}
+	if r.Method != http.MethodGet && ext == ".cas" {
+		fail(w, 400, errors.New("CAS 文件仅支持阅读"))
 		return
 	}
 	if chosen.Size > 2<<20 {

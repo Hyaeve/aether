@@ -95,6 +95,12 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 						status = 503
 					}
 					raw = `{"uploadFileId":"30"}`
+				case "/person/checkTransSecond":
+					params := tianyiTestUploadParams(t, r, "0123456789abcdef")
+					if params.Get("fileMd5") != strings.Repeat("B", 32) || params.Get("sliceMd5") != strings.Repeat("C", 32) {
+						t.Error("fallback lost dual MD5 in check", params)
+					}
+					raw = `{"fileDataExists":1}`
 				case "/person/commitMultiUploadFile":
 					params := tianyiTestUploadParams(t, r, "0123456789abcdef")
 					if params.Get("fileMd5") != strings.Repeat("B", 32) || params.Get("sliceMd5") != strings.Repeat("C", 32) {

@@ -52,7 +52,7 @@ async function commitTarget(){
    for(const segment of segments){const files=await api(`/files?storage=${encodeURIComponent(storageId)}&path=${encodeURIComponent(directory)}`);const matches=files.filter(f=>f.isDir&&f.name===segment);if(matches.length!==1)throw new Error('目标目录不存在或名称不唯一');directory=matches[0].id}
    if(!alive||targetForm.value!==target||target.targetLabel!==path||target.storageId!==storageId)return
    target.target=directory;target.targetLabel=`${storages.value.find(s=>s.id===storageId)?.name||''} /${segments.join('/')}`;error.value='';if(!draft.value)await save()
-  }catch(e){if(alive&&targetForm.value===target&&target.targetLabel===path)error.value=e.message}
+  }catch(e){if(alive&&targetForm.value===target&&target.targetLabel===path){error.value='';notify(e.message,true)}}
  }
  const resolution={target,path,storageId,promise:null};targetResolution=resolution;resolution.promise=run();await resolution.promise;if(targetResolution===resolution)targetResolution=null
 }

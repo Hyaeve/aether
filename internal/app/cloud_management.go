@@ -254,12 +254,12 @@ func (a *App) createCloudShare(w http.ResponseWriter, r *http.Request) {
 			result.ID = cloudString(response.Data, "share_code")
 			result.Code = cloudString(response.Data, "receive_code")
 			if !shareCodePattern.MatchString(result.ID) {
-				err = errors.New("分享创建结果不完整，请检查网盘分享列表，不要重复提交")
+				err = errors.New("分享创建结果不完整，请检查网盘分享栏，不要重复提交")
 			}
 		}
 		if err == nil {
 			if err = a.cloudStorageCurrent(s); err != nil {
-				fail(w, 409, errors.New("存储状态已变化，分享可能已创建，请检查分享列表"))
+				fail(w, 409, errors.New("存储状态已变化，分享可能已创建，请检查分享栏"))
 				return
 			}
 			if v.Options.CodeMode == "fixed" && v.Options.Code != "" {
@@ -268,7 +268,7 @@ func (a *App) createCloudShare(w http.ResponseWriter, r *http.Request) {
 				result.Code = randomShareCode()
 			}
 			if !validCloudCode(result.Code) {
-				fail(w, 502, errors.New("分享已创建，但未返回有效默认访问码，请检查分享列表"))
+				fail(w, 502, errors.New("分享已创建，但未返回有效默认访问码，请检查分享栏"))
 				return
 			}
 			days := v.Options.Days
@@ -348,11 +348,11 @@ func (a *App) createCloudShare(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.store.event("error", "storage", s.Name+" 创建分享未完成；写请求不会自动重试")
-		fail(w, 502, errors.New("创建或设置分享未完成，请检查分享列表，勿直接重复提交"))
+		fail(w, 502, errors.New("创建或设置分享未完成，请检查分享栏，勿直接重复提交"))
 		return
 	}
 	if _, _, _, err = parseShareLink(result.URL, result.Code); err != nil {
-		fail(w, 502, errors.New("未返回有效官方分享链接，请查看分享列表"))
+		fail(w, 502, errors.New("未返回有效官方分享链接，请查看分享栏"))
 		return
 	}
 	a.store.event("info", "storage", s.Name+" 创建分享成功："+result.Name)
@@ -376,7 +376,7 @@ func quarkManagementURL(p string, q url.Values) string {
 func (a *App) cloudManagementList(ctx context.Context, s Storage, kind string) ([]cloudManagementEntry, error) {
 	items := []cloudManagementEntry{}
 	for page := 1; page <= 100; page++ {
-		rows, more, err := a.readCloudManagementPage(ctx, s, kind, page)
+		rows, more, _, err := a.readCloudManagementPage(ctx, s, kind, page)
 		if err != nil {
 			return nil, err
 		}
@@ -531,8 +531,8 @@ func (a *App) cloudManagement(w http.ResponseWriter, r *http.Request) {
 			err = e
 			break
 		}
-		if v.Action != "restore" && (len(v.Password) != 4 || strings.Trim(v.Password, "0123456789") != "") {
-			err = errors.New("请重新输入4位115回收站密码")
+		if v.Action != "restore" && (len(v.Password) != 6 || strings.Trim(v.Password, "0123456789") != "") {
+			err = errors.New("请重新输入6位115回收站密码")
 			break
 		}
 		ids := []string{}

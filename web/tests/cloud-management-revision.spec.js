@@ -21,14 +21,14 @@ async function fixture(page) {
 
 test('cloud pages load on scroll, preserve loaded rows on failure and toast errors',async({page},info)=>{
  const f=await fixture(page);await page.goto('/storage/downloads')
- await expect(page.locator('.cloud-item-count')).toHaveText('100 项')
+ await expect(page.locator('.cloud-total')).toHaveText('100 项')
  expect(f.calls).toHaveLength(1)
- await expect(page.locator('.cloud-management-row')).not.toHaveCount(100)
- f.fail();await page.locator('.virtual-directory-list').evaluate(el=>{el.scrollTop=el.scrollHeight})
+ await expect(page.locator('.cloud-management-row')).toHaveCount(20)
+ f.fail();await page.locator('.page-scroll .thin-scroll-area').evaluate(el=>{el.scrollTop=el.scrollHeight})
  await expect(page.locator('.toast.error')).toContainText('115云下载读取失败')
- await expect(page.locator('.cloud-item-count')).toHaveText('100 项')
+ await expect(page.locator('.cloud-total')).toHaveText('100 项')
  await expect(page.locator('.cloud-management-panel .error-message')).toHaveCount(0)
- await page.locator('.virtual-directory-list').evaluate(el=>{el.scrollTop=0})
+ await page.locator('.page-scroll .thin-scroll-area').evaluate(el=>{el.scrollTop=0})
  await expect(page.locator('.cloud-management-row').first()).toContainText('媒体-0')
  await page.getByRole('button',{name:'选择云盘存储池'}).click()
  await expect(page.getByRole('option')).toHaveCount(2)
@@ -45,8 +45,8 @@ test('cloud pages load on scroll, preserve loaded rows on failure and toast erro
 
 test('shares multi-select exposes confirmed cancellation and appends pages without resetting scroll',async({page})=>{
  const f=await fixture(page);await page.goto('/storage/shares')
- const view=page.locator('.virtual-directory-list');await view.evaluate(el=>{el.scrollTop=el.scrollHeight})
- await expect(page.locator('.cloud-item-count')).toHaveText('101 项')
+ const view=page.locator('.page-scroll .thin-scroll-area');await view.evaluate(el=>{el.scrollTop=el.scrollHeight})
+ await expect(page.locator('.cloud-total')).toHaveText('101 项')
  expect(await view.evaluate(el=>el.scrollTop)).toBeGreaterThan(0)
  await view.evaluate(el=>{el.scrollTop=0})
  const rows=page.locator('.cloud-management-row');await rows.first().click({button:'right'});await rows.nth(2).click({modifiers:['Shift']})
@@ -57,6 +57,6 @@ test('shares multi-select exposes confirmed cancellation and appends pages witho
 
 test('unified CAS bulk operation groups records by real storage rather than pseudo pool',async({page})=>{
  const f=await fixture(page);await page.goto('/storage/downloads');await page.getByRole('button',{name:'选择云盘存储池'}).click();await page.getByRole('option',{name:'CAS 秒传'}).click()
- const rows=page.locator('.cloud-management-row');await rows.first().click({button:'right'});const dock=page.getByRole('toolbar',{name:'所选云盘条目操作'});await dock.getByRole('button',{name:'全选',exact:true}).click();await dock.getByRole('button',{name:'删除',exact:true}).click();await page.getByRole('dialog',{name:'确认删除记录'}).getByRole('button',{name:'确认',exact:true}).click()
+ const rows=page.locator('.cloud-management-row');await rows.first().click({button:'right'});const dock=page.getByRole('toolbar',{name:'所选云盘条目操作'});await dock.getByRole('button',{name:'全选',exact:true}).click();await dock.getByRole('button',{name:'删除',exact:true}).click();await page.getByRole('dialog',{name:'确认清理记录'}).getByRole('button',{name:'确认',exact:true}).click()
  await expect.poll(()=>f.posts.length).toBe(2);expect(f.posts.map(p=>[p.storage,p.ids])).toEqual([['m',['m-record']],['t',['t-record']]])
 })

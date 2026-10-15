@@ -141,22 +141,22 @@ func TestRecycleCleanupEncryptedAndStrictAgeSelection(t *testing.T) {
 	a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil })
 	h := a.Handler(t.TempDir())
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
-	rule := recycleCleanupRule{StorageID: s.ID, PIN: "1234", Cron: "0 3 * * *", Days: 10}
+	rule := recycleCleanupRule{StorageID: s.ID, PIN: "123456", Cron: "0 3 * * *", Days: 10}
 	value := recycleCleanupSettings{Enabled: true, Rules: []recycleCleanupRule{rule}}
 	w := request(t, h, "PUT", "/api/115-recycle-cleanup", value, cookie)
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 	raw, err := os.ReadFile(filepath.Join(a.store.dir, "state.json"))
-	if err != nil || strings.Contains(string(raw), `"recyclePIN":"1234"`) {
+	if err != nil || strings.Contains(string(raw), `"recyclePIN":"123456"`) {
 		t.Fatal("PIN plaintext", err)
 	}
 	w = request(t, h, "GET", "/api/115-recycle-cleanup", nil, cookie)
-	if strings.Contains(w.Body.String(), "1234") {
+	if strings.Contains(w.Body.String(), "123456") {
 		t.Fatal("PIN exposed")
 	}
 	reopened, err := newWithDirectories(a.ctx, a.store.dir, a.dataDir, a.outputDir)
-	if err != nil || reopened.store.snapshot().RecycleCleanup.Rules[0].PIN != "1234" {
+	if err != nil || reopened.store.snapshot().RecycleCleanup.Rules[0].PIN != "123456" {
 		t.Fatal("PIN lost", err)
 	}
 	old := apiClient
@@ -172,13 +172,13 @@ func TestRecycleCleanupEncryptedAndStrictAgeSelection(t *testing.T) {
 		case "/rb/clean":
 			cleaned++
 			r.ParseForm()
-			if r.Form.Get("rid[0]") != "old" || r.Form.Get("rid[1]") != "" || r.Form.Get("password") != "1234" {
+			if r.Form.Get("rid[0]") != "old" || r.Form.Get("rid[1]") != "" || r.Form.Get("password") != "123456" {
 				t.Fatal("unsafe cleanup", r.Form)
 			}
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(raw)), Request: r}, nil
 	})}
-	if err := a.cleanup115Recycle(context.Background(), rule); err != nil || cleaned != 1 {
+	if count, err := a.cleanup115Recycle(context.Background(), rule); err != nil || count != 1 || cleaned != 1 {
 		t.Fatal(err, cleaned)
 	}
 	value.Rules = append(value.Rules, rule)

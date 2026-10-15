@@ -3,11 +3,14 @@ import {nextTick,reactive,ref} from 'vue'
 import {CodeXml,File,FileText,FolderTree,Route,Weight} from 'lucide-vue-next'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
+import {notify} from '../lib'
+import {extensionTokens,invalidExtensionTokens} from '../extension-rules'
 const props=defineProps({form:Object})
 const form=props.form, error=ref(''), filterPicker=ref(false), tokenDrafts=reactive(new Map()), filterKeys=new WeakMap(), root=ref(null)
 let nextFilterKey=0
 const filterKey=filter=>{if(!filterKeys.has(filter))filterKeys.set(filter,++nextFilterKey);return filterKeys.get(filter)}
 const filterTypes = [{value:'extension',label:'扩展名',icon:FileText},{value:'name',label:'文件名',icon:File},{value:'regex',label:'正则',icon:CodeXml},{value:'path_prefix',label:'路径前缀',icon:FolderTree},{value:'path_regex',label:'路径正则',icon:Route},{value:'size',label:'最大最小',icon:Weight}]
+const extensionPresets = [{group:'video',label:'视频',icon:'Film',value:'mp4;mkv;avi;mov;wmv;flv;webm;m4v;ts;m2ts;mkvb;rm;3gp;iso'},{group:'audio',label:'音频',icon:'Music',value:'mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus'},{group:'image',label:'图片',icon:'Image',value:'jpg;jpeg;png;webp'},{group:'data',label:'数据',icon:'FileJson',value:'nfo;ass;srt;ssa;sub'},{group:'document',label:'文档',icon:'Files',value:'pdf;doc;docx;xls;xlsx;ppt;pptx;txt;md;csv;epub;mobi;cbz;cbr;zip;rar'}]
 const filterType = filter => filterTypes.find(t=>t.value===filter.type) || filterTypes[1]
 const sizeUnits = ['KB','MB','GB']
 function cycleUnit(filter, key) { filter[key] = sizeUnits[(sizeUnits.indexOf(filter[key] || filter.unit || 'MB') + 1) % sizeUnits.length] }
@@ -20,14 +23,15 @@ async function addFilter(type) {
 const tokens = filter => (filter.value || '').split(';').map(value=>value.trim()).filter(Boolean)
 function addToken(filter) {
   const draft = tokenDrafts.get(filter) || ''
-  let values = draft.split(';').map(value=>value.trim()).filter(Boolean)
+  let values = extensionTokens(draft)
   if(filter.type==='extension')values=values.map(value=>value.replace(/^\./,'')).filter(Boolean).map(value=>form.caseSensitive?value:value.toLowerCase())
-  if(filter.type==='extension' && values.some(value=>! /^[a-z0-9]{1,16}$/i.test(value))) { error.value='扩展名仅包含1至16个字母或数字'; return false }
+  if(filter.type==='extension' && invalidExtensionTokens(values.join(';')).length) { const invalid=invalidExtensionTokens(values.join(';'));const message=`扩展名不合规范：${invalid.join('、')}。仅允许英文字母、数字、下划线和连字符`;error.value=message;notify(message,true);return false }
   const all=[...tokens(filter),...values], seen=new Set()
   const unique=all.filter(value=>{const key=form.caseSensitive?value:value.toLowerCase();if(seen.has(key))return false;seen.add(key);return true})
   if(new TextEncoder().encode(unique.join(';')).length>2048){error.value='筛选匹配内容最多2048字节';return false}
   filter.value=unique.join(';');tokenDrafts.delete(filter);error.value='';return true
 }
+function addPreset(filter,group) { const preset=extensionPresets.find(item=>item.group===group);if(!preset)return;tokenDrafts.set(filter,preset.value);addToken(filter) }
 function removeToken(filter,index) { const values=tokens(filter);values.splice(index,1);filter.value=values.join(';') }
 function setScope(filter,key,event) {
   filter[key]=event.target.checked
@@ -35,14 +39,14 @@ function setScope(filter,key,event) {
   event.target.checked=filter[key]
 }
 
-function flush(){for(const filter of form.filters){if(['extension','name'].includes(filter.type)&&!addToken(filter))return false;if(filter.type!=='size'&&!filter.value.trim()){error.value='请填写筛选规则的匹配内容';return false}if(filter.type==='size'&&['minSize','maxSize'].some(key=>!Number.isSafeInteger(filter[key])||filter[key]<0)){error.value='大小仅允许0或正整数';return false}}return true}
+function flush(){for(const filter of form.filters){if(filter.type==='extension'&&invalidExtensionTokens(filter.value).length){const invalid=invalidExtensionTokens(filter.value);const message=`扩展名不合规范：${invalid.join('、')}。仅允许英文字母、数字、下划线和连字符`;error.value=message;notify(message,true);return false}if(['extension','name'].includes(filter.type)&&!addToken(filter))return false;if(filter.type!=='size'&&!filter.value.trim()){error.value='请填写筛选规则的匹配内容';return false}if(filter.type==='size'&&['minSize','maxSize'].some(key=>!Number.isSafeInteger(filter[key])||filter[key]<0)){error.value='大小仅允许0或正整数';return false}}return true}
 defineExpose({flush})
 </script>
 <template>
       <div ref="root" class="backup-filter-frame">
       <article v-for="(filter,index) in form.filters" :key="filterKey(filter)" class="backup-filter">
         <header><strong><component :is="filterType(filter).icon" :size="16" aria-hidden="true" /><span>{{index+1}}. {{filterType(filter).label}}</span></strong><div class="backup-filter-controls"><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="exclude" :aria-label="'黑名单 '+(index+1)" />黑名单</label><label><input v-model="filter.mode" type="radio" :name="'backup-filter-mode-'+index" value="include" :aria-label="'白名单 '+(index+1)" />白名单</label><template v-if="!['path_prefix','path_regex'].includes(filter.type)"><label><input :checked="filter.matchDir" type="checkbox" :disabled="filter.type==='extension'||filter.type==='size'" :aria-label="'文件夹 '+(index+1)" @change="setScope(filter,'matchDir',$event)" />文件夹</label><label><input :checked="filter.matchFile" type="checkbox" :aria-label="'文件 '+(index+1)" @change="setScope(filter,'matchFile',$event)" />文件</label></template><button type="button" class="icon-btn danger-text" :aria-label="'删除筛选规则 '+(index+1)" @click="tokenDrafts.delete(filter);form.filters.splice(index,1)"><Icon name="Trash2" :size="16" /></button></div></header>
-        <div v-if="filter.type==='extension'||filter.type==='name'" class="backup-token-editor"><div v-if="tokens(filter).length" class="backup-tokens"><span v-for="(token,tokenIndex) in tokens(filter)" :key="token" class="backup-token"><span>{{token}}</span><button type="button" :aria-label="'删除 '+token+' 规则 '+(index+1)" @click="removeToken(filter,tokenIndex)"><Icon name="X" :size="14" /></button></span></div><div class="backup-token-input"><input :value="tokenDrafts.get(filter) || ''" :aria-label="'匹配内容 '+(index+1)" :placeholder="filter.type==='extension'?'添加扩展名':'添加文件名'" maxlength="2048" @input="tokenDrafts.set(filter,$event.target.value)" @keydown.enter.prevent="!$event.isComposing && addToken(filter)" @blur="addToken(filter)" /></div></div>
+        <div v-if="filter.type==='extension'||filter.type==='name'" class="backup-token-editor"><div v-if="tokens(filter).length" class="backup-tokens"><span v-for="(token,tokenIndex) in tokens(filter)" :key="token" class="backup-token"><span>{{token}}</span><button type="button" :aria-label="'删除 '+token+' 规则 '+(index+1)" @click="removeToken(filter,tokenIndex)"><Icon name="X" :size="14" /></button></span></div><div class="backup-extension-input-row"><div class="backup-token-input"><input :value="tokenDrafts.get(filter) || ''" :aria-label="'匹配内容 '+(index+1)" :placeholder="filter.type==='extension'?'添加扩展名':'添加文件名'" maxlength="2048" @input="tokenDrafts.set(filter,$event.target.value)" @keydown.enter.prevent="!$event.isComposing && addToken(filter)" @blur="addToken(filter)" /></div><div v-if="filter.type==='extension'" class="backup-filter-presets"><button v-for="preset in extensionPresets" :key="preset.group" type="button" class="icon-btn extension-preset" :class="preset.group" :aria-label="`${preset.label}扩展名`" @click="addPreset(filter,preset.group)"><Icon :name="preset.icon" /></button></div></div></div>
         <textarea v-else-if="filter.type==='path_prefix'" v-model="filter.value" class="backup-path-prefix" rows="3" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" />
         <div v-else-if="filter.type!=='size'"><input v-model="filter.value" :aria-label="'匹配内容 '+(index+1)" maxlength="2048" /></div>
         <div v-else class="backup-size"><label v-for="bound in ['min','max']" :key="bound">{{bound==='min'?'最小值':'最大值'}}<span class="backup-size-input"><input v-model.number="filter[bound+'Size']" type="number" min="0" step="1" required :aria-label="(bound==='min'?'最小值 ':'最大值 ')+(index+1)" @keydown="['e','E','-','+','.'].includes($event.key) && $event.preventDefault()" /><button type="button" :aria-label="(bound==='min'?'最小值单位 ':'最大值单位 ')+(index+1)" @click="cycleUnit(filter,bound+'Unit')">{{filter[bound+'Unit'] || filter.unit || 'MB'}}</button></span></label></div>
@@ -71,6 +75,7 @@ defineExpose({flush})
 .backup-token:hover button,.backup-token:focus-within button { opacity:1; }
 .backup-token button :deep(svg) { width:11px; height:11px; }
 .backup-token-input { width:50%; min-width:0; }
+.backup-extension-input-row{display:flex;align-items:center;gap:8px;min-width:0}.backup-extension-input-row .backup-token-input{flex:0 1 50%;width:50%}.backup-filter-presets{display:flex;align-items:center;gap:3px;flex:none}.backup-filter-presets .icon-btn{width:30px;height:30px;min-height:30px;padding:0}.backup-filter-presets .extension-preset{color:var(--muted)}.backup-filter-presets .extension-preset:hover{color:color-mix(in srgb,var(--primary) 55%,var(--red))}.backup-filter-presets .document:hover{color:#9b63b8}
 .backup-token-input input { width:100%; min-width:0; }
 .backup-filter-types { display:grid; gap:4px; }
 .backup-filter-types button { display:flex; align-items:center; gap:12px; min-height:44px; padding:10px 12px; border:0; border-radius:6px; background:none; color:var(--text); text-align:left; font-size:14px; }

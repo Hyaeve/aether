@@ -6,6 +6,7 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import CacheHitChart from '../components/CacheHitChart.vue'
+import AnimatedNumber from '../components/AnimatedNumber.vue'
 import ThinScroll from '../components/ThinScroll.vue'
 import { usePageSlide } from '../page-slide'
 const props=defineProps({kind:{default:'cas'}})
@@ -27,7 +28,7 @@ onBeforeUnmount(()=>{alive=false;clearInterval(timer)})
   <div class="cas-pool-page page-slide" :class="{leaving}" @keydown.esc="escape">
     <header class="task-heading jump-heading"><h2 class="module-title">存储绑定池</h2><button ref="backButton" class="btn" :aria-label="`返回 ${kind.toUpperCase()} 任务`" @click="back"><Icon name="ArrowLeft" />返回页面</button></header>
     <section class="cas-pool-workspace">
-      <section class="cas-temporary-strip" aria-label="CAS 秒传统计"><CacheHitChart task label="秒传率" :show-value="false" :hits="stats.success||0" :misses="stats.failed||0" /><dl><div v-for="[label,value,icon] in metrics" :key="label"><dt><ProviderIcon v-if="['mobile','tianyi'].includes(icon)" :type="icon" small /><Icon v-else :name="icon" :size="22" :class="icon==='CircleAlert'?'danger-text':'success-text'" />{{label}}</dt><dd>{{value}}</dd></div></dl><button class="temporary-preview" aria-label="查看秒传临时文件" @click="temporary=true;load()"><span v-for="item in recent" :key="item.key" class="temporary-preview-entry"><strong>{{item.name}}</strong><small>{{storageName(item.storageId)}} · {{bytes(item.size||0)}}</small></span><span v-if="!recent.length" class="temporary-preview-empty"><Icon name="FileClock" :size="22" />临时文件</span></button></section>
+      <section class="cas-temporary-strip" aria-label="CAS 秒传统计"><CacheHitChart task label="秒传率" :show-value="false" :hits="stats.success||0" :misses="stats.failed||0" /><dl><div v-for="[label,value,icon] in metrics" :key="label"><dt><ProviderIcon v-if="['mobile','tianyi'].includes(icon)" :type="icon" small /><Icon v-else :name="icon" :size="22" :class="icon==='CircleAlert'?'danger-text':'success-text'" />{{label}}</dt><dd><AnimatedNumber :value="value" /></dd></div></dl><button class="temporary-preview" aria-label="查看秒传临时文件" @click="temporary=true;load()"><span v-for="item in recent" :key="item.key" class="temporary-preview-entry"><strong>{{item.name}}</strong><small>{{storageName(item.storageId)}} · {{bytes(item.size||0)}}</small></span><span v-if="!recent.length" class="temporary-preview-empty"><Icon name="FileClock" :size="22" />临时文件</span></button></section>
       <CASPool ref="pool" :kind="kind" @close="back" @busy="busy=$event" @ready="ready=$event" />
     </section>
   </div>

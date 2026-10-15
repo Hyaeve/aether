@@ -400,7 +400,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 		}
 		for _, item := range batch {
 			if item.ID == "" || item.Name == "" || seen[item.ID] {
-				return "", nil, errors.New("分享列表不完整或重复，请重新解析")
+				return "", nil, errors.New("分享栏不完整或重复，请重新解析")
 			}
 			seen[item.ID] = true
 			items = append(items, item)
@@ -415,7 +415,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			continue
 		}
 		if len(batch) == 0 && total > len(items) {
-			return "", nil, errors.New("分享列表分页不完整，请重新解析")
+				return "", nil, errors.New("分享栏分页不完整，请重新解析")
 		}
 		if len(batch) == 0 || (total > 0 && len(items) >= total) || (total == 0 && len(batch) < 100) {
 			return token, items, nil

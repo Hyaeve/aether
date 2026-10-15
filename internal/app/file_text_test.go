@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -11,6 +12,7 @@ func TestFileTextSharedEditorAuthenticatedRevisionAndTypes(t *testing.T) {
 	a, _, source, _ := backupFixture(t)
 	h := a.Handler(t.TempDir())
 	os.WriteFile(filepath.Join(source, "a.strm"), []byte("https://example.test/media"), 0644)
+	os.WriteFile(filepath.Join(source, "a.cas"), []byte(`{"name":"a.mkv","size":1,"sha256":"`+strings.Repeat("a", 64)+`","md5":"","slice_md5":"","slice_size":0}`), 0644)
 	os.WriteFile(filepath.Join(source, "a.txt"), []byte("not editable"), 0644)
 	endpoint := "/api/files/text?storage=source&parent=/&id=/a.strm"
 	if request(t, h, "GET", endpoint, nil, nil).Code != 401 {
@@ -34,6 +36,13 @@ func TestFileTextSharedEditorAuthenticatedRevisionAndTypes(t *testing.T) {
 	}
 	if request(t, h, "PUT", endpoint, map[string]string{"content": "bad", "revision": stale}, cookie).Code != 409 {
 		t.Fatal("stale revision accepted")
+	}
+	casEndpoint := "/api/files/text?storage=source&parent=/&id=/a.cas"
+	if w = request(t, h, "GET", casEndpoint, nil, cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "sha256") {
+		t.Fatal("CAS was not readable", w.Code, w.Body.String())
+	}
+	if request(t, h, "PUT", casEndpoint, map[string]string{"content": "bad"}, cookie).Code != 400 {
+		t.Fatal("CAS was editable")
 	}
 	if request(t, h, "GET", "/api/files/text?storage=source&parent=/&id=/a.txt", nil, cookie).Code != 400 {
 		t.Fatal("unrelated file accepted")

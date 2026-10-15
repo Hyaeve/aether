@@ -3,10 +3,13 @@ import { shallowReactive } from 'vue'
 export const audioSession = shallowReactive({ file: null, queue: [], activation: 0 })
 
 export function openAudio(file) {
-  const index = audioSession.queue.findIndex(item => item.id === file.id && item.storage === file.storage)
+  const incoming = Array.isArray(file.queue) && file.queue.length ? file.queue : [file]
   const queue = [...audioSession.queue]
-  if (index < 0) queue.push({ ...file })
-  else queue[index] = { ...file }
+  for (const item of incoming) {
+    const index = queue.findIndex(entry => entry.id === item.id && entry.storage === item.storage)
+    if (index < 0) queue.push({ ...item })
+    else queue[index] = { ...queue[index], ...item }
+  }
   audioSession.queue = queue
   audioSession.file = { ...file }
   audioSession.activation++

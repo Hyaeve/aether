@@ -6,10 +6,10 @@ async function setup(page) {
   const u=new URL(r.request().url());let json={}
   if(u.pathname==='/api/auth/status')json={initialized:true,authenticated:true}
   if(u.pathname==='/api/state')json={username:'workspace-controls',storages:[{id:'s',name:'Local',type:'local',enabled:true,config:{}}],tasks:[],settings:{},cache:{},links:[]}
-  if(u.pathname==='/api/files')json=[{id:'/sample.strm',name:'sample.strm'},{id:'/sample.nfo',name:'sample.nfo'}]
+  if(u.pathname==='/api/files')json=[{id:'/sample.strm',name:'sample.strm'},{id:'/sample.nfo',name:'sample.nfo'},{id:'/sample.cas',name:'sample.cas'}]
   if(u.pathname==='/api/files/text') {
    if(r.request().method()==='PUT'){saved=r.request().postDataJSON();json={ok:true}}
-   else json={content:u.searchParams.get('id').endsWith('.nfo')?'<movie><title>Example</title></movie>':'https://example.test/media',revision:'original'}
+   else json={content:u.searchParams.get('id').endsWith('.nfo')?'<movie><title>Example</title></movie>':u.searchParams.get('id').endsWith('.cas')?'{}':'https://example.test/media',revision:'original'}
   }
   if(u.pathname==='/api/logs')json=Array.from({length:20000},(_,i)=>({time:new Date().toISOString(),module:'system',level:'info',message:`record-${i}`}))
   if(u.pathname==='/api/link-playback')json={recentEvents:Array.from({length:20000},(_,i)=>({time:new Date().toISOString(),target:`https://example.test/${i}`,outcome:'redirect',userAgent:'Browser'}))}
@@ -33,6 +33,11 @@ test('file manager shares compact STRM/NFO editor and history matches refresh co
   await input.fill('edited '+name);await dialog.getByRole('button',{name:'保存',exact:true}).click()
   await expect.poll(saved).toEqual({content:'edited '+name,revision:'original'})
  }
+ await page.getByRole('button',{name:'sample.cas',exact:true}).dblclick()
+ const casDialog=page.getByRole('dialog',{name:'sample.cas',exact:true})
+ await expect(casDialog.getByRole('textbox',{name:'文件内容'})).toBeDisabled()
+ await expect(casDialog.getByRole('button',{name:'保存',exact:true})).toHaveCount(0)
+ await casDialog.locator('.modal-footer').getByRole('button',{name:'关闭',exact:true}).click()
  await page.getByRole('button',{name:'sample.nfo',exact:true}).dblclick()
  await page.screenshot({path:info.outputPath('shared-editor-light.png')})
  await page.evaluate(()=>document.documentElement.dataset.theme='dark')
@@ -120,7 +125,7 @@ test('mount switches stay adjacent to their labels',async({page})=>{
 
 test('new mount defaults to 0755 while editing preserves explicit existing permissions',async({page})=>{
  await setup(page)
- const mounts=[{id:'old',name:'已有挂载',source:'/',mountPoint:'/mnt/old/AetherDrive',mode:0o777,uid:0,gid:0,status:'stopped',readOnly:false,automount:true}]
+ const mounts=[{id:'old',name:'已有挂载',source:'/',mountPoint:'/mnt/old',mode:0o777,uid:0,gid:0,status:'stopped',readOnly:false,automount:true}]
  let saved
  await page.route('**/api/mounts',r=>{
   if(r.request().method()==='POST'){saved=r.request().postDataJSON();mounts.push({...saved,id:'new',status:'stopped'});return r.fulfill({json:{ok:true}})}

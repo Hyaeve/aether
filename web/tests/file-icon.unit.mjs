@@ -9,4 +9,5 @@ test('rename and file views share every supported media and document icon', () =
   for(const extension of ['zip','7z','rar','tar','tar.gz','tar.bz2','tar.xz','tgz','tbz2','txz'])assert.equal(entryIcon({name:'sample.'+extension}),'FileArchive')
   assert.equal(entryIcon({name:'stream.strm'}),'FileSymlink')
   assert.equal(entryIcon({name:'metadata.nfo'}),'FileText')
+  assert.equal(entryIcon({name:'feature.cas'}),'FileJson')
 })

@@ -75,7 +75,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await expect(page.getByRole('button', { name: '上级容器目录' })).toHaveCount(0)
   await expect(page.locator('.directory-crumbs button').first()).toBeVisible()
   await page.getByRole('button', { name: '选择当前目录', exact: true }).click()
-  await expect(page.locator('.mount-path-suffix')).toHaveText('/AetherDrive')
+  await expect(page.locator('.mount-path-suffix')).toHaveText('/聚合挂载测试')
   await expect(page.getByLabel('挂载点', { exact: true })).toHaveValue(mountPoint)
   const suffix = await page.locator('.mount-path-suffix').boundingBox()
   const pathBox = await page.locator('.mount-path-scroll').boundingBox()

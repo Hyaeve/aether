@@ -39,8 +39,8 @@ func validateRecycleCleanup(v recycleCleanupSettings, st State) error {
 		if !found {
 			return errors.New("请选择115存储池")
 		}
-		if len(rule.PIN) != 4 || strings.Trim(rule.PIN, "0123456789") != "" {
-			return errors.New("回收站密码须为4位数字")
+		if len(rule.PIN) != 6 || strings.Trim(rule.PIN, "0123456789") != "" {
+			return errors.New("回收站密码须为6位数字")
 		}
 		if rule.Days < 1 || rule.Days > 3650 {
 			return errors.New("保留天数须为1至3650，10天不是上限")
@@ -53,6 +53,40 @@ func validateRecycleCleanup(v recycleCleanupSettings, st State) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) recycleCleanupRunAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var input struct {
+		StorageID string `json:"storageId"`
+	}
+	if !decode(w, r, &input) || strings.TrimSpace(input.StorageID) == "" {
+		return
+	}
+	settings := a.store.snapshotWithLogLimit(0).RecycleCleanup
+	var rule *recycleCleanupRule
+	for i := range settings.Rules {
+		if settings.Rules[i].StorageID == input.StorageID {
+			copy := settings.Rules[i]
+			rule = &copy
+			break
+		}
+	}
+	if rule == nil {
+		fail(w, http.StatusNotFound, errors.New("未找到该存储池的清理任务"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	cleaned, err := a.cleanup115Recycle(ctx, *rule)
+	if err != nil {
+		fail(w, http.StatusBadGateway, err)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]any{"ok": true, "count": cleaned})
 }
 func (a *App) recycleCleanupAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
@@ -112,25 +146,25 @@ func (a *App) simulcastToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResponse(w, 200, v)
 }
-func (a *App) cleanup115Recycle(ctx context.Context, rule recycleCleanupRule) error {
+func (a *App) cleanup115Recycle(ctx context.Context, rule recycleCleanupRule) (int, error) {
 	if err := a.acquireCAS(ctx); err != nil {
-		return err
+		return 0, err
 	}
 	defer func() { <-a.casGate }()
 	st := a.store.snapshotWithLogLimit(0)
 	s, err := backupStorage(st, rule.StorageID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err = storageAuthBlocked(s, time.Now()); err != nil {
-		return err
+		return 0, err
 	}
 	rows, err := a.cloudManagementList(ctx, s, "trash")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err = validateCloudRows(rows); err != nil {
-		return err
+		return 0, err
 	}
 	cutoff := time.Now().Add(-time.Duration(rule.Days) * 24 * time.Hour)
 	ids := []string{}
@@ -140,30 +174,30 @@ func (a *App) cleanup115Recycle(ctx context.Context, rule recycleCleanupRule) er
 		}
 	}
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	c, err := client115(ctx, s)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	for start := 0; start < len(ids); start += 499 {
 		current := a.store.snapshotWithLogLimit(0)
 		if !current.RecycleCleanup.Enabled || rapid115Stamp(current.RecycleCleanup) != rapid115Stamp(st.RecycleCleanup) {
-			return errors.New("清理配置已变化，已停止")
+			return 0, errors.New("清理配置已变化，已停止")
 		}
 		pool, err := a.store.storage(s.ID)
 		if err != nil || !pool.Enabled || rapid115Stamp(pool.Config) != rapid115Stamp(s.Config) {
-			return errors.New("存储配置已变化，已停止")
+			return 0, errors.New("存储配置已变化，已停止")
 		}
 		if err = a.cloudStorageCurrent(s); err != nil {
-			return err
+			return 0, err
 		}
 		if err = c.CleanRecycleBin(rule.PIN, ids[start:min(start+499, len(ids))]...); err != nil {
-			return errors.New("清理结果未确认，未自动重试")
+			return 0, errors.New("清理结果未确认，未自动重试")
 		}
 	}
 	a.store.event("info", "storage", fmt.Sprintf("115回收站计划清理：%s，%d项，保留%d天", s.Name, len(ids), rule.Days))
-	return nil
+	return len(ids), nil
 }
 func (a *App) recycleCleanupMonitor() {
 	ticker := time.NewTicker(30 * time.Second)
@@ -190,7 +224,7 @@ func (a *App) recycleCleanupMonitor() {
 				}
 				last[key] = boundary
 				ctx, cancel := context.WithTimeout(a.ctx, 5*time.Minute)
-				err = a.cleanup115Recycle(ctx, rule)
+				_, err = a.cleanup115Recycle(ctx, rule)
 				cancel()
 				if err != nil {
 					a.store.event("error", "storage", "115回收站计划清理失败："+rule.StorageID+"；"+err.Error())

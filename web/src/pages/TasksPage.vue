@@ -15,6 +15,7 @@ import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 import { useCardDrag } from '../useCardDrag'
 import { revealOptions } from '../expanded-options'
 import GenerationImport from '../components/GenerationImport.vue'
+import {extensionError} from '../extension-rules'
 const importer=ref(false),generationJobs=ref([])
 let generationTimer,alive=true
 async function loadGeneration(){if(!['cas','ed2k'].includes(props.kind))return;try{const result=await api('/generation/jobs');if(alive)generationJobs.value=Array.isArray(result)?result.filter(j=>j.kind===props.kind):[]}catch(e){if(alive)notify(e.message,true)}}
@@ -107,6 +108,7 @@ function open(t) {
 }
 async function save() {
   busy.value = true; error.value = ''
+  for (const [key,label] of [['mediaExtensions','媒体扩展名'],['metadataExtensions','元数据扩展名']]) { const invalid=extensionError(label,form[key]); if(invalid){ notify(invalid,true); busy.value=false; return } }
   try { await api(editing.value ? `/tasks/${editing.value}` : '/tasks', editing.value ? 'PUT' : 'POST', form); await reload(); modal.value = false; notify('任务已保存') }
   catch (e) { error.value = e.message } finally { busy.value = false }
 }
@@ -158,7 +160,7 @@ async function toggle(t) {
         <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '' }}</span><Icon name="FolderOpen" /></button></div>
-        <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
+        <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" @keydown.enter.prevent /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
         <div v-else class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
         <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" /></label>

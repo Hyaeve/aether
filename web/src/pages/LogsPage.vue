@@ -76,7 +76,7 @@ watch(() => route.fullPath, () => {
   Object.assign(filters, { query: '', level: 'all', module: 'all' })
   applyNotice(); resetRows()
 })
-let observer, rowObserver, previousWidth = 0
+let observer, rowObserver, refreshTimer, previousWidth = 0
 onMounted(() => {
   rowObserver = new ResizeObserver(rows => {
     const host = scrollHost.value
@@ -103,9 +103,9 @@ onMounted(() => {
   if (scrollHost.value) observer.observe(scrollHost.value)
   scrollHost.value?.addEventListener('scroll', syncScroll, { passive: true })
   syncScroll()
-  load()
+  load(); refreshTimer = setInterval(() => { if (document.visibilityState === 'visible') load() }, 5000)
 })
-onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); scrollHost.value?.removeEventListener('scroll', syncScroll); rowNodes.clear() })
+onUnmounted(() => { clearInterval(refreshTimer); observer?.disconnect(); rowObserver?.disconnect(); scrollHost.value?.removeEventListener('scroll', syncScroll); rowNodes.clear() })
 </script>
 <template>
   <section class="log-panel" aria-label="系统日志">

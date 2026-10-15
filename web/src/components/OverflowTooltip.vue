@@ -30,7 +30,7 @@ function show(event) {
   if (!content || (!clipped && !el.hasAttribute('data-tooltip-always')) || target === el) return
   const fileName = el.matches('.file-browser .file-name strong, .file-browser .file-grid-name strong')
   hide(); target = el; value = content; playback.value = !!el.closest('.playback-scroller'); stationary.value = fileName || playback.value || el.hasAttribute('data-tooltip-stationary')
-  delay = fileName ? 350 : stationary.value || el.hasAttribute('data-tooltip-always') ? 600 : 350
+  delay = Number(el.dataset.tooltipDelay) || (fileName ? 350 : stationary.value || el.hasAttribute('data-tooltip-always') ? 600 : 350)
   const r = el.getBoundingClientRect()
   pointerX = event.clientX ?? r.left; pointerY = event.clientY ?? r.bottom
   schedule()

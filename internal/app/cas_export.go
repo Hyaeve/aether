@@ -3,7 +3,6 @@ package app
 import (
 	"archive/zip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -176,7 +175,7 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, errors.New("CAS特征获取失败；未输出不完整文件，请查看系统日志"))
 			return
 		}
-		raw, e := json.Marshal(info)
+		raw, e := marshalCASContent(info)
 		if e != nil {
 			fail(w, 500, e)
 			return

@@ -40,8 +40,8 @@ func TestMountConfigAndValidation(t *testing.T) {
 	if err := a.validateMount(&MountConfig{Name: "nonempty", MountPoint: nonempty, Mode: 0755}); err != nil {
 		t.Fatal("parent containing unrelated files rejected", err)
 	}
-	if _, err := os.Stat(mountTarget(saved)); !os.IsNotExist(err) {
-		t.Fatal("saving created mount child", err)
+	if info, err := os.Stat(mountTarget(saved)); err != nil || !info.IsDir() {
+		t.Fatal("saving did not create mount child", err)
 	}
 	root := t.TempDir()
 	a.store.update(func(st *State) error {
@@ -69,7 +69,7 @@ func TestMountConfigAndValidation(t *testing.T) {
 		{Name: "config", MountPoint: a.store.dir, Mode: 0755},
 		{Name: "negative", MountPoint: t.TempDir(), UID: -1, Mode: 0755},
 		{Name: "mode", MountPoint: t.TempDir(), Mode: 07777},
-		{Name: "overlap", MountPoint: saved.MountPoint, Mode: 0755},
+		{Name: saved.Name, MountPoint: saved.MountPoint, Mode: 0755},
 	} {
 		if w := request(t, h, "POST", "/api/mounts", bad, cookie); w.Code != 400 {
 			t.Fatal("accepted invalid", bad, w.Code)
@@ -94,7 +94,7 @@ func TestMountConfigAndValidation(t *testing.T) {
 }
 
 func TestDedicatedMountTarget(t *testing.T) {
-	mount := MountConfig{MountPoint: t.TempDir()}
+	mount := MountConfig{Name: "聚合挂载", MountPoint: t.TempDir()}
 	keep := filepath.Join(mount.MountPoint, "keep.txt")
 	if err := os.WriteFile(keep, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestDedicatedMountTarget(t *testing.T) {
 		}
 	}
 	target := mountTarget(mount)
-	if target != filepath.Join(mount.MountPoint, "AetherDrive") {
+	if target != filepath.Join(mount.MountPoint, mount.Name) {
 		t.Fatal(target)
 	}
 	if err := os.WriteFile(filepath.Join(target, "occupied"), []byte("user data"), 0600); err != nil {
@@ -121,7 +121,7 @@ func TestDedicatedMountTarget(t *testing.T) {
 		t.Fatal("parent data changed", err)
 	}
 	t.Run("file", func(t *testing.T) {
-		mount := MountConfig{MountPoint: t.TempDir()}
+		mount := MountConfig{Name: "文件挂载", MountPoint: t.TempDir()}
 		if err := os.WriteFile(mountTarget(mount), []byte("keep"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -130,7 +130,7 @@ func TestDedicatedMountTarget(t *testing.T) {
 		}
 	})
 	t.Run("symlink", func(t *testing.T) {
-		mount := MountConfig{MountPoint: t.TempDir()}
+		mount := MountConfig{Name: "链接挂载", MountPoint: t.TempDir()}
 		if err := os.Symlink(t.TempDir(), mountTarget(mount)); err != nil {
 			t.Skip("symlink unavailable:", err)
 		}

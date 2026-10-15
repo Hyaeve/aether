@@ -74,36 +74,45 @@ func pathOverlaps(a, b string) bool {
 }
 
 func mountTarget(mount MountConfig) string {
-	return filepath.Join(mount.MountPoint, "AetherDrive")
+	name := strings.TrimSpace(mount.Name)
+	if name == "" {
+		// Keep old in-memory/config records addressable until they are edited.
+		name = "AetherDrive"
+	}
+	return filepath.Join(mount.MountPoint, name)
 }
 
 // Only the dedicated child may be created; never hide existing user files.
 func prepareMountTarget(mount MountConfig, create bool) error {
+	name := strings.TrimSpace(mount.Name)
+	if name == "" {
+		name = "AetherDrive"
+	}
 	root, err := os.OpenRoot(mount.MountPoint)
 	if err != nil {
 		return errors.New("挂载父目录不可访问")
 	}
 	defer root.Close()
 	if create {
-		if err := root.Mkdir("AetherDrive", 0755); err != nil && !errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("创建 AetherDrive 失败：%w", err)
+		if err := root.Mkdir(name, 0755); err != nil && !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("创建挂载名称目录失败：%w", err)
 		}
 	}
-	info, err := root.Lstat("AetherDrive")
+	info, err := root.Lstat(name)
 	if errors.Is(err, os.ErrNotExist) && !create {
 		return nil
 	}
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("AetherDrive 必须是普通目录，不能是文件或符号链接")
+		return errors.New("挂载名称目录必须是普通目录，不能是文件或符号链接")
 	}
-	dir, err := root.Open("AetherDrive")
+	dir, err := root.Open(name)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
 	entries, err := dir.ReadDir(1)
 	if (err != nil && !errors.Is(err, io.EOF)) || len(entries) != 0 {
-		return errors.New("AetherDrive 必须是可访问的空目录，不会覆盖已有文件")
+		return errors.New("挂载名称目录必须是可访问的空目录，不会覆盖已有文件")
 	}
 	return nil
 }
@@ -112,6 +121,9 @@ func (a *App) validateMount(input *MountConfig) error {
 	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" || len(input.Name) > 180 {
 		return errors.New("请输入挂载名称")
+	}
+	if input.Name == "." || input.Name == ".." || strings.ContainsAny(input.Name, `/\\`) || strings.ContainsRune(input.Name, '\x00') {
+		return errors.New("挂载名称必须是单一目录名，不能包含路径分隔符")
 	}
 	if !filepath.IsAbs(input.MountPoint) || filepath.Clean(input.MountPoint) == string(filepath.Separator) {
 		return errors.New("挂载点须为非根目录的绝对路径")
@@ -154,7 +166,7 @@ func (a *App) validateMount(input *MountConfig) error {
 			return errors.New("挂载名称重复或挂载点相互包含")
 		}
 	}
-	if err := prepareMountTarget(*input, false); err != nil {
+	if err := prepareMountTarget(*input, true); err != nil {
 		return err
 	}
 	if input.Source == "" {
@@ -223,12 +235,12 @@ func (m *mountManager) start(key string) (err error) {
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		return errors.New("缺少 /dev/fuse，请检查容器特权及设备映射")
 	}
+	if err := m.app.validateMount(&mount); err != nil {
+		return err
+	}
 	point := mountTarget(mount)
 	if mountedAt(point) {
 		return errors.New("挂载点已被占用")
-	}
-	if err := m.app.validateMount(&mount); err != nil {
-		return err
 	}
 	if err := prepareMountTarget(mount, true); err != nil {
 		return err

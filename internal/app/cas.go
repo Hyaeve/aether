@@ -44,6 +44,24 @@ type CASInfo struct {
 	SliceSize      int64  `json:"slice_size"`
 }
 
+// marshalCASContent is the portable standalone .cas format. Provider is an
+// execution detail owned by the binding pool and must not be persisted in the
+// file. Keep the field order stable so exported files are easy to inspect.
+func marshalCASContent(info CASInfo) ([]byte, error) {
+	type content struct {
+		Name      string `json:"name"`
+		Size      int64  `json:"size"`
+		SHA256    string `json:"sha256"`
+		MD5       string `json:"md5"`
+		SliceMD5  string `json:"slice_md5"`
+		SliceSize int64  `json:"slice_size"`
+	}
+	return json.MarshalIndent(content{
+		Name: info.Name, Size: info.Size, SHA256: info.SHA256,
+		MD5: info.MD5, SliceMD5: info.SliceMD5, SliceSize: info.SliceSize,
+	}, "", "  ")
+}
+
 type CASTemporary struct {
 	Feature        string    `json:"feature,omitempty"`
 	Key            string    `json:"key"`

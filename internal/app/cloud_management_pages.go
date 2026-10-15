@@ -38,6 +38,7 @@ func (a *App) cloudManagementPage(w http.ResponseWriter, r *http.Request, ctx co
 	kind, key := r.URL.Query().Get("kind"), r.URL.Query().Get("storage")
 	var rows []cloudManagementEntry
 	var more bool
+	var total int64
 	var s Storage
 	if key == "cas" && kind == "downloads" {
 		all := []cloudManagementEntry{}
@@ -52,7 +53,7 @@ func (a *App) cloudManagementPage(w http.ResponseWriter, r *http.Request, ctx co
 		}
 		start := min((page-1)*cloudPageSize, len(all))
 		end := min(start+cloudPageSize, len(all))
-		rows, more = all[start:end], end < len(all)
+		rows, more, total = all[start:end], end < len(all), int64(len(all))
 	} else {
 		s, err = a.store.storage(key)
 		if err != nil || !s.Enabled || !cloudManagementSupported(s, kind) {
@@ -63,7 +64,7 @@ func (a *App) cloudManagementPage(w http.ResponseWriter, r *http.Request, ctx co
 			fail(w, 409, err)
 			return
 		}
-		rows, more, err = a.readCloudManagementPage(ctx, s, kind, page)
+		rows, more, total, err = a.readCloudManagementPage(ctx, s, kind, page)
 		if err != nil {
 			fail(w, 502, err)
 			return
@@ -95,7 +96,7 @@ func (a *App) cloudManagementPage(w http.ResponseWriter, r *http.Request, ctx co
 	if more {
 		next = page + 1
 	}
-	jsonResponse(w, 200, map[string]any{"items": rows, "nextPage": next, "edit": s.Type == "115" && kind == "shares", "password": s.Type == "115" && kind == "trash"})
+	jsonResponse(w, 200, map[string]any{"items": rows, "nextPage": next, "total": total, "edit": s.Type == "115" && kind == "shares", "password": s.Type == "115" && kind == "trash"})
 }
 
 func cloudCASManagementEntry(s Storage, record cloudCASRecord) cloudManagementEntry {
@@ -106,10 +107,10 @@ func cloudCASManagementEntry(s Storage, record cloudCASRecord) cloudManagementEn
 	return cloudManagementEntry{ID: record.ID, Name: record.CAS.Name, Size: record.CAS.Size, Path: record.Parent, ParentID: record.Parent, Time: record.Time, Status: record.Status, Progress: progress, StorageID: s.ID, StorageName: s.Name, Provider: s.Type}
 }
 
-func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind string, page int) ([]cloudManagementEntry, bool, error) {
+func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind string, page int) ([]cloudManagementEntry, bool, int64, error) {
 	items := []cloudManagementEntry{}
 	if !cloudManagementSupported(s, kind) {
-		return nil, false, errors.New("此存储的该项云盘管理接口暂不支持")
+		return nil, false, 0, errors.New("此存储的该项云盘管理接口暂不支持")
 	}
 	if kind == "downloads" && casStorage(s) {
 		for _, record := range a.store.snapshotWithLogLimit(0).CloudCASRecords {
@@ -119,17 +120,18 @@ func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind strin
 		}
 		start := min((page-1)*cloudPageSize, len(items))
 		end := min(start+cloudPageSize, len(items))
-		return items[start:end], end < len(items), nil
+		return items[start:end], end < len(items), int64(len(items)), nil
 	}
 	if s.Type == "quark" {
 		var response struct {
 			Data struct {
-				List []map[string]json.RawMessage `json:"list"`
+				List  []map[string]json.RawMessage `json:"list"`
+				Total json.RawMessage              `json:"total"`
 			} `json:"data"`
 		}
 		err := shareRequest(ctx, s, http.MethodGet, quarkManagementURL("/share/mypage/detail", url.Values{"_page": {strconv.Itoa(page)}, "_size": {"100"}, "_order_field": {"created_at"}, "_order_type": {"desc"}, "_filter": {"all"}, "_share_type": {"0,1"}}), nil, &response)
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		for _, row := range response.Data.List {
 			link := cloudString(row, "share_url")
@@ -142,7 +144,7 @@ func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind strin
 			}
 			items = append(items, cloudManagementEntry{ID: cloudString(row, "share_id"), Name: cloudString(row, "title"), URL: link, Code: cloudString(row, "passcode"), Size: cloudInt(row, "size"), Status: status, Time: time.UnixMilli(cloudInt(row, "created_at"))})
 		}
-		return items, len(items) == cloudPageSize, nil
+		return items, len(items) == cloudPageSize, cloudInt(map[string]json.RawMessage{"total": response.Data.Total}, "total"), nil
 	}
 	var response map[string]json.RawMessage
 	query := url.Values{"offset": {strconv.Itoa((page - 1) * cloudPageSize)}, "limit": {"100"}}
@@ -161,7 +163,7 @@ func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind strin
 		address, method = "https://lixian.115.com/lixian/?"+query.Encode(), http.MethodPost
 	}
 	if err := shareRequest(ctx, s, method, address, nil, &response); err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	raw := response["data"]
 	if kind == "downloads" {
@@ -171,7 +173,7 @@ func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind strin
 		raw = response["list"]
 	}
 	if len(raw) == 0 || string(raw) == "null" || string(raw) == "false" {
-		return nil, false, errors.New("115云盘列表响应不完整")
+		return nil, false, 0, errors.New("115云盘列表响应不完整")
 	}
 	rows := cloudRows(raw)
 	for _, row := range rows {
@@ -180,7 +182,7 @@ func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind strin
 		case "shares":
 			entry.ID = cloudString(row, "share_code")
 			if !shareCodePattern.MatchString(entry.ID) {
-				return nil, false, errors.New("分享列表标识无效")
+				return nil, false, 0, errors.New("分享栏标识无效")
 			}
 			entry.Name, entry.Code, entry.Size = cloudString(row, "share_title"), cloudString(row, "receive_code"), cloudInt(row, "file_size")
 			entry.URL, entry.Status = "https://115cdn.com/s/"+entry.ID, "有效"
@@ -219,10 +221,17 @@ func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind strin
 		items = append(items, entry)
 	}
 	more := len(rows) == cloudPageSize
+	total := cloudInt(response, "count")
+	if total == 0 {
+		total = cloudInt(response, "total")
+	}
+	if total == 0 {
+		total = cloudInt(response, "total_count")
+	}
 	if kind == "downloads" {
 		more = int64(page) < cloudInt(response, "page_count") && len(rows) > 0
 	}
-	return items, more, nil
+	return items, more, total, nil
 }
 
 func (a *App) cloud115DirectoryPath(ctx context.Context, s Storage, key string) string {

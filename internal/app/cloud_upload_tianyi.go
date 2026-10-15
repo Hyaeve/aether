@@ -58,7 +58,10 @@ func (a *App) tianyiUploadCall(ctx context.Context, s Storage, operation string,
 	h := http.Header{"Sessionkey": {session.Key}, "Date": {date}, "Signature": {strings.ToUpper(hex.EncodeToString(mac.Sum(nil)))}, "X-Request-Id": {id()}}
 	client := tianyiClient()
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	raw, _, err := tianyiHTTP(ctx, client, "GET", "https://upload.cloud.189.cn"+endpoint, url.Values{"params": {payload}, "clientType": {"TELEPC"}, "version": {"7.2.4.0"}, "channelId": {"web_cloud.189.cn"}}, h)
+	raw, _, err := tianyiHTTP(ctx, client, "GET", "https://upload.cloud.189.cn"+endpoint, url.Values{
+		"params": {payload}, "clientType": {"TELEPC"}, "version": {"7.2.4.0"},
+		"channelId": {"web_cloud.189.cn"}, "rand": {tianyiUploadRand()},
+	}, h)
 	if err != nil {
 		return nil, err
 	}
@@ -89,12 +92,17 @@ func rawText(raw json.RawMessage) string {
 	return ""
 }
 
+// Cloud189's PC upload endpoints require the same cache-busting random query
+// parameter used by OpenList's clientSuffix. It is outside the encrypted
+// params and therefore does not change the request signature.
+func tianyiUploadRand() string {
+	n := time.Now().UnixNano()
+	return fmt.Sprintf("%d_%d", n%100000, n/100000)
+}
+
 func (a *App) uploadTianyi(ctx context.Context, s Storage, parent, name string, f *os.File, size int64) error {
 	// Bound the number of parts without allocating a whole part in memory.
-	partSize := int64(10 << 20)
-	if n := (size + 1998) / 1999; n > partSize {
-		partSize = ((n + (10 << 20) - 1) / (10 << 20)) * (10 << 20)
-	}
+	partSize := tianyiCASPartSize(size)
 	full := md5.New()
 	hexes := []string{}
 	parts := []string{}
