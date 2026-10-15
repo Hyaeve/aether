@@ -87,11 +87,15 @@ func TestCASFormatTianyiMissingHashesRejectBeforeUpstream(t *testing.T) {
 		{Name: "film.mp4", Size: 12, MD5: strings.Repeat("b", 32)},
 		{Name: "film.mp4", Size: 12, SHA256: strings.Repeat("a", 64), MD5: strings.Repeat("b", 32)},
 		{Name: "film.mp4", Size: 12, SliceMD5: strings.Repeat("c", 32), SliceSize: 10 << 20},
-		{Name: "film.mp4", Size: 12, MD5: strings.Repeat("b", 32), SliceMD5: strings.Repeat("c", 32)},
+		{Name: "film.mp4", Size: 12, MD5: strings.Repeat("b", 32), SliceMD5: strings.Repeat("c", 32), SliceSize: -1},
 	} {
 		if _, err := a.tianyiRestore(context.Background(), s, "folder", info.Name, info); err == nil {
 			t.Fatal("incomplete Tianyi feature accepted", info)
 		}
+	}
+	legacy := CASInfo{Name: "film.mp4", Size: 12, MD5: strings.Repeat("b", 32), SliceMD5: strings.Repeat("c", 32)}
+	if err := validateCASFor(s, legacy); err != nil || legacy.SliceSize != 0 {
+		t.Fatal("missing size should normalize without mutating the source", legacy, err)
 	}
 }
 

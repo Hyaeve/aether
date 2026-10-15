@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
+import VolumeSlider from './VolumeSlider.vue'
 const props = defineProps({ file: Object, queue: { type: Array, default: () => [] } })
 const emit = defineEmits(['close', 'change'])
 const panel = ref(null), player = ref(null), failed = ref(false), tools = ref(true)
@@ -9,9 +10,9 @@ const position = ref(0), duration = ref(0), volume = ref(1), muted = ref(false)
 const subtitlesOpen = ref(false), subtitlesLoading = ref(false), subtitleError = ref(''), subtitleTracks = ref([]), subtitleSelection = ref('off'), subtitleURL = ref('')
 const volumeOpen = ref(false), ratio = ref(16 / 9), viewport = ref({ width: innerWidth, height: innerHeight })
 const dimensions = computed(() => {
-  if (fullscreen.value) return { width: `${viewport.value.width}px`, height: `${viewport.value.height}px` }
+  if (fullscreen.value) return { width: `${viewport.value.width}px`, height: `${viewport.value.height}px`, '--viewer-height': `${viewport.value.height}px` }
   const width = Math.max(1, Math.min(1080, viewport.value.width - 32, (viewport.value.height - 48) * ratio.value))
-  return { width: `${width}px`, height: `${width / ratio.value}px` }
+  return { width: `${width}px`, height: `${width / ratio.value}px`, '--viewer-height': `${width / ratio.value}px` }
 })
 const index = computed(() => props.queue.findIndex(file => file.id === props.file.id && file.storage === props.file.storage))
 const hasPrevious = computed(() => index.value > 0), hasNext = computed(() => index.value >= 0 && index.value + 1 < props.queue.length)
@@ -191,7 +192,7 @@ onUnmounted(() => {
             </div>
             <div class="video-volume" @pointerenter="volumeOpen = true" @pointerleave="volumeOpen = false" @focusin="volumeOpen = true" @focusout="volumeOpen = false" @wheel.prevent="setVolume(volume + ($event.deltaY < 0 ? .05 : -.05))">
               <button :aria-label="muted || volume === 0 ? '取消静音' : '静音'" @click="player.muted = !player.muted; syncVolume()"><Icon :name="volumeIcon" :size="22" /></button>
-              <div v-if="volumeOpen" class="video-volume-popup"><input type="range" min="0" max="1" step="0.01" :value="muted ? 0 : volume" aria-label="视频音量" @input="setVolume($event.target.value)" /></div>
+              <div v-if="volumeOpen" class="video-volume-popup"><VolumeSlider :model-value="muted ? 0 : volume" label="视频音量" @update:model-value="setVolume" /></div>
             </div>
             <button class="video-fullscreen" :aria-label="fullscreen ? '退出全屏' : '全屏'" :aria-pressed="fullscreen" :disabled="fullscreenBusy" @click="toggleFullscreen"><Icon :name="fullscreen ? 'Minimize' : 'Maximize'" :size="20" /></button>
           </div>
@@ -216,13 +217,13 @@ onUnmounted(() => {
 .video-progress { display:block; width:100%; height:14px; margin:0 0 3px; padding:0; border:0; box-shadow:none; appearance:none; cursor:pointer; background:transparent; }
 .video-progress::-webkit-slider-runnable-track { height:3px; border-radius:2px; background:linear-gradient(to right,#b9c5ff var(--progress),#ffffff50 var(--progress)); }.video-progress::-moz-range-track { height:3px; border-radius:2px; background:#ffffff50; }.video-progress::-moz-range-progress { background:#b9c5ff; height:3px; }
 .video-progress::-webkit-slider-thumb { appearance:none; width:10px; height:10px; margin-top:-3.5px; border-radius:50%; background:#f1f4ff; }.video-progress::-moz-range-thumb { width:10px; height:10px; border:0; border-radius:50%; background:#f1f4ff; }
-.video-control-row { display:flex; align-items:center; gap:3px; min-width:0; }.video-controls-spacer { flex:1; }.video-time { flex:none; font-size:12px; font-variant-numeric:tabular-nums; margin-left:8px; white-space:nowrap; }
-.video-subtitles,.video-volume { position:relative; flex:none; }.video-subtitle-menu,.video-volume-popup { position:absolute; bottom:100%; right:-34px; margin-bottom:8px; border:1px solid #ffffff20; border-radius:8px; background:#202635eb; backdrop-filter:blur(24px); box-shadow:0 8px 30px #0006; }
-.video-subtitle-menu::after,.video-volume-popup::after { content:''; position:absolute; top:100%; height:10px; left:0; right:0; }.video-subtitle-menu { width:230px; max-width:calc(100vw - 40px); max-height:240px; overflow-y:auto; padding:5px; font-size:13px; }
-.video-subtitle-menu button { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; width:100%; height:auto; min-height:34px; padding:7px 9px; text-align:left; overflow-wrap:anywhere; }.video-subtitle-menu button[aria-checked=true] { color:#d0d8ff; background:#8392d932; }.video-subtitle-menu small { font-size:11px; }.video-subtitle-menu > span { display:flex; gap:7px; align-items:center; padding:8px 9px; color:#b9c0d2; overflow-wrap:anywhere; }
-.video-volume-popup { right:0; width:38px; height:126px; display:grid; place-items:center; border-radius:22px; }.video-volume-popup input { width:94px; height:3px; transform:rotate(-90deg); accent-color:#c0ccff; cursor:pointer; }
+.video-control-row { display:flex; align-items:center; gap:8px; min-width:0; }.video-controls-spacer { flex:1; }.video-time { flex:none; font-size:12px; font-variant-numeric:tabular-nums; margin-left:8px; white-space:nowrap; }
+.video-subtitles,.video-volume { position:relative; flex:none; }.video-subtitle-menu,.video-volume-popup { position:absolute; bottom:100%; right:-34px; margin-bottom:8px; border:1px solid #ffffff20; border-radius:8px; background:#303b44; backdrop-filter:none; box-shadow:0 8px 30px #0006; }
+.video-subtitle-menu::after,.video-volume-popup::after { content:''; position:absolute; top:100%; height:10px; left:0; right:0; }.video-subtitle-menu { width:240px; max-width:calc(100vw - 40px); height:188px; max-height:calc(var(--viewer-height) - 72px); overflow-y:auto; scrollbar-width:none; padding:5px; font-size:13px; }.video-subtitle-menu::-webkit-scrollbar { display:none; }
+.video-subtitle-menu button { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; width:100%; height:44px; min-height:44px; padding:7px 9px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.video-subtitle-menu button[aria-checked=true] { color:#d0d8ff; background:#8392d932; }.video-subtitle-menu small { font-size:11px; }.video-subtitle-menu > span { display:flex; gap:7px; align-items:center; padding:8px 9px; color:#b9c0d2; overflow-wrap:anywhere; }
+.video-volume-popup { right:0; width:44px; height:144px; max-height:calc(var(--viewer-height) - 72px); padding:10px 8px; border-radius:22px; }
 .video-error { position:absolute; inset:52px 8px 74px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#dce2f2; text-align:center; font-size:14px; pointer-events:none; }.video-error a { pointer-events:auto; }.video-error p { margin:0; }.video-error a { display:flex; align-items:center; gap:7px; color:#b6c7ff; text-decoration:none; }
 @keyframes video-enter { from { opacity:0; transform:scale(.98); } }
-@media(max-width:480px) { .video-controls { padding-left:8px; padding-right:8px; }.video-control-row { gap:0; }.video-time { margin-left:3px; font-size:11px; }.video-viewer button { width:30px; height:32px; }.video-overlay { padding:6px 8px; }.video-subtitle-menu { max-height:110px; }.video-error { inset:42px 8px 60px; gap:5px; font-size:12px; } }
+@media(max-width:480px) { .video-controls { padding-left:8px; padding-right:8px; }.video-control-row { gap:4px; }.video-time { margin-left:3px; font-size:11px; }.video-viewer button { width:30px; height:32px; }.video-overlay { padding:6px 8px; }.video-error { inset:42px 8px 60px; gap:5px; font-size:12px; } }
 @media(prefers-reduced-motion:reduce) { .video-viewer { animation:none; }.video-overlay,.video-controls { transition:none; } }
 </style>

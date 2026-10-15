@@ -36,7 +36,24 @@ func (a *App) currentSTRMSettings() strmSettings {
 }
 
 func (a *App) generatedStreamURL(claim streamClaim) string {
-	original := a.signedStreamURL(claim)
+	var payload any = claim
+	if claim.CAS != nil && claim.Storage == "" && claim.ED2K == nil {
+		// Portable CAS links carry features only; the pool owns playback policy.
+		type features struct {
+			Name      string `json:"name"`
+			Size      int64  `json:"size"`
+			SHA256    string `json:"sha256"`
+			MD5       string `json:"md5"`
+			SliceMD5  string `json:"slice_md5"`
+			SliceSize int64  `json:"slice_size"`
+		}
+		info := claim.CAS
+		payload = struct {
+			Redirect bool     `json:"redirect,omitempty"`
+			CAS      features `json:"cas"`
+		}{claim.Redirect, features{info.Name, info.Size, info.SHA256, info.MD5, info.SliceMD5, info.SliceSize}}
+	}
+	original := a.signedStreamPayload(payload)
 	u, err := url.Parse(original)
 	if err != nil {
 		return original

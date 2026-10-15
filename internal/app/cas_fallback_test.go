@@ -32,6 +32,7 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 		{name: "request cancellation does not restore elsewhere", mobileFailure: "restore", cancel: true},
 		{name: "disabled fallback is not used", mobileFailure: "restore", disabled: true},
 		{name: "tianyi preferred failure falls back to mobile", preferTianyi: true, both: true},
+		{name: "missing slice size uses OpenList rule for tianyi", preferTianyi: true, both: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := testApp(t)
@@ -113,6 +114,9 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(raw)), Header: http.Header{}, Request: r}, nil
 			})}
 			info := casPoolRevisionInfo()
+			if tc.name == "missing slice size uses OpenList rule for tianyi" {
+				info.SliceSize = 0
+			}
 			if tc.single {
 				info.MD5, info.SliceMD5, info.SliceSize = "", "", 0
 			}
@@ -129,7 +133,7 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 				}
 			}
 			if tc.stream {
-				u, _ := url.Parse(a.signedStreamURL(claim))
+				u, _ := url.Parse(a.generatedStreamURL(claim))
 				w := httptest.NewRecorder()
 				a.Handler(t.TempDir()).ServeHTTP(w, httptest.NewRequest("GET", u.RequestURI(), nil))
 				if w.Code != http.StatusFound || w.Header().Get("Location") != "https://media.example/tianyi" {

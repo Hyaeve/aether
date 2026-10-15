@@ -503,7 +503,16 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Cookie: session.Config["cookie"], Items: items, Batches: batches, Expires: time.Now().Add(10 * time.Minute)}
 		a.shareMu.Unlock()
-		jsonResponse(w, 200, map[string]any{"preview": key, "items": items, "tree": tree, "batches": len(batches)})
+		batchNames := make([][]string, len(batches))
+		for i, batch := range batches {
+			for _, item := range batch.Items {
+				batchNames[i] = append(batchNames[i], item.Name)
+			}
+			if len(batchNames[i]) == 0 && batch.Directory != "" {
+				batchNames[i] = []string{batch.Directory}
+			}
+		}
+		jsonResponse(w, 200, map[string]any{"preview": key, "items": items, "tree": tree, "batches": len(batches), "batchNames": batchNames})
 		return
 	}
 	if r.PathValue("action") != "save" {

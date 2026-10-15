@@ -48,7 +48,7 @@ func (a *App) casExportJobAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s, err := a.store.storage(v.StorageID)
-	if err != nil || !s.Enabled || s.Type != "local" || !v.Confirm || len(v.IDs) == 0 || len(v.IDs) > 10000 {
+	if err != nil || !s.Enabled || s.Type != "local" && s.Type != "mobile" || !v.Confirm || len(v.IDs) == 0 || len(v.IDs) > 10000 {
 		fail(w, 400, errors.New("请确认有效CAS导出范围"))
 		return
 	}

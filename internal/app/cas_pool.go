@@ -148,6 +148,7 @@ func (a *App) selectCASStorage(info CASInfo, now time.Time) (Storage, int, error
 }
 
 func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind string) (Storage, int, error) {
+	info = normalizeCASPlayback(info)
 	if err := validateCAS(info); err != nil {
 		return Storage{}, 0, err
 	}
@@ -179,6 +180,8 @@ func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind s
 		}
 		available[kind] = eligible
 	}
+	// The configured provider priority also applies to reusable temporary
+	// files; a live file in the secondary provider must not override it.
 	for _, kind := range kinds {
 		group, eligible := groups[kind], available[kind]
 		for _, entry := range st.CASTemporary {

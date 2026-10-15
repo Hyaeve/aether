@@ -48,7 +48,11 @@ for (const kind of ['cas','ed2k']) test(`${kind} tasks use live borders and expo
   await page.getByRole('button',{name:`添加 ${kind.toUpperCase()} 任务卡片`,exact:true}).click()
   await page.getByRole('button',{name:'更多选项',exact:true}).click()
   const select = page.getByRole('button',{name:'STRM 刮削',exact:true})
-  await expect(select).toHaveText('参与')
+  await expect(select).toHaveText(kind === 'cas' ? '不参与' : '参与')
+  if (kind === 'cas') {
+    await select.click(); await page.getByRole('option',{name:'参与',exact:true}).click()
+    await expect(select).toHaveText('参与')
+  }
   await select.click(); await page.getByRole('option',{name:'不参与',exact:true}).click()
   await expect(select).toHaveText('不参与')
   await expect(page.getByLabel('保留扩展名',{exact:true})).toHaveCount(0)

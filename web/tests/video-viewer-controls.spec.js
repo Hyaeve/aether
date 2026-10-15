@@ -88,6 +88,41 @@ test('keyboard playback, volume, episode buttons and subtitle menu are available
 })
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 780 }]) {
+  test(`matte volume and four-row subtitle menu stay inside video at ${viewport.width}px`,async({page},info)=>{
+    await page.setViewportSize(viewport)
+    await openVideo(page)
+    await page.route('**/api/files/video-subtitles?**',r=>r.fulfill({json:{tracks:Array.from({length:7},(_,index)=>({index,title:`字幕 ${index+1}`,supported:true}))}}))
+    const viewer=page.locator('.video-viewer'),volume=viewer.locator('.video-volume')
+    const contained=async child=>{
+      const a=await viewer.boundingBox(),b=await child.boundingBox()
+      expect(b.x).toBeGreaterThanOrEqual(a.x);expect(b.y).toBeGreaterThanOrEqual(a.y)
+      expect(b.x+b.width).toBeLessThanOrEqual(a.x+a.width+.5);expect(b.y+b.height).toBeLessThanOrEqual(a.y+a.height+.5)
+    }
+    for(const theme of ['light','dark']){
+      await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+      await volume.getByRole('button').hover()
+      const popup=volume.locator('.video-volume-popup'),slider=volume.getByRole('slider')
+      await expect(popup).toHaveCSS('background-color','rgb(48, 59, 68)')
+      await expect(popup).toHaveCSS('backdrop-filter','none')
+      await contained(popup);await contained(slider)
+      const b=await slider.boundingBox()
+      await page.mouse.click(b.x+b.width/2,b.y+b.height*.7)
+      await expect.poll(()=>viewer.locator('video').evaluate(el=>el.volume)).toBeGreaterThan(.2)
+      await expect.poll(()=>viewer.locator('video').evaluate(el=>el.volume)).toBeLessThan(.4)
+      await expect(popup.locator('small')).toHaveText(/^\d+$/)
+      const number=await popup.locator('small').boundingBox();expect(number.y+number.height).toBeLessThan(b.y)
+      await page.screenshot({path:info.outputPath(`video-volume-${theme}-${viewport.width}.png`)})
+      await viewer.getByRole('button',{name:'字幕',exact:true}).hover()
+      const menu=page.getByRole('menu',{name:'字幕选择'})
+      await expect(menu.getByRole('menuitemradio')).toHaveCount(8)
+      await expect(menu).toHaveCSS('scrollbar-width','none');await contained(menu)
+      if(viewport.width===1440)await expect(menu).toHaveCSS('height','188px')
+      await menu.hover();await page.mouse.wheel(0,600)
+      await expect.poll(()=>menu.evaluate(el=>el.scrollTop)).toBeGreaterThan(0)
+      await expect(menu.getByRole('menuitemradio',{name:'字幕 7',exact:true})).toBeInViewport()
+      await page.screenshot({path:info.outputPath(`video-subtitles-${theme}-${viewport.width}.png`)})
+    }
+  })
   test(`fullscreen fallback fits ${viewport.width}px and restores without closing`, async ({ page }, info) => {
     await page.setViewportSize(viewport)
     await page.addInitScript(() => Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, get: () => false }))

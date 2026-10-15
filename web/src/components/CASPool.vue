@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
-import { state } from '../lib'
+import { notify, state } from '../lib'
 import Icon from './Icon.vue'
 import NumberInput from './NumberInput.vue'
 import ProviderIcon from './ProviderIcon.vue'
@@ -69,7 +69,7 @@ async function request(method, body) {
     if(method==='GET')Object.assign(form, normalize(result))
     for (const { type } of groups) { const first=accounts.value[type][0]?.id; if(first)form[type].storageIds=[first,...form[type].storageIds.filter(id=>id!==first)] }
     loaded.value = true
-    if (method === 'PUT') { saved.value = true; emit('saved', normalize(result)) }
+    if (method === 'PUT') { saved.value = true; notify('存储绑定池已保存'); emit('saved', normalize(result)) }
   } catch (e) { if (active && token === requestId && e.name !== 'AbortError') error.value = e.message }
   finally { if (token === requestId) { loading.value = false; saving.value = false; controller = undefined; if(queuedBody){const body=queuedBody;queuedBody=undefined;request('PUT',body)} } }
 }
@@ -128,7 +128,7 @@ defineExpose({ save })
         </section>
       </fieldset>
       <p v-if="error" class="cas-pool-feedback cas-pool-error" role="alert"><Icon name="CircleAlert" /><span>{{ error }}</span></p>
-      <p v-if="saved" class="cas-pool-feedback cas-pool-saved" role="status"><Icon name="CircleCheck" />存储绑定池已保存</p>
+      <p v-if="saved" class="cas-pool-feedback cas-pool-saved visually-hidden" role="status"><Icon name="CircleCheck" />存储绑定池已保存</p>
       <button v-if="loaded && error" type="button" class="btn" :disabled="busy" @click="save"><Icon name="RefreshCw" />重试保存</button>
       <button v-if="!loaded && !loading" type="button" class="btn" @click="request('GET')"><Icon name="RefreshCw" />重新加载</button>
     </form>
@@ -165,7 +165,7 @@ defineExpose({ save })
 .cas-pool-options .field { min-width:0; }
 .cas-pool-options :deep(.rounded-select-trigger) { height:40px; }
 .cas-pool-feedback { display:flex; align-items:center; gap:8px; margin:12px 0; font-size:13px; overflow-wrap:anywhere; }
-.cas-pool-error { color:var(--red); }.cas-pool-saved { color:var(--green); }
+.cas-pool-error { color:var(--red); }.cas-pool-saved { color:var(--green); }.visually-hidden { position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important; }
 @media(max-width:600px) { .cas-pool-groups,.cas-pool-options,.ed2k-pool .cas-pool-groups,.ed2k-pool .cas-pool-fields { grid-template-columns:minmax(0,1fr); } }
 @media(prefers-reduced-motion:reduce) { .cas-pool-account { transition:none; } }
 </style>

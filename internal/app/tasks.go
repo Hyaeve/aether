@@ -617,8 +617,12 @@ func (a *App) streamURL(sid, fid, pick string) string {
 }
 
 func (a *App) signedStreamURL(claim streamClaim) string {
+	return a.signedStreamPayload(claim)
+}
+
+func (a *App) signedStreamPayload(payload any) string {
 	st := a.store.snapshot()
-	b, _ := json.Marshal(claim)
+	b, _ := json.Marshal(payload)
 	token := base64.RawURLEncoding.EncodeToString(b)
 	mac := hmac.New(sha256.New, []byte(st.SignKey))
 	mac.Write([]byte(token))

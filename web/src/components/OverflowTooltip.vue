@@ -1,7 +1,7 @@
 <script setup>
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 const text = ref(''), left = ref(0), top = ref(0), popup = ref(null), stationary = ref(false), playback = ref(false)
-let target, timer, value = ''
+let target, timer, value = '', delay = 350
 let pointerX = 0, pointerY = 0
 function move(event) {
   if (pointerX === event.clientX && pointerY === event.clientY) return
@@ -20,7 +20,7 @@ function schedule() {
     if (!target?.isConnected) { hide(); return }
     text.value = value
     position(); await nextTick(); position()
-  }, stationary.value || target?.hasAttribute('data-tooltip-always') ? 600 : 350)
+  }, delay)
 }
 function show(event) {
   const el = event.target.closest('[data-tooltip], .file-view th, .file-view td, .file-name strong, .file-grid-name strong, .log-message, .log-module, .playback-scroller td, .playback-scroller th, .playback-copy')
@@ -28,7 +28,9 @@ function show(event) {
   const content = el.dataset.tooltip || el.textContent
   const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight
   if (!content || (!clipped && !el.hasAttribute('data-tooltip-always')) || target === el) return
-  hide(); target = el; value = content; playback.value = !!el.closest('.playback-scroller'); stationary.value = playback.value || el.hasAttribute('data-tooltip-stationary')
+  const fileName = el.matches('.file-browser .file-name strong, .file-browser .file-grid-name strong')
+  hide(); target = el; value = content; playback.value = !!el.closest('.playback-scroller'); stationary.value = fileName || playback.value || el.hasAttribute('data-tooltip-stationary')
+  delay = fileName ? 350 : stationary.value || el.hasAttribute('data-tooltip-always') ? 600 : 350
   const r = el.getBoundingClientRect()
   pointerX = event.clientX ?? r.left; pointerY = event.clientY ?? r.bottom
   schedule()

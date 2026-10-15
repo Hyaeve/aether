@@ -4,10 +4,10 @@ test('saved storage cards use comparable local and WebDAV icon sizes', async ({ 
   await page.route('**/api/auth/status', route => route.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', route => route.fulfill({ json: {
     username: 'icon-test', tasks: [], settings: {}, cache: {}, traffic: {}, logs: [],
-    storages: ['local', 'webdav', 'quark'].map(type => ({ id: type, type, name: type, enabled: true, config: {} }))
+    storages: ['local', 'webdav', 'quark', '115', 'mobile', 'tianyi'].map(type => ({ id: type, type, name: type, enabled: true, config: {} }))
   } }))
   await page.goto('/storage')
-  await expect(page.locator('.storage-card')).toHaveCount(3)
+  await expect(page.locator('.storage-card')).toHaveCount(6)
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
     const tile = page.getByRole('button', { name:'添加存储池', exact:true })
@@ -27,6 +27,24 @@ test('saved storage cards use comparable local and WebDAV icon sizes', async ({ 
       await expect(card).toHaveCSS('height', '84px')
       expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
     }
+    const visible = await page.locator('.storage-card .provider-logo').evaluateAll(async images => {
+      return Promise.all(images.map(async img => {
+        await img.decode()
+        const canvas = document.createElement('canvas'); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0)
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+        let left = canvas.width, right = -1, top = canvas.height, bottom = -1
+        for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+          const i = (y * canvas.width + x) * 4, channels = [pixels[i], pixels[i+1], pixels[i+2]]
+          if (pixels[i+3] > 80 && Math.max(...channels) - Math.min(...channels) > 40) { left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y) }
+        }
+        const box = img.getBoundingClientRect()
+        return { type: img.parentElement.dataset.provider, width: (right-left+1)/canvas.width*box.width, height: (bottom-top+1)/canvas.height*box.height }
+      }))
+    })
+    const a = visible.find(item => item.type === '115'), b = visible.find(item => item.type === 'mobile')
+    expect(Math.abs(a.width-b.width), JSON.stringify(visible)).toBeLessThan(3)
+    expect(Math.abs(a.height-b.height), JSON.stringify(visible)).toBeLessThan(3)
     await page.screenshot({ path: info.outputPath(`storage-icons-${width}.png`) })
   }
 })

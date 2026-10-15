@@ -138,6 +138,12 @@ func (i davInfo) ContentType(context.Context) (string, error) {
 	if i.file.IsDir {
 		return "", nil
 	}
+	// A few network players reject ISO images when WebDAV advertises the
+	// specialized application/x-iso9660-image MIME before attempting a Range.
+	// Keep ISO seekable while allowing the client to inspect it as a file.
+	if strings.EqualFold(path.Ext(i.file.Name), ".iso") {
+		return "application/octet-stream", nil
+	}
 	if value := mime.TypeByExtension(path.Ext(i.file.Name)); value != "" {
 		return value, nil
 	}

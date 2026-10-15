@@ -56,7 +56,7 @@ test('share transfer previews selection, submits once and reports confirmed Quar
   await page.route('**/api/files?**', r => { refreshes++; return r.fulfill({ json: [] }) })
   await page.route('**/api/files/share/*', r => {
     const action = new URL(r.request().url()).pathname.split('/').at(-1)
-    if (action === 'preview') return r.fulfill({ json: { preview: 'private-session', batches: 1, items: [{ id: 'film', name: 'Arrival.2016.mkv', isDir: false }, { id: 'show', name: 'Show', isDir: true }] } })
+    if (action === 'preview') return r.fulfill({ json: { preview: 'private-session', batches: 1, items: [{ id: 'film', name: 'Arrival.2016.mkv', isDir: false }, { id: 'show', name: 'Show', isDir: true }], batchNames: [['Arrival.2016.mkv', 'Show']] } })
     if (action === 'status') return r.fulfill({ json: { status: 'completed', message: '网盘已完成转存', taskId: 'job' } })
     saves++; payload = r.request().postDataJSON()
     return r.fulfill({ json: { status: 'submitted', message: '转存已提交，请刷新目标目录确认结果', taskId: 'job' } })
@@ -76,7 +76,8 @@ test('share transfer previews selection, submits once and reports confirmed Quar
   await page.screenshot({ path: info.outputPath('share-mobile.png') })
   expect(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   await page.getByRole('button', { name: '转存', exact: true }).click()
-  await expect(page.locator('.toast')).toContainText('转存已完成')
+  await expect(page.locator('.toast').filter({ hasText: '正在转存 Arrival.2016.mkv、Show' })).toBeVisible({ timeout: 1000 })
+  await expect(page.locator('.toast')).toContainText('转存成功：quark')
   expect(saves).toBe(2)
   expect(payload).toEqual({ storageId: 'quark', preview: 'private-session', parent: '/', batch: 0 })
   expect(refreshes).toBeGreaterThan(1)

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +60,7 @@ func TestDAVNamedPoolHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTest(t, filepath.Join(s.Config["root"], "Movies", "movie.mp4"), "0123456789")
+	writeTest(t, filepath.Join(s.Config["root"], "Movies", "disc.iso"), "iso-source")
 	h := a.Handler(t.TempDir())
 	setupTest(t, a, h)
 	dav := func(method, target string) *httptest.ResponseRecorder {
@@ -111,6 +113,25 @@ func TestDAVNamedPoolHTTP(t *testing.T) {
 		if w := dav("HEAD", target); w.Code != 200 || w.Body.Len() != 0 {
 			t.Fatal(w.Code, w.Body.String())
 		}
+	}
+	for _, method := range []string{"GET", "HEAD"} {
+		target := "/dav/" + url.PathEscape(name) + "/Movies/disc.iso"
+		r := httptest.NewRequest(method, target, nil)
+		r.SetBasicAuth("admin", "a-secure-password-123")
+		if method == "GET" {
+			r.Header.Set("Range", "bytes=0-3")
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != map[string]int{"GET": 206, "HEAD": 200}[method] || w.Header().Get("Content-Type") != "application/octet-stream" {
+			t.Fatalf("ISO WebDAV response: %s %d %q", method, w.Code, w.Header().Get("Content-Type"))
+		}
+		if method == "GET" && w.Body.String() != "iso-" {
+			t.Fatalf("ISO Range response: %q", w.Body.String())
+		}
+	}
+	if w := dav("PROPFIND", "/dav/"+url.PathEscape(name)+"/Movies/disc.iso"); w.Code != 207 || !strings.Contains(w.Body.String(), "application/octet-stream") || strings.Contains(w.Body.String(), "application/x-iso9660-image") {
+		t.Fatalf("ISO WebDAV property response: %d %s", w.Code, w.Body.String())
 	}
 	if err := a.store.update(func(st *State) error {
 		st.Storages[0].Name = "Renamed"

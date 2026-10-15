@@ -1525,6 +1525,12 @@ func (a *App) serveDAV(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("MS-Author-Via", "DAV")
 		w.WriteHeader(http.StatusOK)
 	case "GET", "HEAD", "PROPFIND":
+		// Some network players reject ISO sources before issuing a Range request
+		// when WebDAV advertises application/x-iso9660-image. Keep the extension
+		// in the URL, but expose it as a generic seekable binary stream.
+		if (r.Method == "GET" || r.Method == "HEAD") && strings.EqualFold(filepath.Ext(r.URL.Path), ".iso") {
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
 		a.dav.ServeHTTP(countWriter{w, &a.downloaded}, r)
 	case "PUT", "MKCOL", "MOVE", "DELETE", "LOCK", "UNLOCK":
 		if _, restricted := r.Context().Value(davGrantsKey{}).([]DAVGrant); restricted {

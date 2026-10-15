@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch
 import Icon from './Icon.vue'
 import ThinScroll from './ThinScroll.vue'
 import VirtualList from './VirtualList.vue'
+import VolumeSlider from './VolumeSlider.vue'
 import { audioSource, readAudioMetadata, readLRC } from '../audio-metadata'
 import {state} from '../lib'
 const props = defineProps({ file: Object, queue: { type: Array, default: () => [] }, activation: Number })
@@ -135,6 +136,11 @@ function key(event) {
   if (event.key === 'Escape') { event.preventDefault(); emit('close') }
   if (event.key === ' ' && event.target === panel.value) { event.preventDefault(); togglePlayback() }
 }
+function escape(event) {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.target.closest?.('.audio-player, .audio-capsule')) return
+  if ([...document.querySelectorAll('[role=dialog], [role=alertdialog]')].some(el => el !== panel.value && el.getClientRects().length)) return
+  event.preventDefault(); emit('close')
+}
 function constrainDock() { dock.value.y = Math.min(Math.max(56, dock.value.y), Math.max(56, window.innerHeight - 56)); dock.value.x = null }
 function startDrag(event) {
   if (event.button !== 0) return
@@ -171,6 +177,7 @@ onMounted(async () => {
   previousFocus = document.activeElement
   document.addEventListener('pointerdown', outside)
   document.addEventListener('pointermove',resetHover)
+  document.addEventListener('keydown', escape)
   window.addEventListener('resize', constrainDock)
   constrainDock(); await nextTick(); panel.value?.focus(); play()
 })
@@ -178,6 +185,7 @@ onBeforeUnmount(() => {
   generation++; controller?.abort(); clearTimeout(deadline)
   document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', constrainDock)
   document.removeEventListener('pointermove',resetHover)
+  document.removeEventListener('keydown', escape)
   if (artworkURL) URL.revokeObjectURL(artworkURL)
   player.value?.pause(); player.value?.removeAttribute('src'); player.value?.load()
 })
@@ -203,7 +211,7 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
         </div>
         <div class="audio-info"><div><h2>{{ title }}</h2><p v-if="metadata.artist || metadata.album" class="audio-artist">{{ [metadata.artist, metadata.album].filter(Boolean).join(' · ') }}</p></div><div class="audio-more" :class="{open:more}" @mouseenter="more = true; volumeOpen = false" @mouseleave="more = false"><button class="icon-btn" aria-label="音频操作" :aria-expanded="more" @click="more = true; volumeOpen = false"><Icon name="Ellipsis" /></button><Transition name="audio-tools"><div v-if="more" class="audio-popover" role="menu"><a role="menuitem" :href="`${file.url}${file.url.includes('?') ? '&' : '?'}download=1`" :download="file.name"><Icon name="Download" :size="18" />下载</a><button role="menuitem" @click="view = 'queue'; more = false"><Icon name="List" :size="18" />播放列表</button></div></Transition></div></div>
         <div class="audio-timeline"><input type="range" aria-label="播放进度" :aria-valuetext="`${time(position)} / ${time(duration)}`" min="0" :max="duration || 1" step="0.1" :value="position" :disabled="!seekable" :style="{ '--played': `${duration ? position / duration * 100 : 0}%` }" @input="seek($event.target.value)" /><div class="audio-time-row"><time>{{ time(position) }}</time><span class="audio-format">{{ file.name.split('.').at(-1).toUpperCase() }}<template v-if="bitrate"> · {{ bitrate }} kbps</template></span><time>{{ time(duration) }}</time></div></div>
-        <div class="audio-controls"><button class="icon-btn audio-mode" :aria-label="`播放模式：${activeMode.label}`" @click="cycleMode"><Icon :name="activeMode.icon" :size="22" /></button><button class="icon-btn" aria-label="上一首" @click="skip(-1)"><Icon name="SkipBack" :size="25" /></button><button class="icon-btn audio-play-toggle" :aria-label="playing ? '暂停' : '播放'" :disabled="failed" @click="togglePlayback"><Icon :name="playing ? 'Pause' : 'Play'" :size="32" /></button><button class="icon-btn" aria-label="下一首" @click="skip(1)"><Icon name="SkipForward" :size="25" /></button><div class="audio-volume" :class="{open:volumeOpen}" @mouseenter="volumeOpen = true; more = false" @mouseleave="volumeOpen = false" @wheel.stop.prevent="volumeWheel"><button class="icon-btn" aria-label="音量" :aria-expanded="volumeOpen" @click="volumeOpen = true; more = false"><Icon :name="volume ? 'Volume2' : 'VolumeX'" :size="23" /></button><Transition name="audio-tools"><div v-if="volumeOpen" class="audio-popover volume-popover"><input type="range" aria-label="音量大小" min="0" max="1" step="0.01" :value="volume" @input="setVolume($event.target.value)" /><small>{{ Math.round(volume * 100) }}%</small></div></Transition></div></div>
+        <div class="audio-controls"><button class="icon-btn audio-mode" :aria-label="`播放模式：${activeMode.label}`" @click="cycleMode"><Icon :name="activeMode.icon" :size="22" /></button><button class="icon-btn" aria-label="上一首" @click="skip(-1)"><Icon name="SkipBack" :size="25" /></button><button class="icon-btn audio-play-toggle" :aria-label="playing ? '暂停' : '播放'" :disabled="failed" @click="togglePlayback"><Icon :name="playing ? 'Pause' : 'Play'" :size="32" /></button><button class="icon-btn" aria-label="下一首" @click="skip(1)"><Icon name="SkipForward" :size="25" /></button><div class="audio-volume" :class="{open:volumeOpen}" @mouseenter="volumeOpen = true; more = false" @mouseleave="volumeOpen = false" @wheel.stop.prevent="volumeWheel"><button class="icon-btn" aria-label="音量" :aria-expanded="volumeOpen" @click="volumeOpen = true; more = false"><Icon :name="volume ? 'Volume2' : 'VolumeX'" :size="23" /></button><Transition name="audio-tools"><div v-if="volumeOpen" class="audio-popover volume-popover"><VolumeSlider :model-value="volume" label="音量大小" @update:model-value="setVolume" /></div></Transition></div></div>
         <p v-if="failed" class="audio-error" role="status">浏览器无法播放此格式，请下载后打开。</p>
         <a v-if="failed" :href="`${file.url}${file.url.includes('?') ? '&' : '?'}download=1`" :download="file.name" target="_blank" rel="noopener noreferrer"><Icon name="Download" :size="17" />下载音频</a>
         <audio ref="player" :src="file.url" class="audio-native" tabindex="-1" aria-hidden="true" preload="metadata" @timeupdate="syncTime" @seeked="syncTime" @loadedmetadata="syncDuration" @durationchange="syncDuration" @play="playing = true" @pause="playing = false" @ended="skip(1, true)" @error="failed = true; playing = false" />
@@ -237,13 +245,12 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 .audio-player { border-radius:16px 0 0 16px; }
 .audio-info { display:flex; align-items:center; gap:8px; }.audio-info > div:first-child { flex:1; min-width:0; }.audio-more,.audio-volume { position:relative; flex:none; }.audio-more > button { width:44px; height:36px; }
 .audio-more,.audio-volume { isolation:isolate; z-index:4; width:44px; height:44px; }
-.audio-more::before,.audio-volume::before { content:''; position:absolute; z-index:-1; right:0; bottom:0; width:44px; height:44px; border:1px solid transparent; border-radius:22px; background:color-mix(in srgb,var(--surface) 18%,transparent); backdrop-filter:blur(24px) saturate(1.4); transition:width .25s ease-out,height .25s ease-out,border-radius .25s ease-out,background .25s; pointer-events:none; }
-.audio-more.open::before,.audio-volume.open::before { border-color:var(--border); background:color-mix(in srgb,var(--surface) 62%,transparent); box-shadow:0 6px 22px #0002; }
-.has-artwork .audio-more.open::before,.has-artwork .audio-volume.open::before { background:#b9cdd132; }
-.audio-more.open::before { width:140px; height:126px; border-radius:18px; }.audio-volume.open::before { height:112px; }
+.audio-more::before,.audio-volume::before { content:''; position:absolute; z-index:-1; right:0; bottom:0; width:44px; height:44px; border:1px solid transparent; border-radius:22px; background:transparent; backdrop-filter:none; transition:width .25s ease-out,height .25s ease-out,border-radius .25s ease-out,background .25s; pointer-events:none; }
+.audio-more.open::before,.audio-volume.open::before { border-color:#ffffff18; background:#303b44; box-shadow:inset 0 1px 0 #ffffff18,0 6px 24px #0005; }
+.audio-more.open::before { width:140px; height:84px; border-radius:18px; }.audio-volume.open::before { height:160px; }
 .audio-more > button,.audio-volume > button { position:absolute; bottom:0; right:0; width:44px; height:44px; border-radius:22px; }.audio-more.open > button,.audio-volume.open > button { background:none; }
 .audio-popover { position:absolute; right:0; bottom:44px; z-index:3; width:140px; padding:5px 6px; color:var(--text); transform-origin:bottom right; }.audio-popover > button,.audio-popover > a { display:flex; width:100%; gap:8px; justify-content:flex-start; align-items:center; padding:9px; background:none; border:0; color:inherit; font-size:13px; border-radius:7px; }.audio-popover > button:hover,.audio-popover > a:hover { background:var(--primary-soft); }
-.volume-popover { display:flex; flex-direction:column; align-items:center; gap:4px; width:44px; height:68px; padding:12px 6px 2px; }.volume-popover input { appearance:none; writing-mode:vertical-lr; direction:rtl; width:22px; height:36px; flex:none; padding:0; margin:0; border:0; background:none; box-shadow:none; cursor:pointer; }.volume-popover input::-webkit-slider-runnable-track { width:3px; border-radius:3px; background:color-mix(in srgb,var(--text) 35%,transparent); }.volume-popover input::-webkit-slider-thumb { appearance:none; width:9px; height:9px; margin-left:-3px; border:0; border-radius:50%; background:var(--text); }.volume-popover input::-moz-range-track { width:3px; border-radius:3px; background:color-mix(in srgb,var(--text) 35%,transparent); }.volume-popover input::-moz-range-thumb { width:9px; height:9px; border:0; border-radius:50%; background:var(--text); }.volume-popover small { font-size:12px; line-height:14px; }
+.volume-popover { width:44px; height:116px; padding:8px 6px 10px; }
 .audio-cover-view :deep(.thin-scroll-area) { display:flex; flex-direction:column; align-items:center; overflow:hidden; }.audio-art { flex:1; min-height:0; max-height:calc(100% - 42px); aspect-ratio:auto; background:none; }.audio-art img { object-fit:contain; }.audio-cover-lyrics { flex:none; height:42px; padding-top:5px; overflow:hidden; width:100%; mask-image:linear-gradient(#000 65%,transparent); }.audio-cover-lyrics .lyric-line { padding:0; line-height:26px; }.audio-cover-lyrics .audio-lyrics-empty { margin:0; padding:5px; }
 .audio-capsule { isolation:isolate; overflow:hidden; }.audio-capsule .capsule-ambient { position:absolute; inset:-20px; z-index:-1; width:calc(100% + 40px); height:calc(100% + 40px); border-radius:0; filter:blur(20px); opacity:.4; object-fit:cover; }.audio-capsule.has-artwork { color:#fff; background:#39454e66; }.audio-capsule .capsule-cover { animation:disc-spin 16s linear infinite; animation-play-state:paused; }.audio-capsule.playing .capsule-cover { animation-play-state:running; }
 @keyframes disc-spin { to { transform:rotate(360deg); } }
@@ -256,13 +263,11 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 @media(prefers-reduced-motion:reduce) {.audio-capsule,.audio-popover,.audio-more::before,.audio-volume::before,.audio-tools-enter-active,.audio-tools-leave-active{transition:none;animation:none}.capsule-halo{animation:none;opacity:.4}}
 </style>
 <style scoped>
-.audio-player .audio-more.open::before,.audio-player .audio-volume.open::before{background:color-mix(in srgb,var(--surface) 90%,transparent);backdrop-filter:blur(36px) saturate(1.2);box-shadow:inset 0 1px 0 #ffffff24,0 6px 24px #0002;border-color:color-mix(in srgb,var(--text) 9%,transparent)}
-.audio-player.has-artwork .audio-more.open::before,.audio-player.has-artwork .audio-volume.open::before{background:#465359e0}
-.has-artwork .audio-popover{color:var(--text)}
+.audio-player .audio-popover,.audio-volume.open>button{color:#f1f4ff}.audio-popover>button:hover,.audio-popover>a:hover{background:#ffffff14}
 .audio-track-row .audio-track-remove{width:28px;height:28px;min-height:28px}
 .audio-track-row{display:flex;align-items:center;position:relative;border-radius:6px;height:52px;min-width:0}.audio-track-row.active{background:var(--primary-soft)}.audio-track-row.active .audio-track{color:var(--primary)}.audio-track{flex:1;min-width:0;height:100%;padding-right:36px}.audio-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.audio-track-remove{position:absolute;right:4px;width:28px;height:28px;opacity:0;transition:opacity .15s}.audio-track-row:hover .audio-track-remove,.audio-track-row:focus-within .audio-track-remove{opacity:1}@media(hover:none){.audio-track-remove{opacity:1}}
 </style>
 <style scoped>
 .audio-player-shell.dock-left{justify-content:flex-start}.dock-left .audio-player{border-left:0;border-right:1px solid var(--border);border-radius:0 16px 16px 0;box-shadow:12px 0 50px #0b173321}.audio-player header{justify-content:space-between}.audio-player header>span{flex:1;text-align:center}.dock-left .audio-collapse{order:2}.dock-left .audio-slide-enter-from,.dock-left .audio-slide-leave-to{transform:translateX(-100%)}
-.audio-more::before,.audio-volume::before{background:transparent;backdrop-filter:none;box-shadow:none;border-color:transparent}.audio-more>button,.audio-volume>button{border-radius:5px}.audio-more.open::before,.audio-volume.open::before{backdrop-filter:blur(28px) saturate(1.4);background:color-mix(in srgb,var(--surface) 72%,transparent)}.has-artwork .audio-more.open::before,.has-artwork .audio-volume.open::before{background:#b9cdd14a}.audio-volume.open::before{height:160px}.volume-popover{height:116px}.volume-popover input{height:80px}.audio-more.open::before{height:84px}.audio-more.open>button{opacity:0;pointer-events:none}.audio-more .audio-popover{bottom:0;min-height:84px}.audio-more.open{z-index:5}.audio-capsule{width:min(140px,calc(100vw - 16px));border:0;background:color-mix(in srgb,var(--surface) 78%,transparent);backdrop-filter:blur(30px) saturate(1.3)}.audio-capsule.has-artwork{background:#39454ebd}.audio-capsule.dock-left{flex-direction:row-reverse;padding:5px 6px 5px 8px}.audio-capsule .capsule-title{text-overflow:ellipsis;max-width:5.5em;overflow:hidden}.audio-capsule img{pointer-events:none;-webkit-user-drag:none}
+.audio-more>button,.audio-volume>button{border-radius:5px}.audio-more.open>button{opacity:0;pointer-events:none}.audio-more .audio-popover{bottom:0;min-height:84px}.audio-more.open{z-index:5}.audio-capsule{width:min(140px,calc(100vw - 16px));border:0;background:color-mix(in srgb,var(--surface) 78%,transparent);backdrop-filter:blur(30px) saturate(1.3)}.audio-capsule.has-artwork{background:#39454ebd}.audio-capsule.dock-left{flex-direction:row-reverse;padding:5px 6px 5px 8px}.audio-capsule .capsule-title{text-overflow:ellipsis;max-width:5.5em;overflow:hidden}.audio-capsule img{pointer-events:none;-webkit-user-drag:none}
 </style>

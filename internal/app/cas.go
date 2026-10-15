@@ -87,6 +87,7 @@ func validateCAS(info CASInfo) error {
 }
 
 func validateCASFor(s Storage, info CASInfo) error {
+	info = normalizeCASPlayback(info)
 	if err := validateCAS(info); err != nil {
 		return err
 	}
@@ -96,7 +97,7 @@ func validateCASFor(s Storage, info CASInfo) error {
 			return errors.New("天翼CAS秒传需要同时包含整文件MD5和分片MD5")
 		}
 		if info.SliceSize <= 0 {
-			return errors.New("天翼CAS缺少分片大小，请补齐生成工具实际使用的slice_size或sliceSize，不能猜测")
+			return errors.New("天翼CAS缺少分片大小，无法按OpenList规则计算")
 		}
 		value, size = info.MD5, 16
 	}
@@ -105,6 +106,15 @@ func validateCASFor(s Storage, info CASInfo) error {
 		return errors.New("CAS 特征与存储不兼容：移动需SHA256，天翼需MD5、分片MD5和分片大小")
 	}
 	return nil
+}
+
+// Older CAS/STRM files may carry slice_md5 but omit slice_size. The project
+// uses the OpenList Cloud189 PC rule for that legacy input at playback time.
+func normalizeCASPlayback(info CASInfo) CASInfo {
+	if info.SliceMD5 != "" && info.SliceSize == 0 && info.Size > 0 {
+		info.SliceSize = tianyiCASPartSize(info.Size)
+	}
+	return info
 }
 
 func decodeCAS(content []byte, filename string) (CASInfo, error) {
@@ -349,6 +359,8 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (do
 	if err := validateCAS(*claim.CAS); err != nil {
 		return Download{}, done, err
 	}
+	normalized := normalizeCASPlayback(*claim.CAS)
+	claim.CAS = &normalized
 	stage = "秒传队列等待"
 	if err := a.acquireCAS(ctx); err != nil {
 		return Download{}, done, err
@@ -369,7 +381,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (do
 	if err := validateCASFor(s, *claim.CAS); err != nil {
 		return Download{}, done, err
 	}
-	dual := claim.Storage == "" && claim.CAS.SHA256 != "" && claim.CAS.MD5 != ""
+	dual := claim.Storage == "" && claim.CAS.SHA256 != "" && claim.CAS.MD5 != "" && claim.CAS.SliceMD5 != ""
 	attempt := ctx
 	stop := func() {}
 	if dual {
@@ -383,7 +395,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (do
 	}
 	other, hours, selectErr := a.selectCASStorageExcept(*claim.CAS, time.Now(), s.Type)
 	if selectErr != nil {
-		a.casLog("warn", s, claim.CAS.Name, "回退终止：没有可用的另一类绑定存储")
+		a.casLog("warn", s, claim.CAS.Name, "回退终止：没有可用且兼容的另一类绑定存储（移动需SHA256，天翼需MD5、分片MD5和分片大小）")
 		return Download{}, done, err
 	}
 	// Switch providers once; never replay a possibly accepted write in the same account.

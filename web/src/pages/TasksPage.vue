@@ -96,7 +96,7 @@ function open(t) {
   if (props.kind === 'strm') form.retainedExtensions ??= 'iso'
   if (['cas', 'ed2k'].includes(props.kind)) delete form.retainedExtensions
   if (['cas', 'ed2k'].includes(props.kind)) form.completionAction ||= 'keep'
-  if (['strm', 'cas', 'ed2k'].includes(props.kind)) form.scrapeExcluded ??= false
+  if (['strm', 'cas', 'ed2k'].includes(props.kind)) form.scrapeExcluded ??= !t && props.kind === 'cas'
   if (props.kind === 'ed2k') form.ed2kBindingId ||= ''
   if (props.kind === 'cas') {
     delete form.casBindingId
@@ -170,7 +170,7 @@ async function toggle(t) {
         </div>
       </div>
       <template v-if="kind !== 'cache'"><button type="button" class="disclosure" :aria-expanded="more" @click="toggleMore"><Icon :name="more ? 'ChevronDown' : 'ChevronRight'" :size="16" />更多选项</button><div v-if="more" class="form-grid more-options">
-        <div v-if="['cas', 'ed2k'].includes(kind)" class="field"><label>完成动作</label><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
+        <div v-if="['cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>完成动作</label></div><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
         <div v-if="kind === 'strm'" class="field extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><span><button v-for="group in ['video', 'audio']" :key="group" type="button" class="icon-btn extension-preset" :class="group" :aria-label="`保留${group === 'video' ? '视频' : '音频'}扩展名`" :aria-pressed="groupActive('retainedExtensions', group)" @click="toggleExtensions('retainedExtensions', group)"><Icon :name="group === 'video' ? 'Film' : 'Music'" /></button></span></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
         <div v-if="['strm', 'cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>STRM 刮削</label></div><RoundedSelect :model-value="form.scrapeExcluded ? 'exclude' : 'include'" @update:model-value="form.scrapeExcluded = $event === 'exclude'" label="STRM 刮削" :options="[{value:'include',label:'参与'},{value:'exclude',label:'不参与'}]" /></div>
         <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div></div></template>

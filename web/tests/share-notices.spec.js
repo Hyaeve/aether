@@ -12,7 +12,7 @@ for (const provider of ['quark', '115', 'mobile']) {
       if (path === '/api/auth/status') data = { initialized: true, authenticated: true }
       if (path === '/api/state') data = { username: `share-${provider}`, storages: [storage], tasks: [], settings: {}, cache: {}, shareNotices: accepted && (provider !== 'quark' || confirmed) ? [{ id: 'share-result', storageId: 'pool', name: '转存资料库 · 分享转存', provider, status: provider === 'quark' ? 'completed' : 'submitted', time: now, message }] : [] }
       if (path === '/api/files') data = []
-      if (path === '/api/files/share/preview') data = { preview: 'plan', batches: 1 }
+      if (path === '/api/files/share/preview') data = { preview: 'plan', batches: 1, items: [{ name: '电影合集' }] }
       if (path === '/api/files/share/batch') { accepted = true; data = { status: 'submitted', taskId: provider === 'quark' ? 'job' : '' } }
       if (path === '/api/files/share/status') { confirmed = true; data = { status: 'completed' } }
       if (path === '/api/logs') data = [{ module: 'files', level: 'info', time: now, message: `[share-result] 转存资料库 · 分享转存：${message}` }]
@@ -23,7 +23,7 @@ for (const provider of ['quark', '115', 'mobile']) {
     await page.getByRole('menuitem', { name: '分享转存', exact: true }).click()
     await page.getByLabel('分享链接', { exact: true }).fill(({ quark: 'https://pan.quark.cn/s/test', '115': 'https://115cdn.com/s/test?password=q526', mobile: 'https://yun.139.com/shareweb/#/w/i/test' })[provider])
     await page.getByRole('button', { name: '转存', exact: true }).click()
-    await expect(page.locator('.toast')).toContainText(provider === 'quark' ? '转存已完成' : '全部批次已提交')
+    await expect(page.getByRole('button', { name: '打开转存目标目录' })).toHaveText('转存成功：转存资料库 · 电影合集')
     await page.getByRole('button', { name: '任务通知', exact: true }).click()
     const list = page.getByRole('region', { name: '任务通知列表' })
     await expect(list).toContainText(message)

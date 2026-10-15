@@ -23,17 +23,21 @@ type cloudShareOptions struct {
 	Encrypted bool   `json:"encrypted"`
 }
 type cloudManagementEntry struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	URL        string    `json:"url,omitempty"`
-	Code       string    `json:"code,omitempty"`
-	Size       int64     `json:"size"`
-	Path       string    `json:"path,omitempty"`
-	Time       time.Time `json:"time"`
-	Status     string    `json:"status"`
-	Progress   float64   `json:"progress"`
-	Expiration string    `json:"expiration,omitempty"`
-	IsDir      bool      `json:"isDir,omitempty"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	URL         string    `json:"url,omitempty"`
+	Code        string    `json:"code,omitempty"`
+	Size        int64     `json:"size"`
+	Path        string    `json:"path,omitempty"`
+	Time        time.Time `json:"time"`
+	Status      string    `json:"status"`
+	Progress    float64   `json:"progress"`
+	Expiration  string    `json:"expiration,omitempty"`
+	IsDir       bool      `json:"isDir,omitempty"`
+	StorageID   string    `json:"storageId,omitempty"`
+	StorageName string    `json:"storageName,omitempty"`
+	Provider    string    `json:"provider,omitempty"`
+	ParentID    string    `json:"parentId,omitempty"`
 }
 
 func cloudString(m map[string]json.RawMessage, key string) string {
@@ -53,8 +57,19 @@ func cloudRows(raw json.RawMessage) []map[string]json.RawMessage {
 	if json.Unmarshal(raw, &rows) == nil {
 		return rows
 	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil
+	}
+	for _, key := range []string{"list", "data"} {
+		if nested, ok := envelope[key]; ok {
+			return cloudRows(nested)
+		}
+	}
 	var object map[string]map[string]json.RawMessage
-	_ = json.Unmarshal(raw, &object)
+	if json.Unmarshal(raw, &object) != nil {
+		return nil
+	}
 	keys := make([]string, 0, len(object))
 	for key := range object {
 		keys = append(keys, key)
@@ -99,7 +114,7 @@ func validateCloudShareOptions(kind string, v cloudShareOptions) error {
 		if v.CodeMode != "fixed" && v.CodeMode != "random" {
 			return errors.New("访问码模式无效")
 		}
-		if v.CodeMode == "fixed" && !validCloudCode(v.Code) {
+		if v.CodeMode == "fixed" && v.Code != "" && !validCloudCode(v.Code) {
 			return errors.New("访问码须为4位字母或数字")
 		}
 	}
@@ -247,10 +262,14 @@ func (a *App) createCloudShare(w http.ResponseWriter, r *http.Request) {
 				fail(w, 409, errors.New("存储状态已变化，分享可能已创建，请检查分享列表"))
 				return
 			}
-			if v.Options.CodeMode == "fixed" {
+			if v.Options.CodeMode == "fixed" && v.Options.Code != "" {
 				result.Code = v.Options.Code
-			} else {
+			} else if v.Options.CodeMode == "random" {
 				result.Code = randomShareCode()
+			}
+			if !validCloudCode(result.Code) {
+				fail(w, 502, errors.New("分享已创建，但未返回有效默认访问码，请检查分享列表"))
+				return
 			}
 			days := v.Options.Days
 			if days == 0 {
@@ -356,122 +375,20 @@ func quarkManagementURL(p string, q url.Values) string {
 
 func (a *App) cloudManagementList(ctx context.Context, s Storage, kind string) ([]cloudManagementEntry, error) {
 	items := []cloudManagementEntry{}
-	if s.Type == "115" && kind == "shares" {
-		for offset := 0; offset < 10000; offset += 100 {
-			var response struct {
-				Data json.RawMessage `json:"data"`
-			}
-			if err := shareRequest(ctx, s, http.MethodGet, "https://webapi.115.com/share/slist?"+url.Values{"offset": {strconv.Itoa(offset)}, "limit": {"100"}, "show_cancel_share": {"0"}}.Encode(), nil, &response); err != nil {
-				return nil, err
-			}
-			rows := cloudRows(response.Data)
-			for _, row := range rows {
-				code := cloudString(row, "share_code")
-				if !shareCodePattern.MatchString(code) {
-					return nil, errors.New("分享列表标识无效")
-				}
-				status := "有效"
-				if cloudInt(row, "share_state") != 1 {
-					status = "状态 " + cloudString(row, "share_state")
-				}
-				items = append(items, cloudManagementEntry{ID: code, Name: cloudString(row, "share_title"), URL: "https://115cdn.com/s/" + code, Code: cloudString(row, "receive_code"), Size: cloudInt(row, "file_size"), Status: status, Expiration: cloudString(row, "share_duration"), Time: time.Unix(cloudInt(row, "create_time"), 0)})
-			}
-			if len(rows) < 100 {
-				return items, nil
-			}
+	for page := 1; page <= 100; page++ {
+		rows, more, err := a.readCloudManagementPage(ctx, s, kind, page)
+		if err != nil {
+			return nil, err
 		}
-		return nil, errors.New("分享列表超过10000项，未完整加载")
-	}
-	if s.Type == "quark" && kind == "shares" {
-		for page := 1; page <= 100; page++ {
-			var response struct {
-				Data struct {
-					List []map[string]json.RawMessage `json:"list"`
-				} `json:"data"`
-			}
-			err := shareRequest(ctx, s, http.MethodGet, quarkManagementURL("/share/mypage/detail", url.Values{"_page": {strconv.Itoa(page)}, "_size": {"100"}, "_order_field": {"created_at"}, "_order_type": {"desc"}, "_filter": {"all"}, "_share_type": {"0,1"}}), nil, &response)
-			if err != nil {
-				return nil, err
-			}
-			for _, row := range response.Data.List {
-				link := cloudString(row, "share_url")
-				if link == "" {
-					link = "https://pan.quark.cn/s/" + cloudString(row, "pwd_id")
-				}
-				status := "有效"
-				if cloudInt(row, "audit_status") > 1 {
-					status = "审核或违规"
-				}
-				items = append(items, cloudManagementEntry{ID: cloudString(row, "share_id"), Name: cloudString(row, "title"), URL: link, Code: cloudString(row, "passcode"), Size: cloudInt(row, "size"), Status: status, Time: time.UnixMilli(cloudInt(row, "created_at"))})
-			}
-			if len(response.Data.List) < 100 {
-				return items, nil
-			}
+		items = append(items, rows...)
+		if err = validateCloudRows(items); err != nil {
+			return nil, err
 		}
-		return nil, errors.New("分享列表超过10000项")
-	}
-	if kind == "downloads" && casStorage(s) {
-		for _, record := range a.store.snapshotWithLogLimit(0).CloudCASRecords {
-			if record.StorageID == s.ID {
-				progress := float64(0)
-				if record.Status == "success" {
-					progress = 1
-				}
-				items = append(items, cloudManagementEntry{ID: record.ID, Name: record.CAS.Name, Size: record.CAS.Size, Path: record.Parent, Time: record.Time, Status: record.Status, Progress: progress})
-			}
+		if !more {
+			return items, nil
 		}
-		return items, nil
 	}
-	if s.Type != "115" {
-		return nil, errors.New("此存储的该项云盘管理接口暂不支持")
-	}
-	c, err := client115(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	switch kind {
-	case "trash":
-		for offset := 0; offset < 10000; offset += 100 {
-			rows, err := c.ListRecycleBin(offset, 100)
-			if err != nil {
-				return nil, errors.New("115回收站读取失败")
-			}
-			for _, row := range rows {
-				items = append(items, cloudManagementEntry{ID: row.FileId, Name: row.FileName, Size: int64(row.FileSize), Path: row.ParentName, Time: time.Unix(int64(row.DeleteTime), 0), Status: "已删除"})
-			}
-			if len(rows) < 100 {
-				return items, nil
-			}
-		}
-		return nil, errors.New("回收站超过10000项，无法保证完整操作")
-	case "downloads":
-		for page := int64(1); page <= 100; page++ {
-			result, err := c.ListOfflineTask(page)
-			if err != nil {
-				return nil, errors.New("115云下载读取失败")
-			}
-			for _, row := range result.Tasks {
-				status := "running"
-				if row.IsDone() {
-					status = "success"
-				} else if row.IsFailed() {
-					status = "error"
-				} else if row.IsTodo() {
-					status = "queued"
-				}
-				progress := row.Percent / 100
-				if status == "success" {
-					progress = 1
-				}
-				items = append(items, cloudManagementEntry{ID: row.InfoHash, Name: row.Name, URL: row.Url, Size: row.Size, Path: row.DirId, Time: time.Unix(row.AddTime, 0), Status: status, Progress: progress})
-			}
-			if page >= result.PageCount || len(result.Tasks) == 0 {
-				return items, nil
-			}
-		}
-		return nil, errors.New("云下载列表过大")
-	}
-	return nil, errors.New("管理栏目无效")
+	return nil, errors.New("云盘列表过大，无法保证完整操作")
 }
 func (a *App) cloudManagement(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -489,6 +406,10 @@ func (a *App) cloudManagement(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-a.casGate }()
 	}
 	key := r.URL.Query().Get("storage")
+	if r.Method == http.MethodGet {
+		a.cloudManagementPage(w, r, ctx)
+		return
+	}
 	s, err := a.store.storage(key)
 	if err != nil || !s.Enabled {
 		fail(w, 400, errors.New("请选择已启用的云盘存储"))
@@ -505,10 +426,6 @@ func (a *App) cloudManagement(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		fail(w, 400, err)
-		return
-	}
-	if r.Method == http.MethodGet {
-		jsonResponse(w, 200, map[string]any{"items": rows, "edit": s.Type == "115" && kind == "shares", "password": s.Type == "115" && kind == "trash"})
 		return
 	}
 	var v struct {
@@ -590,7 +507,9 @@ func (a *App) cloudManagement(w http.ResponseWriter, r *http.Request) {
 					days = -1
 				}
 				form.Set("share_duration", strconv.Itoa(days))
-				form.Set("receive_code", code)
+				if code != "" {
+					form.Set("receive_code", code)
+				}
 				form.Set("auto_fill_recvcode", boolDigit(v.Options.Autofill))
 				form.Set("receive_user_limit", strconv.Itoa(v.Options.Limit))
 			}
@@ -693,7 +612,7 @@ func (a *App) cloudManagement(w http.ResponseWriter, r *http.Request) {
 				if err = a.cloudStorageCurrent(s); err != nil {
 					break
 				}
-				result := submit115URIs(ctx, s, row.Path, []string{row.URL})
+				result := submit115URIs(ctx, s, row.ParentID, []string{row.URL})
 				if !result[0].Success {
 					err = errors.New("重试提交未确认，请核对云盘结果")
 					break
