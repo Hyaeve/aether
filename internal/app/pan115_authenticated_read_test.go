@@ -47,6 +47,21 @@ func Test115AuthenticatedCDNHeadersTrustBoundary(t *testing.T) {
 	}
 }
 
+func Test115TrustedRedirectKeepsOnlyDownloadTicket(t *testing.T) {
+	from, _ := url.Parse("https://cdnfhnfile.115cdn.net/book")
+	to, _ := url.Parse("https://cdn.115.com/book")
+	if !trusted115DownloadRedirect(from, to) {
+		t.Fatal("official 115 redirect was not trusted")
+	}
+	if got := trusted115DownloadCookies("UID=uid; CID=cid; SEID=seid; KID=kid; download_ticket=ticket; download_token=token; unrelated=secret"); got != "UID=uid; CID=cid; SEID=seid; KID=kid; download_ticket=ticket; download_token=token" {
+		t.Fatal(got)
+	}
+	other, _ := url.Parse("https://unrelated.invalid/book")
+	if trusted115DownloadRedirect(from, other) {
+		t.Fatal("unrelated redirect was trusted")
+	}
+}
+
 // Exercise a real HTTP wire read: a CDN requiring the SDK's CK rejects the old
 // response-ticket-only header, even when refreshing that response ticket.
 func Test115DAVMountAuthenticatedWireRead(t *testing.T) {

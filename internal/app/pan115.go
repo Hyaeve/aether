@@ -243,6 +243,31 @@ func client115(ctx context.Context, s Storage) (*driver.Pan115Client, error) {
 	return c, nil
 }
 
+// 115's download ticket can legitimately redirect between hosts in the
+// official HTTPS 115 domain family. Keep only the 115 authentication cookies
+// for that case; credentials must never cross an untrusted host boundary.
+func trusted115DownloadRedirect(from, to *url.URL) bool {
+	if from == nil || to == nil || from.Host == to.Host {
+		return false
+	}
+	return official115DownloadURL(from) && official115DownloadURL(to)
+}
+
+func trusted115DownloadCookies(header string) string {
+	r := &http.Request{Header: http.Header{"Cookie": {header}}}
+	allowed := map[string]bool{
+		"UID": true, "CID": true, "SEID": true, "KID": true,
+		"DOWNLOAD_TICKET": true, "DOWNLOAD_TOKEN": true,
+	}
+	values := make([]string, 0, len(allowed))
+	for _, cookie := range r.Cookies() {
+		if cookie != nil && allowed[strings.ToUpper(cookie.Name)] {
+			values = append(values, cookie.String())
+		}
+	}
+	return strings.Join(values, "; ")
+}
+
 func (a *App) list115(ctx context.Context, s Storage, dir string) ([]File, error) {
 	if dir == "" || dir == "/" {
 		dir = rootOf(s)
