@@ -92,7 +92,7 @@ function saveVisit(action, items) {
 onMounted(() => { if (previousVisits.length) saveVisit('import', previousVisits) })
 const visitOptions = computed(() => visits.value.map((v, i) => ({ ...v, index:i })).filter(v => state.storages.some(s => s.id === v.storage && s.enabled)).map(v => { const pool = state.storages.find(s => s.id === v.storage); return { value: String(v.index), provider: pool.type, pool: pool.name, parents: v.history.slice(0,-1).map(h => h.name), deepest: v.history.at(-1)?.name || '根目录', label: `${pool.name} / ${v.history.at(-1)?.name || '根目录'}` } }))
 const casExportOpen=ref(false)
-const casExportSupported=computed(()=>state.storages.find(s=>s.id===selected.value)?.type==='local')
+const casExportSupported=computed(()=>['local','mobile'].includes(state.storages.find(s=>s.id===selected.value)?.type))
 async function visitJump(value) {
   const item = visits.value[Number(value)]
   if (!item || renameID.value || uploadBusy.value) return
@@ -168,11 +168,11 @@ const textEditor = ref(null)
 let textRequest = 0
 onUnmounted(() => { textRequest++ })
 watch([selected,current],()=>{textRequest++;textEditor.value=null})
-async function openText(file) {
+async function openText(file, readOnly = false) {
   const request = ++textRequest, storage = selected.value, parent = file.parent ?? current.value
   const endpoint = '/files/text?' + new URLSearchParams({ storage, parent, id:file.id })
   closeMenu()
-  try { const data = await api(endpoint); if (request === textRequest && storage === selected.value && state.authenticated) textEditor.value = { ...data, file, endpoint } }
+  try { const data = await api(endpoint); if (request === textRequest && storage === selected.value && state.authenticated) textEditor.value = { ...data, file, endpoint, disabled: readOnly } }
   catch (e) { if (request === textRequest) notify(e.message,true) }
 }
 const imageFile = f => !f.isDir && /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(f.name)
@@ -205,12 +205,14 @@ function changeVideo(file) { if (previewVideos.value.some(item => item.id === fi
 function openFile(event, file) {
   if (renameID.value) return
   if (file.isDir) return enter(file)
-  if (/\.(strm|nfo)$/i.test(file.name)) return openText(file)
+  if (/\.(strm|nfo|cas)$/i.test(file.name)) return openText(file, /\.cas$/i.test(file.name))
   if (file.url && (imageFile(file) || videoFile(file) || audioFile(file))) {
     if (audioFile(file)) {
       const parent = file.parent ?? current.value
+      const siblings = activeFiles.value.filter(f => !f.isDir && (f.parent ?? current.value) === parent && audioFile(f))
       const companions = activeFiles.value.filter(f => !f.isDir && (f.parent ?? current.value) === parent).map(f => ({ id: f.id, name: f.name }))
-      const context = { storage: selected.value, parent, companions }
+      const queue = siblings.map(f => ({ ...f, storage: selected.value, parent }))
+      const context = { storage: selected.value, parent, companions, queue }
       closeMenu(); openAudio({ ...file, ...context })
       return
     }
@@ -447,10 +449,10 @@ load()
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :source-label="'/'+history.map(item=>item.name).join('/')" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
-  <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :hover-delay="350" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
+  <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :hover-delay="0" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
-    <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="BriefcaseBusiness" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
-      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="TextCursorInput" />命名工作台</button><button v-if="casExportSupported" role="menuitem" :disabled="busy || !!searchResults || searching || !files.length" @click="casExportOpen=true;createMenu=false"><Icon name="FileArchive" />导出CAS</button></div></Transition>
+    <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="Wrench" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
+      <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="TextCursorInput" />命名工作台</button><button v-if="casExportSupported" role="menuitem" :disabled="busy || !!searchResults || searching || !files.length" @click="casExportOpen=true;createMenu=false"><Icon name="FileJson" />导出CAS</button></div></Transition>
     </div>
   </div></div>
   <input ref="fileUpload" type="file" multiple hidden @change="upload" /><input ref="folderUpload" type="file" webkitdirectory multiple hidden @change="upload" />
@@ -482,7 +484,7 @@ load()
     <button v-if="selection.length === 1" @click="rename"><Icon name="Pencil" />重命名</button>
     <button @click="operation = 'move'; closeMenu()"><Icon name="FolderInput" />移动到</button><button @click="operation = 'copy'; closeMenu()"><Icon name="Copy" />复制到</button>
     <button class="danger-text" @click="deleting = true; closeMenu()"><Icon name="Trash2" />删除</button>
-    <button v-if="['115','quark','mobile','tianyi'].includes(state.storages.find(s=>s.id===selected)?.type)" :disabled="!['115','quark'].includes(state.storages.find(s=>s.id===selected)?.type)" @click="cloudSharing=true;closeMenu()"><Icon name="Share2" />分享</button>
+    <button v-if="['115','quark'].includes(state.storages.find(s=>s.id===selected)?.type)" @click="cloudSharing=true;closeMenu()"><Icon name="Share2" />分享</button>
     <button @click="showDetails"><Icon name="Info" />查看详情</button>
   </div></Teleport>
   <ImageViewer v-if="preview && imageFile(preview)" :images="previewImages" :initial="preview.id" @close="preview = null" />

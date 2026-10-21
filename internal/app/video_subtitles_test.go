@@ -33,6 +33,9 @@ func TestVideoSubtitlesAuthenticationValidationAndTextExtraction(t *testing.T) {
 	if w := request(t, h, "GET", "/api/files/video-subtitles", nil, nil); w.Code != 401 {
 		t.Fatal(w.Code)
 	}
+	if w := request(t, h, "GET", "/api/files/video-info", nil, nil); w.Code != 401 {
+		t.Fatal(w.Code)
+	}
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil).Result().Cookies()[0]
 	query := url.Values{"storage": {s.ID}, "parent": {"/"}, "id": {"/video.mkv"}}
 	for _, extra := range []string{"&track=-1", "&start=1", "&start=99999999999999999", "&id=/other", "&url=http://example.com"} {
@@ -64,6 +67,15 @@ func TestVideoSubtitlesAuthenticationValidationAndTextExtraction(t *testing.T) {
 		t.Fatal(data, err)
 	}
 	query.Set("track", "1")
+	infoURL := "/api/files/video-info?" + url.Values{"storage": {s.ID}, "parent": {"/"}, "id": {"/video.mkv"}}.Encode()
+	infoResponse := request(t, h, "GET", infoURL, nil, cookie)
+	var info videoProbeInfo
+	if infoResponse.Code != 200 || json.Unmarshal(infoResponse.Body.Bytes(), &info) != nil || len(info.Streams) != 2 || info.Streams[0].Width != 64 || strings.Contains(infoResponse.Body.String(), "127.0.0.1") {
+		t.Fatal("video info", infoResponse.Code, infoResponse.Body.String())
+	}
+	if w := request(t, h, "GET", infoURL+"&url=https://example.com", nil, cookie); w.Code != 400 {
+		t.Fatal("untrusted video source accepted", w.Code)
+	}
 	query.Set("start", "0")
 	w = request(t, h, "GET", "/api/files/video-subtitles?"+query.Encode(), nil, cookie)
 	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "WEBVTT") || !strings.Contains(w.Body.String(), "Hello embedded subtitles") || w.Header().Get("Content-Type") != "text/vtt; charset=utf-8" {
@@ -90,5 +102,9 @@ func TestVideoSubtitlesAuthenticationValidationAndTextExtraction(t *testing.T) {
 	w = request(t, h, "GET", "/api/files/video-subtitles?"+query.Encode(), nil, cookie)
 	if w.Code != 400 || external.Load() != 0 {
 		t.Fatal("playlist contacted external source", w.Code, external.Load())
+	}
+	w = request(t, h, "GET", "/api/files/video-info?"+query.Encode(), nil, cookie)
+	if w.Code != 400 || external.Load() != 0 {
+		t.Fatal("info playlist contacted external source", w.Code, external.Load())
 	}
 }

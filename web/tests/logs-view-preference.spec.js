@@ -29,6 +29,7 @@ test('only the log view survives reload and navigation for the browser account',
   await mockWorkspace(page)
   await page.goto('/logs')
   await expect(page.locator('.log-panel footer')).toHaveText('240 条记录')
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   await page.getByRole('button', { name: structuredLabel }).click()
   await page.getByRole('textbox', { name: '搜索日志' }).fill('日志-2')
   await page.getByRole('button', { name: '日志级别', exact: true }).click()
@@ -92,6 +93,7 @@ test('day stripes differ from the page background and keep their parity while vi
   await page.goto('/logs')
   const rows = page.locator('.log-entry')
   await expect(page.locator('.log-panel footer')).toHaveText('240 条记录')
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   const colors = await rows.evaluateAll(list => ({
     white: getComputedStyle(list[0]).backgroundColor,
     gray: getComputedStyle(list[1]).backgroundColor,

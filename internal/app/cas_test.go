@@ -32,7 +32,7 @@ func TestCASDecode(t *testing.T) {
 		{"Movie.cas", `{"name":"movie.mkv","size":-1,"sha256":"` + hash + `"}`, "", false},
 		{"Movie.cas", `{"name":"movie.mkv","size":1,"sha1":"abcd"}`, "", false},
 		{"Movie.cas", `{"name":"movie.mkv","size":1,"sha256":"bad"}`, "", false},
-		{"Movie.cas", `{"name":"movie.txt","size":1,"sha256":"` + hash + `"}`, "", false},
+		{"Movie.cas", `{"name":"movie.txt","size":1,"sha256":"` + hash + `"}`, "Movie.txt", true},
 		{"../Movie.cas", `{"name":"movie.mkv","size":1,"sha256":"` + hash + `"}`, "", false},
 	} {
 		info, err := decodeCAS([]byte(base64.StdEncoding.EncodeToString([]byte(tc.content))), tc.name)

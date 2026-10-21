@@ -16,12 +16,13 @@ import (
 
 func TestCASPlaybackProviderFallback(t *testing.T) {
 	for _, tc := range []struct {
-		name, mobileFailure                                 string
+		name, mobileFailure, filename                       string
 		bound, single, cancel, both, disabled, preferTianyi bool
 		stream, live                                        bool
 	}{
 		{name: "mobile restore failure", mobileFailure: "restore"},
 		{name: "first signed playback falls back", mobileFailure: "restore", stream: true},
+		{name: "custom extension signed playback falls back", mobileFailure: "restore", stream: true, filename: "archive.pkg_7-z"},
 		{name: "live mobile link failure does not restore mobile again", mobileFailure: "link", live: true},
 		{name: "mobile link failure", mobileFailure: "link"},
 		{name: "mobile empty link", mobileFailure: "empty"},
@@ -32,6 +33,7 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 		{name: "request cancellation does not restore elsewhere", mobileFailure: "restore", cancel: true},
 		{name: "disabled fallback is not used", mobileFailure: "restore", disabled: true},
 		{name: "tianyi preferred failure falls back to mobile", preferTianyi: true, both: true},
+		{name: "missing slice size uses OpenList rule for tianyi", preferTianyi: true, both: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := testApp(t)
@@ -94,6 +96,12 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 						status = 503
 					}
 					raw = `{"uploadFileId":"30"}`
+				case "/person/checkTransSecond":
+					params := tianyiTestUploadParams(t, r, "0123456789abcdef")
+					if params.Get("fileMd5") != strings.Repeat("B", 32) || params.Get("sliceMd5") != strings.Repeat("C", 32) {
+						t.Error("fallback lost dual MD5 in check", params)
+					}
+					raw = `{"fileDataExists":1}`
 				case "/person/commitMultiUploadFile":
 					params := tianyiTestUploadParams(t, r, "0123456789abcdef")
 					if params.Get("fileMd5") != strings.Repeat("B", 32) || params.Get("sliceMd5") != strings.Repeat("C", 32) {
@@ -113,6 +121,12 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(raw)), Header: http.Header{}, Request: r}, nil
 			})}
 			info := casPoolRevisionInfo()
+			if tc.filename != "" {
+				info.Name = tc.filename
+			}
+			if tc.name == "missing slice size uses OpenList rule for tianyi" {
+				info.SliceSize = 0
+			}
 			if tc.single {
 				info.MD5, info.SliceMD5, info.SliceSize = "", "", 0
 			}
@@ -129,7 +143,7 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 				}
 			}
 			if tc.stream {
-				u, _ := url.Parse(a.signedStreamURL(claim))
+				u, _ := url.Parse(a.generatedStreamURL(claim))
 				w := httptest.NewRecorder()
 				a.Handler(t.TempDir()).ServeHTTP(w, httptest.NewRequest("GET", u.RequestURI(), nil))
 				if w.Code != http.StatusFound || w.Header().Get("Location") != "https://media.example/tianyi" {

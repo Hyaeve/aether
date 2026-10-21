@@ -60,8 +60,25 @@ func TestTianyiCASDynamicPartSizeAndLegacyImport(t *testing.T) {
 	}
 }
 
+func TestTianyiCASUserSampleUsesOpenListPartRule(t *testing.T) {
+	const sample = "eyJuYW1lIjoiRG9jdG9yIFjvvJrnmb3oibLpu5HmiYvlhZrml7bku6MgLSBTMDFFMDEgLSDnrKwgMSDpm4YgLSAxMDgwcC5ta3YiLCJzaXplIjoyNTM5OTk0NTQzLCJtZDUiOiIwMThDRkIwODJGNDQ1NjAxMDUwRjc3OUYxRUU3RjlDQyIsInNsaWNlTWQ1IjoiQjU4QjNGNUYyREI1NUJBM0FFNjI2MUFEQkFEODAyMjYiLCJjcmVhdGVfdGltZSI6IjE3OTIwNjI4ODAiLCJzaGEyNTYiOiIyRjNFRjBBNzlCMEY3QUE2OThBNTk5RDBCMjkxMzdDNDFFQkQ4NjZGMzlGREFENEE5OTgyQUFGQjk3QTlFRDY0In0="
+	info, err := decodeCAS([]byte(sample), "Doctor X.mkv.cas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size != 2539994543 || info.SliceSize != 10<<20 ||
+		info.MD5 != "018cfb082f445601050f779f1ee7f9cc" ||
+		info.SliceMD5 != "B58B3F5F2DB55BA3AE6261ADBAD80226" ||
+		info.SHA256 != "2f3ef0a79b0f7aa698a599d0b29137c41ebd866f39fdad4a9982aafb97a9ed64" {
+		t.Fatalf("unexpected decoded OpenList CAS: %+v", info)
+	}
+}
+
 func tianyiTestUploadParams(t *testing.T, r *http.Request, secret string) url.Values {
 	t.Helper()
+	if r.URL.Query().Get("rand") == "" {
+		t.Fatal("missing OpenList-compatible random query parameter")
+	}
 	ciphertext, err := hex.DecodeString(r.URL.Query().Get("params"))
 	if err != nil || len(ciphertext) == 0 || len(ciphertext)%16 != 0 {
 		t.Fatal("invalid encrypted request")
@@ -138,6 +155,11 @@ func TestTianyiCASSliceRestore(t *testing.T) {
 			if params.Get("sliceSize") != fmt.Sprint(expectedSlice) || params.Get("parentFolderId") != "folder" {
 				t.Fatal(params)
 			}
+		case "/person/checkTransSecond":
+			if params.Get("uploadFileId") != "upload" || params.Get("fileMd5") != strings.Repeat("A", 32) || params.Get("sliceMd5") != strings.Repeat("B", 32) {
+				t.Fatal(params)
+			}
+			raw = `{"fileDataExists":1}`
 		case "/person/commitMultiUploadFile":
 			if params.Get("sliceMd5") != strings.Repeat("B", 32) || params.Get("fileMd5") != strings.Repeat("A", 32) || params.Get("opertype") != "3" {
 				t.Fatal(params)

@@ -36,13 +36,13 @@ test('a lost export job clears the persistent progress notice instead of polling
  expect(reads).toBe(1)
 })
 
-test('CAS export appears only for local storage, not cloud sources',async({page})=>{
+test('CAS export appears for local and mobile storage, not other cloud sources',async({page})=>{
  await fixture(page)
  await page.route('**/api/state',r=>r.fulfill({json:{username:'cas-export',storages:['local','mobile','tianyi','115','quark','openlist','webdav'].map(type=>({id:type,type,name:type,enabled:true,config:{mode:'native',root:'/media'}})),tasks:[],settings:{},cache:{}}}))
  for(const provider of ['local','mobile','tianyi','115','quark','openlist','webdav']){
   await page.goto('/files?storage='+provider)
   await page.getByRole('button',{name:'工具',exact:true}).click()
-  await expect(page.getByRole('menuitem',{name:'导出CAS'})).toHaveCount(provider==='local'?1:0)
+  await expect(page.getByRole('menuitem',{name:'导出CAS'})).toHaveCount(['local','mobile'].includes(provider)?1:0)
   await page.keyboard.press('Escape')
  }
 })

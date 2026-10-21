@@ -113,7 +113,22 @@ func generatedCASClaim(t *testing.T, content []byte) CASInfo {
 	if err := json.Unmarshal(raw, &portable); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"sha256", "md5", "slice_md5", "slice_size"} {
+	var outer map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if len(outer) != 2 || len(portable.CAS) != 6 {
+		t.Fatalf("unexpected portable claim fields: %s", raw)
+	}
+	for _, key := range []string{"s", "f", "p"} {
+		if _, ok := outer[key]; ok {
+			t.Fatalf("generated claim contains %s: %s", key, raw)
+		}
+	}
+	if _, ok := portable.CAS["provider"]; ok {
+		t.Fatalf("generated claim contains provider: %s", raw)
+	}
+	for _, key := range []string{"name", "size", "sha256", "md5", "slice_md5", "slice_size"} {
 		if _, ok := portable.CAS[key]; !ok {
 			t.Fatalf("generated claim missing %s: %s", key, raw)
 		}

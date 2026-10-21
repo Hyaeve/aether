@@ -44,6 +44,24 @@ type CASInfo struct {
 	SliceSize      int64  `json:"slice_size"`
 }
 
+// marshalCASContent is the portable standalone .cas format. Provider is an
+// execution detail owned by the binding pool and must not be persisted in the
+// file. Keep the field order stable so exported files are easy to inspect.
+func marshalCASContent(info CASInfo) ([]byte, error) {
+	type content struct {
+		Name      string `json:"name"`
+		Size      int64  `json:"size"`
+		SHA256    string `json:"sha256"`
+		MD5       string `json:"md5"`
+		SliceMD5  string `json:"slice_md5"`
+		SliceSize int64  `json:"slice_size"`
+	}
+	return json.MarshalIndent(content{
+		Name: info.Name, Size: info.Size, SHA256: info.SHA256,
+		MD5: info.MD5, SliceMD5: info.SliceMD5, SliceSize: info.SliceSize,
+	}, "", "  ")
+}
+
 type CASTemporary struct {
 	Feature        string    `json:"feature,omitempty"`
 	Key            string    `json:"key"`
@@ -65,8 +83,9 @@ type CASRestoreStats struct {
 }
 
 func validateCAS(info CASInfo) error {
-	if !safeName(info.Name) || !taskMedia(Task{}, info.Name) || info.Size <= 0 || info.Size > 1<<40 {
-		return errors.New("CAS 原始文件名、大小或媒体类型无效（最大 1 TiB）")
+	// Tasks apply their configured extensions; portable CAS has no media whitelist.
+	if !safeName(info.Name) || info.Size <= 0 || info.Size > 1<<40 {
+		return errors.New("CAS 原始文件名或大小无效（最大 1 TiB）")
 	}
 	hash, err := hex.DecodeString(info.SHA256)
 	md5, md5Err := hex.DecodeString(info.MD5)
@@ -87,6 +106,7 @@ func validateCAS(info CASInfo) error {
 }
 
 func validateCASFor(s Storage, info CASInfo) error {
+	info = normalizeCASPlayback(info)
 	if err := validateCAS(info); err != nil {
 		return err
 	}
@@ -96,7 +116,7 @@ func validateCASFor(s Storage, info CASInfo) error {
 			return errors.New("天翼CAS秒传需要同时包含整文件MD5和分片MD5")
 		}
 		if info.SliceSize <= 0 {
-			return errors.New("天翼CAS缺少分片大小，请补齐生成工具实际使用的slice_size或sliceSize，不能猜测")
+			return errors.New("天翼CAS缺少分片大小，无法按OpenList规则计算")
 		}
 		value, size = info.MD5, 16
 	}
@@ -105,6 +125,15 @@ func validateCASFor(s Storage, info CASInfo) error {
 		return errors.New("CAS 特征与存储不兼容：移动需SHA256，天翼需MD5、分片MD5和分片大小")
 	}
 	return nil
+}
+
+// Older CAS/STRM files may carry slice_md5 but omit slice_size. The project
+// uses the OpenList Cloud189 PC rule for that legacy input at playback time.
+func normalizeCASPlayback(info CASInfo) CASInfo {
+	if info.SliceMD5 != "" && info.SliceSize == 0 && info.Size > 0 {
+		info.SliceSize = tianyiCASPartSize(info.Size)
+	}
+	return info
 }
 
 func decodeCAS(content []byte, filename string) (CASInfo, error) {
@@ -212,7 +241,7 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	if strings.TrimSpace(name) == "" {
 		return info, errors.New("CAS 文件名不能为空")
 	}
-	if !taskMedia(Task{}, name) {
+	if path.Ext(name) == "" {
 		name += path.Ext(data.Name)
 	}
 	info = CASInfo{Provider: strings.ToLower(data.Provider), Name: name, Size: n, SHA256: strings.ToLower(data.SHA256), MD5: strings.ToLower(data.MD5), SliceMD5: strings.ToUpper(data.SliceMD5), SliceSize: sliceSize, PlaybackURL: data.PlaybackURL}
@@ -349,6 +378,8 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (do
 	if err := validateCAS(*claim.CAS); err != nil {
 		return Download{}, done, err
 	}
+	normalized := normalizeCASPlayback(*claim.CAS)
+	claim.CAS = &normalized
 	stage = "秒传队列等待"
 	if err := a.acquireCAS(ctx); err != nil {
 		return Download{}, done, err
@@ -369,7 +400,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (do
 	if err := validateCASFor(s, *claim.CAS); err != nil {
 		return Download{}, done, err
 	}
-	dual := claim.Storage == "" && claim.CAS.SHA256 != "" && claim.CAS.MD5 != ""
+	dual := claim.Storage == "" && claim.CAS.SHA256 != "" && claim.CAS.MD5 != "" && claim.CAS.SliceMD5 != ""
 	attempt := ctx
 	stop := func() {}
 	if dual {
@@ -383,7 +414,7 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (do
 	}
 	other, hours, selectErr := a.selectCASStorageExcept(*claim.CAS, time.Now(), s.Type)
 	if selectErr != nil {
-		a.casLog("warn", s, claim.CAS.Name, "回退终止：没有可用的另一类绑定存储")
+		a.casLog("warn", s, claim.CAS.Name, "回退终止：没有可用且兼容的另一类绑定存储（移动需SHA256，天翼需MD5、分片MD5和分片大小）")
 		return Download{}, done, err
 	}
 	// Switch providers once; never replay a possibly accepted write in the same account.

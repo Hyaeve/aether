@@ -138,6 +138,12 @@ func (i davInfo) ContentType(context.Context) (string, error) {
 	if i.file.IsDir {
 		return "", nil
 	}
+	// A few network players reject ISO images when WebDAV advertises the
+	// specialized application/x-iso9660-image MIME before attempting a Range.
+	// Keep ISO seekable while allowing the client to inspect it as a file.
+	if strings.EqualFold(path.Ext(i.file.Name), ".iso") {
+		return "application/octet-stream", nil
+	}
 	if value := mime.TypeByExtension(path.Ext(i.file.Name)); value != "" {
 		return value, nil
 	}
@@ -153,7 +159,11 @@ func (d davFS) list(ctx context.Context, s Storage, dir string) ([]File, error) 
 	if _, restricted := ctx.Value(davGrantsKey{}).([]DAVGrant); restricted && s.Type == "local" {
 		return d.a.rawList(ctx, s, dir)
 	}
-	return d.a.listFiles(ctx, s, dir, 0, !d.a.store.snapshot().Settings.WebDAVCache)
+	files, err := d.a.listFiles(ctx, s, dir, 0, !d.a.store.snapshot().Settings.WebDAVCache)
+	if err != nil && ctx.Err() == nil {
+		d.a.store.event("warn", "storage", fmt.Sprintf("WebDAV/FUSE 目录读取失败：存储池 %q，目录 %q：%s", s.Name, dir, safeStorageError(err)))
+	}
+	return files, err
 }
 
 func (d davFS) resolve(ctx context.Context, name string) (Storage, File, error) {
@@ -267,7 +277,7 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	if err != nil {
 		return nil, err
 	}
-	df := &davFile{ctx: ctx, info: davFileInfo(ctx, f), mountKey: fmt.Sprintf("%s:%x", f.ID, shareConfig(s))}
+	df := &davFile{app: d.a, storageID: s.ID, storageName: s.Name, fileName: f.Name, ctx: ctx, info: davFileInfo(ctx, f), mountKey: fmt.Sprintf("%s:%x", f.ID, shareConfig(s))}
 	if f.IsDir {
 		files := []File{}
 		if s.ID == "" {
@@ -336,6 +346,10 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 }
 
 type davFile struct {
+	app             *App
+	storageID       string
+	storageName     string
+	fileName        string
 	ctx             context.Context
 	info            os.FileInfo
 	entries         []os.FileInfo
@@ -352,6 +366,26 @@ type davFile struct {
 	rangeEnd        int64
 	mountStream     *mountReadStream
 	mountKey        string
+}
+
+func safeStorageError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return "请求已取消"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "请求超时"
+	}
+	return "上游请求失败"
+}
+
+func (f *davFile) logReadFailure(message string) {
+	if f.app == nil || f.app.store == nil {
+		return
+	}
+	f.app.store.event("error", "storage", fmt.Sprintf("WebDAV/FUSE 文件读取失败：存储池 %q，文件 %q：%s", f.storageName, f.fileName, message))
 }
 
 func (f *davFile) Stat() (os.FileInfo, error) { return f.info, nil }
@@ -478,6 +512,9 @@ func (f *davFile) Read(b []byte) (int, error) {
 			} else {
 				err = fmt.Errorf("上游读取请求失败（偏移 %d，网络或重定向错误）", f.offset)
 			}
+			if f.ctx.Err() == nil {
+				f.logReadFailure(fmt.Sprintf("偏移 %d，网络或重定向错误", f.offset))
+			}
 			f.progress.finish(err)
 			return 0, err
 		}
@@ -500,6 +537,7 @@ func (f *davFile) Read(b []byte) (int, error) {
 			if f.refreshed && (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) {
 				err = fmt.Errorf("115 上游拒绝读取 HTTP %d（偏移 %d，已重新获取下载票据；非本地权限错误）", res.StatusCode, f.offset)
 			}
+			f.logReadFailure(fmt.Sprintf("HTTP %d，偏移 %d", res.StatusCode, f.offset))
 			f.progress.finish(err)
 			return 0, err
 		}
@@ -508,6 +546,7 @@ func (f *davFile) Read(b []byte) (int, error) {
 			_, e := fmt.Sscanf(res.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total)
 			if e != nil || start != f.offset || end != f.rangeEnd || total != f.info.Size() {
 				res.Body.Close()
+				f.logReadFailure(fmt.Sprintf("Range 响应不匹配，偏移 %d", f.offset))
 				return 0, errors.New("上游未返回请求的文件分块范围")
 			}
 		}

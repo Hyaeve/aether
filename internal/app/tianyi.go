@@ -464,6 +464,7 @@ func (a *App) tianyiCASFolder(ctx context.Context, s Storage) (string, error) {
 }
 
 func (a *App) tianyiRestore(ctx context.Context, s Storage, folder, name string, info CASInfo) (string, error) {
+	info = normalizeCASPlayback(info)
 	if err := validateCASFor(s, info); err != nil {
 		return "", err
 	}
@@ -477,6 +478,19 @@ func (a *App) tianyiRestore(ctx context.Context, s Storage, folder, name string,
 	uploadID := rawText(created["uploadFileId"])
 	if uploadID == "" {
 		return "", errors.New("天翼 CAS 未返回还原会话")
+	}
+	// Cloud189 PC requires an explicit second-upload check before the commit.
+	// A miss must never fall through to a media upload.
+	checked, err := a.tianyiUploadCall(ctx, s, "checkTransSecond", map[string]string{
+		"uploadFileId": uploadID,
+		"fileMd5":      strings.ToUpper(info.MD5),
+		"sliceMd5":     strings.ToUpper(info.SliceMD5),
+	})
+	if err != nil {
+		return "", err
+	}
+	if rawText(checked["fileDataExists"]) != "1" {
+		return "", errors.New("天翼 CAS 未命中秒传，不会上传媒体内容")
 	}
 	// Commit only hashes. A cache miss must never trigger media uploads.
 	result, err := a.tianyiUploadCall(ctx, s, "commitMultiUploadFile", map[string]string{

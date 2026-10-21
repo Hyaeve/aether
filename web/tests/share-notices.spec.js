@@ -23,7 +23,7 @@ for (const provider of ['quark', '115', 'mobile']) {
     await page.getByRole('menuitem', { name: '分享转存', exact: true }).click()
     await page.getByLabel('分享链接', { exact: true }).fill(({ quark: 'https://pan.quark.cn/s/test', '115': 'https://115cdn.com/s/test?password=q526', mobile: 'https://yun.139.com/shareweb/#/w/i/test' })[provider])
     await page.getByRole('button', { name: '转存', exact: true }).click()
-    await expect(page.locator('.toast')).toContainText(provider === 'quark' ? '转存已完成' : '全部批次已提交')
+    await expect(page.locator('.toast')).toContainText(provider === 'quark' ? '转存成功：转存资料库' : '转存已提交：转存资料库')
     await page.getByRole('button', { name: '任务通知', exact: true }).click()
     const list = page.getByRole('region', { name: '任务通知列表' })
     await expect(list).toContainText(message)

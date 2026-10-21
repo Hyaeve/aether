@@ -303,6 +303,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
 	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))
+	mux.Handle("/api/115-recycle-cleanup/run", a.protected(http.HandlerFunc(a.recycleCleanupRunAPI)))
 	mux.Handle("/api/115-rapid", a.protected(http.HandlerFunc(a.rapid115Settings)))
 	mux.Handle("POST /api/115-rapid/run", a.protected(http.HandlerFunc(a.rapid115Start)))
 	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))
@@ -350,10 +351,13 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/extract", a.protected(http.HandlerFunc(a.fileExtract)))
 	mux.Handle("GET /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
 	mux.Handle("GET /api/files/video-subtitles", a.protected(http.HandlerFunc(a.videoSubtitles)))
+	mux.Handle("GET /api/files/video-info", a.protected(http.HandlerFunc(a.videoInfo)))
 	mux.Handle("GET /api/files/search", a.protected(http.HandlerFunc(a.fileSearch)))
 	mux.Handle("HEAD /api/files/audio-source", a.protected(http.HandlerFunc(a.audioSource)))
 	mux.Handle("POST /api/files/offline", a.protected(http.HandlerFunc(a.cloudOffline)))
 	mux.Handle("POST /api/files/share/{action}", a.protected(http.HandlerFunc(a.shareTransfer)))
+	mux.Handle("GET /api/files/share-preferences", a.protected(http.HandlerFunc(a.sharePreferences)))
+	mux.Handle("PUT /api/files/share-preferences", a.protected(http.HandlerFunc(a.sharePreferences)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/tasks/reorder", a.protected(http.HandlerFunc(a.reorderTask)))
 	mux.Handle("GET /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
@@ -1525,6 +1529,12 @@ func (a *App) serveDAV(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("MS-Author-Via", "DAV")
 		w.WriteHeader(http.StatusOK)
 	case "GET", "HEAD", "PROPFIND":
+		// Some network players reject ISO sources before issuing a Range request
+		// when WebDAV advertises application/x-iso9660-image. Keep the extension
+		// in the URL, but expose it as a generic seekable binary stream.
+		if (r.Method == "GET" || r.Method == "HEAD") && strings.EqualFold(filepath.Ext(r.URL.Path), ".iso") {
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
 		a.dav.ServeHTTP(countWriter{w, &a.downloaded}, r)
 	case "PUT", "MKCOL", "MOVE", "DELETE", "LOCK", "UNLOCK":
 		if _, restricted := r.Context().Value(davGrantsKey{}).([]DAVGrant); restricted {

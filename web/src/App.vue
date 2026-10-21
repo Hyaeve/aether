@@ -66,7 +66,7 @@ const navigation = [
   { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
-  { path: '/tools', label: '辅助工具', icon: 'Wrench' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
+  { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
 ]
 const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/strm' : route.path)
@@ -104,6 +104,13 @@ function openNotifications() { notificationMenu.value = !notificationMenu.value;
 function openNotice(t) {
   router.push({ path: '/logs', query: { module: t.kind === 'emby' ? 'links' : ['replace', 'share'].includes(t.kind) ? 'files' : 'tasks', notice: t.id, q: t.logQuery || t.name, fallback: t.legacyQuery || t.name, time: t.lastRun } })
   closeMenus()
+}
+function openToast(notice) {
+  const location = notice.location
+  if (!location || !state.authenticated || location.owner !== state.username) return
+  if (!state.storages.some(s => s.enabled && s.id === location.storage)) { notify('目标存储池已不可用', true); return }
+  writeSession(state.username, 'directory', location)
+  router.push({ path: '/files', query: { visit: String(Date.now()) } })
 }
 watch(taskNotices, () => { if (notificationMenu.value) markRead() })
 let timer
@@ -183,7 +190,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <template v-else-if="currentPath === '/transfer/backup/settings'"><section class="task-heading"><button class="btn" @click="router.push('/transfer/backup')"><Icon name="ArrowLeft" />返回备份规则</button></section><TransferSettings mode="backup" /></template>
         <TransfersPage v-else-if="currentPath.startsWith('/transfer') || currentPath === '/backup'" :rules="currentPath === '/transfer/backup' || currentPath === '/backup'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
-        <FilesPage v-else-if="currentPath === '/files'" />
+        <FilesPage v-else-if="currentPath === '/files'" :key="route.fullPath" />
         <MountsPage v-else-if="currentPath === '/files/mounts'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas', '/tasks/ed2k'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <ScrapePage v-else-if="currentPath === '/tasks/scrape'" />
@@ -206,5 +213,5 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
   </div>
   <ShareTransfer v-if="clipboardShare && state.authenticated" :provider="clipboardShare.provider" :initial-links="clipboardShare.links" @close="nextClipboardShare" />
   <AudioPlayer v-if="audioSession.file && state.authenticated" :file="audioSession.file" :queue="audioSession.queue" :activation="audioSession.activation" @change="audioSession.file = $event" @remove="removeAudio" @close="closeAudio" />
-  <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : n.progress !== undefined && n.progress < 1 ? 'LoaderCircle' : 'Check'" :size="15" /></span><span>{{ n.message }}<progress v-if="n.progress !== undefined" :value="n.progress" max="1" aria-label="任务进度" style="display:block;width:100%;height:4px;margin-top:6px;accent-color:var(--primary)" /></span><button v-if="!n.persistent" class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>
+  <TransitionGroup name="toast-slide" tag="div" class="toast-stack" aria-live="polite"><div v-for="n in notices" :key="n.id" class="toast" :class="{ error: n.error }" :role="n.error ? 'alert' : 'status'"><span class="toast-symbol"><Icon :name="n.error ? 'X' : n.progress !== undefined && n.progress < 1 ? 'LoaderCircle' : 'Check'" :size="15" /></span><span><button v-if="n.location" class="toast-destination" aria-label="打开转存目标目录" @click="openToast(n)">{{ n.message }}</button><template v-else>{{ n.message }}</template><progress v-if="n.progress !== undefined && n.progress < 1" :value="n.progress" max="1" aria-label="任务进度" style="display:block;width:100%;height:4px;margin-top:6px;accent-color:var(--primary)" /></span><button v-if="!n.persistent" class="icon-btn" aria-label="关闭通知" @click="notices.splice(notices.indexOf(n), 1)"><Icon name="X" :size="15" /></button></div></TransitionGroup>
 </template>

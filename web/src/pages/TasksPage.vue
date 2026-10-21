@@ -15,6 +15,7 @@ import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 import { useCardDrag } from '../useCardDrag'
 import { revealOptions } from '../expanded-options'
 import GenerationImport from '../components/GenerationImport.vue'
+import {extensionError} from '../extension-rules'
 const importer=ref(false),generationJobs=ref([])
 let generationTimer,alive=true
 async function loadGeneration(){if(!['cas','ed2k'].includes(props.kind))return;try{const result=await api('/generation/jobs');if(alive)generationJobs.value=Array.isArray(result)?result.filter(j=>j.kind===props.kind):[]}catch(e){if(alive)notify(e.message,true)}}
@@ -96,7 +97,7 @@ function open(t) {
   if (props.kind === 'strm') form.retainedExtensions ??= 'iso'
   if (['cas', 'ed2k'].includes(props.kind)) delete form.retainedExtensions
   if (['cas', 'ed2k'].includes(props.kind)) form.completionAction ||= 'keep'
-  if (['strm', 'cas', 'ed2k'].includes(props.kind)) form.scrapeExcluded ??= false
+  if (['strm', 'cas', 'ed2k'].includes(props.kind)) form.scrapeExcluded ??= !t && props.kind === 'cas'
   if (props.kind === 'ed2k') form.ed2kBindingId ||= ''
   if (props.kind === 'cas') {
     delete form.casBindingId
@@ -107,6 +108,7 @@ function open(t) {
 }
 async function save() {
   busy.value = true; error.value = ''
+  for (const [key,label] of [['mediaExtensions','媒体扩展名'],['metadataExtensions','元数据扩展名']]) { const invalid=extensionError(label,form[key]); if(invalid){ notify(invalid,true); busy.value=false; return } }
   try { await api(editing.value ? `/tasks/${editing.value}` : '/tasks', editing.value ? 'PUT' : 'POST', form); await reload(); modal.value = false; notify('任务已保存') }
   catch (e) { error.value = e.message } finally { busy.value = false }
 }
@@ -158,7 +160,7 @@ async function toggle(t) {
         <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '' }}</span><Icon name="FolderOpen" /></button></div>
-        <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
+        <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" @keydown.enter.prevent /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
         <div v-else class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
         <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" /></label>
@@ -170,7 +172,7 @@ async function toggle(t) {
         </div>
       </div>
       <template v-if="kind !== 'cache'"><button type="button" class="disclosure" :aria-expanded="more" @click="toggleMore"><Icon :name="more ? 'ChevronDown' : 'ChevronRight'" :size="16" />更多选项</button><div v-if="more" class="form-grid more-options">
-        <div v-if="['cas', 'ed2k'].includes(kind)" class="field"><label>完成动作</label><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
+        <div v-if="['cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>完成动作</label></div><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
         <div v-if="kind === 'strm'" class="field extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><span><button v-for="group in ['video', 'audio']" :key="group" type="button" class="icon-btn extension-preset" :class="group" :aria-label="`保留${group === 'video' ? '视频' : '音频'}扩展名`" :aria-pressed="groupActive('retainedExtensions', group)" @click="toggleExtensions('retainedExtensions', group)"><Icon :name="group === 'video' ? 'Film' : 'Music'" /></button></span></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
         <div v-if="['strm', 'cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>STRM 刮削</label></div><RoundedSelect :model-value="form.scrapeExcluded ? 'exclude' : 'include'" @update:model-value="form.scrapeExcluded = $event === 'exclude'" label="STRM 刮削" :options="[{value:'include',label:'参与'},{value:'exclude',label:'不参与'}]" /></div>
         <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div></div></template>

@@ -50,7 +50,7 @@ test('extension presets toggle normalized groups and blank tools menu follows po
   await expect(media).not.toHaveValue(/mp3/)
   await page.getByRole('button', { name: '数据扩展名', exact: true }).click()
   await page.getByRole('button', { name: '图片扩展名', exact: true }).click()
-  await expect(metadata).toHaveValue('nfo;ass;srt;jpg;jpeg;png;webp')
+  await expect(metadata).toHaveValue('nfo;ass;srt;ssa;sub;jpg;jpeg;png;webp')
   const m = await media.boundingBox(), d = await metadata.boundingBox()
   expect(m.x).toBe(d.x); expect(m.width).toBe(d.width); expect(d.y).toBeGreaterThan(m.y + m.height)
   await page.screenshot({ path: info.outputPath('extensions-desktop.png') })

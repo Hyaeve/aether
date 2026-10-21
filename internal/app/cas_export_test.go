@@ -4,7 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -117,7 +119,7 @@ func TestCASExportCancellationAndSelectionBounds(t *testing.T) {
 	}
 }
 
-func TestCASExportRejectsCloudSourcesBeforeUpstreamRead(t *testing.T) {
+func TestCASExportRejectsUnsupportedSourcesBeforeUpstreamRead(t *testing.T) {
 	a := testApp(t)
 	a.store.update(func(st *State) error {
 		st.Storages = []Storage{
@@ -134,13 +136,134 @@ func TestCASExportRejectsCloudSourcesBeforeUpstreamRead(t *testing.T) {
 	})}
 	h := a.Handler(t.TempDir())
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
-	for _, sid := range []string{"mobile", "tianyi"} {
+	for _, sid := range []string{"tianyi"} {
 		for _, endpoint := range []string{"/api/files/cas-export", "/api/files/cas-export/jobs"} {
 			w := request(t, h, "POST", endpoint, casExportRequest{StorageID: sid, Source: "/", IDs: []string{"file"}, Confirm: true}, cookie)
 			if w.Code != 400 {
 				t.Fatal("cloud export accepted", w.Code, w.Body.String())
 			}
 		}
+	}
+}
+
+func TestCASExportMobileSHAOnlySingleArchiveAndQueue(t *testing.T) {
+	a := testApp(t)
+	s := Storage{ID: "mobile", Name: "Mobile", Type: "mobile", Enabled: true, Config: map[string]string{"mode": "native", "root": "/", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:account:token"))}}
+	if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	old := apiClient
+	defer func() { apiClient = old }()
+	missingHash := false
+	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+		var data any
+		switch r.URL.Path {
+		case "/user/route/qryRoutePolicy":
+			data = map[string]any{"routePolicyList": []any{map[string]string{"modName": "personal", "httpsUrl": "https://personal.yun.139.com"}}}
+		case "/file/list":
+			var body struct {
+				Parent string `json:"parentFileId"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				return nil, err
+			}
+			hash := strings.Repeat("A", 64)
+			if missingHash {
+				hash = ""
+			}
+			file := func(id, name string) map[string]any {
+				return map[string]any{"fileId": id, "name": name, "type": "file", "size": 42, "contentHash": hash, "contentHashAlgorithm": "SHA256"}
+			}
+			items := []any{file("z", "z.mp4"), map[string]any{"fileId": "show", "name": "Show", "type": "folder"}, file("a", "a.mkv")}
+			if body.Parent == "show" {
+				items = []any{file("episode", "ep.mkv")}
+			} else if body.Parent != "/" {
+				return nil, fmt.Errorf("unexpected directory %s", body.Parent)
+			}
+			data = map[string]any{"items": items}
+		default:
+			t.Errorf("mobile CAS export must not download media or write upstream: %s", r.URL.Path)
+			return nil, fmt.Errorf("unexpected upstream operation")
+		}
+		raw, err := json.Marshal(map[string]any{"success": true, "data": data})
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(raw))}, err
+	})}
+	h := a.Handler(t.TempDir())
+	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "admin", Password: "x"}, nil).Result().Cookies()[0]
+	verify := func(raw []byte, name string) {
+		t.Helper()
+		var fields map[string]any
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		for key, want := range map[string]any{"name": name, "size": float64(42), "sha256": strings.Repeat("a", 64), "md5": "", "slice_md5": "", "slice_size": float64(0)} {
+			if fields[key] != want {
+				t.Fatalf("%s = %v, want %v: %s", key, fields[key], want, raw)
+			}
+		}
+		if len(fields) != 6 || fields["provider"] != nil || fields["playback_url"] != nil || fields["storageId"] != nil {
+			t.Fatal("account binding leaked", fields)
+		}
+		if strings.Contains(string(raw), "\n  \"provider\"") || !strings.Contains(string(raw), "\n  \"sha256\"") {
+			t.Fatal("standalone CAS is not the documented indented format", string(raw))
+		}
+	}
+	v := casExportRequest{StorageID: s.ID, Source: "/", IDs: []string{"z"}, Confirm: true}
+	w := request(t, h, "POST", "/api/files/cas-export", v, cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	verify(w.Body.Bytes(), "z.mp4")
+	v.IDs = []string{"z", "show", "a"}
+	w = request(t, h, "POST", "/api/files/cas-export", v, cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	z, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Show/ep.mkv.cas", "a.mkv.cas", "z.mp4.cas"}
+	if len(z.File) != len(want) {
+		t.Fatal("archive count", len(z.File))
+	}
+	for i, f := range z.File {
+		if f.Name != want[i] {
+			t.Fatal("archive order/structure", f.Name)
+		}
+		r, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		verify(raw, strings.TrimSuffix(filepath.Base(f.Name), ".cas"))
+	}
+	// Dispatch synchronously so the mock cannot outlive this test.
+	a.casExportRunning = true
+	v.IDs = []string{"a"}
+	w = request(t, h, "POST", "/api/files/cas-export/jobs", v, cookie)
+	var job casExportJob
+	if w.Code != 202 || json.Unmarshal(w.Body.Bytes(), &job) != nil {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	a.runCASExports()
+	w = request(t, h, "GET", "/api/files/cas-export/jobs/"+job.ID, nil, cookie)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &job) != nil || job.Status != "success" || job.Processed != 1 || job.Total != 1 {
+		t.Fatal(w.Body.String())
+	}
+	w = request(t, h, "GET", "/api/files/cas-export/jobs/"+job.ID+"/download", nil, cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	verify(w.Body.Bytes(), "a.mkv")
+	missingHash = true
+	w = request(t, h, "POST", "/api/files/cas-export", v, cookie)
+	if w.Code != 400 {
+		t.Fatal("missing SHA256 accepted", w.Code)
 	}
 }
 

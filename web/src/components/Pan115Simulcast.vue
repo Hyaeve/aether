@@ -52,7 +52,7 @@ function select(value) {
 </script>
 
 <template>
-  <Modal title="115 同播复制" @close="!busy && emit('close')">
+  <Modal standard title="115 同播复制" @close="!busy && emit('close')">
   <section class="modal-body simulcast-settings" :aria-busy="busy">
     <p v-if="error && !editing && !removing" class="error-message" role="alert">{{ error }}</p>
     <div class="simulcast-list">
@@ -66,7 +66,7 @@ function select(value) {
     </div>
   </section>
   </Modal>
-  <Modal v-if="editing" :title="original ? '编辑同播复制' : '添加同播复制'" @close="!busy && (editing = false)">
+  <Modal v-if="editing" standard :title="original ? '编辑同播复制' : '添加同播复制'" @close="!busy && (editing = false)">
     <form @submit.prevent="save">
       <div class="modal-body simulcast-form">
         <div class="simulcast-binding"><label>115 存储<RoundedSelect v-model="form.storageId" label="115 存储" placeholder="选择存储" :options="options" :disabled="busy || !!original" /></label><label>复制保活<NumberInput v-model="form.retentionHours" aria-label="复制保活" unit="h" :min="1" :max="8760" required :disabled="busy" /></label></div>
@@ -85,7 +85,8 @@ function select(value) {
 
 <style scoped>
 .simulcast-settings { min-width: 0; }
-.simulcast-list { display: grid; gap: 12px; }
+.simulcast-list { display: grid; align-content:start; gap: 12px; height:354px; overflow:auto; scrollbar-width:none; }
+.simulcast-list::-webkit-scrollbar{display:none}
 .simulcast-row { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); min-width: 0; }
 .simulcast-name { flex: 1; min-width: 0; display: flex; flex-direction:column; align-items:flex-start; gap: 4px; overflow-wrap: anywhere; }
 .simulcast-name span { color: var(--text); font-size: 14px; font-weight:500; opacity:.8; }

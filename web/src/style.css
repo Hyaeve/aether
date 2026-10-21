@@ -102,7 +102,10 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .current-tab { display: flex; gap: 8px; align-items: center; font-size: 11px; border-bottom: 2px solid var(--primary); color: var(--primary); padding: 0 7px; }
 .current-tab span { width: 4px; height: 4px; border-radius: 50%; background: var(--primary); margin-left: 12px; }
 .page-tabs-caption { color: #9aa4b5; font-size: 8px; display: flex; align-items: center; }
-.page-content { padding: 34px 36px 20px; max-width: 1820px; margin: 0 auto; }
+.page-content { padding: 34px 36px 20px; max-width: 1820px; margin: 0 auto; animation:page-surface-enter .36s ease-out; }
+@keyframes page-surface-enter{from{opacity:.45;clip-path:inset(8px 0 0)}to{opacity:1;clip-path:inset(0)}}
+.page-content:has(.scrape-panel){animation:none}
+@media(prefers-reduced-motion:reduce){.page-content{animation:none}}
 .page-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 28px; }
 .page-head p { font-size: 12px; color: var(--muted); margin-top: 9px; line-height: 1.8; }
 .title-dot { color: #6575a7; margin-left: 5px; }
@@ -441,11 +444,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .about-actions .btn { color: #27313e; background: #fff; }
 .about-actions .primary { color: #fff; background: #3a4980; }
 .plugin-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
-.plugin-card { display: flex; align-items: center; gap: 14px; min-height: 116px; padding: 22px; text-align: left; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); min-width: 0; flex-wrap: wrap; }
+.plugin-card { display: grid; grid-template-columns: 44px minmax(0,1fr) auto; grid-template-rows: auto auto 1fr; align-items: start; column-gap: 14px; row-gap: 4px; min-height: 116px; padding: 22px; text-align: left; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); min-width: 0; }
 .plugin-card:hover { border-color: var(--primary); }
 .plugin-card > svg { color: var(--primary); }
-.plugin-card strong { font-size: 16px; flex: 1; }
-.plugin-card .status { width: 100%; padding-left: 42px; }
+.plugin-card strong { grid-column:2/-1; grid-row:1; font-size: 16px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.plugin-card .plugin-subtitle { grid-column:2/-1; grid-row:2; min-height:1.2em; }
+.plugin-card .plugin-description { grid-column:2/-1; grid-row:3; align-self:start; }
+.plugin-card .status { grid-column:3; grid-row:1; padding-left:0; white-space:nowrap; }
+.plugin-card > .plugin-symbol, .plugin-card > button.plugin-symbol, .plugin-card > .rapid115-icon { grid-column:1; grid-row:1/4; }
 .compact-modal { scrollbar-width: none; }
 .compact-modal::-webkit-scrollbar { display: none; }
 .compact-modal .modal-header { padding: 18px 22px; }
@@ -583,7 +589,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .sidebar nav { display: flex; padding-bottom: 16px; }
 .nav-group { display: flex; flex-direction: column; width: 100%; min-height: 100%; margin: 0; }
 .nav-group button { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 13px; border: 0; border-radius: 8px; padding: 10px 14px; font-size: 16px; text-align: left; color: inherit; background: transparent; margin-bottom: 4px; flex-shrink: 0; }
-.nav-group button:hover { background: var(--sidebar-hover); color: white; }
+.nav-group button:hover { background: var(--sidebar-hover); color: white; }.nav-group button:hover > svg { transform:translateX(3px) scale(1.08); }.nav-group button > svg { transition:transform .24s cubic-bezier(.22,1.4,.36,1); }
 .nav-group button.active { background: var(--sidebar-active); color: white; }
 .nav-group .nav-bottom { margin-top: auto; }
 .main-shell { margin-left: 236px; padding-top: 48px; background: var(--surface); border-radius: 0; min-height: 100dvh; }
@@ -1407,12 +1413,13 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 /* Form controls and heading commands use separate shared heights. */
 .modal :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select,.rounded-select-trigger,.source-trigger,.number-control,.directory-input),.settings-page :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),.rounded-select-trigger,.source-trigger,.number-control),.rapid115-page :is(input:not([type=checkbox]):not([type=radio]),.rounded-select-trigger,.source-trigger,.directory-input){height:var(--control-height);min-height:var(--control-height)}
 .task-heading .btn,.rapid115-section>header .btn,.scrape-toolbar :is(.btn,.rounded-select-trigger,.search-field),.candidate-search .btn{height:var(--toolbar-height);min-height:var(--toolbar-height);padding-block:0}.candidate-search :is(input,.rounded-select-trigger,.btn){height:var(--control-height);min-height:var(--control-height)}
-.extension-field .extension-preset,.extension-presets .extension-preset{color:var(--muted);background:transparent}.extension-preset.video{--preset-color:#252a34}.extension-preset.audio{--preset-color:#c53849}.extension-preset.image{--preset-color:#21834f}.extension-preset.data{--preset-color:#246bc1}[data-theme=dark] .extension-preset.video{--preset-color:#d0d5df}[data-theme=dark] .extension-preset.audio{--preset-color:#ff8b98}[data-theme=dark] .extension-preset.image{--preset-color:#71d69a}[data-theme=dark] .extension-preset.data{--preset-color:#7dbaff}
+.extension-field .extension-preset,.extension-presets .extension-preset{color:var(--muted);background:transparent}.extension-preset.video{--preset-color:#252a34}.extension-preset.audio{--preset-color:#c53849}.extension-preset.image{--preset-color:#21834f}.extension-preset.data{--preset-color:#246bc1}.extension-preset.document{--preset-color:#9b63b8}[data-theme=dark] .extension-preset.video{--preset-color:#d0d5df}[data-theme=dark] .extension-preset.audio{--preset-color:#ff8b98}[data-theme=dark] .extension-preset.image{--preset-color:#71d69a}[data-theme=dark] .extension-preset.data{--preset-color:#7dbaff}[data-theme=dark] .extension-preset.document{--preset-color:#cf9ce7}
 .extension-field .extension-preset[aria-pressed=true],.extension-presets .extension-preset[aria-pressed=true]{color:var(--preset-color);background:transparent}.extension-field .extension-preset:hover,.extension-presets .extension-preset:hover{color:color-mix(in srgb,var(--preset-color) 45%,var(--muted));background:transparent}.extension-field .extension-preset[aria-pressed=true]:hover,.extension-presets .extension-preset[aria-pressed=true]:hover{color:color-mix(in srgb,var(--preset-color) 45%,var(--muted))}
 .page-slide.leaving{animation-duration:.32s;animation-timing-function:cubic-bezier(.2,.55,.35,1)}
 .modal:has(.backup-editor),.modal:has(.rapid115-editor){background:var(--layer-shell)}.backup-fields{background:var(--layer-item)}
-.storage-card .provider-icon[data-provider="115"] .provider-logo{width:44px;height:44px}.plugin-card .rapid115-icon,.plugin-card .plugin-symbol{width:44px;height:44px}
+.storage-card .provider-icon[data-provider="115"] .provider-logo{width:33px;height:33px}.plugin-card .rapid115-icon,.plugin-card .plugin-symbol{width:44px;height:44px}
 .settings-layout :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select,.rounded-select-trigger,.source-trigger,.number-control,.directory-input){height:var(--control-height);min-height:var(--control-height)}
 .modal:has(.rapid115-editor){scrollbar-width:none}.modal:has(.rapid115-editor)::-webkit-scrollbar{display:none}.rapid115-record-columns{background:var(--layer-item)}
 .extension-preset{position:relative}.extension-preset::after{content:attr(aria-label);position:absolute;bottom:calc(100% + 6px);right:0;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px;white-space:nowrap;pointer-events:none;opacity:0;z-index:2}.extension-preset:hover::after,.extension-preset:focus-visible::after{opacity:1;transition:opacity .15s .6s}
 .scrape-dock{bottom:12px;padding-block:6px}.scrape-dock .btn{height:30px;min-height:30px;padding-block:3px}.plugin-card .simulcast-symbol{border:0;padding:0}.simulcast-symbol[aria-pressed=false]{opacity:.5}
+.toast-destination{padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:normal;overflow-wrap:anywhere}.toast-destination:hover{color:var(--primary)}

@@ -8,6 +8,7 @@ const links = {
 }
 const storages = ['115', 'quark', 'mobile'].map(type => ({ id:type, type, name:`${type}资料`, enabled:true, config:{mode:'native'} }))
 async function base(page, extra = {}) {
+  await page.route('**/api/files/share-preferences', r => r.fulfill({ json: { last: {}, directories: {} } }))
   await page.addInitScript(()=>{localStorage.setItem('aether-clipboard-enabled:clipboard-ui','true');localStorage.setItem('aether-clipboard-enabled:clipboard-ui:consent','1')})
   await page.route('**/api/auth/status', r => r.fulfill({json:{initialized:true,authenticated:true}}))
   await page.route('**/api/state', r => r.fulfill({json:{username:'clipboard-ui',storages,tasks:[],settings:{},cache:{},...extra}}))

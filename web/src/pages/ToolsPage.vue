@@ -17,7 +17,7 @@ import { refreshReplacementNotices } from '../replacement-notices'
 const busy = ref(false)
 const cleanup=ref({enabled:false,rules:[]}),simulcastOn=ref(true)
 onMounted(async()=>{try{cleanup.value=await api('/115-recycle-cleanup');simulcastOn.value=(await api('/115-simulcast/enabled')).enabled}catch{}})
-async function toggle115(which){if(busy.value)return;busy.value=true;try{if(which==='cleanup'){await api('/115-recycle-cleanup','PUT',{...cleanup.value,enabled:!cleanup.value.enabled});cleanup.value.enabled=!cleanup.value.enabled;notify(cleanup.value.enabled?'已启用115回收站清空':'已停用115回收站清空')}else{await api('/115-simulcast/enabled','PUT',{enabled:!simulcastOn.value});simulcastOn.value=!simulcastOn.value;notify(simulcastOn.value?'已启用115同播复制':'已停用115同播复制')}}catch(e){notify(e.message,true)}finally{busy.value=false}}
+async function toggle115(which){if(busy.value)return;busy.value=true;try{if(which==='cleanup'){await api('/115-recycle-cleanup','PUT',{...cleanup.value,enabled:!cleanup.value.enabled});cleanup.value.enabled=!cleanup.value.enabled;notify(cleanup.value.enabled?'已启用115回收站清理':'已停用115回收站清理')}else{await api('/115-simulcast/enabled','PUT',{enabled:!simulcastOn.value});simulcastOn.value=!simulcastOn.value;notify(simulcastOn.value?'已启用115同播复制':'已停用115同播复制')}}catch(e){notify(e.message,true)}finally{busy.value=false}}
 const takeover = ref({ enabled: false, bindings: [] })
 const pluginStates = ref({})
 async function togglePlugin(tool) {
@@ -72,32 +72,34 @@ const selected = ref(null)
 const router=useRouter()
 function selectTool(tool){if(tool.name==='115 秒传')router.push('/tools/115-rapid');else selected.value=tool}
 const tools = [
-  {name:'115 秒传',icon:'Zap',detail:'通过 SHA1 哈希秒传本地文件到 115 网盘，无需实际上传文件数据'},
-  { name: '115 同播复制', icon: 'Copy', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
-  { name:'115回收站清空',icon:'Trash2',detail:'按计划清理115回收站中超过保留天数的项目' },
-  { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '让夸克 STRM 改走 TV 版 302 直链；转码画质和字幕受影响且部分第三方播放器不兼容。' },
-  { name: '整理规则', icon: 'FolderTree', file: 'organize-rules.json', detail: '配置媒体命名、目录结构和整理规则' },
-  { name: '二级分类', icon: 'Tags', file: 'categories.json', detail: '按媒体类型、地区和分类归档文件' },
-  { name: '洗版策略', icon: 'RefreshCw', file: 'upgrade-policies.json', detail: '根据画质与版本偏好替换已有媒体' },
-  { name: 'AI 辅助识别', kind: 'ai', icon: 'BrainCircuit', file: 'ai.json', detail: '通过 OpenAI 兼容模型识别媒体名称与季集信息' },
-  { name: '识别规则', icon: 'ListFilter', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
-  { name: 'TMDB 配置', kind: 'tmdb', icon: 'TMDB', detail: '配置影视元数据接口、图片域名与语言偏好' },
-  { name: '代理配置', kind: 'proxy', icon: 'Network', detail: '管理 TMDB 与 AI 请求使用的网络代理' },
-  { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', detail: '接收 Emby 中勾选的入库、播放及系统事件' },
-  { name: '配置备份', icon: 'FileArchive', detail: '加密导入导出系统、存储池、以链与规则配置' }
+  {name:'115 秒传',icon:'Zap',subtitle:'115 网盘 · SHA1 秒传',detail:'通过 SHA1 哈希秒传本地文件到 115 网盘，无需实际上传文件数据'},
+  { name: '115 同播复制', icon: 'Copy', subtitle: '115 网盘 · 多客户端播放', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
+  { name:'115回收站清理',icon:'Trash2',subtitle:'115 网盘 · 定时清理',detail:'按计划清理115回收站中超过保留天数的项目' },
+  { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '接管本项目生成的夸克 STRM 播放请求，按绑定策略返回 TV 版 302 直链；画质、字幕及客户端兼容性受上游限制。' },
+  { name: '整理规则', icon: 'FolderTree', subtitle: '媒体整理 · 命名与目录', file: 'organize-rules.json', detail: '配置媒体命名、目录结构和整理规则' },
+  { name: '二级分类', icon: 'Tags', subtitle: '媒体整理 · 分类归档', file: 'categories.json', detail: '按媒体类型、地区和分类归档文件' },
+  { name: '洗版策略', icon: 'RefreshCw', subtitle: '媒体整理 · 版本偏好', file: 'upgrade-policies.json', detail: '根据画质与版本偏好替换已有媒体' },
+  { name: 'AI 辅助识别', kind: 'ai', icon: 'BrainCircuit', subtitle: '媒体识别 · 兼容模型接口', file: 'ai.json', detail: '通过 OpenAI 兼容模型识别媒体名称与季集信息' },
+  { name: '识别规则', icon: 'ListFilter', subtitle: '媒体识别 · 匹配规则', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
+  { name: 'TMDB 配置', kind: 'tmdb', icon: 'TMDB', subtitle: '媒体元数据 · TMDB', detail: '配置影视元数据接口、图片域名与语言偏好' },
+  { name: '代理配置', kind: 'proxy', icon: 'Network', subtitle: '网络连接 · 服务代理', detail: '管理 TMDB 与 AI 请求使用的网络代理' },
+  { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', subtitle: '媒体服务 · 事件通知', detail: '接收 Emby 中勾选的入库、播放及系统事件' },
+  { name: '配置备份', icon: 'FileArchive', subtitle: '系统配置 · 加密备份', detail: '加密导入导出系统、存储池、以链与规则配置' }
 ]
-tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', detail: '批量替换容器目录内 STRM 文件内容，保留文件名与目录结构' })
+tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', subtitle: 'STRM 文件 · 内容替换', detail: '批量替换容器目录内 STRM 文件内容，保留文件名与目录结构' })
 </script>
 <template>
   <section class="page-head"><h1>辅助工具</h1></section>
   <div class="plugin-grid">
     <article v-for="tool in tools" :key="tool.name" class="plugin-card" role="button" tabindex="0" :aria-label="tool.name" @click="selectTool(tool)" @keydown.enter.self="selectTool(tool)" @keydown.space.prevent.self="selectTool(tool)">
-      <Rapid115Icon v-if="tool.name==='115 秒传'" /><button v-else-if="['115 同播复制','115回收站清空'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 同播复制'?simulcastOn:cleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 同播复制'?simulcastOn:cleanup.enabled" :disabled="busy" @click.stop="toggle115(tool.name==='115 同播复制'?'simulcast':'cleanup')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span><strong>{{ tool.name }}</strong><small v-if="tool.subtitle" class="plugin-subtitle">{{ tool.subtitle }}</small><small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115回收站清空', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
+      <Rapid115Icon v-if="tool.name==='115 秒传'" /><button v-else-if="['115 同播复制','115回收站清理'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 同播复制'?simulcastOn:cleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 同播复制'?simulcastOn:cleanup.enabled" :disabled="busy" @click.stop="toggle115(tool.name==='115 同播复制'?'simulcast':'cleanup')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span>
+      <div class="plugin-heading"><strong>{{ tool.name }}</strong><small class="plugin-subtitle">{{ tool.subtitle }}</small></div>
+      <small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115回收站清理', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
     </article>
   </div>
   <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" @changed="takeover = $event" />
   <Pan115Simulcast v-else-if="selected?.name === '115 同播复制'" @close="selected = null" />
-  <RecycleCleanup v-else-if="selected?.name === '115回收站清空'" @close="selected=null" @changed="cleanup=$event" />
+      <RecycleCleanup v-else-if="selected?.name === '115回收站清理'" @close="selected=null" @changed="cleanup=$event" />
   <StrmReplace v-else-if="selected?.name === 'STRM 替换'" @close="selected = null" @started="refreshReplacementNotices" />
   <PluginSettings v-else-if="selected?.kind" :key="selected.kind" :kind="selected.kind" :title="selected.name" @close="selected = null" @changed="pluginStates[$event.kind] = $event.enabled" />
   <Modal v-else-if="selected" :title="selected.name" @close="selected = null">
@@ -122,12 +124,12 @@ tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', de
 .quark-takeover-symbol :deep(.provider-icon), .quark-takeover-symbol :deep(.provider-logo) { width: 100%; height: 100%; padding: 0; border-radius: 0; background:transparent; border:0; }
 .plugin-card .plugin-symbol:has(.emby-notice-icon) { background:transparent; border:0; padding:0; }.plugin-symbol :deep(.emby-notice-icon) { width:44px; height:44px; }
 .quark-takeover-symbol[aria-pressed=false] { opacity: .55; }
-.plugin-subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.plugin-card:has(.quark-takeover-symbol) { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 5px 14px; cursor: pointer; }
-.quark-takeover-symbol { grid-row: 1 / 3; }
-.plugin-card:has(.quark-takeover-symbol) .plugin-subtitle { grid-column: 2; margin: 0; }
-.plugin-card:has(.quark-takeover-symbol) .plugin-description { grid-column: 1 / -1; margin-top: 10px; }
-.plugin-card { height: 156px; align-content: center; overflow: hidden; }
-.plugin-card:has(.quark-takeover-symbol) .plugin-description { display: -webkit-box; }
+.plugin-card { position:relative;height:156px;grid-template-columns:44px minmax(0,1fr);grid-template-rows:44px minmax(0,1fr);gap:12px 14px;align-content:start;overflow:hidden;cursor:pointer }
+.plugin-card>.plugin-symbol,.plugin-card>button.plugin-symbol,.plugin-card>.rapid115-icon{grid-column:1;grid-row:1}
+.plugin-heading{grid-column:2;grid-row:1;min-width:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:24px 18px;gap:2px}
+.plugin-heading strong{grid-column:1;grid-row:1;display:block;font-size:16px;line-height:24px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plugin-heading .plugin-subtitle{grid-column:1;grid-row:2;display:block;margin:0;color:var(--muted);font-size:12px;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plugin-card .plugin-description{grid-column:1/-1;grid-row:2;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.plugin-card .status{position:absolute;bottom:5px;right:12px;font-size:10px;background:var(--surface)}
 .quark-takeover-symbol > svg { position: absolute; bottom: -2px; right: -4px; background: var(--surface); color: var(--primary); border-radius: 4px; }
 </style>

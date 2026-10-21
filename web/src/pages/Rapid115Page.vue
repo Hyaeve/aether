@@ -17,6 +17,7 @@ const filterEditor=ref(null)
 const settings=ref({manual:empty(),watches:[]}),draft=ref(null),picker=ref(''),editing=ref(''),loaded=ref(false),busy=ref(false),running=ref(false),confirm=ref(false),records=ref([]),error=ref(''),list=ref(null)
 const storages=computed(()=>state.storages.filter(s=>s.enabled&&s.type==='115'))
 const targetForm=computed(()=>draft.value||settings.value.manual)
+const targetPathLabel=computed(()=>{const target=targetForm.value,name=storages.value.find(s=>s.id===target.storageId)?.name||'';const value=target.targetLabel||'';return value.startsWith(name+' ')?value.slice(name.length).trim():value||'根目录'})
 const complete=computed(()=>loaded.value&&settings.value.manual.source&&settings.value.manual.storageId&&settings.value.manual.target)
 const statuses={running:'处理中',success:'秒传成功',failed:'秒传失败',uploaded:'本地上传'}
 let alive=true,timer,saving=false,pending,waiters=[]
@@ -52,7 +53,7 @@ async function commitTarget(){
    for(const segment of segments){const files=await api(`/files?storage=${encodeURIComponent(storageId)}&path=${encodeURIComponent(directory)}`);const matches=files.filter(f=>f.isDir&&f.name===segment);if(matches.length!==1)throw new Error('目标目录不存在或名称不唯一');directory=matches[0].id}
    if(!alive||targetForm.value!==target||target.targetLabel!==path||target.storageId!==storageId)return
    target.target=directory;target.targetLabel=`${storages.value.find(s=>s.id===storageId)?.name||''} /${segments.join('/')}`;error.value='';if(!draft.value)await save()
-  }catch(e){if(alive&&targetForm.value===target&&target.targetLabel===path)error.value=e.message}
+  }catch(e){if(alive&&targetForm.value===target&&target.targetLabel===path){error.value='';notify(e.message,true)}}
  }
  const resolution={target,path,storageId,promise:null};targetResolution=resolution;resolution.promise=run();await resolution.promise;if(targetResolution===resolution)targetResolution=null
 }
@@ -78,7 +79,7 @@ onBeforeUnmount(()=>{alive=false;clearInterval(timer)})
   </div>
   <Modal v-if="draft" standard :title="editing?'编辑监控':'添加监控'" @close="!busy&&(draft=null)"><form @submit.prevent="add"><div class="modal-body rapid115-editor"><div class="rapid115-name"><label>监控名称<input v-model="draft.name" required maxlength="128" /></label><label>监控模式<RoundedSelect v-model="draft.mode" label="监控模式" :options="[{value:'watch',label:'文件系统监控'},{value:'cron',label:'Cron表达式'}]" /></label></div><label v-if="draft.mode==='cron'">Cron表达式<input v-model="draft.cron" required maxlength="128" /></label><Rapid115Fields v-model="draft" @source="picker='source'" @target="picker='target'" @target-input="inputTarget" @target-commit="commitTarget" /><section class="rapid115-filters"><h3><Icon name="ListFilter" />筛选规则</h3><BackupFilterEditor ref="filterEditor" :form="draft" /></section><p v-if="error" class="error-message" role="alert">{{error}}</p></div><footer class="modal-footer"><button class="btn" type="button" :disabled="busy" @click="draft=null">取消</button><button class="btn primary" :disabled="busy||!draft.source||!draft.target||!draft.storageId"><Icon name="Check" />{{editing?'保存':'添加'}}</button></footer></form></Modal>
   <LocalDirectoryPicker v-if="picker==='source'" :initial="targetForm.source" @select="selectSource" @close="picker=''" />
-  <TaskSourcePicker include-full-path v-if="picker==='target'" :storages="storages" :storage="targetForm.storageId||storages[0]?.id" :initial="targetForm.target||'/'" @select="selectTarget" @close="picker=''" />
+  <TaskSourcePicker include-full-path v-if="picker==='target'" :storages="storages" :storage="targetForm.storageId||storages[0]?.id" :initial="targetForm.target||'/'" :initial-label="targetPathLabel" @select="selectTarget" @close="picker=''" />
   <Modal v-if="confirm" compact confirmation title="确认开始115秒传" @close="!busy&&(confirm=false)"><div class="modal-body"><p>将处理待传目录中符合扩展名的文件。{{settings.manual.successAction==='delete'?'确认目标文件后清理对应源文件；失败文件保留。':'源文件保留。'}}{{settings.manual.failureAction==='upload'?'未命中秒传时进行本地上传。':'未命中秒传时跳过。'}}</p></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="confirm=false">取消</button><button class="btn primary" :disabled="busy" @click="start"><Icon name="Check" />确认秒传</button></footer></Modal>
   <Modal v-if="removing" compact confirmation title="删除监控" @close="!busy&&(removing=null)"><div class="modal-body">删除「{{removing.name}}」监控？已生成的文件和秒传记录将保留。</div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="removing=null">取消</button><button class="btn danger" :disabled="busy" @click="remove"><Icon name="Trash2" />删除</button></footer></Modal>
 </template>

@@ -59,10 +59,29 @@ function syncScroll() {
 }
 function resetRows() { rowHeights.clear(); scroll.value = 0; if (scrollHost.value) scrollHost.value.scrollTop = 0 }
 watch(filters, resetRows)
-async function load() {
+let alive = true
+async function load(background = false) {
   if (busy.value) return
   busy.value = true
-  try { entries.value = (await api('/logs')).map(l => ({ ...l, module: l.module || 'system', level: l.level === 'success' ? 'info' : ['cancelled', 'interrupted'].includes(l.level) ? 'warn' : l.level })).reverse(); applyNotice(); resetRows() }
+  try {
+    const incoming = (await api('/logs')).map(l => ({ ...l, module: l.module || 'system', level: l.level === 'success' ? 'info' : ['cancelled', 'interrupted'].includes(l.level) ? 'warn' : l.level })).reverse()
+    if (!alive) return
+    const anchor = logs.value[indexAt(scroll.value)], offset = scroll.value - offsetAt(indexAt(scroll.value)), wasScrolled = scroll.value > 0
+    entries.value = incoming
+    if (!background) { applyNotice(); resetRows() }
+    else {
+      rowHeights.clear()
+      if (wasScrolled && anchor) {
+        const index = logs.value.findIndex(l => l.time === anchor.time && l.module === anchor.module && l.message === anchor.message)
+        await nextTick()
+        if (alive && index >= 0 && scrollHost.value && viewport.value) {
+          const host = scrollHost.value
+          host.scrollTop += viewport.value.getBoundingClientRect().top - host.getBoundingClientRect().top + offsetAt(index) + offset
+          syncScroll()
+        }
+      }
+    }
+  }
   catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 function applyNotice() {
@@ -76,7 +95,7 @@ watch(() => route.fullPath, () => {
   Object.assign(filters, { query: '', level: 'all', module: 'all' })
   applyNotice(); resetRows()
 })
-let observer, rowObserver, previousWidth = 0
+let observer, rowObserver, refreshTimer, previousWidth = 0
 onMounted(() => {
   rowObserver = new ResizeObserver(rows => {
     const host = scrollHost.value
@@ -103,9 +122,9 @@ onMounted(() => {
   if (scrollHost.value) observer.observe(scrollHost.value)
   scrollHost.value?.addEventListener('scroll', syncScroll, { passive: true })
   syncScroll()
-  load()
+  load(); refreshTimer = setInterval(() => { if (document.visibilityState === 'visible') load(true) }, 5000)
 })
-onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); scrollHost.value?.removeEventListener('scroll', syncScroll); rowNodes.clear() })
+onUnmounted(() => { alive = false; clearInterval(refreshTimer); observer?.disconnect(); rowObserver?.disconnect(); scrollHost.value?.removeEventListener('scroll', syncScroll); rowNodes.clear() })
 </script>
 <template>
   <section class="log-panel" aria-label="系统日志">
@@ -113,7 +132,7 @@ onUnmounted(() => { observer?.disconnect(); rowObserver?.disconnect(); scrollHos
       <button class="icon-btn log-view-toggle" :aria-label="filters.view === 'raw' ? '当前原始列表，切换结构化列表' : '当前结构化列表，切换原始列表'" @click="toggleView"><Icon :name="filters.view === 'raw' ? 'Logs' : 'TableProperties'" :size="21" /></button>
       <RoundedSelect v-model="filters.level" label="日志级别" :options="[{ value: 'all', label: '全部级别' }, ...Object.entries(levels).map(([value, label]) => ({ value, label }))]" />
       <RoundedSelect v-model="filters.module" label="日志模块" :options="[{ value: 'all', label: '全部模块' }, ...Object.entries(modules).map(([value, label]) => ({ value, label }))]" />
-      <button class="icon-btn" aria-label="刷新日志" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
+      <button class="icon-btn" aria-label="刷新日志" :disabled="busy" @click="load()"><Icon name="RefreshCw" :class="{ spin: busy }" /></button>
       <div class="search-field"><Icon name="Search" :size="16" /><input v-model="filters.query" aria-label="搜索日志" placeholder="搜索日志…" /></div>
     </div>
     <div class="log-list-shell"><div ref="viewport" class="log-viewport" tabindex="0" aria-label="日志记录" :style="{ height: logs.length ? `${totalHeight}px` : undefined }">

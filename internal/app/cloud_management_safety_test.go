@@ -80,7 +80,7 @@ func TestCloudRecycleManualPINForeignIDsNoRetryAndHealthGate(t *testing.T) {
 			if r.Form.Get("rid[0]") != "one" || r.Form.Get("rid[1]") != "" {
 				t.Fatal("empty/full/foreign deletion", r.Form)
 			}
-			if r.URL.Path == "/rb/clean" && r.Form.Get("password") != "1234" {
+			if r.URL.Path == "/rb/clean" && r.Form.Get("password") != "123456" {
 				t.Fatal("PIN absent")
 			}
 			if reject {
@@ -96,17 +96,17 @@ func TestCloudRecycleManualPINForeignIDsNoRetryAndHealthGate(t *testing.T) {
 	if post("delete", "", []string{"one"}) == 200 || writes != 0 {
 		t.Fatal("missing PIN accepted")
 	}
-	if post("delete", "1234", []string{"foreign"}) != 409 || writes != 0 {
+	if post("delete", "123456", []string{"foreign"}) != 409 || writes != 0 {
 		t.Fatal("foreign ID accepted")
 	}
 	if post("restore", "", []string{"one"}) != 200 || writes != 1 {
 		t.Fatal("restore failed")
 	}
-	if post("delete", "1234", []string{"one"}) != 200 || writes != 2 {
+	if post("delete", "123456", []string{"one"}) != 200 || writes != 2 {
 		t.Fatal("delete failed")
 	}
 	reject = true
-	if post("clear", "1234", nil) != 502 || writes != 3 {
+	if post("clear", "123456", nil) != 502 || writes != 3 {
 		t.Fatal("ambiguous write retried", writes)
 	}
 	a.store.update(func(st *State) error {
@@ -114,7 +114,7 @@ func TestCloudRecycleManualPINForeignIDsNoRetryAndHealthGate(t *testing.T) {
 		return nil
 	})
 	before := reads
-	if post("delete", "1234", []string{"one"}) != 409 || writes != 3 || reads != before {
+	if post("delete", "123456", []string{"one"}) != 409 || writes != 3 || reads != before {
 		t.Fatal("health gate allowed upstream traffic")
 	}
 }

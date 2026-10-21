@@ -4,6 +4,7 @@ for(const viewport of [{width:1440,height:1000},{width:390,height:844}])test(`mo
   await page.setViewportSize(viewport)
   await page.route('**/api/**',r=>r.fulfill({json:new URL(r.request().url()).pathname==='/api/auth/status'?{initialized:true,authenticated:true}:new URL(r.request().url()).pathname==='/api/state'?{username:'moon-test',storages:[],tasks:[],settings:{},cache:{},traffic:{},logs:[]}:[]}))
   await page.goto('/settings/about')
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   const canvas=page.locator('.login-universe canvas:visible').first()
   await expect(canvas).toBeVisible()
   await expect.poll(()=>canvas.evaluate(el=>el.width)).toBeGreaterThan(0)

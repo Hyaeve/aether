@@ -4,6 +4,7 @@ import { state, bytes } from '../lib'
 import Icon from '../components/Icon.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import CacheHitChart from '../components/CacheHitChart.vue'
+import AnimatedNumber from '../components/AnimatedNumber.vue'
 import { noticeTime } from '../library-notices'
 const recent = computed(() => state.logs.slice(-6).reverse())
 const modules = {
@@ -24,9 +25,9 @@ function scrollShortcuts(event) {
   <div class="dashboard-page">
     <section class="page-head"><div><h1>以太概览</h1></div><span class="status success"><i />服务运行中</span></section>
     <div class="metric-strip">
-      <div><span class="metric-icon"><Icon name="Layers3" /></span><span><small>已添加存储</small><strong>{{ state.storages.length }}<em>个</em></strong></span></div>
-      <div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>运行中任务</small><strong>{{ state.tasks.filter(t => t.status === 'running').length }}<em>项</em></strong></span></div>
-      <div><span class="metric-icon amber"><Icon name="Database" /></span><span><small>缓存条目</small><strong>{{ state.cache.entries || 0 }}<em>条</em></strong></span></div>
+      <div><span class="metric-icon"><Icon name="Layers3" /></span><span><small>已添加存储</small><strong><AnimatedNumber :value="state.storages.length" /><em>个</em></strong></span></div>
+      <div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>运行中任务</small><strong><AnimatedNumber :value="state.tasks.filter(t => t.status === 'running').length" /><em>项</em></strong></span></div>
+      <div><span class="metric-icon amber"><Icon name="Database" /></span><span><small>缓存条目</small><strong><AnimatedNumber :value="state.cache.entries || 0" /><em>条</em></strong></span></div>
       <div><span class="metric-icon neutral"><Icon name="Download" /></span><span><small>本次运行下载量</small><strong class="text-metric">{{ bytes(state.traffic.downloaded) }}</strong></span></div>
     </div>
     <div class="dashboard-grid">
@@ -41,14 +42,14 @@ function scrollShortcuts(event) {
         <div class="section-label"><h2>缓存命中</h2><button class="text-btn" @click="$router.push('/tasks/cache')">缓存任务<Icon name="ArrowRight" :size="15" /></button></div>
         <div class="dashboard-cache-body">
           <CacheHitChart :hits="state.cache.hits || 0" :misses="state.cache.misses || 0" />
-          <dl class="hit-legend"><div class="hit"><dt><i />命中</dt><dd>{{ state.cache.hits || 0 }}</dd></div><div class="miss"><dt><i />未命中</dt><dd>{{ state.cache.misses || 0 }}</dd></div></dl>
+          <dl class="hit-legend"><div class="hit"><dt><i />命中</dt><dd><AnimatedNumber :value="state.cache.hits || 0" /></dd></div><div class="miss"><dt><i />未命中</dt><dd><AnimatedNumber :value="state.cache.misses || 0" /></dd></div></dl>
         </div>
         <div class="cache-foot"><span>缓存大小</span><strong>{{ bytes(state.cache.bytes) }}</strong></div>
       </section>
       <section class="runtime-section" aria-label="运行状态">
         <div class="section-label"><h2>运行状态</h2><Icon name="Activity" :size="18" /></div>
         <div class="summary-row"><span>运行时间</span><strong>{{ Math.floor(state.uptime / 3600) }} 时 {{ Math.floor(state.uptime % 3600 / 60) }} 分</strong></div>
-        <div class="summary-row"><span>元数据缓存</span><strong>{{ state.cache.entries || 0 }} 条</strong></div>
+        <div class="summary-row"><span>元数据缓存</span><strong><AnimatedNumber :value="state.cache.entries || 0" /> 条</strong></div>
         <div class="summary-row"><span>WebDAV</span><span class="status" :class="state.settings.webdavEnabled ? 'success' : 'muted'">{{ state.settings.webdavEnabled ? '已启用' : '未启用' }}</span></div>
         <div class="summary-row"><span>服务端口</span><code>15151</code></div>
       </section>

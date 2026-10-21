@@ -116,6 +116,7 @@ type LogEntry struct {
 }
 
 type State struct {
+	ShareTargets       *shareTransferPreferences    `json:"shareTransferPreferences,omitempty"`
 	CloudCASRecords    []cloudCASRecord             `json:"cloudCASRecords,omitempty"`
 	CloudShareOptions  map[string]cloudShareOptions `json:"cloudShareOptions,omitempty"`
 	RecycleCleanup     recycleCleanupSettings       `json:"recycleCleanup"`
@@ -304,7 +305,7 @@ func NewStore(dir string) (*Store, error) {
 	if s.state.Settings.PublicURL == "http://localhost:15151" {
 		s.state.Settings.PublicURL = defaultPublicURL()
 	}
-	if err := validateResourceState(&s.state); err != nil {
+	if err := validateResourceState(&s.state, true); err != nil {
 		return nil, err
 	}
 	return s, s.saveLocked()

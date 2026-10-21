@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -83,6 +85,24 @@ func TestQuarkTVSignedPlaybackCacheAndSecretIsolation(t *testing.T) {
 		if w.Code != 302 || w.Header().Get("Location") != "https://cdn.example/movie.mp4" {
 			t.Fatal("readable Quark STRM failed", w.Code, w.Body.String())
 		}
+	}
+	settings := a.store.snapshot().Settings
+	settings.CacheEnabled, settings.CacheMemoryMB, settings.CacheMaxItems = true, 128, 10000
+	if err := a.store.update(func(st *State) error { st.Settings = settings; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	a.cache.put(s.ID+":"+rootOf(s), []File{{ID: "file-1", Name: "movie.mp4", Size: 42}}, 30, settings)
+	task := Task{Name: "Quark STRM", Kind: "strm", StorageID: s.ID, Source: "/", Target: "quark-strm", Mode: "full"}
+	if n, err := a.executeTask(context.Background(), task, s); err != nil || n != 1 {
+		t.Fatal("Quark STRM generation failed", n, err)
+	}
+	content, err := os.ReadFile(filepath.Join(a.outputDir, "quark-strm", "movie.mp4.strm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = request(t, h, "GET", strings.TrimSpace(string(content)), nil, nil)
+	if w.Code != 302 || w.Header().Get("Location") != "https://cdn.example/movie.mp4" {
+		t.Fatal("generated Quark STRM did not use TV takeover", w.Code, w.Body.String())
 	}
 	if calls != 1 {
 		t.Fatal("TV cache not reused", calls)

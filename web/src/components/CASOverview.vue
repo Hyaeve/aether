@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import CacheHitChart from './CacheHitChart.vue'
 import SettingsEntry from './SettingsEntry.vue'
+import AnimatedNumber from './AnimatedNumber.vue'
 import { BadgeCheck, FileWarning } from 'lucide-vue-next'
 
 const props = defineProps({ kind:{default:'cas'},jobs:{type:Array,default:()=>[]}, tasks: { type: Array, default: () => [] } })
@@ -35,8 +36,8 @@ const failed = computed(() => casTasks.value.reduce((sum, t) => sum + count(t.ca
         </div>
       </div>
       <dl class="cas-metrics">
-        <div><dt><BadgeCheck :size="18" />成功</dt><dd>{{ generated }}</dd></div>
-        <div><dt><FileWarning :size="18" />异常</dt><dd>{{ failed }}</dd></div>
+        <div><dt><BadgeCheck :size="18" />成功</dt><dd><AnimatedNumber :value="generated" /></dd></div>
+        <div><dt><FileWarning :size="18" />异常</dt><dd><AnimatedNumber :value="failed" /></dd></div>
       </dl>
       <SettingsEntry class="cas-pool-trigger" :to="`/tasks/${kind}/pool`" label="打开存储绑定池" hint="进入绑定池" />
     </section>

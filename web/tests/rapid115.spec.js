@@ -22,6 +22,7 @@ test('115 rapid center is first plugin, persists manual directories and confirms
   const f=await fixture(page)
   await page.goto('/tools')
   await expect(page.locator('.plugin-card').first()).toHaveAttribute('aria-label','115 秒传')
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   const iconBounds=await page.locator('.plugin-card').evaluateAll(cards=>cards.map(card=>{const icon=card.querySelector('.rapid115-icon,.plugin-symbol');const r=icon.getBoundingClientRect();return [r.width,r.height]}));expect(iconBounds.every(([w,h])=>w===44&&h===44)).toBe(true)
   await page.getByRole('button',{name:'115 秒传',exact:true}).click()
   await expect(page).toHaveURL(/\/tools\/115-rapid$/)

@@ -92,6 +92,7 @@ test('TMDB AI proxy and Emby plugins have working forms and actions', async ({ p
 test('compact cache and rounded grid selection with stable page tabs', async ({ page }, info) => {
   await mock(page)
   await page.goto('/tasks/cache')
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   const chart = await page.locator('.cache-chart').boundingBox()
   const progress = await page.locator('.cache-progress').boundingBox()
   const metrics = await page.locator('.cache-metrics').boundingBox()
@@ -102,6 +103,7 @@ test('compact cache and rounded grid selection with stable page tabs', async ({ 
   await page.screenshot({ path: info.outputPath('cache-idle.png') })
   const taskTabs = await page.locator('.content-tabs').boundingBox()
   await page.goto('/files')
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   const fileTabs = await page.locator('.file-tabs').boundingBox()
   expect(Math.abs(taskTabs.y - fileTabs.y)).toBeLessThan(2)
   await page.getByRole('button', { name: '当前列表视图，切换网格' }).click()
@@ -112,6 +114,7 @@ test('compact cache and rounded grid selection with stable page tabs', async ({ 
   await page.screenshot({ path: info.outputPath('grid-selected.png') })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/tasks/cache')
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   expect(await page.locator('.cache-overview').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
 })
 

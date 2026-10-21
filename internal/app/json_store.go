@@ -574,7 +574,7 @@ func (s *Store) readJSONModules() error {
 		return errors.New("任务排序索引不完整")
 	}
 	s.state.Tasks = ordered
-	if err := validateResourceState(&s.state); err != nil {
+	if err := validateResourceState(&s.state, true); err != nil {
 		return err
 	}
 	s.jsonCache = map[string][]byte{}

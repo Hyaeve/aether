@@ -149,6 +149,12 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 			if noHit {
 				raw = `{"res_code":-1}`
 			}
+		case "/person/checkTransSecond":
+			params := tianyiTestUploadParams(t, r, "0123456789abcdef")
+			if params.Get("fileMd5") != strings.ToUpper(hash) || params.Get("sliceMd5") != strings.Repeat("C", 32) {
+				t.Fatal("lost dual MD5 in second-upload check", params)
+			}
+			raw = `{"fileDataExists":1}`
 		case "/person/commitMultiUploadFile":
 			params := tianyiTestUploadParams(t, r, "0123456789abcdef")
 			if params.Get("fileMd5") != strings.ToUpper(hash) || params.Get("sliceMd5") != strings.Repeat("C", 32) {

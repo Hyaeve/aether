@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test'
 
-test('tab favicon enlarges the mark at 16 and 32px without changing the page logo', async ({ page, request }, info) => {
+test('tab favicon preserves original artwork with a larger intrinsic asset', async ({ page, request }, info) => {
   const html = await (await request.get('/')).text()
-  expect(html).toContain('sizes="any" href="/aether-favicon.svg?v=2"')
+  expect(html).toContain('sizes="128x128" href="/aether-favicon.svg?v=3"')
   const original = await request.get('/aether.svg'), favicon = await request.get('/aether-favicon.svg')
   expect(original.ok()).toBe(true)
   expect(favicon.ok()).toBe(true)
@@ -26,6 +26,6 @@ test('tab favicon enlarges the mark at 16 and 32px without changing the page log
     }
     return results
   }, assets)
-  for (const [original,previous,after] of pixels){expect(after).toBeGreaterThan(original*1.5);expect(after).toBeGreaterThan(previous*1.2)}
+  for (const [original,previous,after] of pixels){expect(after).toBe(original);expect(after).toBeLessThan(previous)}
   await page.screenshot({ path: info.outputPath('favicon-light-dark.png') })
 })

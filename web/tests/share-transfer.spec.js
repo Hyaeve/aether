@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/files/share-preferences', r => r.fulfill({ json: { last: {}, directories: {} } }))
+})
+
 for (const succeeds of [true, false]) {
   test(`115 share ${succeeds ? 'submission navigates to remembered destination' : 'preview failure stays in current directory'}`, async ({ page }) => {
     await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
@@ -76,7 +80,7 @@ test('share transfer previews selection, submits once and reports confirmed Quar
   await page.screenshot({ path: info.outputPath('share-mobile.png') })
   expect(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   await page.getByRole('button', { name: '转存', exact: true }).click()
-  await expect(page.locator('.toast')).toContainText('转存已完成')
+  await expect(page.locator('.toast')).toContainText('转存成功：quark')
   expect(saves).toBe(2)
   expect(payload).toEqual({ storageId: 'quark', preview: 'private-session', parent: '/', batch: 0 })
   expect(refreshes).toBeGreaterThan(1)

@@ -80,7 +80,8 @@ func TestGenerationHTTPQueueAndPortableClaim(t *testing.T) {
 	a := testApp(t)
 	h := a.Handler(t.TempDir())
 	cookie := setupTest(t, a, h)
-	w := request(t, h, "POST", "/api/generation/preview", map[string]string{"kind": "cas", "text": generationCASFixture()}, cookie)
+	fixture := strings.Replace(generationCASFixture(), `{"name":`, `{"provider":"mobile","name":`, 1)
+	w := request(t, h, "POST", "/api/generation/preview", map[string]string{"kind": "cas", "text": fixture}, cookie)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -114,6 +115,7 @@ func TestGenerationHTTPQueueAndPortableClaim(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	generatedCASClaim(t, raw)
 	u, e := url.Parse(strings.TrimSpace(string(raw)))
 	if e != nil {
 		t.Fatal(e)

@@ -67,6 +67,7 @@ test('empty mount task and transfer panels share the eight pixel bottom inset',a
  await setup(page,0)
  for(const [url,selector] of [['/files/mounts','.workspace-empty'],['/tasks/automation','.automation-list'],['/transfer','.transfer-table'],['/transfer/backup','.backup-content'],['/files','.file-browser']]) {
   await page.goto(url);await expect(page.locator(selector)).toBeVisible()
+  await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   const box=await page.locator(selector).boundingBox();expect(box.y+box.height, url).toBeCloseTo(992,0)
   expect(await page.locator('.page-scroll > .thin-scroll-area').evaluate(el=>el.scrollHeight-el.clientHeight)).toBeLessThan(2)
  }

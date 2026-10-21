@@ -13,7 +13,7 @@ import (
 const taskVideoExtensions = "mp4;mkv;avi;mov;wmv;flv;webm;m4v;ts;m2ts;mkvb;rm;3gp;iso"
 const taskAudioExtensions = "mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus"
 
-var extensionToken = regexp.MustCompile(`^[a-z0-9]{1,16}$`)
+var extensionToken = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
 func taskOutputName(t Task, s Storage, name, suffix string) string {
 	if t.Kind == "cas" || t.Kind == "ed2k" {
@@ -41,7 +41,7 @@ func normalizeExtensions(value string) (string, error) {
 			continue
 		}
 		if !extensionToken.MatchString(token) {
-			return "", errors.New("扩展名须以英文分号分隔，仅包含字母或数字")
+			return "", errors.New("扩展名须以英文分号分隔，仅包含英文字母、数字、下划线或连字符，每项最多32字符")
 		}
 		if !seen[token] {
 			tokens = append(tokens, token)

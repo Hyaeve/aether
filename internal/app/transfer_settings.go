@@ -334,13 +334,13 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 	return false
 }
 
-func validateResourceState(st *State) error {
+func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 	for kind, options := range st.CloudShareOptions {
 		if err := validateCloudShareOptions(kind, options); err != nil {
 			return err
 		}
 	}
-	if err := validateRecycleCleanup(st.RecycleCleanup, *st); err != nil {
+	if err := validateRecycleCleanup(st.RecycleCleanup, *st, allowLegacyPIN...); err != nil {
 		return err
 	}
 	if value := st.CASExportDirectory; value != "" && (!filepath.IsAbs(value) || filepath.Clean(value) != value || len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n")) {

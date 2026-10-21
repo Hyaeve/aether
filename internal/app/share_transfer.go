@@ -400,7 +400,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 		}
 		for _, item := range batch {
 			if item.ID == "" || item.Name == "" || seen[item.ID] {
-				return "", nil, errors.New("分享列表不完整或重复，请重新解析")
+				return "", nil, errors.New("分享栏不完整或重复，请重新解析")
 			}
 			seen[item.ID] = true
 			items = append(items, item)
@@ -415,7 +415,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			continue
 		}
 		if len(batch) == 0 && total > len(items) {
-			return "", nil, errors.New("分享列表分页不完整，请重新解析")
+				return "", nil, errors.New("分享栏分页不完整，请重新解析")
 		}
 		if len(batch) == 0 || (total > 0 && len(items) >= total) || (total == 0 && len(batch) < 100) {
 			return token, items, nil
@@ -503,7 +503,16 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Cookie: session.Config["cookie"], Items: items, Batches: batches, Expires: time.Now().Add(10 * time.Minute)}
 		a.shareMu.Unlock()
-		jsonResponse(w, 200, map[string]any{"preview": key, "items": items, "tree": tree, "batches": len(batches)})
+		batchNames := make([][]string, len(batches))
+		for i, batch := range batches {
+			for _, item := range batch.Items {
+				batchNames[i] = append(batchNames[i], item.Name)
+			}
+			if len(batchNames[i]) == 0 && batch.Directory != "" {
+				batchNames[i] = []string{batch.Directory}
+			}
+		}
+		jsonResponse(w, 200, map[string]any{"preview": key, "items": items, "tree": tree, "batches": len(batches), "batchNames": batchNames})
 		return
 	}
 	if r.PathValue("action") != "save" {
