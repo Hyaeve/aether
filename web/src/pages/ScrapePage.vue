@@ -72,7 +72,10 @@ const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成'
 const itemStatus = item => ['miss','doubt'].includes(item.status) || item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
 const viewport = ref(null)
-const { shown, top, bottom, columns, reset } = useVirtualList(filtered, viewport, { rowHeight: 314, columnWidth: 155, maxColumns: 6, grid: ref(true), window: true, resetToTop: true })
+// Include the wall padding, column gaps and card borders in the virtual row pitch.
+const posterHeight = computed(() => Math.max(0, (width.value - 24 - (columns.value - 1) * 12) / columns.value - 2) * 1.5)
+const rowHeight = computed(() => posterHeight.value + 76)
+const { shown, top, bottom, columns, width, reset } = useVirtualList(filtered, viewport, { rowHeight, columnWidth: 155, maxColumns: 7, grid: ref(true), window: true, resetToTop: true })
 watch([query, status, task, excludedScopes], reset)
 const candidateQuery = ref(''), candidateBusy = ref(false), candidateError = ref('')
 let alive = true, timer, request = 0, candidateRequest = 0
@@ -202,7 +205,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 <style scoped>
 .scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .scrape-panel.selecting { padding-bottom:86px; }
-.scrape-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px; background:var(--surface); border-radius:7px 7px 0 0; border-bottom:1px solid var(--border); }
+.scrape-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; background:var(--surface); border-radius:7px 7px 0 0; border-bottom:1px solid var(--border); }
 .scrape-toolbar > .rounded-select:first-child { width: 170px; }
 .scrape-toolbar > .rounded-select:nth-child(2) { width: 160px; }
 .scrape-toolbar > .rounded-select:nth-child(3) { width: 120px; }
@@ -215,11 +218,11 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-head { background: var(--bg); color: var(--muted); font-size: 13px; }
 .scrape-row { height: 66px; box-sizing: border-box; border-bottom: 1px solid color-mix(in srgb,var(--border) 50%,transparent); font-size: 14px; }
 .scrape-wall { display: grid; padding: 0 12px; column-gap: 12px; }
-.scrape-card { position: relative; min-width: 0; height: 302px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
-.scrape-poster { width: 100%; height: 238px; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
+.scrape-card { position: relative; min-width: 0; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.scrape-poster { width: 100%; height: auto; aspect-ratio: 2 / 3; padding: 0; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); color: var(--muted); }
 .scrape-poster img { width: 100%; height: 100%; object-fit: cover; }
 .scrape-poster span { font-size: 12px; }
-.scrape-card-body { min-width: 0; padding: 9px 10px; font-size: 14px; }
+.scrape-card-body { min-width: 0; height: 62px; padding: 9px 10px; font-size: 14px; }
 .scrape-title { display:flex; gap:7px; align-items:flex-start; }.scrape-title strong { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .work-star { --status-color:var(--amber); width:7px; height:7px; flex:none; margin-top:4px; background:var(--status-color); border-radius:2px; }
 .work-star.pending { --status-color:var(--primary); }.work-star.ok { --status-color:var(--green);transform:rotate(45deg);border-radius:2px; }.work-star.error { --status-color:var(--red);border-radius:50%; }
@@ -234,7 +237,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .scrape-status.ok strong { color: var(--success); }
 .scrape-status.error strong { color: var(--danger); }
 /* Fade each button, not its ancestor, to keep the poster in the glass backdrop. */
-.scrape-actions { display: flex; gap:6px; position: absolute; left: 6px; right: 6px; top: 194px; pointer-events:none; transform:translateY(5px); transition:transform .18s; }
+.scrape-actions { display: flex; gap:6px; position: absolute; left: 6px; right: 6px; bottom: 70px; pointer-events:none; transform:translateY(5px); transition:transform .18s; }
 .scrape-card:hover .scrape-actions, .scrape-card:focus-within .scrape-actions { pointer-events:auto; transform:none; }
 .scrape-actions :deep(button) { display:flex; gap:6px; justify-content:center; width: 50%; height: 38px; border-radius:8px; color:#fff; font-size:12px; background:#22263380; backdrop-filter:blur(12px); box-shadow:0 2px 8px #0002; opacity:0; transition:opacity .18s,transform .18s,background .18s; }
 .scrape-actions :deep(button:disabled) { --action-opacity:.45; }

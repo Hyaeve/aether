@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+
+const movie = readFileSync(new URL('./fixtures/thumbnail.webm', import.meta.url))
 
 async function workspace(page, storages = [], tasks = []) {
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
@@ -37,29 +40,10 @@ for (const scale of [1, 2, 3]) {
 test.describe(`video geometry DPR ${scale}`, () => {
 test.use({ deviceScaleFactor: scale })
 test('video grid extracts a real frame and player follows only the video boundary', async ({ page }, info) => {
-  const encoded = await page.evaluate(async () => {
-    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180
-    const ctx = canvas.getContext('2d')
-    const stream = canvas.captureStream(15), recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' }), chunks = []
-    // Paint before recording: otherwise the first captured frame can be black.
-    ctx.fillStyle = '#174b64'; ctx.fillRect(0, 0, 320, 180)
-    ctx.fillStyle = '#b7e4bd'; ctx.fillRect(20, 35, 90, 100)
-    recorder.ondataavailable = e => chunks.push(e.data)
-    const complete = new Promise(resolve => { recorder.onstop = resolve })
-    recorder.start()
-    for (let frame = 0; frame < 15; frame++) {
-      ctx.fillStyle = '#174b64'; ctx.fillRect(0, 0, 320, 180)
-      ctx.fillStyle = '#b7e4bd'; ctx.fillRect(20 + frame * 6, 35, 90, 100)
-      await new Promise(resolve => setTimeout(resolve, 70))
-    }
-    recorder.stop(); await complete; stream.getTracks().forEach(track => track.stop())
-    const blob = new Blob(chunks, { type: 'video/webm' })
-    return await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.readAsDataURL(blob) })
-  })
   await workspace(page, [{ id: 'local', type: 'local', name: '视频', enabled: true, config: {} }])
   let savedThumbnail, frameRequests = 0, cacheHits = 0
-  await page.route('**/stream/test/frame.webm', r => { frameRequests++; return r.fulfill({ contentType: 'video/webm', body: Buffer.from(encoded, 'base64') }) })
-  await page.route('**/api/files/thumbnail-source?**', r => { frameRequests++; return r.fulfill({ contentType: 'video/webm', body: Buffer.from(encoded, 'base64') }) })
+  await page.route('**/stream/test/frame.webm', r => { frameRequests++; return r.fulfill({ contentType: 'video/webm', body: movie }) })
+  await page.route('**/api/files/thumbnail-source?**', r => { frameRequests++; return r.fulfill({ contentType: 'video/webm', body: movie }) })
   await page.route('**/api/files/thumbnail?**', r => {
     const request = r.request()
     expect(new URL(request.url()).searchParams.get('storage')).toBe('local')

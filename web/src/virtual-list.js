@@ -65,5 +65,5 @@ export function useVirtualList(items, viewport, options = {}) {
     if (scroll.value > rows.value * rowHeight.value) reset()
   })
   onUnmounted(() => { observer?.disconnect(); scrollHost?.removeEventListener('scroll', sync); viewport.value?.removeEventListener('scroll', sync); window.removeEventListener('scroll', sync); window.removeEventListener('resize', sync) })
-  return { shown, start, top, bottom, columns, reset, reveal }
+  return { shown, start, top, bottom, columns, width, reset, reveal }
 }

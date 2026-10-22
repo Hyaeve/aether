@@ -33,6 +33,7 @@ test('storage shortcuts, health border and multi-selection overview', async ({ p
   await page.getByRole('button', { name: '查看详情', exact: true }).click()
   await expect(page.locator('.file-details dl')).toHaveCount(1)
   await expect(page.locator('.file-details')).toContainText('2 个文件夹，3 个文件')
+  await expect(page.getByRole('dialog', { name: '文件详情', exact: true })).toBeFocused()
   await page.screenshot({ path: info.outputPath('details.png') })
 })
 

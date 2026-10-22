@@ -1,18 +1,24 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
-defineProps({ title: String, count: Number })
+const props = defineProps({ open: Boolean, title: String, count: Number })
 const emit = defineEmits(['close'])
-const panel = ref(null), opened = ref(false)
+const panel = ref(null)
 let previous
-function close() { opened.value = false }
-function key(event) { if (event.key === 'Escape') { event.stopPropagation(); close() } }
-function outside(event) { if (panel.value && !panel.value.contains(event.target)) close() }
-onMounted(() => { previous = document.activeElement; opened.value = true; document.addEventListener('keydown', key); document.addEventListener('pointerdown', outside) })
-onUnmounted(() => { document.removeEventListener('keydown', key); document.removeEventListener('pointerdown', outside); if(previous?.isConnected)previous.focus({preventScroll:true}) })
+function close() { if (props.open) emit('close') }
+function key(event) { if (props.open && event.key === 'Escape') { event.stopPropagation(); close() } }
+function outside(event) { if (props.open && panel.value && !panel.value.contains(event.target)) close() }
+function restoreFocus() {
+  if (props.open) return
+  if (previous?.isConnected && (document.activeElement === document.body || panel.value?.contains(document.activeElement))) previous.focus({ preventScroll: true })
+  previous = null
+}
+watch(() => props.open, open => { if (open) previous = document.activeElement }, { flush: 'sync' })
+onMounted(() => { document.addEventListener('keydown', key); document.addEventListener('pointerdown', outside) })
+onUnmounted(() => { document.removeEventListener('keydown', key); document.removeEventListener('pointerdown', outside); if(previous?.isConnected && document.activeElement === document.body)previous.focus({preventScroll:true}) })
 </script>
 <template>
-  <Teleport to=".file-browser" defer><div class="details-boundary"><Transition appear name="details-slide" @after-enter="panel?.focus({preventScroll:true})" @after-leave="emit('close')"><aside v-if="opened" ref="panel" class="file-details-drawer" role="dialog" :aria-label="title" tabindex="-1"><header><strong>{{ title }}</strong><span class="details-count">{{ count }} 个项目</span><button class="icon-btn" aria-label="关闭" @click="close"><Icon name="X" /></button></header><div class="details-content"><slot /></div></aside></Transition></div></Teleport>
+  <Teleport to=".file-browser" defer><div class="details-boundary"><Transition name="details-slide" @after-enter="open && panel?.focus({preventScroll:true})" @after-leave="restoreFocus"><aside v-if="open" ref="panel" class="file-details-drawer" role="dialog" :aria-label="title" tabindex="-1"><header><strong>{{ title }}</strong><span class="details-count">{{ count }} 个项目</span><button class="icon-btn" aria-label="关闭" @click="close"><Icon name="X" /></button></header><div class="details-content"><slot /></div></aside></Transition></div></Teleport>
 </template>
 <style scoped>
 .file-details-drawer { position:absolute; inset:0 0 0 auto; z-index:12; width:34%; min-width:300px; max-width:100%; border:1px solid var(--border); border-radius:8px; background:var(--surface); box-shadow:-10px 0 28px #0000000c; display:flex; flex-direction:column; outline:none; }

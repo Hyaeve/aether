@@ -128,7 +128,12 @@ async function openSubtitles() {
   } catch (error) { if (active && current === generation && request === subtitleRequest && error.name !== 'AbortError') subtitleError.value = error.message }
   finally { if (current === generation && request === subtitleRequest) subtitlesLoading.value = false }
 }
-function closeSubtitles() { subtitleCloseTimer = setTimeout(() => { subtitlesOpen.value = false; showTools() }, 180) }
+function closeSubtitles(event) {
+  clearTimeout(subtitleCloseTimer)
+  // Loading disables the focused option in some engines; hover still owns the menu.
+  if (event?.type === 'focusout' && (event.currentTarget.contains(event.relatedTarget) || event.currentTarget.matches(':hover'))) return
+  subtitleCloseTimer = setTimeout(() => { subtitlesOpen.value = false; showTools() }, 180)
+}
 function holdSubtitles() { clearTimeout(subtitleCloseTimer) }
 function clearSubtitleURL() { if (subtitleURL.value) URL.revokeObjectURL(subtitleURL.value); subtitleURL.value = '' }
 async function selectSubtitle(option) {

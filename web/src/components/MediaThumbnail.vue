@@ -17,6 +17,7 @@ import Icon from './Icon.vue'
 const props = defineProps({ url: String, storage: String, id: String, parent: String, type: { type: String, default: 'image' } })
 const container = ref(null), video = ref(null), ready = ref(false), thumbnail = ref('')
 let observer, visible = false, generation = 0, job, release, timer, controller, sourceImage, objectURL
+let frameCallback = 0, paintCallback = 0, frameVideo
 function endpoint() {
   if (!props.storage || !props.id) return ''
   const query = new URLSearchParams({ storage: props.storage, id: props.id })
@@ -31,7 +32,12 @@ function source() {
     return url.origin === location.origin && /^\/(stream\/|api\/)/.test(url.pathname) ? url.href : ''
   } catch { return '' }
 }
-function finish() { clearTimeout(timer); release?.(); release = null }
+function cancelFrame() {
+  if (frameCallback) frameVideo?.cancelVideoFrameCallback(frameCallback)
+  if (paintCallback) cancelAnimationFrame(paintCallback)
+  frameCallback = paintCallback = 0; frameVideo = null
+}
+function finish() { clearTimeout(timer); cancelFrame(); release?.(); release = null }
 function cleanup() {
   generation++
   if (job) job.cancelled = true
@@ -79,7 +85,25 @@ function metadata() {
 function frame() {
   if (!release || capturing || !video.value?.videoWidth || video.value.seeking) return
   capturing = true
-  capture(video.value, frameRun, frameAPI, frameRevision)
+  const media = video.value, run = frameRun
+  frameVideo = media
+  const present = () => {
+    frameCallback = paintCallback = 0; frameVideo = null
+    if (run !== generation || !release || video.value !== media) return
+    if (media.seeking || media.readyState < 2) { capturing = false; return }
+    media.pause()
+    capture(media, run, frameAPI, frameRevision)
+  }
+  // loadeddata/seeked can precede presentation, especially with an async decoder.
+  if (media.requestVideoFrameCallback) frameCallback = media.requestVideoFrameCallback(present)
+  const playing = media.play()
+  if (!media.requestVideoFrameCallback) {
+    const afterPlayback = () => {
+      if (run !== generation || !release) return
+      paintCallback = requestAnimationFrame(() => { paintCallback = requestAnimationFrame(present) })
+    }
+    playing?.then(afterPlayback).catch(() => { if (run === generation) finish() })
+  } else playing?.catch(() => { /* A paused seek can still deliver its frame callback. */ })
 }
 function load() {
   if (!visible || ready.value || release || job && !job.cancelled) return
