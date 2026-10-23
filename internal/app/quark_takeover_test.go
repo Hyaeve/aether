@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQuarkTVQualityAndRouting(t *testing.T) {
@@ -42,6 +44,116 @@ func TestQuarkTVQualityAndRouting(t *testing.T) {
 		if validateQuarkBroker(address) == nil {
 			t.Fatal("unsafe broker", address)
 		}
+	}
+}
+
+func TestQuarkTVFourQualityPreferences(t *testing.T) {
+	videos := []quarkVideo{
+		{URL: "https://cdn.example/360.mp4", Resolution: "low", Accessible: 1, Format: "mp4"},
+		{URL: "https://cdn.example/480.mp4", Resolution: "normal", Accessible: 1, Format: "mp4"},
+		{URL: "https://cdn.example/720.mp4", Resolution: "high", Accessible: 1, Format: "mp4"},
+		{URL: "https://cdn.example/1080.mp4", Resolution: "super", Accessible: 1, Format: "mp4"},
+		{URL: "https://cdn.example/1440.mp4", Resolution: "2k", Accessible: 1, Format: "mp4"},
+		{URL: "https://cdn.example/2160.mp4", Resolution: "4k", Accessible: 1, Format: "mp4"},
+		{URL: "https://cdn.example/dolby.mp4", Resolution: "dolby_vision", Accessible: 1, Format: "mp4"},
+	}
+	for _, tc := range []struct {
+		quality string
+		want    string
+		index   int
+	}{
+		{"low", "low", 0}, {"high", "high", 2}, {"super", "super", 4}, {"4k", "4k", 5},
+		{"normal", "low", 0}, {"480p", "low", 0}, {"2k", "super", 4}, {" QHD ", "super", 4},
+		{"dolby_vision", "4k", 5}, {"", "4k", 5},
+	} {
+		t.Run(tc.quality, func(t *testing.T) {
+			b := quarkTVDefaults(QuarkTVBinding{Quality: tc.quality, Mode: "adaptive"})
+			if b.Quality != tc.want || b.AllowDolby {
+				t.Fatal("legacy preference not normalized or Dolby enabled without consent", b.Quality)
+			}
+			if got := quarkTVChoose(QuarkTVBinding{Quality: tc.quality, Mode: "adaptive"}, videos); got != videos[tc.index].URL {
+				t.Fatal("playback cap differs from displayed preference", got)
+			}
+			b.AllowDolby = true
+			if got := quarkTVChoose(b, videos); got != videos[6].URL {
+				t.Fatal("independent Dolby switch not respected", got)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		quality string
+		videos  []quarkVideo
+		want    string
+	}{
+		{"4k", videos[:5], videos[4].URL},
+		{"super", videos[:4], videos[3].URL},
+		{"high", videos[:2], videos[1].URL},
+	} {
+		if got := quarkTVChoose(QuarkTVBinding{Quality: tc.quality}, tc.videos); got != tc.want {
+			t.Fatal("missing preferred resolution did not fall back", tc.quality, got)
+		}
+	}
+	locked := append([]quarkVideo(nil), videos...)
+	locked[4].Accessible = 0
+	if got := quarkTVChoose(QuarkTVBinding{Quality: "super"}, locked); got != videos[3].URL {
+		t.Fatal("2K preference bypassed upstream permissions", got)
+	}
+}
+
+func TestQuarkTVLegacyQualitySettings(t *testing.T) {
+	a := testApp(t)
+	s := Storage{ID: "quark", Type: "quark", Enabled: true, Config: map[string]string{"cookie": "private-cookie"}}
+	h := a.Handler(t.TempDir())
+	setup := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
+	cookie := setup.Result().Cookies()[0]
+	for _, tc := range []struct {
+		legacy string
+		want   string
+		dolby  bool
+	}{
+		{"normal", "low", false}, {"2k", "super", false}, {"dolby_vision", "4k", false}, {"dolby_vision", "4k", true},
+	} {
+		t.Run(tc.legacy+"-"+strconv.FormatBool(tc.dolby), func(t *testing.T) {
+			binding := quarkTVDefaults(QuarkTVBinding{Enabled: true, AccessToken: "private-access", RefreshToken: "private-refresh", AllowDolby: tc.dolby})
+			binding.Quality = tc.legacy
+			binding.CookieHash = quarkCookieHash(s)
+			if err := a.store.update(func(st *State) error {
+				st.Storages = []Storage{s}
+				st.QuarkTV = map[string]QuarkTVBinding{s.ID: binding}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			w := request(t, h, "GET", "/api/quark-takeover/quark", nil, cookie)
+			var response struct{ Config QuarkTVBinding }
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &response) != nil || response.Config.Quality != tc.want || response.Config.AllowDolby != tc.dolby || strings.Contains(w.Body.String(), "private-") {
+				t.Fatal("legacy preference not safely presented as one of four choices", w.Code)
+			}
+			if a.store.snapshot().QuarkTV[s.ID] != binding {
+				t.Fatal("reading legacy settings rewrote persisted binding")
+			}
+			w = request(t, h, "PUT", "/api/quark-takeover/quark", response.Config, cookie)
+			if w.Code != 200 {
+				t.Fatal("normalized settings did not save", w.Code, w.Body.String())
+			}
+			want := binding
+			want.Quality = tc.want
+			if a.store.snapshot().QuarkTV[s.ID] != want {
+				t.Fatal("saving normalized quality changed TV credentials or Dolby switch")
+			}
+			reopened, err := NewStore(a.store.dir)
+			if err == nil {
+				err = reopened.initTools(a.store.toolsDir)
+			}
+			if err != nil || reopened.snapshot().QuarkTV[s.ID] != want {
+				t.Fatal("normalized preference did not survive restart", err)
+			}
+			response.Config.Quality = "8k"
+			w = request(t, h, "PUT", "/api/quark-takeover/quark", response.Config, cookie)
+			if w.Code != 400 || a.store.snapshot().QuarkTV[s.ID] != want {
+				t.Fatal("unsupported preference accepted or changed binding")
+			}
+		})
 	}
 }
 
@@ -127,6 +239,93 @@ func TestQuarkTVSignedPlaybackCacheAndSecretIsolation(t *testing.T) {
 	s.Config["cookie"] = "another-cookie"
 	if target := a.quarkTVTarget(context.Background(), s, "file-1", ""); target != "" {
 		t.Fatal("account change reused TV credentials")
+	}
+	logs, _ := json.Marshal(a.store.snapshot().Logs)
+	if calls != 1 || !strings.Contains(string(logs), "夸克 TV 绑定凭据已变更") || strings.Contains(string(logs), "private-") || strings.Contains(string(logs), "another-cookie") {
+		t.Fatal("binding rejection must be logged without credentials or upstream requests")
+	}
+}
+
+func TestQuarkTVBindingSurvivesAutomaticCookieRotation(t *testing.T) {
+	a := testApp(t)
+	s := Storage{ID: "quark", Type: "quark", Enabled: true, Config: map[string]string{"cookie": "account=keep; __pus=old; __puus=old"}}
+	b := quarkTVDefaults(QuarkTVBinding{Enabled: true, AccessToken: "private-access", RefreshToken: "private-refresh", Device: "bound-device", Nickname: "owner", Expires: time.Now().Add(time.Hour).UTC()})
+	b.CookieHash = quarkCookieHash(s)
+	if err := a.store.update(func(st *State) error {
+		st.Storages = []Storage{s}
+		st.QuarkTV = map[string]QuarkTVBinding{s.ID: b}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = a.store.storage(s.ID)
+	old := apiClient
+	t.Cleanup(func() { apiClient = old })
+	streams := 0
+	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+		response := &http.Response{StatusCode: 200, Header: http.Header{}, Request: r}
+		switch r.URL.Host {
+		case "drive.quark.cn":
+			response.Header.Add("Set-Cookie", r.URL.Query().Get("cookie")+"=rotated; Path=/; Secure; HttpOnly")
+			response.Body = io.NopCloser(strings.NewReader(`{}`))
+		case "open-api-drive.quark.cn":
+			streams++
+			if r.URL.Path != "/file" || r.URL.Query().Get("access_token") != b.AccessToken || r.Header.Get("Cookie") != "" {
+				t.Fatal("unexpected TV request or web credential exposure")
+			}
+			response.Body = io.NopCloser(strings.NewReader(`{"data":{"video_info":[{"url":"https://cdn.example/movie.mp4","accessable":1,"resolution":"super","format":"mp4"}]}}`))
+		default:
+			t.Fatal("unexpected upstream")
+		}
+		return response, nil
+	})}
+	for _, name := range []string{"__pus", "__puus"} {
+		var result any
+		updated, err := a.quarkJSON(context.Background(), s, "GET", "https://drive.quark.cn/test?cookie="+name, nil, &result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored, err := a.store.storage(s.ID)
+		if err != nil || stored.Config["cookie"] != updated.Config["cookie"] || s.Config["cookie"] == updated.Config["cookie"] {
+			t.Fatal("rotation did not persist independently", err)
+		}
+		want := b
+		want.CookieHash = quarkCookieHash(stored)
+		if got := a.store.snapshot().QuarkTV[s.ID]; got != want {
+			t.Fatal("automatic web Cookie rotation invalidated or changed TV binding")
+		}
+		s = stored
+	}
+	h := a.Handler(t.TempDir())
+	setup := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil)
+	cookie := setup.Result().Cookies()[0]
+	overview := request(t, h, "GET", "/api/quark-takeover", nil, cookie)
+	if overview.Code != 200 || !strings.Contains(overview.Body.String(), `"valid":true`) || strings.Contains(overview.Body.String(), "private-") {
+		t.Fatal("rotated binding not valid or credentials exposed")
+	}
+	readable, err := a.publicSTRMURL(s, File{ID: "file-1", Name: "movie.mp4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{"GET", "HEAD"} {
+		w := request(t, h, method, readable, nil, nil)
+		if w.Code != 302 || w.Header().Get("Location") != "https://cdn.example/movie.mp4" {
+			t.Fatal("rotated binding did not take over generated STRM", w.Code)
+		}
+	}
+	if streams != 1 {
+		t.Fatal("TV link cache not reused", streams)
+	}
+	reopened, err := NewStore(a.store.dir)
+	if err == nil {
+		err = reopened.initTools(a.store.toolsDir)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := reopened.snapshot()
+	if st.QuarkTV[s.ID] != a.store.snapshot().QuarkTV[s.ID] || st.QuarkTV[s.ID].CookieHash != quarkCookieHash(st.Storages[0]) {
+		t.Fatal("rotated storage and TV binding did not survive restart together")
 	}
 }
 

@@ -27,7 +27,8 @@ async function setup(page, preferences = { last: {}, directories: {} }) {
       } else json = preferences
     } else if (url.pathname === '/api/files') {
       json = url.searchParams.get('path') === '/' ? [{ id: 'library', name: '资料库', isDir: true }] : url.searchParams.get('path') === 'library' ? [{ id: 'destination', name: '电影', isDir: true }] : []
-    } else if (url.pathname === '/api/files/share/preview') {
+    } else if (url.pathname === '/api/files/share/info') json={directory:''}
+    else if (url.pathname === '/api/files/share/preview') {
       transfers.push(request.postDataJSON())
       json = { preview: 'preview', batches: 1 }
     } else if (url.pathname.startsWith('/api/files/share/')) json = { status: 'completed' }

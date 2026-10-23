@@ -303,9 +303,7 @@ func quarkTVDefaults(b QuarkTVBinding) QuarkTVBinding {
 	if b.Mode == "" {
 		b.Mode = "adaptive"
 	}
-	if b.Quality == "" {
-		b.Quality = "4k"
-	}
+	b.Quality = quarkTVQualityPreference(b.Quality)
 	if b.UAListMode == "" {
 		b.UAListMode = "proxy_list"
 	}
@@ -541,6 +539,23 @@ func (a *App) quarkTVAuthorization(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]bool{"authorized": true})
 }
 
+func quarkTVQualityPreference(quality string) string {
+	if strings.TrimSpace(quality) == "" {
+		return "4k"
+	}
+	switch quarkQualityRank(quality) {
+	case 1, 2:
+		return "low"
+	case 3:
+		return "high"
+	case 4, 5:
+		return "super"
+	case 6, 7:
+		return "4k"
+	}
+	return quality
+}
+
 func quarkQualityRank(quality string) int {
 	switch strings.ToLower(strings.TrimSpace(quality)) {
 	case "low", "360p", "360":
@@ -569,10 +584,16 @@ type quarkVideo struct {
 }
 
 func quarkTVChoose(b QuarkTVBinding, videos []quarkVideo) string {
+	quality := quarkTVQualityPreference(b.Quality)
+	maxRank := quarkQualityRank(quality)
+	// The four-choice preference groups 1080p and 2K under "super", as LitePan does.
+	if quality == "super" {
+		maxRank = 5
+	}
 	best, target := -2000, ""
 	for _, video := range videos {
 		rank := quarkQualityRank(video.Resolution)
-		if video.Accessible == 0 || rank == 0 || (rank > quarkQualityRank(b.Quality) && !(rank == 7 && b.AllowDolby)) || (rank == 7 && !b.AllowDolby) {
+		if video.Accessible == 0 || rank == 0 || (rank > maxRank && !(rank == 7 && b.AllowDolby)) || (rank == 7 && !b.AllowDolby) {
 			continue
 		}
 		u, err := url.Parse(video.URL)
@@ -620,7 +641,11 @@ func (a *App) quarkTVTarget(ctx context.Context, s Storage, file, ua string) str
 		return ""
 	}
 	b := st.QuarkTV[s.ID]
-	if !b.Enabled || b.CookieHash != quarkCookieHash(s) || b.AccessToken == "" || quarkTVBypass(b, ua) {
+	if !b.Enabled || b.AccessToken == "" || quarkTVBypass(b, ua) {
+		return ""
+	}
+	if b.CookieHash != quarkCookieHash(s) {
+		a.store.event("warn", "links", fmt.Sprintf("夸克 TV 绑定凭据已变更，请重新绑定，回退本机代理：存储池 %q（%q）", s.Name, s.ID))
 		return ""
 	}
 	key := s.ID + ":" + file

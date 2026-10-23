@@ -63,9 +63,37 @@ const parsedLinks = computed(() => shareInput(links.value))
 const lines = computed(() => parsedLinks.value.lines)
 const highlightedLinks = computed(() => shareHighlight(links.value))
 const parsing = ref(false), parsed = ref(null), parseError = ref(''), savedSelections = ref([])
+const saveDirectory=ref(''),customDirectory=ref(false),directoryLoading=ref(false),submitting=ref(false)
+let directoryTimer, directoryRequest, directoryLoaded=''
+const directoryKey=()=>lines.value.length===1 && storage.value ? JSON.stringify([storage.value.id,lines.value[0]]) : ''
+function validDirectory(value){return !value || [...value].length<=255 && value!=='.' && value!=='..' && !/[\\/:<>"|?*\x00-\x1f\x7f-\x9f]/.test(value)}
+function resetDirectory(){saveDirectory.value='';customDirectory.value=false;directoryLoaded=''}
 let alive = true
-onUnmounted(()=>{alive=false})
+onUnmounted(()=>{alive=false;clearTimeout(directoryTimer)})
 watch([links,selected],()=>{savedSelections.value=[]})
+watch(lines,resetDirectory,{flush:'sync'})
+async function loadDirectory(){
+  const key=directoryKey(),sid=storage.value?.id,url=lines.value[0],owner=state.username
+  if(!key || loadingPreferences.value || !supported.value)return
+  if(directoryLoaded===key)return
+  if(directoryRequest?.key===key)return directoryRequest.promise
+  directoryLoading.value=true
+  const promise=(async()=>{
+    try{
+      const result=await api('/files/share/info','POST',{storageId:sid,url})
+      if(typeof result.directory!=='string')throw new Error('读取分享保存目录失败，请重试')
+      if(alive && state.authenticated && state.username===owner && directoryKey()===key){directoryLoaded=key;if(!customDirectory.value)saveDirectory.value=result.directory}
+    }finally{if(alive && directoryKey()===key)directoryLoading.value=false}
+  })()
+  directoryRequest={key,promise}
+  try{return await promise}finally{if(directoryRequest?.promise===promise)directoryRequest=undefined}
+}
+watch([lines,selected,loadingPreferences],()=>{
+  clearTimeout(directoryTimer)
+  directoryLoading.value=false
+  if(lines.value.length!==1){resetDirectory();return}
+  if(!loadingPreferences.value && supported.value && !parsedLinks.value.conflict){const key=directoryKey(),owner=state.username;directoryTimer=setTimeout(()=>loadDirectory().catch(e=>{if(alive && state.authenticated && state.username===owner && directoryKey()===key && !customDirectory.value)notify(`读取保存目录失败：${e.message}`,true)}),350)}
+},{immediate:true})
 async function parse() {
   if(parsing.value || loadingPreferences.value || !supported.value)return
   parsing.value=true;parseError.value=''
@@ -77,6 +105,7 @@ async function parse() {
       const result=await api('/files/share/tree','POST',{storageId:sid,url:input[i]})
       const single=result.items.length===1 && result.items[0].isDir ? result.items[0].name : ''
       roots.push({url:input[i],name:result.items.map(item=>item.name).slice(0,2).join('、') || `分享 ${i+1}`,single,tree:result.tree || result.items.map(item=>({...item,path:item.name})),excluded:[...(savedSelections.value[i]||[])],opened:new Set(['',...(single?[single]:[])])})
+      if(input.length===1 && directoryKey()===JSON.stringify([sid,input[0]])){directoryLoaded=directoryKey();if(!customDirectory.value)saveDirectory.value=single}
     }
     if(alive && state.authenticated && state.username===owner && storage.value?.id===sid && JSON.stringify(lines.value)===JSON.stringify(input))parsed.value=roots
   } catch(e){if(alive)parseError.value=e.message}
@@ -103,13 +132,22 @@ function chooseTarget(value) {
   rememberTarget()
   picker.value = false
 }
-function submit() {
-  if (loadingPreferences.value || !supported.value || parsedLinks.value.conflict || !lines.value.length || lines.value.length > 50) return
+async function submit() {
+  if (submitting.value || loadingPreferences.value || !supported.value || parsedLinks.value.conflict || !lines.value.length || lines.value.length > 50) return
+  const sid=storage.value.id,input=JSON.stringify(lines.value),owner=state.username
+  submitting.value=true
+  try{
+  clearTimeout(directoryTimer)
+  if(lines.value.length===1 && !customDirectory.value)await loadDirectory()
+  if(!alive || !state.authenticated || state.username!==owner || storage.value?.id!==sid || input!==JSON.stringify(lines.value))return
+  const directory=lines.value.length===1?saveDirectory.value.trim():undefined
+  if(directory!==undefined && !validDirectory(directory)){notify('保存目录名称无效，请填写单个目录名，不支持路径或特殊字符',true);return}
   const history = targetHistory.value.map(c => ({ ...c }))
   const root = storage.value.config?.root || (['115', 'quark'].includes(storage.value.type) ? '0' : '/')
   if (!['/', root].includes(target.value) && !history.length) history.push({ id: '/', name: targetLabel.value })
-  transferShares(storage.value, target.value, lines.value, history, savedSelections.value)
+  transferShares(storage.value, target.value, lines.value, history, savedSelections.value,directory)
   emit('close')
+  }catch(e){if(alive)notify(e.message,true)}finally{if(alive)submitting.value=false}
 }
 </script>
 <template>
@@ -119,12 +157,12 @@ function submit() {
         <div v-if="!props.storage" class="field"><label>存储池</label><RoundedSelect v-model="selected" label="转存存储池" :disabled="loadingPreferences" :options="pools.map(s => ({value:s.id,label:s.name}))" @update:model-value="rememberTarget" /></div>
         <label>分享链接<div class="share-link-editor"><pre aria-hidden="true"><template v-for="(part, index) in highlightedLinks" :key="index"><mark v-if="part.password">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></pre><textarea v-model="links" rows="5" required :placeholder="placeholder" maxlength="200000" @scroll="$event.target.previousElementSibling.scrollTop = $event.target.scrollTop" /></div></label>
         <p v-if="parsedLinks.conflict" class="error-message" role="alert">同一分享链接检测到不同提取码，请确认输入后再转存。</p>
-        <div class="field"><label>转存目录</label><button type="button" class="source-trigger" :disabled="!supported || loadingPreferences" aria-label="选择转存目录" @click="picker = true"><span><template v-if="props.storage && storage?.id !== props.storage.id">{{ storage?.name }} / </template>{{ targetLabel }}</span><Icon name="FolderOpen" /></button></div>
+        <div class="share-directory-row"><div class="field"><label>转存目录</label><button type="button" class="source-trigger" :disabled="!supported || loadingPreferences || submitting" aria-label="选择转存目录" @click="picker = true"><span><template v-if="props.storage && storage?.id !== props.storage.id">{{ storage?.name }} / </template>{{ targetLabel }}</span><Icon name="FolderOpen" /></button></div><div class="field" :aria-busy="directoryLoading"><label for="share-save-directory">保存目录</label><input id="share-save-directory" v-model="saveDirectory" :disabled="lines.length!==1 || submitting" maxlength="255" @input="customDirectory=true" /></div></div>
         <p v-if="!supported" class="error-message">当前存储不支持分享转存。</p>
         <p v-if="parseError" class="error-message" role="alert">{{ parseError }}</p>
         <p v-if="lines.length > 50" class="error-message">一次最多提交 50 条分享链接。</p>
       </div>
-      <footer class="modal-footer"><button type="button" class="btn cancel" @click="emit('close')">取消</button><button type="button" class="btn" :disabled="loadingPreferences || parsing || !supported || parsedLinks.conflict || !lines.length || lines.length > 50" @click="parse"><Icon name="ScanSearch" />{{ parsing?'解析中…':'解析' }}</button><button class="btn primary" :disabled="loadingPreferences || parsing || !supported || parsedLinks.conflict || !lines.length || lines.length > 50"><Icon name="FolderInput" />转存</button></footer>
+      <footer class="modal-footer"><button type="button" class="btn cancel" @click="emit('close')">取消</button><button type="button" class="btn" :disabled="submitting || loadingPreferences || parsing || !supported || parsedLinks.conflict || !lines.length || lines.length > 50" @click="parse"><Icon name="ScanSearch" />{{ parsing?'解析中…':'解析' }}</button><button class="btn primary" :disabled="submitting || loadingPreferences || parsing || !supported || parsedLinks.conflict || !lines.length || lines.length > 50"><Icon name="FolderInput" />转存</button></footer>
     </form>
   </Modal>
   <Modal v-if="parsed" title="分享内容" standard @close="parsed=null">
@@ -135,6 +173,7 @@ function submit() {
 </template>
 <style scoped>
 .share-transfer { display: grid; gap: 16px; }
+.share-directory-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.share-directory-row .field{min-width:0}.share-directory-row input,.share-directory-row .source-trigger{width:100%;height:var(--control-height);min-height:var(--control-height)}.share-directory-row .source-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.share-directory-row .source-trigger svg{flex:none}.share-directory-row input:disabled{opacity:.55}
 .share-tree { height:min(440px,55dvh);overflow:auto;scrollbar-width:none; }.share-tree::-webkit-scrollbar { display:none; }
 :global(.modal:has(.share-tree)) { scrollbar-width:none; }:global(.modal:has(.share-tree)::-webkit-scrollbar) { display:none; }
 .share-tree-row { display:flex;align-items:center;gap:8px;min-height:38px; }.share-tree-row > span,.share-tree-row > strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }.share-tree-row input { width:16px;height:16px;flex:none; }.share-tree-row svg { flex:none; }.tree-spacer { width:32px;flex:none; }
@@ -142,7 +181,7 @@ function submit() {
 .share-link-editor pre, .share-link-editor textarea { box-sizing:border-box; width:100%; min-height:130px; margin:0; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font:inherit; line-height:1.5; letter-spacing:inherit; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2; scrollbar-gutter:stable; }
 .share-link-editor pre { position:absolute; inset:0; overflow:auto; pointer-events:none; color:var(--text); background:var(--input); }
 .share-link-editor pre::-webkit-scrollbar { visibility:hidden; }
-.share-link-editor mark { color:inherit; background:color-mix(in srgb,#7775ee 25%,transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb,#8b82ff 52%,transparent),0 0 9px color-mix(in srgb,#8075ff 24%,transparent); border-radius:4px; }
+.share-link-editor mark { color:color-mix(in srgb,var(--primary) 70%,var(--text)); background:color-mix(in srgb,#7775ee 25%,transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb,#8b82ff 52%,transparent),0 0 9px color-mix(in srgb,#8075ff 24%,transparent); border-radius:4px; }
 .share-link-editor textarea { position:relative; display:block; resize:vertical; color:transparent; caret-color:var(--primary); background:transparent; }
 .share-link-editor textarea::placeholder { color:var(--muted); }
 .share-link-editor textarea::selection { color:transparent; background:color-mix(in srgb,var(--primary) 28%,transparent); }

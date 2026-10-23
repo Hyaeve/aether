@@ -48,16 +48,24 @@ func (a *App) quarkJSON(ctx context.Context, s Storage, method, address string, 
 		return s, err
 	}
 	// Do not let a late response overwrite an edited or concurrently refreshed account.
+	a.quarkTVMu.Lock()
 	persistErr := a.store.update(func(st *State) error {
 		for i := range st.Storages {
 			current := &st.Storages[i]
 			if current.ID == s.ID && current.Type == "quark" && storageRevision(*current) == storageRevision(s) {
+				binding := st.QuarkTV[s.ID]
+				// Only carry a valid binding across this trusted automatic Cookie rotation.
+				if binding.AccessToken != "" && binding.CookieHash == quarkCookieHash(*current) {
+					binding.CookieHash = quarkCookieHash(updated)
+					st.QuarkTV[s.ID] = binding
+				}
 				current.Config["cookie"] = updated.Config["cookie"]
 				break
 			}
 		}
 		return nil
 	})
+	a.quarkTVMu.Unlock()
 	if persistErr != nil {
 		return updated, errors.New("夸克更新凭据保存失败，请检查配置目录写入权限")
 	}

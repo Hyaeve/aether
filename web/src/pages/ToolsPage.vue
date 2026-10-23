@@ -78,7 +78,7 @@ const tools = [
   { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '接管本项目生成的夸克 STRM 播放请求，按绑定策略返回 TV 版 302 直链；画质、字幕及客户端兼容性受上游限制。' },
   { name: '整理规则', icon: 'FolderTree', subtitle: '媒体整理 · 命名与目录', file: 'organize-rules.json', detail: '配置媒体命名、目录结构和整理规则' },
   { name: '二级分类', icon: 'Tags', subtitle: '媒体整理 · 分类归档', file: 'categories.json', detail: '按媒体类型、地区和分类归档文件' },
-  { name: '洗版策略', icon: 'RefreshCw', subtitle: '媒体整理 · 版本偏好', file: 'upgrade-policies.json', detail: '根据画质与版本偏好替换已有媒体' },
+  { name: '洗版策略', icon: 'MediaUpgrade', subtitle: '媒体整理 · 版本偏好', file: 'upgrade-policies.json', detail: '根据画质与版本偏好替换已有媒体' },
   { name: 'AI 辅助识别', kind: 'ai', icon: 'BrainCircuit', subtitle: '媒体识别 · 兼容模型接口', file: 'ai.json', detail: '通过 OpenAI 兼容模型识别媒体名称与季集信息' },
   { name: '识别规则', icon: 'ListFilter', subtitle: '媒体识别 · 匹配规则', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
   { name: 'TMDB 配置', kind: 'tmdb', icon: 'TMDB', subtitle: '媒体元数据 · TMDB', detail: '配置影视元数据接口、图片域名与语言偏好' },

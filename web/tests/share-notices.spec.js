@@ -12,6 +12,7 @@ for (const provider of ['quark', '115', 'mobile']) {
       if (path === '/api/auth/status') data = { initialized: true, authenticated: true }
       if (path === '/api/state') data = { username: `share-${provider}`, storages: [storage], tasks: [], settings: {}, cache: {}, shareNotices: accepted && (provider !== 'quark' || confirmed) ? [{ id: 'share-result', storageId: 'pool', name: '转存资料库 · 分享转存', provider, status: provider === 'quark' ? 'completed' : 'submitted', time: now, message }] : [] }
       if (path === '/api/files') data = []
+      if (path === '/api/files/share/info') data = {directory:''}
       if (path === '/api/files/share/preview') data = { preview: 'plan', batches: 1 }
       if (path === '/api/files/share/batch') { accepted = true; data = { status: 'submitted', taskId: provider === 'quark' ? 'job' : '' } }
       if (path === '/api/files/share/status') { confirmed = true; data = { status: 'completed' } }

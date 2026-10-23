@@ -90,7 +90,7 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		jsonResponse(w, 200, map[string]int{"processed": len(req.IDs)})
+		jsonResponse(w, 200, a.fileActionResult(s, req, len(req.IDs)))
 		return
 	}
 	src, err := os.OpenRoot(s.Config["root"])
@@ -215,7 +215,19 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.store.event("info", "files", fmt.Sprintf("%s 完成%d项", req.Action, done))
-	jsonResponse(w, 200, map[string]int{"processed": done})
+	jsonResponse(w, 200, a.fileActionResult(s, req, done))
+}
+
+func (a *App) fileActionResult(s Storage, req fileActionRequest, processed int) map[string]any {
+	result := map[string]any{"processed": processed}
+	if req.Action == "rename" && processed == 1 {
+		fid := req.IDs[0]
+		if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
+			fid = path.Join(path.Dir(fid), req.Name)
+		}
+		result["renamed"] = map[string]string{"id": fid, "name": req.Name, "url": a.streamURL(s.ID, fid, "")}
+	}
+	return result
 }
 
 type copyProgressKey struct{}

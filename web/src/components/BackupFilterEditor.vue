@@ -97,5 +97,5 @@ defineExpose({flush})
 .backup-filter :is(input:not([type=radio]):not([type=checkbox])){height:var(--control-height);min-height:var(--control-height)}
 </style>
 <style scoped>
-.backup-filter-frame{background:var(--layer-item)}.backup-filter{background:var(--layer-rule)}.backup-filter :is(input:not([type=radio]):not([type=checkbox]),textarea),.backup-token{background:var(--input)}
+.backup-filter-frame{background:var(--layer-item)}.backup-filter{background:var(--layer-rule)}.backup-filter :is(input:not([type=radio]):not([type=checkbox]),textarea){background:var(--input)}.backup-token{background:var(--token-background)}
 </style>

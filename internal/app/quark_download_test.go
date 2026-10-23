@@ -164,3 +164,80 @@ func TestQuarkCookieRotationCannotOverwriteEditedStorage(t *testing.T) {
 		t.Fatal("late response replaced edited credentials", err)
 	}
 }
+
+func TestQuarkCookieRotationPreservesTVBindingBoundaries(t *testing.T) {
+	for _, scenario := range []string{"disabled", "invalid", "unbound", "storage-edited", "storage-refreshed", "binding-edited", "binding-deleted", "cross-origin"} {
+		t.Run(scenario, func(t *testing.T) {
+			a := testApp(t)
+			s := Storage{ID: "quark", Type: "quark", Enabled: true, Config: map[string]string{"cookie": "__pus=old"}}
+			binding := quarkTVDefaults(QuarkTVBinding{Enabled: scenario != "disabled", AccessToken: "private-access", RefreshToken: "private-refresh"})
+			binding.CookieHash = quarkCookieHash(s)
+			if scenario == "invalid" {
+				binding.CookieHash = "already-invalid"
+			}
+			if err := a.store.update(func(st *State) error {
+				st.Storages = []Storage{s}
+				if scenario != "unbound" {
+					st.QuarkTV = map[string]QuarkTVBinding{s.ID: binding}
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			s, _ = a.store.storage(s.ID)
+			wantCookie := "__pus=rotated"
+			wantBinding := binding
+			old := apiClient
+			t.Cleanup(func() { apiClient = old })
+			apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+				if err := a.store.update(func(st *State) error {
+					switch scenario {
+					case "storage-edited", "storage-refreshed":
+						st.Storages[0].Config["cookie"] = "__pus=newer"
+						wantCookie = "__pus=newer"
+						if scenario == "storage-refreshed" {
+							wantBinding.CookieHash = quarkCookieHash(st.Storages[0])
+							st.QuarkTV[s.ID] = wantBinding
+						}
+					case "binding-edited":
+						wantBinding.Enabled = false
+						wantBinding.Quality = "high"
+						wantBinding.AccessToken = "new-private-access"
+						st.QuarkTV[s.ID] = wantBinding
+					case "binding-deleted":
+						delete(st.QuarkTV, s.ID)
+					}
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "cross-origin" {
+					r = r.Clone(r.Context())
+					r.URL, _ = url.Parse("https://other.example/final")
+					wantCookie = s.Config["cookie"]
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{"Set-Cookie": {"__pus=rotated; Path=/"}}, Body: io.NopCloser(strings.NewReader(`{}`)), Request: r}, nil
+			})}
+			var result any
+			if _, err := a.quarkJSON(context.Background(), s, "GET", "https://drive.quark.cn/test", nil, &result); err != nil {
+				t.Fatal(err)
+			}
+			st := a.store.snapshot()
+			if st.Storages[0].Config["cookie"] != wantCookie {
+				t.Fatal("late rotation overwrote current storage")
+			}
+			if scenario == "unbound" || scenario == "binding-deleted" {
+				if _, exists := st.QuarkTV[s.ID]; exists {
+					t.Fatal("automatic rotation recreated a binding")
+				}
+				return
+			}
+			if scenario == "disabled" || scenario == "binding-edited" {
+				wantBinding.CookieHash = quarkCookieHash(st.Storages[0])
+			}
+			if st.QuarkTV[s.ID] != wantBinding {
+				t.Fatal("rotation revalidated a stale binding or overwrote binding settings")
+			}
+		})
+	}
+}

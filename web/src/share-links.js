@@ -78,7 +78,8 @@ export function shareHighlight(text) {
   for (const match of text.matchAll(passwordLabel)) {
     ranges.push({ start: match.index, end: match.index + match[0].length })
   }
-  for (const match of text.matchAll(/(?:[?&])(?:password|pwd|passwd|passcode|receive_code)=([^\s&#]+)/g)) {
+  // Pasted Markdown and sentence delimiters are not part of the access code.
+  for (const match of text.matchAll(/[?&](?:password|pwd|passwd|passcode|receive_code)=[^\s&#<>"'()\[\]（）“”‘’，。；、,;]+/g)) {
     ranges.push({ start: match.index + 1, end: match.index + match[0].length })
   }
   const parts = []

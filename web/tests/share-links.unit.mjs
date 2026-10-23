@@ -51,3 +51,25 @@ test('highlight tokens preserve editable text and treat markup as plain text', (
   assert.equal(parts.map(part => part.text).join(''), text + '\n')
   assert.deepEqual(parts.filter(part => part.password).map(part => part.text), ['提取码: Ab12', 'password=q526'])
 })
+
+test('mobile fragment and Quark or 115 query parameters highlight the complete key and code', () => {
+  const examples = [
+    ['https://yun.139.com/shareweb/#/w/i/2pU95iLhPMAro?pwd=bib9\u00a0', ['pwd=bib9']],
+    ['https://pan.quark.cn/s/2d2604889f4c?pwd=wGkx', ['pwd=wGkx']],
+    ['https://115cdn.com/s/swsm2gq3np7?password=vvve', ['password=vvve']]
+  ]
+  for (const [input, highlighted] of examples) {
+    const parts = shareHighlight(input)
+    assert.equal(parts.map(part => part.text).join(''), input + '\n')
+    assert.deepEqual(parts.filter(part => part.password).map(part => part.text), highlighted)
+  }
+})
+
+test('password highlighting excludes surrounding pasted Markdown and text delimiters', () => {
+  const quark = 'https://pan.quark.cn/s/2d2604889f4c?pwd=wGkx'
+  const pan = 'https://115cdn.com/s/swsm2gq3np7?password=vvve'
+  const input = `[${quark}](${quark})\n[${pan}](${pan})\n“${mobile}?pwd=Ab12”，\n<${pan}>\n${quark}&page=1#files\n<img src=x onerror=alert(1)>`
+  const parts = shareHighlight(input)
+  assert.equal(parts.map(part => part.text).join(''), input + '\n')
+  assert.deepEqual(parts.filter(part => part.password).map(part => part.text), ['pwd=wGkx', 'pwd=wGkx', 'password=vvve', 'password=vvve', 'pwd=Ab12', 'password=vvve', 'pwd=wGkx'])
+})

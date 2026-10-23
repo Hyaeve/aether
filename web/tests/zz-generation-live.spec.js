@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
+import { verifyRealRename } from './helpers/rename-live.js'
 
-test('real CAS and ED2K imports create portable signed files and expose completed progress', async ({ page }, info) => {
+test('real CAS and ED2K imports create portable signed files, then rename stays in place with a working URL', async ({ page }, info) => {
   const auth = await (await page.request.get('/api/auth/status')).json()
   const endpoint = auth.initialized ? '/api/auth/login' : '/api/auth/setup'
   const login = await page.request.post(endpoint, { data: { username: 'my-aether-owner', password: 'a1' } })
@@ -24,7 +25,7 @@ test('real CAS and ED2K imports create portable signed files and expose complete
       await dialog.locator('input[type=file]').setInputFiles({ name: 'import.txt', mimeType: 'text/plain', buffer: Buffer.from(text) })
     }
     await dialog.getByRole('button', { name: '解析', exact: true }).click()
-    await expect(dialog.locator('.generation-preview article strong')).toHaveText(names.map(name => `${name}.${kind}.strm`))
+    await expect(dialog.locator('.generation-preview article strong')).toHaveText(names.map(name => `${name}.mkv.${kind}.strm`))
     await dialog.getByRole('button', { name: '加入生成队列' }).click()
     await expect(dialog).toHaveCount(0)
     await expect.poll(async () => (await (await page.request.get('/api/generation/jobs')).json()).find(job => job.kind === kind)?.status).toBe('success')
@@ -32,7 +33,7 @@ test('real CAS and ED2K imports create portable signed files and expose complete
     expect([job.processed, job.total, job.success, job.failed]).toEqual([2, 2, 2, 0])
     await expect(page.locator('.generation-job-list')).toContainText('生成完成：2 项')
     for (const name of names) {
-      const filename = path.join(target, `${name}.${kind}.strm`)
+      const filename = path.join(target, `${name}.mkv.${kind}.strm`)
       expect(existsSync(filename)).toBe(true)
       const link = new URL(readFileSync(filename, 'utf8').trim())
       const claim = JSON.parse(Buffer.from(link.pathname.slice('/stream/'.length), 'base64url').toString())
@@ -44,4 +45,5 @@ test('real CAS and ED2K imports create portable signed files and expose complete
     }
     await page.screenshot({ path: info.outputPath(`${kind}-real-completed.png`) })
   }
+  await test.step('real rename preserves order, content and signed URL without reloading the directory', () => verifyRealRename(page))
 })

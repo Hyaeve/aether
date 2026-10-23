@@ -141,7 +141,7 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1
 .resource-inputs :deep(.rounded-select) { width: 96px; min-width:0; flex-shrink: 0; }
 .extension-entry { width: min(100%, 320px); background: var(--input); }
 .extension-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-.extension-chip { position: relative; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); padding:5px 9px; font-size:13px; cursor:pointer; }
+.extension-chip { position: relative; border:1px solid var(--token-border); border-radius:6px; background:var(--token-background); color:var(--text); padding:5px 9px; font-size:13px; cursor:pointer; }
 .extension-chip svg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0; }
 .extension-chip:hover span, .extension-chip:focus-visible span { opacity: .15; }
 .extension-chip:hover svg, .extension-chip:focus-visible svg { opacity: 1; }

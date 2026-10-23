@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 async function accountMock(page) {
   await page.route('**/api/**',r=>{
     const path=new URL(r.request().url()).pathname
-    return r.fulfill({json:path==='/api/auth/status'?{initialized:true,authenticated:true}:path==='/api/state'?{username:'clipboard-account',storages:[{id:'quark',type:'quark',name:'夸克',enabled:true,config:{}}],tasks:[],settings:{sessionDays:15},cache:{},traffic:{}}:[]})
+    return r.fulfill({json:path==='/api/auth/status'?{initialized:true,authenticated:true}:path==='/api/state'?{username:'clipboard-account',storages:[{id:'quark',type:'quark',name:'夸克',enabled:true,config:{}}],tasks:[],settings:{sessionDays:15},cache:{},traffic:{}}:path==='/api/files/share/info'?{directory:''}:[]})
   })
 }
 

@@ -10,7 +10,7 @@ function displayNames(names = []) {
   return values.length > shown.length ? `${shown.join('、')} 等 ${values.length} 项` : shown.join('、')
 }
 
-export async function transferShares(storage, parent, links, history = [], selections = []) {
+export async function transferShares(storage, parent, links, history = [], selections = [], saveDirectory) {
   const owner = state.username
   const id = Date.now() + Math.random()
   notices.push({ id, message: `${storage.name}：准备转存`, progress: 0 })
@@ -18,10 +18,11 @@ export async function transferShares(storage, parent, links, history = [], selec
   const session = () => { if (!state.authenticated || state.username !== owner) throw new Error('登录状态已变化，转存已停止') }
   const transferredNames = []
   let allCompleted = true
+  let destination = parent, destinationHistory = history
   try {
     for (let i = 0; i < links.length; i++) {
       session()
-      const plan = await api('/files/share/preview', 'POST', { storageId: storage.id, url: links[i], excluded: selections[i] || [] })
+      const plan = await api('/files/share/preview', 'POST', { storageId: storage.id, url: links[i], excluded: selections[i] || [], ...(links.length===1 && saveDirectory!==undefined ? {saveDirectory} : {}) })
       const rootNames = plan.items?.map(item => item.name) || []
       transferredNames.push(...rootNames)
       update({ message: `${storage.name}：准备转存 ${displayNames(rootNames)}` })
@@ -30,6 +31,7 @@ export async function transferShares(storage, parent, links, history = [], selec
         const batchNames = plan.batchNames?.[batch] || rootNames
         update({ message: `${storage.name}：正在转存 ${displayNames(batchNames)} · 链接 ${i + 1}/${links.length}，批次 ${batch + 1}/${plan.batches}` })
         const result = await api('/files/share/batch', 'POST', { storageId: storage.id, preview: plan.preview, parent, batch })
+        if (links.length===1 && result.destination && saveDirectory) { destination=result.destination; destinationHistory=[...history,{id:parent,name:saveDirectory}] }
         let confirmed = result.status === 'completed'
         if (storage.type === 'quark' && result.taskId) {
           let complete = false
@@ -53,8 +55,8 @@ export async function transferShares(storage, parent, links, history = [], selec
       if (resultState) state.shareNotices = resultState.shareNotices || []
     }
     session()
-    update({ progress: 1, message: `${allCompleted ? '转存成功' : '转存已提交'}：${storage.name} · ${displayNames(transferredNames)}`, location: { storage: storage.id, id: parent, history: history.map(item => ({ ...item })), owner } })
-    window.dispatchEvent(new CustomEvent('aether-files-changed', { detail: { storageId: storage.id, owner, destination: parent, history } }))
+    update({ progress: 1, message: `${allCompleted ? '转存成功' : '转存已提交'}：${storage.name} · ${displayNames(transferredNames)}`, location: { storage: storage.id, id: destination, history: destinationHistory.map(item => ({ ...item })), owner } })
+    window.dispatchEvent(new CustomEvent('aether-files-changed', { detail: { storageId: storage.id, owner, destination, history:destinationHistory } }))
   } catch (e) { update({ error: true, message: e.message }) }
   finally { setTimeout(() => { const index = notices.findIndex(n => n.id === id); if (index >= 0) notices.splice(index, 1) }, 10000) }
 }

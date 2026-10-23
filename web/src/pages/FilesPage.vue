@@ -239,18 +239,22 @@ async function showDetails() {
 }
 const fileUpload = ref(null), folderUpload = ref(null), uploadBusy = ref(false), uploadProgress = ref(''), offline = ref(false)
 const sortKey = ref(['name', 'size', 'type', 'modified'].includes(saved.sortKey) ? saved.sortKey : 'name'), ascending = ref(saved.ascending !== false), selection = ref([]), anchor = ref(''), menu = ref(null), renameID = ref(''), newName = ref(''), operation = ref(''), deleting = ref(false), folderDownload = ref(null)
+const renameBusy = ref(false), retainedOrder = ref([])
 watch([favoritesOpen, selected, sortKey, ascending], () => {
   try { localStorage.setItem(preferenceKey, JSON.stringify({ ...saved, open: favoritesOpen.value, storage: selected.value, sortKey: sortKey.value, ascending: ascending.value })) } catch {}
 }, { deep: true, flush: 'sync' })
 const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'type', label: '类型' }, { key: 'modified', label: '修改时间' }]
 const type = f => f.isDir ? '文件夹' : f.name.split('.').at(-1).toUpperCase()
 const fileSize = f => f.isDir && !f.sizeKnown ? '—' : bytes(f.size)
-const visible = computed(() => activeFiles.value.filter(f => f.name.toLowerCase().includes(query.value.trim().toLowerCase())).sort((a, b) => {
+const visible = computed(() => {
+  const order = new Map(retainedOrder.value.map((id, index) => [id, index]))
+  return activeFiles.value.filter(f => f.name.toLowerCase().includes(query.value.trim().toLowerCase())).sort((a, b) => {
+  if (order.has(a.id) && order.has(b.id)) return order.get(a.id) - order.get(b.id)
   if (!!a.isDir !== !!b.isDir) return a.isDir ? -1 : 1
   const value = f => sortKey.value === 'type' ? type(f) : sortKey.value === 'size' ? f.size : f[sortKey.value] || ''
   const av = value(a), bv = value(b)
   return (ascending.value ? 1 : -1) * (typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv), 'zh-CN', { numeric: true }))
-}))
+})})
 const displayItems = computed(() => draft.value ? [{ id: '__new__', name: '', isDir: true }, ...visible.value] : visible.value)
 const gridMode = computed(() => mode.value === 'grid')
 const { shown, top, bottom, columns: gridColumns, reset: resetScroll, reveal } = useVirtualList(displayItems, viewport, { rowHeight: computed(() => gridMode.value ? 148 : 52), header: computed(() => gridMode.value ? 0 : 44), grid: gridMode })
@@ -272,6 +276,7 @@ function measureFileSpace() {
 onMounted(() => { layoutObserver = new ResizeObserver(measureFileSpace); if (viewport.value) { layoutObserver.observe(viewport.value); layoutObserver.observe(viewport.value.closest('.page-scroll .thin-scroll-area')) }; measureFileSpace() })
 watch([mode, favoritesOpen, displayItems], () => nextTick(measureFileSpace))
 onUnmounted(() => layoutObserver?.disconnect())
+watch([query, sortKey, ascending], () => { retainedOrder.value = [] })
 watch([query, sortKey, ascending, mode], resetScroll)
 const detailFiles = computed(() => activeFiles.value.filter(f => selection.value.includes(f.id)))
 const detailSummary = computed(() => ({
@@ -335,13 +340,36 @@ async function rename() {
   const f = files.value.find(f => f.id === selection.value[0])
   if (!f || selection.value.length !== 1) return
   renameID.value = f.id; newName.value = f.name
-  reveal(visible.value.findIndex(item => item.id === f.id))
-  await nextTick(); document.querySelector('.file-rename')?.focus(); document.querySelector('.file-rename')?.select()
+  if (!shown.value.some(item => item.id === f.id)) reveal(visible.value.findIndex(item => item.id === f.id))
+  await nextTick()
+  const input = document.querySelector('.file-rename')
+  input?.focus({ preventScroll: true }); input?.select()
+  input?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }
 async function act(action, extra = {}) {
+  if (busy.value) return
+  const storage = selected.value, parent = current.value, listing = requestId
+  const ids = extra.ids || [...selection.value], order = visible.value.map(f => f.id)
+  renameBusy.value = action === 'rename'
   busy.value = true; closeMenu()
-  try { await api('/files/action', 'POST', { storageId: selected.value, source: current.value, action, ids: [...selection.value], ...extra }); cancelEdit(); operation.value = ''; deleting.value = false; selection.value = []; await load(true); notify('文件操作完成') }
-  catch (e) { notify(e.message, true) } finally { busy.value = false }
+  try {
+    const result = await api('/files/action', 'POST', { storageId: storage, source: parent, action, ids, ...extra })
+    if (!favoritesAlive || selected.value !== storage || current.value !== parent || requestId !== listing) return
+    if (action === 'rename') {
+      const item = files.value.find(f => f.id === ids[0])
+      if (!item || !result.renamed) throw new Error('重命名已提交，请手动刷新确认新名称')
+      retainedOrder.value = order.map(id => id === item.id ? result.renamed.id : id)
+      const oldID = item.id
+      Object.assign(item, { ...result.renamed, ...(item.isDir ? { url: '' } : {}) })
+      selection.value = selection.value.map(id => id === oldID ? item.id : id)
+      if (anchor.value === oldID) anchor.value = item.id
+    } else {
+      selection.value = []
+      await load(true)
+    }
+    cancelEdit(); operation.value = ''; deleting.value = false; notify('文件操作完成')
+  } catch (e) { notify(e.message, true) }
+  finally { busy.value = false; renameBusy.value = false }
 }
 function cancelEdit() { renameID.value = ''; draft.value = false; newName.value = ''; confirmRename.value = false }
 async function createFolder() {
@@ -427,6 +455,7 @@ function favoriteJump(item) {
 let requestId = 0
 async function load(refresh = false) {
   clearDeepSearch()
+  retainedOrder.value = []
   const id = ++requestId
   if (!selected.value) { files.value = []; return }
   busy.value = true; error.value = ''
@@ -459,13 +488,13 @@ load()
   <p v-if="uploadProgress" class="upload-progress" role="status">{{ uploadProgress }}</p>
   <p v-if="searching || searchResults" class="file-search-status" role="status">{{ searching ? '正在深度搜索…' : `深度搜索 · ${searchResults.length} 个结果` }}</p>
   <p v-if="searchError" class="error-message" role="alert">{{ searchError }}</p>
-  <div class="file-browser" :class="{ 'has-file-overflow': !busy && displayItems.length && fileOverflow }">
+  <div class="file-browser" :class="{ 'has-file-overflow': (!busy || renameBusy) && displayItems.length && fileOverflow }">
 <div class="file-toolbar"><button class="icon-btn" aria-label="展开收藏栏" :aria-expanded="favoritesOpen" @click="favoritesOpen = !favoritesOpen"><Icon name="PanelLeft" /></button><RoundedSelect class="file-pool-select" v-model="selected" label="选择存储池" hide-check :disabled="!!renameID || uploadBusy" :options="state.storages.filter(s => s.enabled).map(s => ({ value: s.id, label: s.name, provider: s.type }))"><template #selected="{option}"><ProviderIcon v-if="option" :type="option.provider" compact /><span>{{option?.label}}</span></template><template #option="{option}"><ProviderIcon :type="option.provider" compact /><span>{{option.label}}</span></template></RoundedSelect><div class="path-bar"><PathBreadcrumbs :entries="history" :disabled="busy || !!renameID || uploadBusy" @jump="jump" /></div><button class="icon-btn" aria-label="刷新目录" :disabled="busy || !selected || !!renameID || uploadBusy" @click="selection = []; anchor = ''; load(true)"><Icon name="RefreshCw" :class="{ spin: busy }" /></button><button class="icon-btn" :disabled="!!renameID" :aria-label="mode === 'list' ? '当前列表视图，切换网格' : '当前网格视图，切换列表'" @click="mode = mode === 'list' ? 'grid' : 'list'"><Icon :name="mode === 'list' ? 'List' : 'LayoutGrid'" /></button></div>
   <div class="file-workspace" :class="{ 'with-favorites': favoritesOpen }">
   <aside class="file-favorites" :inert="!favoritesOpen" :aria-hidden="!favoritesOpen" aria-label="目录收藏"><div class="favorites-heading"><h3>收藏夹</h3><button class="icon-btn" :aria-label="isFavorite ? '取消收藏目录' : '收藏当前目录'" :aria-pressed="isFavorite" :disabled="favoritesBusy || !selected || !history.length || current === '/'" @click="star"><Icon name="Star" /></button></div><div v-for="item in poolFavorites" :key="item.id" :class="{ active: current === item.id }"><button @click="favoriteJump(item)"><Icon name="Folder" /><span>{{ item.name }}</span></button></div></aside>
   <section ref="viewport" class="file-view" :class="{ 'deep-search-results': !!searchResults }" @scroll="measureCount" @wheel="listWheel" @contextmenu="blankTools">
   <div v-if="error" class="error-message" role="alert">{{ error }}</div>
-  <div v-if="busy" class="empty-state"><Icon name="LoaderCircle" class="spin" :size="30" /><p>正在读取目录…</p></div>
+  <div v-if="busy && !renameBusy" class="empty-state"><Icon name="LoaderCircle" class="spin" :size="30" /><p>正在读取目录…</p></div>
   <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : searchInput ? '没有匹配结果' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>
   <div v-else-if="mode === 'grid'" class="file-grid" :style="{ gridTemplateColumns: `repeat(${gridColumns},minmax(0,1fr))` }">
     <div v-if="top" :style="{ height: `${top}px`, gridColumn: '1 / -1' }" aria-hidden="true" />

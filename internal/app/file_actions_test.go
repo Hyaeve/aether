@@ -1,10 +1,29 @@
 package app
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestRenameReturnsUpdatedReferenceWithoutDirectoryReload(t *testing.T) {
+	a := testApp(t)
+	s := addLocal(t, a)
+	if err := os.WriteFile(filepath.Join(s.Config["root"], "old.txt"), []byte("same content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	h := a.Handler(t.TempDir())
+	cookie := setupTest(t, a, h)
+	w := request(t, h, "POST", "/api/files/action", fileActionRequest{StorageID: s.ID, Source: "/", Action: "rename", IDs: []string{"/old.txt"}, Name: "new.txt"}, cookie)
+	var result struct {
+		Processed int                            `json:"processed"`
+		Renamed   struct{ ID, Name, URL string } `json:"renamed"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || result.Processed != 1 || result.Renamed.ID != "/new.txt" || result.Renamed.Name != "new.txt" || result.Renamed.URL != a.streamURL(s.ID, "/new.txt", "") {
+		t.Fatal("rename did not return the new file reference", w.Code, w.Body.String())
+	}
+}
 
 func TestFileActions(t *testing.T) {
 	a := testApp(t)

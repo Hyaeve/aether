@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type shareBatch struct {
@@ -17,6 +19,45 @@ type shareBatch struct {
 }
 
 const shareTransferBatchLimit = 499
+
+func validShareDirectory(name string) bool {
+	return name == "" || utf8.RuneCountInString(name) <= 255 && safeName(name) && !strings.ContainsAny(name, `<>"|?*`) && strings.IndexFunc(name, unicode.IsControl) < 0
+}
+
+func shareRootDirectory(items []shareEntry) string {
+	if len(items) == 1 && items[0].IsDir {
+		return items[0].Name
+	}
+	return ""
+}
+
+func shareDirectoryBatches(items []shareEntry, batches []shareBatch, name *string) ([]shareBatch, error) {
+	if name == nil {
+		return batches, nil
+	}
+	if !validShareDirectory(*name) {
+		return nil, errors.New("保存目录名称无效，请填写单个目录名，不支持路径或特殊字符")
+	}
+	root := shareRootDirectory(items)
+	result := append([]shareBatch(nil), batches...)
+	for i := range result {
+		dir := result[i].Directory
+		if root != "" {
+			if dir == root {
+				dir = ""
+			} else if strings.HasPrefix(dir, root+"/") {
+				dir = strings.TrimPrefix(dir, root+"/")
+			} else {
+				return nil, errors.New("分享根目录已变化，请重新解析")
+			}
+		}
+		result[i].Directory = path.Join(*name, dir)
+		if result[i].Directory == "." {
+			result[i].Directory = ""
+		}
+	}
+	return result, nil
+}
 
 type shareTreeEntry struct {
 	Path  string `json:"path"`
@@ -185,8 +226,31 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	p.Next++
 	a.shareMu.Unlock()
 	session := shareStorageSession(s, preview)
-	if batch.Directory != "" {
-		parent, _, err = a.uploadParent(ctx, session, parent, path.Join(batch.Directory, ".aether-share-placeholder"))
+	directory := batch.Directory
+	if preview.SaveDirectory != nil && *preview.SaveDirectory != "" {
+		destination := preview.Destination
+		if destination == "" {
+			destination, _, err = a.uploadParent(ctx, session, parent, path.Join(*preview.SaveDirectory, ".aether-share-placeholder"))
+			if err != nil {
+				failure(err)
+				return
+			}
+			a.shareMu.Lock()
+			p.Destination = destination
+			a.shareMu.Unlock()
+		}
+		parent = destination
+		if directory == *preview.SaveDirectory {
+			directory = ""
+		} else if strings.HasPrefix(directory, *preview.SaveDirectory+"/") {
+			directory = strings.TrimPrefix(directory, *preview.SaveDirectory+"/")
+		} else {
+			failure(errors.New("保存目录计划无效，请重新解析"))
+			return
+		}
+	}
+	if directory != "" {
+		parent, _, err = a.uploadParent(ctx, session, parent, path.Join(directory, ".aether-share-placeholder"))
 		if err != nil {
 			failure(err)
 			return
@@ -231,5 +295,10 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	a.shareMu.Unlock()
 	a.recordShareNotice(key, s, finished)
 	a.cache.clear()
-	jsonResponse(w, 200, map[string]any{"status": "submitted", "taskId": task, "message": "本批次已提交", "skipped": skipped, "done": index + 1, "total": len(preview.Batches)})
+	response := map[string]any{"status": "submitted", "taskId": task, "message": "本批次已提交", "skipped": skipped, "done": index + 1, "total": len(preview.Batches)}
+	if finished.SaveDirectory != nil && *finished.SaveDirectory != "" {
+		response["destination"] = finished.Destination
+		response["directory"] = *finished.SaveDirectory
+	}
+	jsonResponse(w, 200, response)
 }

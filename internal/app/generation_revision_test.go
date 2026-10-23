@@ -24,7 +24,7 @@ func generationCASFixture() string {
 func TestGenerationTextOrderAndInvalid(t *testing.T) {
 	raw := generationCASFixture()
 	items := parseGenerationText("cas", raw+"\n"+strings.Replace(raw, "Arrival", "Second", 1))
-	if len(items) != 2 || items[0].Path != "Arrival.cas.strm" || items[1].Path != "Second.cas.strm" || items[0].CAS.MD5 != "" {
+	if len(items) != 2 || items[0].Path != "Arrival.mkv.cas.strm" || items[1].Path != "Second.mkv.cas.strm" || items[0].CAS.MD5 != "" {
 		t.Fatal(items)
 	}
 	items = parseGenerationText("cas", base64.StdEncoding.EncodeToString([]byte(raw))+"\nbroken")
@@ -59,7 +59,7 @@ func generationZIP(t *testing.T, files map[string]string) []byte {
 }
 func TestGenerationArchivePathsAndBounds(t *testing.T) {
 	items, e := parseGenerationArchive(context.Background(), "cas", "A.zip", generationZIP(t, map[string]string{"A/A/Season 1/Arrival.cas": generationCASFixture()}))
-	if e != nil || len(items) != 1 || items[0].Path != "A/Season 1/Arrival.cas.strm" {
+	if e != nil || len(items) != 1 || items[0].Path != "A/Season 1/Arrival.mkv.cas.strm" {
 		t.Fatal(items, e)
 	}
 	for _, name := range []string{"../bad.cas", "/bad.cas", "A/../../bad.cas", "A\\bad.cas"} {
@@ -111,7 +111,7 @@ func TestGenerationHTTPQueueAndPortableClaim(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	raw, e := os.ReadFile(filepath.Join(target, "Arrival.cas.strm"))
+	raw, e := os.ReadFile(filepath.Join(target, "Arrival.mkv.cas.strm"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -305,14 +305,14 @@ func TestGenerationMultipartArchiveAndNoOverwrite(t *testing.T) {
 		Valid   bool
 		Items   []GenerationEntry
 	}
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &p) != nil || !p.Valid || len(p.Items) != 2 || p.Items[0].Path != "A/Season 1/Arrival.cas.strm" || p.Items[1].Path != "Second.cas.strm" {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &p) != nil || !p.Valid || len(p.Items) != 2 || p.Items[0].Path != "A/Season 1/Arrival.mkv.cas.strm" || p.Items[1].Path != "Second.mkv.cas.strm" {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	target := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(target, "A", "Season 1"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	name := filepath.Join(target, "A", "Season 1", "Arrival.cas.strm")
+	name := filepath.Join(target, "A", "Season 1", "Arrival.mkv.cas.strm")
 	if err := os.WriteFile(name, []byte("existing-user-content"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestGenerationMultipartArchiveAndNoOverwrite(t *testing.T) {
 	if err != nil || string(raw) != "existing-user-content" {
 		t.Fatal(string(raw), err)
 	}
-	if _, err := os.Stat(filepath.Join(target, "Second.cas.strm")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(target, "Second.mkv.cas.strm")); !os.IsNotExist(err) {
 		t.Fatal("partial collision continued", err)
 	}
 }
@@ -377,7 +377,7 @@ func TestED2KPoolUnavailableExtrasAndValidatedImport(t *testing.T) {
 func TestGenerationRuntimeSeparatedFromModuleConfig(t *testing.T) {
 	a := testApp(t)
 	if err := a.store.update(func(st *State) error {
-		st.GenerationJobs = []GenerationJob{{ID: "runtime-job", Status: "queued"}}
+		st.GenerationJobs = []GenerationJob{{ID: "runtime-job", Status: "queued", Temporary: []GenerationTemporary{{StorageID: "mobile", FolderID: "private-folder", TaskID: "submitted-task", Phase: "submitted", Files: []GenerationTemporaryFile{{Name: "test.mkv", Phase: "pending"}}}}}}
 		st.ED2KStats.Success = 7
 		st.ED2KTemporary = []ED2KTemporary{{Key: "temporary-secret", Revision: "private-revision"}}
 		return nil
@@ -406,6 +406,9 @@ func TestGenerationRuntimeSeparatedFromModuleConfig(t *testing.T) {
 	}
 	if jobs := reopened.snapshot().GenerationJobs; len(jobs) != 1 || jobs[0].Status != "interrupted" {
 		t.Fatal(jobs)
+	}
+	if jobs := reopened.snapshot().GenerationJobs; !generationHasTemporary(jobs[0]) || jobs[0].Temporary[0].TaskID != "submitted-task" || !strings.Contains(jobs[0].Message, "勿直接重复提交") {
+		t.Fatal("restart lost uncertain transfer receipt", jobs)
 	}
 	if reopened.snapshot().ED2KStats.Success != 7 {
 		t.Fatal("runtime lost")

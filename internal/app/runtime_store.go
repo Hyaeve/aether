@@ -201,6 +201,9 @@ func (s *Store) initRuntime(dir string) error {
 	for i := range s.state.GenerationJobs {
 		if s.state.GenerationJobs[i].Status == "running" || s.state.GenerationJobs[i].Status == "queued" {
 			s.state.GenerationJobs[i].Status, s.state.GenerationJobs[i].Message = "interrupted", "服务重启，生成已中断，请重新解析"
+			if generationHasTemporary(s.state.GenerationJobs[i]) {
+				s.state.GenerationJobs[i].Message = "服务重启，临时转存或清理结果未确认；请核对网盘临时目录，勿直接重复提交"
+			}
 		}
 	}
 	for i := range s.state.Tasks {

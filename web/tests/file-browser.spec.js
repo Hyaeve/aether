@@ -7,12 +7,13 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
     { id: '/Movies', name: 'Movies', isDir: true, modified: '2026-10-07T10:00:00+08:00' },
     { id: '/one.txt', name: 'one.txt', size: 12, modified: '2026-10-07T10:00:00+08:00' }
   ]
-  let entries = [...initial], actions = [], uploads = []
+  let entries = [...initial], actions = [], uploads = [], directoryReads = 0
   await page.route('**/api/auth/status', route => route.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', route => route.fulfill({ json: {
     username: 'file-test', storages: [storage], tasks: [], settings: {}, cache: {}, traffic: {}, logs: []
   } }))
   await page.route('**/api/files?**', route => {
+    directoryReads++
     const dir = new URL(route.request().url()).searchParams.get('path')
     const files = dir === '/' ? entries : [{ id: `${dir}/next`, name: '下一层很长的目录名称', isDir: true }]
     return route.fulfill({ json: files })
@@ -21,7 +22,11 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
     const data = route.request().postDataJSON()
     actions.push(data)
     if (data.action === 'mkdir') entries.push({ id: `/${data.name}`, name: data.name, isDir: true })
-    if (data.action === 'rename') entries = entries.map(f => data.ids.includes(f.id) ? { ...f, name: data.name } : f)
+    if (data.action === 'rename') {
+      const renamed = { id: `/${data.name}`, name: data.name, url: '' }
+      entries = entries.map(f => data.ids.includes(f.id) ? { ...f, ...renamed } : f)
+      return route.fulfill({ json: { processed: 1, renamed } })
+    }
     return route.fulfill({ json: { processed: 1 } })
   })
   await page.route('**/api/files/upload?**', route => {
@@ -54,8 +59,10 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
   await page.locator('.file-view').click({ position: { x: 300, y: 350 } })
   await expect(page.getByRole('dialog', { name: '确认修改名称' })).toBeVisible()
   expect(actions).toHaveLength(1)
+  const readsBeforeRename = directoryReads
   await page.getByRole('button', { name: '确认修改', exact: true }).click()
   await expect(page.getByRole('button', { name: 'changed.txt', exact: true })).toBeVisible()
+  expect(directoryReads).toBe(readsBeforeRename)
   await page.getByRole('button', { name: 'changed.txt', exact: true }).click({ button: 'right' })
   await expect(page.locator('.context-menu button').last()).toHaveText('查看详情')
   await page.getByRole('button', { name: '查看详情' }).click()

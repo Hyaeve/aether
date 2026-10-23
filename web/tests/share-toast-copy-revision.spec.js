@@ -5,6 +5,7 @@ test('completed transfer toast contains names, opens its target across pages and
   if(u.pathname==='/api/auth/status')value={initialized:true,authenticated:true}
   else if(u.pathname==='/api/state')value={username:'toast-owner',storages:[{id:'p',type:'115',name:'115主账号',enabled:true,config:{}}],tasks:[],settings:{},cache:{}}
   else if(u.pathname==='/api/files')value=u.searchParams.get('path')==='destination'?[{id:'result',name:'转存结果.mkv'}]:[]
+  else if(u.pathname==='/api/files/share/info')value={directory:''}
   else if(u.pathname.endsWith('/preview'))value={preview:'plan',batches:1,items:[{name:'影片合集'}],batchNames:[['影片合集']]}
   else if(u.pathname.endsWith('/batch'))value={status:'completed'}
   return r.fulfill({json:value})

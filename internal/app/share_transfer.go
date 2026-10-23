@@ -28,25 +28,27 @@ type shareEntry struct {
 }
 
 type sharePreview struct {
-	SourceParent string
-	Skipped      int
-	Submitted    int
-	Failed       bool
-	Owner        [32]byte
-	Config       [32]byte
-	Storage      string
-	Code         string
-	Pass         string
-	Token        string
-	Cookie       string
-	Items        []shareEntry
-	Expires      time.Time
-	Used         bool
-	TaskID       string
-	Batches      []shareBatch
-	Next         int
-	BatchBusy    bool
-	Parent       string
+	SourceParent  string
+	Skipped       int
+	Submitted     int
+	Failed        bool
+	Owner         [32]byte
+	Config        [32]byte
+	Storage       string
+	Code          string
+	Pass          string
+	Token         string
+	Cookie        string
+	Items         []shareEntry
+	Expires       time.Time
+	Used          bool
+	TaskID        string
+	Batches       []shareBatch
+	Next          int
+	BatchBusy     bool
+	Parent        string
+	SaveDirectory *string
+	Destination   string
 }
 
 var shareURLPattern = regexp.MustCompile(`https?://[^\s<>，。]+`)
@@ -415,7 +417,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			continue
 		}
 		if len(batch) == 0 && total > len(items) {
-				return "", nil, errors.New("分享栏分页不完整，请重新解析")
+			return "", nil, errors.New("分享栏分页不完整，请重新解析")
 		}
 		if len(batch) == 0 || (total > 0 && len(items) >= total) || (total == 0 && len(batch) < 100) {
 			return token, items, nil
@@ -428,17 +430,26 @@ const mobileShareBase = "https://share-kd-njs.yun.139.com/yun-share/richlifeApp/
 
 func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		StorageID string   `json:"storageId"`
-		URL       string   `json:"url"`
-		Password  string   `json:"password"`
-		Preview   string   `json:"preview"`
-		Parent    string   `json:"parent"`
-		IDs       []string `json:"ids"`
-		Batch     int      `json:"batch"`
-		Excluded  []string `json:"excluded"`
+		StorageID     string   `json:"storageId"`
+		URL           string   `json:"url"`
+		Password      string   `json:"password"`
+		Preview       string   `json:"preview"`
+		Parent        string   `json:"parent"`
+		IDs           []string `json:"ids"`
+		Batch         int      `json:"batch"`
+		Excluded      []string `json:"excluded"`
+		SaveDirectory *string  `json:"saveDirectory"`
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	if in.SaveDirectory != nil {
+		name := strings.TrimSpace(*in.SaveDirectory)
+		in.SaveDirectory = &name
+		if !validShareDirectory(name) {
+			fail(w, 400, errors.New("保存目录名称无效，请填写单个目录名，不支持路径或特殊字符"))
+			return
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
@@ -455,7 +466,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		a.saveShareBatch(w, r, ctx, s, in.Preview, in.Parent, in.Batch)
 		return
 	}
-	if r.PathValue("action") == "preview" || r.PathValue("action") == "tree" {
+	if r.PathValue("action") == "preview" || r.PathValue("action") == "tree" || r.PathValue("action") == "info" {
 		provider, code, pass, err := parseShareLink(in.URL, in.Password)
 		if err != nil {
 			fail(w, 400, err)
@@ -471,6 +482,10 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
+		if r.PathValue("action") == "info" {
+			jsonResponse(w, 200, map[string]any{"directory": shareRootDirectory(items)})
+			return
+		}
 		batches, err := a.planShareSession(ctx, &session, code, pass, token, items)
 		if err != nil {
 			fail(w, 400, err)
@@ -482,6 +497,11 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		batches, err = selectedShareBatches(batches, tree, in.Excluded)
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		batches, err = shareDirectoryBatches(items, batches, in.SaveDirectory)
 		if err != nil {
 			fail(w, 400, err)
 			return
@@ -501,7 +521,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			fail(w, 429, errors.New("分享预览过多，请稍后再试"))
 			return
 		}
-		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Cookie: session.Config["cookie"], Items: items, Batches: batches, Expires: time.Now().Add(10 * time.Minute)}
+		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Cookie: session.Config["cookie"], Items: items, Batches: batches, SaveDirectory: in.SaveDirectory, Expires: time.Now().Add(10 * time.Minute)}
 		a.shareMu.Unlock()
 		batchNames := make([][]string, len(batches))
 		for i, batch := range batches {
@@ -575,6 +595,10 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	preview := *p
 	a.shareMu.Unlock()
+	if preview.SaveDirectory != nil {
+		fail(w, 400, errors.New("自定义保存目录须使用分批转存接口"))
+		return
+	}
 	if len(in.IDs) == 0 || len(in.IDs) > shareTransferBatchLimit {
 		fail(w, 400, fmt.Errorf("每次选择 1–%d 项", shareTransferBatchLimit))
 		return

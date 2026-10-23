@@ -18,6 +18,7 @@ test('share tree applies only checked files; return discards modifications',asyn
  const exclusions=[]
  await page.route('**/api/files/share/*',route=>{
   const body=route.request().postDataJSON()
+  if(route.request().url().endsWith('/info'))return route.fulfill({json:{directory:'Show'}})
   if(/\/(preview|tree)$/.test(route.request().url())){
    exclusions.push(body.excluded)
    return route.fulfill({json:{preview:'key',batches:1,items:[{id:'show',name:'Show',isDir:true}],tree:[{path:'Show',name:'Show',isDir:true},{path:'Show/one.mkv',name:'one.mkv',isDir:false},{path:'Show/two.mkv',name:'two.mkv',isDir:false}]}})
@@ -42,6 +43,7 @@ test('share root selection excludes every top-level item rather than its display
  let excluded
  await page.route('**/api/files/share/*',route=>{
   const body=route.request().postDataJSON()
+  if(route.request().url().endsWith('/info'))return route.fulfill({json:{directory:''}})
   if(route.request().url().endsWith('/tree'))return route.fulfill({json:{items:[{name:'A',isDir:true},{name:'B',isDir:true},{name:'readme.txt',isDir:false}],tree:[{path:'A',name:'A',isDir:true},{path:'A/one.mkv',name:'one.mkv',isDir:false},{path:'B',name:'B',isDir:true},{path:'readme.txt',name:'readme.txt',isDir:false}]}})
   excluded=body.excluded
   return route.fulfill({json:{preview:'key',batches:0,items:[]}})

@@ -18,6 +18,7 @@ for (const succeeds of [true, false]) {
     })
     let submissions = 0
     await page.route('**/api/files/share/*', r => {
+      if(r.request().url().endsWith('/info'))return r.fulfill({json:{directory:''}})
       if (r.request().url().endsWith('/preview')) return r.fulfill(succeeds ? { json: { preview: 'p', batches: 1 } } : { status: 502, json: { error: '115 分享预览失败 HTTP 405' } })
       submissions++
       expect(r.request().postDataJSON().parent).toBe('destination')
@@ -60,6 +61,7 @@ test('share transfer previews selection, submits once and reports confirmed Quar
   await page.route('**/api/files?**', r => { refreshes++; return r.fulfill({ json: [] }) })
   await page.route('**/api/files/share/*', r => {
     const action = new URL(r.request().url()).pathname.split('/').at(-1)
+    if(action==='info')return r.fulfill({json:{directory:''}})
     if (action === 'preview') return r.fulfill({ json: { preview: 'private-session', batches: 1, items: [{ id: 'film', name: 'Arrival.2016.mkv', isDir: false }, { id: 'show', name: 'Show', isDir: true }] } })
     if (action === 'status') return r.fulfill({ json: { status: 'completed', message: '网盘已完成转存', taskId: 'job' } })
     saves++; payload = r.request().postDataJSON()

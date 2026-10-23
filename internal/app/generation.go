@@ -29,31 +29,34 @@ const generationLimit = 32 << 20
 const generationEntries = 10000
 
 type GenerationEntry struct {
-	Path  string    `json:"path"`
-	Size  int64     `json:"size"`
-	CAS   *CASInfo  `json:"cas,omitempty"`
-	ED2K  *ED2KInfo `json:"ed2k,omitempty"`
-	Error string    `json:"error,omitempty"`
+	Path   string                  `json:"path"`
+	Size   int64                   `json:"size"`
+	CAS    *CASInfo                `json:"cas,omitempty"`
+	ED2K   *ED2KInfo               `json:"ed2k,omitempty"`
+	Error  string                  `json:"error,omitempty"`
+	Mobile *generationMobileSource `json:"mobile,omitempty"`
 }
 type generationManifest struct {
-	User    string            `json:"user"`
-	Kind    string            `json:"kind"`
-	Entries []GenerationEntry `json:"entries"`
-	Created time.Time         `json:"created"`
+	User    string                `json:"user"`
+	Kind    string                `json:"kind"`
+	Entries []GenerationEntry     `json:"entries"`
+	Created time.Time             `json:"created"`
+	Mobile  *generationMobilePlan `json:"mobile,omitempty"`
 }
 type GenerationJob struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	Name      string    `json:"name"`
-	Target    string    `json:"target"`
-	Status    string    `json:"status"`
-	Message   string    `json:"message"`
-	Processed int       `json:"processed"`
-	Total     int       `json:"total"`
-	Success   int       `json:"success"`
-	Failed    int       `json:"failed"`
-	Created   time.Time `json:"created"`
-	Preview   string    `json:"preview"`
+	ID        string                `json:"id"`
+	Kind      string                `json:"kind"`
+	Name      string                `json:"name"`
+	Target    string                `json:"target"`
+	Status    string                `json:"status"`
+	Message   string                `json:"message"`
+	Processed int                   `json:"processed"`
+	Total     int                   `json:"total"`
+	Success   int                   `json:"success"`
+	Failed    int                   `json:"failed"`
+	Created   time.Time             `json:"created"`
+	Preview   string                `json:"preview"`
+	Temporary []GenerationTemporary `json:"temporary,omitempty"`
 }
 
 var ed2kTextPattern = regexp.MustCompile(`(?i)ed2k://\|file\|[^\r\n]+?\|/`)
@@ -96,7 +99,7 @@ func parseCASContent(raw []byte) (CASInfo, error) {
 	return decodeCAS(decoded, name.Name+".cas")
 }
 func generationOutputName(name, kind string) string {
-	return strings.TrimSuffix(name, path.Ext(name)) + "." + kind + ".strm"
+	return name + "." + kind + ".strm"
 }
 func parseGenerationText(kind, text string) []GenerationEntry {
 	entries := []GenerationEntry{}
@@ -135,29 +138,20 @@ func parseGenerationText(kind, text string) []GenerationEntry {
 		entries = append(entries, entry)
 	}
 	text = strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
-	if strings.HasPrefix(text, "{") && kind == "cas" {
-		d := json.NewDecoder(strings.NewReader(text))
-		for {
+	for text != "" && len(entries) <= generationEntries {
+		if strings.HasPrefix(text, "{") && kind == "cas" {
+			d := json.NewDecoder(strings.NewReader(text))
 			var raw json.RawMessage
-			e := d.Decode(&raw)
-			if e == io.EOF {
-				break
-			}
-			if e != nil {
-				add("invalid")
-				break
-			}
-			add(string(raw))
-			if len(entries) > generationEntries {
-				break
-			}
-		}
-	} else {
-		for _, line := range strings.Split(text, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
+			if d.Decode(&raw) == nil {
+				add(string(raw))
+				text = strings.TrimSpace(text[d.InputOffset():])
 				continue
 			}
+		}
+		line, rest, _ := strings.Cut(text, "\n")
+		text = strings.TrimSpace(rest)
+		line = strings.TrimSpace(line)
+		if line != "" {
 			if kind == "ed2k" {
 				matches := ed2kTextPattern.FindAllString(line, -1)
 				if len(matches) == 0 {
@@ -169,9 +163,6 @@ func parseGenerationText(kind, text string) []GenerationEntry {
 				}
 			} else {
 				add(line)
-			}
-			if len(entries) > generationEntries {
-				break
 			}
 		}
 	}
@@ -444,6 +435,7 @@ func (a *App) generationPreview(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Kind string `json:"kind"`
 			Text string `json:"text"`
+			Mode string `json:"mode"`
 		}
 		if !decode(w, r, &in) {
 			return
@@ -453,7 +445,23 @@ func (a *App) generationPreview(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, errors.New("解析类型无效"))
 			return
 		}
-		entries = parseGenerationText(kind, in.Text)
+		if in.Mode == "links" {
+			if kind != "cas" {
+				fail(w, 400, errors.New("链接解析仅支持 CAS"))
+				return
+			}
+			var err error
+			entries, err = a.parseMobileGenerationLinks(r.Context(), in.Text)
+			if err != nil {
+				fail(w, 400, err)
+				return
+			}
+		} else if in.Mode == "" || in.Mode == "text" {
+			entries = parseGenerationText(kind, in.Text)
+		} else {
+			fail(w, 400, errors.New("解析方式无效"))
+			return
+		}
 	}
 	if len(entries) == 0 {
 		entries = append(entries, GenerationEntry{Path: "无效内容", Error: "没有找到有效内容"})
@@ -474,14 +482,34 @@ func (a *App) generationPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	key := ""
 	m := generationManifest{User: a.store.snapshotWithLogLimit(0).Username, Kind: kind, Entries: entries, Created: time.Now()}
+	var temporary any
 	if valid {
 		key = id()
+		count := 0
+		for _, entry := range entries {
+			if entry.Mobile != nil {
+				count++
+			}
+		}
+		if count > 0 {
+			s, stamp, err := a.selectGenerationMobile(time.Now())
+			if err != nil {
+				fail(w, 400, err)
+				return
+			}
+			m.Mobile = &generationMobilePlan{StorageID: s.ID, Revision: storageRevision(s), Pool: stamp, Directory: "cas-import-" + key}
+			temporary = map[string]any{"storageId": s.ID, "storageName": s.Name, "directory": "/Aether/" + m.Mobile.Directory, "count": count}
+		}
 		if e := a.writeGenerationManifest(key, m); e != nil {
 			fail(w, 500, e)
 			return
 		}
 	}
-	jsonResponse(w, 200, map[string]any{"preview": key, "items": entries, "valid": valid})
+	public := append([]GenerationEntry(nil), entries...)
+	for i := range public {
+		public[i].Mobile = nil
+	}
+	jsonResponse(w, 200, map[string]any{"preview": key, "items": public, "valid": valid, "temporary": temporary})
 }
 func (a *App) generationJobs(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
@@ -495,6 +523,7 @@ func (a *App) generationJobs(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Preview string `json:"preview"`
 		Target  string `json:"target"`
+		Confirm bool   `json:"confirm"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -511,6 +540,16 @@ func (a *App) generationJobs(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		fail(w, 400, e)
 		return
+	}
+	if m.Mobile != nil {
+		if !in.Confirm {
+			fail(w, 400, errors.New("请确认临时转存及生成成功后的源文件清理"))
+			return
+		}
+		if _, e := a.generationMobileCurrent(*m.Mobile); e != nil {
+			fail(w, 400, e)
+			return
+		}
 	}
 	for _, entry := range m.Entries {
 		if entry.Error != "" {
@@ -547,13 +586,15 @@ func (a *App) generationJobs(w http.ResponseWriter, r *http.Request) {
 		if len(st.GenerationJobs) >= 100 {
 			cut := -1
 			for i, j := range st.GenerationJobs {
-				if j.Status != "running" && j.Status != "queued" {
+				if j.Status != "running" && j.Status != "queued" && !generationHasTemporary(j) {
 					cut = i
 					break
 				}
 			}
 			if cut >= 0 {
 				st.GenerationJobs = append(st.GenerationJobs[:cut], st.GenerationJobs[cut+1:]...)
+			} else {
+				return errors.New("生成记录含待核对的临时转存资源，请先人工核对清理")
 			}
 		}
 		st.GenerationJobs = append(st.GenerationJobs, job)
@@ -607,6 +648,10 @@ func (a *App) generationUpdate(key string, fn func(*GenerationJob)) error {
 }
 func (a *App) executeGeneration(ctx context.Context, job GenerationJob, m generationManifest, base, rel string) {
 	if e := a.generationUpdate(job.ID, func(j *GenerationJob) { j.Status = "running" }); e != nil {
+		return
+	}
+	if m.Mobile != nil {
+		a.executeMobileGeneration(ctx, job, m, base, rel)
 		return
 	}
 	root, e := os.OpenRoot(base)

@@ -1,5 +1,24 @@
 # Protocol References
 
+## Mobile Share Parsing and Confirmed CAS Import
+
+The official share-web transport and its three read endpoints were checked
+against the local OpenList 139 driver and share139-proxy reference
+(https://github.com/2982136527/share139-proxy, AGPL-3.0-only). Aether implements
+the bounded Go parser independently, using Go standard-library AES-CBC and the
+public share-web transport constant. No JavaScript source or reference runtime
+is bundled. This does not grant access to private shares or unavailable hashes;
+no account transfer or media download is performed by this parser.
+
+The optional, explicitly confirmed Mobile CAS import transfer uses independently
+implemented requests checked against the official share-web client on 2026-10-23:
+`https://yun.139.com/shareweb/static/js/app.5181b63a.js` and
+`chunk-3fde504c.17640f78.js`. The checked operations are
+`IBatchOprTask/createOuterLinkBatchOprTask` and `queryBatchOprTaskDetail`, including
+source paths, owner, target catalog and terminal task status. No official client
+code is copied or bundled. The execution stage uses an authorized personal-cloud
+account, never bypasses share access restrictions, and does not download media.
+
 ## Filesystem Monitoring
 
 Aether uses `github.com/fsnotify/fsnotify` v1.9.0 for native filesystem
