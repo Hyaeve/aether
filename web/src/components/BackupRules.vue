@@ -52,7 +52,7 @@ function open(rule) {
   modal.value = true
 }
 function choose(value) {
-  form[picker.value+'s'][pickerIndex.value] = {storageId:value.storageId,path:value.source,label:value.sourceLabel}
+  form[picker.value+'s'][pickerIndex.value] = {storageId:value.storageId,path:value.source,label:value.sourcePath || value.sourceLabel}
   picker.value = ''
 }
 function pick(kind,index) { picker.value=kind; pickerIndex.value=index }
@@ -92,7 +92,7 @@ async function remove() {
   catch(e) { notify(e.message,true) }
   finally { busy.value=false }
 }
-const directoryText = (id,label) => id ? `${storage(id)?.name || '存储已移除'} / ${label || '根目录'}` : ''
+const directoryText = (id,label) => id ? `${storage(id)?.name || '存储已移除'}${label?.startsWith('/') ? ' ' : ' / '}${label || '根目录'}` : ''
 defineExpose({ open, load })
 </script>
 <template>
@@ -134,7 +134,7 @@ defineExpose({ open, load })
       <p v-if="error" class="error-message" role="alert">{{error}}</p>
     </div></div><footer class="modal-footer"><button class="btn primary" :disabled="busy || form.sources.some(p=>!p.storageId) || form.targets.some(p=>!p.storageId)"><Icon name="Check" />保存规则</button><button type="button" class="btn" :disabled="busy" @click="modal=false">取消</button></footer></form>
   </Modal>
-  <TaskSourcePicker v-if="picker" :storages="storages" :storage="picked.storageId" :initial="picked.path || '/'" :initial-label="picked.label" @select="choose" @close="picker=''" />
+  <TaskSourcePicker v-if="picker" include-full-path :storages="storages" :storage="picked.storageId" :initial="picked.path || '/'" :initial-label="picked.label" @select="choose" @close="picker=''" />
   <Modal v-if="detail" title="备份执行详情" @close="detailId=''"><div class="modal-body backup-detail"><h3>{{detail.name}}</h3><div class="backup-phase">{{phaseText(detail)}}<span v-if="detail.phase==='copy'">{{percent(detail)}}%</span></div><progress v-if="detail.status==='running'" aria-label="执行详情进度" :max="Math.max(1,detail.total || 0)" :value="detail.phase==='scan'?undefined:(detail.processed || 0)" /><dl><div><dt>扫描文件</dt><dd>{{detail.scanned || 0}}</dd></div><div><dt>已复制</dt><dd>{{detail.copied || 0}}</dd></div><div><dt>已跳过</dt><dd>{{detail.skipped || 0}}</dd></div><div><dt>已处理 / 复制总数</dt><dd>{{detail.processed || 0}} / {{detail.total || 0}}</dd></div></dl><p>{{detail.message || '尚未执行'}}</p><time>{{detail.lastRun && !detail.lastRun.startsWith('0001') ? date(detail.lastRun) : ''}}</time></div><footer class="modal-footer"><button class="btn" @click="detailId=''">关闭</button></footer></Modal>
   <Modal v-if="deleting" title="删除备份规则" compact confirmation @close="deleting=null"><div class="modal-body">确认删除「{{deleting.name}}」？</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="remove">确认</button><button class="btn" @click="deleting=null">取消</button></footer></Modal>
   <Modal v-if="deleteConfirmation" title="确认同步删除" compact confirmation @close="deleteConfirmation=null"><div class="modal-body">「{{deleteConfirmation.name}}」的删除数量超过保护上限。确认后将重新扫描；文件有变化时仍会暂停，不会执行旧的删除计划。</div><footer class="modal-footer"><button class="btn danger" @click="command(deleteConfirmation,'confirm-deletions');deleteConfirmation=null">确认</button><button class="btn" @click="deleteConfirmation=null">取消</button></footer></Modal>
@@ -156,8 +156,10 @@ defineExpose({ open, load })
 @media(max-width:420px){.backup-steps{margin:0 16px;gap:0}.backup-steps button{font-size:12px;gap:3px}.backup-size{grid-template-columns:1fr 1fr}.backup-size>*:last-child{grid-column:1/-1}}
 @media(max-width:760px){.backup-grid{grid-template-columns:1fr}.backup-card footer{flex-wrap:wrap}.backup-editor{max-height:60dvh}}
 .backup-modal :deep(.modal) { width:min(640px,calc(100vw - 32px)); background:var(--surface); }.backup-editor :deep(.thin-scroll-rail) { display:none; }.backup-editor :deep(.backup-monitor) { flex-direction:row; align-items:center; gap:8px; }.backup-editor :deep(.backup-monitor input) { width:16px; height:16px; min-height:16px; }
-.backup-editor { overflow:auto; scrollbar-width:none; }.backup-editor::-webkit-scrollbar { display:none; }.backup-fields { display:grid; gap:14px; }.backup-editor .backup-monitor { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:10px; }.backup-editor .backup-monitor input.switch { width:32px; height:18px; min-height:18px; }.backup-sync-advanced { border-top:1px solid var(--border); padding-top:12px; }
+.backup-editor { overflow:auto; scrollbar-width:none; }.backup-editor::-webkit-scrollbar { display:none; }.backup-fields { display:grid; gap:14px; }.backup-editor .backup-monitor { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:10px; }.backup-editor .backup-monitor input.switch { width:35px; height:20px; min-height:20px; padding:3px; }.backup-sync-advanced { border-top:1px solid var(--border); padding-top:12px; }
 .backup-modal :deep(.modal) { background:var(--bg); }
-.backup-fields { padding:14px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.backup-fields { min-width:0; grid-template-columns:minmax(0,1fr); padding:14px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.backup-section { grid-template-columns:minmax(0,1fr); }
+.backup-location .source-trigger span { min-width:0; }
 .backup-fields.filter-step { padding:0; border:0; background:none; }
 </style>

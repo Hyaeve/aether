@@ -29,6 +29,9 @@ import (
 )
 
 type App struct {
+	marketMu            sync.Mutex
+	marketCache         map[string]*pluginMarketCache
+	marketGate          chan struct{}
 	casExportMu         sync.Mutex
 	casExportQueue      []*casExportJob
 	casExportJobs       map[string]*casExportJob
@@ -206,9 +209,10 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	a.wg.Add(1)
 	go a.rapid115Monitor()
 	go a.recycleCleanupMonitor()
-	a.wg.Add(2)
+	a.wg.Add(3)
 	go a.telegramPoll()
 	go a.telegramWorker()
+	go a.telegramInteractionCleaner()
 	go a.casExportResultMonitor()
 	a.wg.Add(1)
 	go a.storageHealthLoop()
@@ -312,6 +316,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/notification-service", a.protected(http.HandlerFunc(a.notificationSettings)))
 	mux.Handle("PUT /api/notification-service/{section}", a.protected(http.HandlerFunc(a.notificationSettings)))
 	mux.Handle("POST /api/notification-service/test", a.protected(http.HandlerFunc(a.telegramTest)))
+	mux.Handle("POST /api/notification-service/secret", a.protected(http.HandlerFunc(a.telegramSecret)))
+	mux.Handle("/api/plugin-market/repositories", a.protected(http.HandlerFunc(a.pluginRepositories)))
+	mux.Handle("GET /api/plugin-market", a.protected(http.HandlerFunc(a.pluginMarketCatalog)))
 	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, a.store.logSnapshot())
@@ -346,6 +353,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/rename-restore", a.protected(http.HandlerFunc(a.renameRestore)))
 	mux.Handle("/api/files/rename-rules", a.protected(http.HandlerFunc(a.renameRuleSets)))
 	mux.Handle("POST /api/files/directory-size", a.protected(http.HandlerFunc(a.directorySize)))
+	mux.Handle("GET /api/files/directory-trail", a.protected(http.HandlerFunc(a.directoryTrail)))
 	mux.Handle("GET /api/files/archive", a.protected(http.HandlerFunc(a.fileArchive)))
 	mux.Handle("POST /api/files/upload", a.protected(http.HandlerFunc(a.uploadFile)))
 	mux.Handle("GET /api/files/text", a.protected(http.HandlerFunc(a.fileText)))

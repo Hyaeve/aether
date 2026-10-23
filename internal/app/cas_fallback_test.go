@@ -64,6 +64,9 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 					data = map[string]any{"routePolicyList": []any{map[string]string{"modName": "personal", "httpsUrl": "https://personal.yun.139.com"}}}
 				case "/file/list":
 					data = map[string]any{"items": []any{map[string]string{"fileId": "folder", "name": "Aether", "type": "folder"}}}
+					if payload["parentFileId"] == "folder" {
+						data = map[string]any{"items": []any{map[string]string{"fileId": "cas-folder", "name": "CAS", "type": "folder"}}}
+					}
 				case "/file/create":
 					writes = append(writes, "mobile")
 					if payload["contentHash"] != strings.Repeat("a", 64) || payload["type"] != "file" {
@@ -86,6 +89,9 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 					}
 				case "/listFiles.action":
 					raw = `{"fileListAO":{"folderList":[{"id":20,"name":"Aether"}],"fileList":[]}}`
+					if r.FormValue("folderId") == "20" {
+						raw = `{"fileListAO":{"folderList":[{"id":21,"name":"CAS"}],"fileList":[]}}`
+					}
 				case "/person/initMultiUpload":
 					writes = append(writes, "tianyi")
 					params := tianyiTestUploadParams(t, r, "0123456789abcdef")

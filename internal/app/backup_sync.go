@@ -69,6 +69,9 @@ func (a *App) syncStatePath(id string) string {
 func syncInternal(name string) bool { return strings.HasPrefix(name, ".aether-") }
 
 func (a *App) scanSyncReplica(ctx context.Context, loc BackupLocation, s Storage, rule BackupRule, roots map[string]bool, visited *int, cached ...syncBaseline) (syncReplica, error) {
+	if ctx.Value(backupAncestryKey{}) == nil {
+		ctx = context.WithValue(ctx, backupAncestryKey{}, backupAncestryCache{})
+	}
 	rep := syncReplica{location: loc, storage: s, files: map[string]syncFile{}, dirs: map[string]File{}}
 	filters, err := compileBackupFilters(rule.Filters)
 	if err != nil {
@@ -83,7 +86,7 @@ func (a *App) scanSyncReplica(ctx context.Context, loc BackupLocation, s Storage
 		if depth > 128 || seen[dir] {
 			return errors.New("同步目录过深或存在循环")
 		}
-		if depth > 0 && roots[dir] {
+		if depth > 0 && roots[backupScopePath(s, dir)] {
 			return errors.New("同步目录相互重叠")
 		}
 		seen[dir] = true
@@ -99,10 +102,28 @@ func (a *App) scanSyncReplica(ctx context.Context, loc BackupLocation, s Storage
 			if *visited > 100000 {
 				return errors.New("单次同步最多扫描100000项，请拆分规则")
 			}
+			name := path.Join(rel, f.Name)
+			if backupNameExcluded(filters, f, name) {
+				if f.IsDir {
+					for peer := range roots {
+						if peer != backupScopePath(s, loc.Path) {
+							if s.Type == "115" {
+								if err := a.backupPrunedSafe(ctx, s, f.ID, s, peer); err != nil {
+									return err
+								}
+								continue
+							}
+							if err := backupPrunedOverlap(s, backupScopePath(s, f.ID), peer); err != nil {
+								return err
+							}
+						}
+					}
+				}
+				continue
+			}
 			if !safeName(f.Name) {
 				return errors.New("同步文件名称无效")
 			}
-			name := path.Join(rel, f.Name)
 			allowed := accept && backupFilterAccept(filters, f, name)
 			if f.IsDir {
 				if allowed {
@@ -556,7 +577,7 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 		for _, other := range locations {
 			t, _ := backupStorage(st, other.StorageID)
 			if backupSameTree(s, t) {
-				roots[backupDir(t, other.Path)] = true
+				roots[backupScopePath(t, other.Path)] = true
 			}
 		}
 		cache := syncBaseline{}

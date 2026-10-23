@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"strings"
 	"time"
 )
 
 // Like Nestify, local filesystem monitoring compares metadata every five seconds.
 func backupFingerprint(ctx context.Context, r BackupRule, st State) (string, error) {
+	filters, err := compileBackupFilters(r.Filters)
+	if err != nil {
+		return "", err
+	}
 	h := sha256.New()
 	count := 0
 	sources, targets := backupLocations(r)
@@ -54,6 +59,13 @@ func backupFingerprint(ctx context.Context, r BackupRule, st State) (string, err
 				return nil
 			}
 			if d.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			relative := strings.TrimPrefix(strings.TrimPrefix(p, strings.TrimSuffix(rel, "/")+"/"), "./")
+			if p != rel && backupNameExcluded(filters, File{Name: path.Base(p), IsDir: d.IsDir()}, relative) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
 				return nil
 			}
 			info, err := d.Info()

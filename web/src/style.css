@@ -4,7 +4,7 @@
   --primary: #3a4980; --primary-hover: #303f73; --primary-soft: #edf0f8; --lavender: #b4b9d6;
   --sidebar: #181e2d; --sidebar-hover: #242c40; --sidebar-active: #5263a8;
   --bg: #f2f3f5; --surface: #fafbfc; --text: #27313e; --muted: #85909f; --border: #e9ecf1;
-  --green: #328c79; --amber: #b58740; --red: #c75d64; --input: #fff;
+  --green: #328c79; --amber: #b58740; --info:#356b8c; --red: #c75d64; --input: #fff;
   --shadow: 0 12px 40px #17213518;
   --modal-standard-width:640px;
   --token-background:linear-gradient(120deg,#e6ebfa,#ede7f8); --token-border:#d3d9ef;
@@ -14,6 +14,7 @@
 [data-theme="dark"] { color-scheme: dark; --bg: #111216; --surface: #1b1d23; --text: #e3e6ed; --muted: #9aa3b1; --border: #30343f; --primary: #8997cb; --primary-hover: #9aa7d7; --primary-soft: #2c3246; --input: #292c34; --green: #78c2aa; --amber: #d9b170; --red: #e58b90; }
 [data-theme="dark"]{--layer-shell:#131419;--layer-frame:#17191e;--layer-item:#22252d;--layer-rule:#262831}
 [data-theme="dark"]{--token-background:linear-gradient(120deg,#303d61,#40365c);--token-border:#51577a}
+[data-theme="dark"]{--info:#9ac8e4}
 * { box-sizing: border-box; letter-spacing: 0; }
 body { margin: 0; color: var(--text); background: var(--bg); }
 button, input, select, textarea { font: inherit; }

@@ -221,7 +221,7 @@ func shareSessionRequest(ctx context.Context, session *Storage, method, address 
 	client := &http.Client{Transport: apiClient.Transport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Do(req)
 	if err != nil {
-		return errors.New("分享服务连接失败，请检查网络后重试")
+		return shareTransportFailure(ctx, err, "分享服务连接失败")
 	}
 	defer res.Body.Close()
 	if s.Type == "quark" && (res.Request == nil || (res.Request.URL.Scheme == req.URL.Scheme && res.Request.URL.Host == req.URL.Host)) {
@@ -394,7 +394,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			}
 			// Match the official share page, not the personal-cloud listing protocol.
 			body := map[string]any{"getOutLinkInfoReq": map[string]any{"account": account, "linkID": code, "passwd": pass, "pCaID": parent, "bNum": page*100 + 1, "eNum": (page + 1) * 100, "caSrt": 1, "coSrt": 1, "srtDr": 0}}
-			if err := shareRequest(ctx, s, "POST", mobileShareBase+"IOutLink/getOutLinkInfoV6", body, &result); err != nil {
+			if err := mobileGenerationRequest(ctx, "getOutLinkInfoV6", body, &result.Data, &s); err != nil {
 				return "", nil, err
 			}
 			if result.Data == nil {
@@ -762,7 +762,7 @@ func submitShareSession(ctx context.Context, session *Storage, p sharePreview, p
 				files = append(files, item.Token)
 			}
 		}
-		err = shareRequest(ctx, s, "POST", mobileShareBase+"IBatchOprTask/createOuterLinkBatchOprTask", map[string]any{"createOuterLinkBatchOprTaskReq": map[string]any{"msisdn": account, "ownerAccount": "", "taskType": 1, "linkID": p.Code, "needPassword": p.Pass != "", "taskInfo": map[string]any{"linkID": p.Code, "needPassword": p.Pass != "", "contentInfoList": files, "catalogInfoList": dirs, "newCatalogID": parent}}}, &result)
+		err = mobileGenerationRequest(ctx, "createOuterLinkBatchOprTask", map[string]any{"createOuterLinkBatchOprTaskReq": map[string]any{"msisdn": account, "ownerAccount": "", "taskType": 1, "linkID": p.Code, "needPassword": p.Pass != "", "taskInfo": map[string]any{"linkID": p.Code, "needPassword": p.Pass != "", "contentInfoList": files, "catalogInfoList": dirs, "newCatalogID": parent}}}, &result.Data, &s)
 	}
 	if err != nil {
 		return "", err

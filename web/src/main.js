@@ -12,6 +12,7 @@ const router = createRouter({
     { path: '/backup', redirect: '/transfer/backup' },
     { path: '/links', redirect: '/links/manage' },
     { path: '/notifications', redirect: '/notifications/telegram' },
+    { path: '/virtual/tianyi', redirect: '/virtual/115' },
     { path: '/webdav', redirect: '/files/webdav' },
     { path: '/mounts', redirect: '/files/mounts' },
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } }

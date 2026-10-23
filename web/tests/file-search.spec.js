@@ -59,6 +59,7 @@ test('deep directory result restores opaque breadcrumbs; file operations use its
   await page.getByRole('button',{name:'match-child.txt',exact:true}).click({button:'right'})
   await expect(page.locator('.context-menu')).toBeVisible()
   await expect(page.locator('.path-bar')).toContainText('资料')
+  await expect(page.getByRole('button',{name:'重命名',exact:true}).locator('svg.lucide-text-cursor-input-icon')).toHaveCount(1)
   await page.getByRole('button',{name:'重命名',exact:true}).click()
   await page.getByRole('textbox',{name:'新名称',exact:true}).fill('renamed.txt')
   await page.getByRole('textbox',{name:'新名称',exact:true}).press('Enter')

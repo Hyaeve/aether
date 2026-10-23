@@ -320,7 +320,7 @@ func (a *App) runMobileGeneration(ctx context.Context, job GenerationJob, m gene
 	}); err != nil {
 		return err
 	}
-	parent, err := a.casFolder(ctx, s, host)
+	parent, err := a.mobileCASDirectory(ctx, s, host, "/", "Aether")
 	if err != nil {
 		a.casFailureLog(s, m.Mobile.Directory, "分享临时目录", err)
 		return err

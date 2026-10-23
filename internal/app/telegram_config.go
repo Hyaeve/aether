@@ -21,11 +21,28 @@ type telegramConfig struct {
 }
 
 type telegramTarget struct {
-	ID        string `json:"id"`
-	Provider  string `json:"provider"`
-	StorageID string `json:"storageId"`
-	Parent    string `json:"parent"`
-	Path      string `json:"path"`
+	ID            string `json:"id"`
+	Provider      string `json:"provider"`
+	StorageID     string `json:"storageId"`
+	Parent        string `json:"parent"`
+	Path          string `json:"path"`
+	ShareTransfer *bool  `json:"shareTransfer,omitempty"`
+	ED2KOffline   bool   `json:"ed2kOffline"`
+}
+
+func (target telegramTarget) shares() bool {
+	return target.ShareTransfer == nil || *target.ShareTransfer
+}
+
+func (target telegramTarget) accepts(kind string) bool {
+	if kind == "ed2k" {
+		return target.Provider == "115" && target.ED2KOffline
+	}
+	return kind == "" && target.shares()
+}
+
+func sameTelegramTarget(a, b telegramTarget) bool {
+	return a.ID == b.ID && a.Provider == b.Provider && a.StorageID == b.StorageID && a.Parent == b.Parent && a.Path == b.Path && a.shares() == b.shares() && a.ED2KOffline == b.ED2KOffline
 }
 
 type notificationConfig struct {
@@ -34,21 +51,27 @@ type notificationConfig struct {
 }
 
 type telegramTransfer struct {
-	ID           string           `json:"id"`
-	ChatID       int64            `json:"chatId"`
-	UserID       int64            `json:"userId"`
-	MessageID    int64            `json:"messageId"`
-	Link         string           `json:"secret"`
-	Provider     string           `json:"provider"`
-	Targets      []telegramTarget `json:"targets"`
-	Selected     int              `json:"selected"`
-	Auth         string           `json:"auth"`
-	StorageStamp string           `json:"storageStamp,omitempty"`
-	Status       string           `json:"status"`
-	Name         string           `json:"name,omitempty"`
-	Processed    int              `json:"processed"`
-	Batches      int              `json:"batches"`
-	Created      time.Time        `json:"created"`
+	ID             string           `json:"id"`
+	ChatID         int64            `json:"chatId"`
+	UserID         int64            `json:"userId"`
+	MessageID      int64            `json:"messageId"`
+	Link           string           `json:"secret"`
+	Provider       string           `json:"provider"`
+	Kind           string           `json:"kind,omitempty"`
+	Page           int              `json:"page,omitempty"`
+	Targets        []telegramTarget `json:"targets"`
+	Selected       int              `json:"selected"`
+	Auth           string           `json:"auth"`
+	StorageStamp   string           `json:"storageStamp,omitempty"`
+	Status         string           `json:"status"`
+	Name           string           `json:"name,omitempty"`
+	Processed      int              `json:"processed"`
+	Batches        int              `json:"batches"`
+	Created        time.Time        `json:"created"`
+	LastActivity   time.Time        `json:"lastActivity,omitempty"`
+	Bot            string           `json:"bot,omitempty"`
+	CleanupPending bool             `json:"cleanupPending,omitempty"`
+	CleanupAttempt time.Time        `json:"cleanupAttempt,omitempty"`
 }
 
 type telegramRuntime struct {
@@ -88,6 +111,9 @@ func validateNotifications(value notificationConfig, st State) error {
 	}
 	seen := map[string]bool{}
 	for _, target := range value.Targets {
+		if target.Provider != "115" && (target.ED2KOffline || !target.shares()) {
+			return errors.New("仅115目录支持设置分享转存和ED2K离线用途")
+		}
 		if !shareCodePattern.MatchString(target.ID) || seen[target.ID] || target.Parent == "" || len(target.Parent) > 4096 || !strings.HasPrefix(target.Path, "/") || len(target.Path) > 4096 || strings.ContainsAny(target.Parent+target.Path, "\x00\r\n") {
 			return errors.New("转存目录标识或完整路径无效")
 		}
@@ -190,4 +216,25 @@ func (a *App) telegramTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, 200, map[string]bool{"ok": true})
+}
+
+func (a *App) telegramSecret(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	var input struct {
+		Field        string `json:"field"`
+		MetadataOnly bool   `json:"metadataOnly"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.Field != "token" {
+		fail(w, 400, errors.New("不支持的凭据字段"))
+		return
+	}
+	value := a.store.snapshotWithLogLimit(0).Notifications.Telegram.Token
+	if input.MetadataOnly {
+		jsonResponse(w, 200, map[string]int{"length": len([]rune(value))})
+		return
+	}
+	jsonResponse(w, 200, map[string]string{"value": value})
 }

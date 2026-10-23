@@ -67,6 +67,7 @@ func mobileGenerationShareJSON(ctx context.Context, method string, payload, out 
 
 func mobileGenerationRequest(ctx context.Context, method string, payload, out any, storage *Storage) error {
 	module := "IOutLink/"
+	stage := "移动分享读取（share-kd-njs.yun.139.com）"
 	switch method {
 	case "getOutLinkGeneral", "getOutLinkInfoV6", "getContentInfoFromOutLink":
 	case "createOuterLinkBatchOprTask", "queryBatchOprTaskDetail":
@@ -74,6 +75,10 @@ func mobileGenerationRequest(ctx context.Context, method string, payload, out an
 			return errors.New("移动分享转存需要已授权的原生存储")
 		}
 		module = "IBatchOprTask/"
+		stage = "移动分享转存提交（share-kd-njs.yun.139.com）"
+		if method == "queryBatchOprTaskDetail" {
+			stage = "移动分享转存结果查询（share-kd-njs.yun.139.com）"
+		}
 	default:
 		return errors.New("不支持的分享接口")
 	}
@@ -125,11 +130,11 @@ func mobileGenerationRequest(ctx context.Context, method string, payload, out an
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return errors.New("移动分享读取连接失败")
+		return shareTransportFailure(ctx, err, stage)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		return fmt.Errorf("移动分享读取 HTTP %d", response.StatusCode)
+		return fmt.Errorf("%s HTTP %d", stage, response.StatusCode)
 	}
 	raw, err = io.ReadAll(io.LimitReader(response.Body, (4<<20)+1))
 	if err != nil || len(raw) > 4<<20 {
@@ -148,7 +153,7 @@ func mobileGenerationRequest(ctx context.Context, method string, payload, out an
 	}
 	if code := mobileQRString(envelope.Code); code != "0" && code != "0000" {
 		if len(code) <= 32 && shareCodePattern.MatchString(code) {
-			return fmt.Errorf("移动分享读取被拒绝（错误码 %s），请检查提取码和访问权限", code)
+			return fmt.Errorf("%s被拒绝（错误码 %s），请检查提取码和访问权限", stage, code)
 		}
 		return errors.New("移动分享无效或读取被拒绝，请检查提取码和访问权限")
 	}

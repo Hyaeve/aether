@@ -16,6 +16,7 @@ test('individual rename updates path before bulk preview and ignored files are e
   await page.getByRole('button', { name: '工具', exact: true }).click()
   await page.getByRole('menuitem', { name: '命名工作台', exact: true }).click()
   await page.locator('.rename-preview-row').first().hover()
+  await expect(page.locator('.rename-preview-row').first().getByRole('button', { name: '修改', exact: true }).locator('svg.lucide-text-cursor-input-icon')).toHaveCount(1)
   await page.locator('.rename-preview-row').first().getByRole('button', { name: '修改', exact: true }).click()
   await page.getByLabel('新名称', { exact: true }).fill('single.mkv')
   await page.getByRole('button', { name: '确认修改', exact: true }).click()

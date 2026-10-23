@@ -331,14 +331,28 @@ func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind strin
 }
 
 func (a *App) cloud115DirectoryPath(ctx context.Context, s Storage, key string) string {
-	if key == "0" || key == "/" {
-		return "/"
-	}
-	if key == "" {
+	trail, err := a.cloud115DirectoryTrail(ctx, s, key)
+	if err != nil {
 		return ""
+	}
+	names := []string{}
+	for _, parent := range trail {
+		if parent.ID != "0" {
+			names = append(names, parent.Name)
+		}
+	}
+	return "/" + strings.Join(names, "/")
+}
+
+func (a *App) cloud115DirectoryTrail(ctx context.Context, s Storage, key string) ([]searchCrumb, error) {
+	if key == "0" || key == "/" {
+		return []searchCrumb{{ID: "0", Name: "根目录"}}, nil
+	}
+	if key == "" || len(key) > 4096 {
+		return nil, errors.New("目录ID无效")
 	}
 	if err := a.waitAPI(ctx, s.ID); err != nil {
-		return ""
+		return nil, err
 	}
 	var response struct {
 		CID  json.RawMessage `json:"cid"`
@@ -348,17 +362,26 @@ func (a *App) cloud115DirectoryPath(ctx context.Context, s Storage, key string) 
 		} `json:"path"`
 	}
 	err := shareRequest(ctx, s, http.MethodGet, "https://webapi.115.com/files?"+url.Values{"cid": {key}, "limit": {"1"}, "offset": {"0"}}.Encode(), nil, &response)
-	if err != nil || len(response.Path) == 0 {
-		return ""
+	if err != nil {
+		return nil, err
+	}
+	if len(response.Path) == 0 || len(response.Path) > 129 {
+		return nil, errors.New("115完整路径不可用")
 	}
 	if strings.Trim(string(response.Path[len(response.Path)-1].CID), `"`) != key {
-		return ""
+		return nil, errors.New("115目录身份不符")
 	}
-	names := []string{}
+	trail, seen := []searchCrumb{}, map[string]bool{}
 	for _, parent := range response.Path {
-		if strings.Trim(string(parent.CID), `"`) != "0" {
-			names = append(names, parent.Name)
+		id := strings.Trim(string(parent.CID), `"`)
+		if id == "" || seen[id] || id != "0" && !safeName(parent.Name) {
+			return nil, errors.New("115目录路径无效")
 		}
+		seen[id] = true
+		trail = append(trail, searchCrumb{ID: id, Name: parent.Name})
 	}
-	return "/" + strings.Join(names, "/")
+	if trail[0].ID != "0" {
+		return nil, errors.New("115目录路径不完整")
+	}
+	return trail, nil
 }

@@ -44,6 +44,20 @@ func TestTelegramSettingsPersistenceAndRedaction(t *testing.T) {
 	if w.Code != 200 || strings.Contains(w.Body.String(), cfg.Token) || !strings.Contains(w.Body.String(), `"hasToken":true`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
+	if w := request(t, h, "POST", "/api/notification-service/secret", map[string]any{"field": "token"}, nil); w.Code != 401 {
+		t.Fatal("unauthorized token reveal", w.Code)
+	}
+	w = request(t, h, "POST", "/api/notification-service/secret", map[string]any{"field": "token", "metadataOnly": true}, cookie)
+	if w.Code != 200 || strings.Contains(w.Body.String(), cfg.Token) || !strings.Contains(w.Body.String(), `"length":`) {
+		t.Fatal("token metadata", w.Code, w.Body.String())
+	}
+	w = request(t, h, "POST", "/api/notification-service/secret", map[string]any{"field": "token"}, cookie)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), cfg.Token) || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("token reveal", w.Code)
+	}
+	if w := request(t, h, "POST", "/api/notification-service/secret", map[string]string{"field": "password"}, cookie); w.Code != 400 {
+		t.Fatal("unrelated secret field accepted", w.Code)
+	}
 	cfg.Token = ""
 	w = request(t, h, "PUT", "/api/notification-service", notificationConfig{Telegram: cfg}, cookie)
 	if w.Code != 200 || a.store.snapshot().Notifications.Telegram.Token == "" {

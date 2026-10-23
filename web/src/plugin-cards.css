@@ -1,0 +1,7 @@
+.plugin-grid .plugin-card{position:relative;height:130px;min-height:130px;padding:16px;grid-template-columns:44px minmax(0,1fr);grid-template-rows:44px 40px;gap:12px 14px;align-content:start;overflow:hidden;cursor:pointer}
+.plugin-grid .plugin-card>.plugin-symbol,.plugin-grid .plugin-card>button.plugin-symbol,.plugin-grid .plugin-card>.rapid115-icon{grid-column:1;grid-row:1}
+.plugin-grid .plugin-heading{grid-column:2;grid-row:1;min-width:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:24px 18px;gap:2px}
+.plugin-grid .plugin-heading strong{grid-column:1;grid-row:1;display:block;font-size:16px;line-height:24px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plugin-grid .plugin-heading .plugin-subtitle{grid-column:1;grid-row:2;display:block;margin:0;color:var(--muted);font-size:12px;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plugin-grid .plugin-card .plugin-description{grid-column:1/-1;grid-row:2;margin:0;align-self:start;line-height:20px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.plugin-grid .plugin-card .status{position:absolute;top:4px;right:8px;bottom:auto;font-size:10px;line-height:12px;background:var(--surface)}

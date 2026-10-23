@@ -36,9 +36,6 @@ func (a *App) telegramWorker() {
 		st := a.store.snapshotWithLogLimit(0)
 		var next *telegramTransfer
 		for _, job := range st.TelegramRuntime.Jobs {
-			if (job.Status == "choosing" || job.Status == "confirming") && time.Since(job.Created) > 10*time.Minute {
-				a.finishTelegram(job.ID, "cancelled", "TG 目录确认已过期，未转存", 0)
-			}
 			if job.Status == "queued" {
 				copy := job
 				next = &copy
@@ -120,8 +117,24 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 	if err != nil || !claimed {
 		return
 	}
-	a.store.event("info", "notifications", fmt.Sprintf("[TG:%s] 开始链接转存：%s · %s", job.ID, s.Name, target.Path))
-	_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备转存："+s.Name+" · "+target.Path, nil)
+	action := telegramAction(job.Kind)
+	a.store.event("info", "notifications", fmt.Sprintf("[TG:%s] 开始%s：%s · %s", job.ID, action, s.Name, target.Path))
+	_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+s.Name+" · "+target.Path, nil)
+	if job.Kind == "ed2k" {
+		info, e := parseED2KText(job.Link)
+		if e != nil || s.Type != "115" {
+			finish("failed", "ED2K 链接或115离线目录无效")
+			return
+		}
+		name = info.Name
+		processed, err = a.submitTelegramED2K(ctx, job, target, s, stampText, submit115URIs)
+		if err != nil {
+			finish("failed", err.Error())
+			return
+		}
+		finish("submitted", "ED2K 离线已提交，请查看115云下载状态")
+		return
+	}
 	provider, code, pass, err := parseShareLink(job.Link, "")
 	if err != nil || provider != s.Type {
 		finish("failed", "分享链接无效或类型不一致")
@@ -224,4 +237,47 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 	} else {
 		finish("submitted", "转存已提交，请核对云盘结果")
 	}
+}
+
+func (a *App) submitTelegramED2K(ctx context.Context, job telegramTransfer, target telegramTarget, s Storage, stamp string, submit func(context.Context, Storage, string, []string) []offlineResult) (int, error) {
+	info, err := parseED2KText(job.Link)
+	if err != nil || job.Kind != "ed2k" || s.Type != "115" || len(job.Link) > 8192 {
+		return 0, errors.New("ED2K 链接或115离线目录无效")
+	}
+	if err := a.telegramExecutionValid(job, target, stamp); err != nil {
+		return 0, err
+	}
+	parent := target.Parent
+	if parent == "/" || parent == "" {
+		parent = rootOf(s)
+	}
+	if _, err := a.rawList(ctx, s, parent); err != nil {
+		return 0, errors.New("115离线目录不可访问，未提交任务")
+	}
+	// Persist once before submission; an uncertain native result must never be replayed.
+	err = a.store.update(func(st *State) error {
+		for i := range st.TelegramRuntime.Jobs {
+			current := &st.TelegramRuntime.Jobs[i]
+			if current.ID == job.ID && current.Status == "running" && current.Batches == 0 && telegramTargetCurrent(*st, *current, target) {
+				current.Batches, current.Name = 1, info.Name
+				return nil
+			}
+		}
+		return errors.New("离线任务已处理或目录配置已变化，未重复提交")
+	})
+	if err != nil {
+		return 0, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, errors.New("ED2K 离线已中断，未提交任务")
+	}
+	if err := a.telegramExecutionValid(job, target, stamp); err != nil {
+		return 0, err
+	}
+	results := submit(ctx, s, parent, []string{info.URI()})
+	if len(results) != 1 || !results[0].Success {
+		return 0, errors.New("ED2K 离线未确认，请检查115云下载记录及账号权益；勿直接重复提交")
+	}
+	a.store.event("info", "notifications", fmt.Sprintf("[TG:%s] ED2K 离线已提交：%s · %s · %s", job.ID, s.Name, target.Path, info.Name))
+	return 1, nil
 }

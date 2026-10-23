@@ -1,16 +1,23 @@
 <script setup>
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import { api, date, driverOf } from '../lib'
+import { api, date, driverOf, notify } from '../lib'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import VirtualList from './VirtualList.vue'
 import PathBreadcrumbs from './PathBreadcrumbs.vue'
-const props = defineProps({ storages: Array, storage: String, initial: String, initialLabel: String, initialTrail: Array, allowAll: Boolean, includeFullPath:Boolean })
+const props = defineProps({ storages: Array, storage: String, initial: String, initialLabel: String, initialTrail: Array, allowAll: Boolean, includeFullPath:Boolean, clickablePath:Boolean })
 const emit = defineEmits(['select', 'close'])
 const selected = ref(props.storage || '')
 const dir = ref(props.initial || '/'), trail = ref((props.initialTrail || []).map(c => ({ ...c }))), items = ref([]), busy = ref(false), error = ref(''), query = ref('')
-const label = ref(props.initialLabel || (dir.value === '/' ? '根目录' : '已选目录'))
+const initialStorage = props.storages.find(s => s.id === selected.value)
+const pathBased = initialStorage && (['local','openlist','webdav'].includes(initialStorage.type) || initialStorage.type === 'mobile' && initialStorage.config?.mode !== 'native')
+const initialPath = props.initialLabel?.startsWith('/') ? props.initialLabel : pathBased && dir.value.startsWith('/') ? dir.value : ''
+const atRoot = dir.value === '/' || dir.value === initialStorage?.config?.root || (['115','quark'].includes(initialStorage?.type) && dir.value === '0') || initialStorage?.type === 'tianyi' && dir.value === '-11'
+const label = ref(atRoot ? '根目录' : (initialPath ? initialPath.split('/').filter(Boolean).at(-1) : props.initialLabel) || '已选目录')
+let restorePending = !!initialPath && !atRoot && !trail.value.length
+let restore115Pending = initialStorage?.type === '115' && !atRoot && !trail.value.length && !initialPath
+let incompletePending = props.includeFullPath && initialStorage?.type !== '115' && !atRoot && !trail.value.length && !initialPath
 let generation = 0
 const creating = ref(false), createOpen = ref(false), folderName = ref(''), createError = ref(''), nameInput = ref(null)
 async function showCreate() {
@@ -32,19 +39,47 @@ const visible = computed(() => items.value.filter(f => f.name.toLowerCase().incl
 const wholeStorage = computed(() => props.allowAll && !!selected.value && trail.value.length === 0 && (dir.value === '/' || dir.value === props.storages.find(s => s.id === selected.value)?.config?.root))
 async function load() {
   const run = ++generation
+  const restore = restorePending; restorePending = false
+  const restore115 = restore115Pending; restore115Pending = false
+  const incomplete = incompletePending; incompletePending = false
   error.value = ''; busy.value = true; items.value = []
   if (!selected.value) { busy.value = false; return }
   try {
+    if (incomplete) throw new Error('旧目录记录不包含完整路径，请从根目录重新选择')
+    if (restore115) {
+      const result = await api(`/files/directory-trail?storage=${encodeURIComponent(selected.value)}&path=${encodeURIComponent(dir.value)}`)
+      if (run !== generation) return
+      if (!Array.isArray(result.trail) || !result.path?.startsWith('/') || !result.label) throw new Error('完整路径不可用，请从根目录重新选择')
+      trail.value = result.trail; label.value = result.label
+    }
+    if (restore) {
+      const parts = initialPath.split('/').filter(Boolean)
+      if (parts.length > 128 || parts.some(p => p === '.' || p === '..')) throw new Error('已保存路径无效，请从根目录重新选择')
+      let parent = '/', name = '根目录'
+      const restored = []
+      for (const part of parts) {
+        const entries = await api(`/files?storage=${encodeURIComponent(selected.value)}&path=${encodeURIComponent(parent)}`)
+        if (run !== generation) return
+        const matches = entries.filter(f => f.isDir && f.name === part)
+        if (matches.length !== 1) throw new Error('已保存路径已变化，请从根目录重新选择')
+        restored.push({id:parent,name}); parent = matches[0].id; name = matches[0].name
+      }
+      if (parent !== dir.value) throw new Error('已保存目录身份已变化，请从根目录重新选择')
+      trail.value = restored; label.value = name
+    }
     const result = await api(`/files?storage=${encodeURIComponent(selected.value)}&path=${encodeURIComponent(dir.value)}`)
     if (run === generation) items.value = result.filter(f => f.isDir)
-  } catch (e) { if (run === generation) error.value = e.message }
+  } catch (e) { if (run === generation) { error.value = e.message; if (restore || restore115 || incomplete) notify(e.message,true) } }
   finally { if (run === generation) busy.value = false }
 }
-function root() { dir.value = '/'; label.value = '根目录'; trail.value = []; query.value = '' }
+function root() { restorePending = false; restore115Pending = false; incompletePending = false; dir.value = '/'; label.value = '根目录'; trail.value = []; query.value = '' }
 function choose(id) { if (creating.value || selected.value === id) return; selected.value = id; root() }
 function enter(item) { if (creating.value) return; trail.value.push({ id: dir.value, name: label.value }); dir.value = item.id; label.value = item.name; query.value = '' }
 const crumbs = computed(() => {
   const entries = [...trail.value, {id:dir.value,name:label.value}]
+  const pool = props.storages.find(s => s.id === selected.value)
+  const first = entries[0]?.id
+  if (first === pool?.config?.root || (['115','quark'].includes(pool?.type) && first === '0') || pool?.type === 'tianyi' && first === '-11') entries[0] = {id:'/',name:'根目录'}
   if (entries[0]?.id !== '/') entries.unshift({id:'/',name:'根目录'})
   return entries.filter((c,i) => !i || c.id !== entries[i-1].id)
 })
@@ -62,7 +97,7 @@ onUnmounted(() => generation++)
     <div class="task-source-picker">
       <aside class="source-accounts"><h3>选择存储</h3><button v-if="allowAll" type="button" :class="{ active: !selected }" @click="choose('')"><Icon name="Layers" /><span>所有存储池</span></button><button v-for="s in storages" :key="s.id" type="button" :class="{ active: selected === s.id }" :aria-pressed="selected === s.id" @click="choose(s.id)"><ProviderIcon :type="s.type" small /><span><strong>{{ s.name }}</strong><small>{{ driverOf(s.type).name }}</small></span></button><p v-if="!storages.length" class="small-empty">暂无可用存储池</p></aside>
       <section class="source-directories">
-        <div class="source-toolbar"><nav v-if="includeFullPath" class="directory-path-label" aria-label="存储目录路径"><button type="button" class="text-btn" :disabled="busy || creating || dir === '/'" @click="root">根目录</button><span :title="fullPath">{{fullPath}}</span></nav><PathBreadcrumbs v-else class="directory-crumbs" aria-label="存储目录路径" :entries="crumbs.slice(1)" :disabled="busy || creating" @jump="jump($event + 1)" /><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选当前目录文件夹" /></div><button type="button" class="icon-btn" aria-label="新建文件夹" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" :size="23" /></button></div>
+        <div class="source-toolbar"><PathBreadcrumbs class="directory-crumbs" aria-label="存储目录路径" :entries="crumbs.slice(1)" :disabled="busy || creating" @jump="jump($event + 1)" /><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选当前目录文件夹" /></div><button type="button" class="icon-btn" aria-label="新建文件夹" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" :size="23" /></button></div>
         <div class="source-list" :aria-busy="busy">
           <div class="source-columns"><span>名称</span><span>修改时间</span></div>
           <p v-if="error" class="error-message" role="alert">{{ error }}</p>
@@ -80,18 +115,14 @@ onUnmounted(() => generation++)
 .picker-create-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
 .picker-create-form input { flex: 1; min-width: 100px; width: 0; }
 .picker-create-form .error-message { flex-basis: 100%; margin: 0; }
-.source-toolbar { flex-wrap: nowrap; margin-bottom:10px; }
-.source-toolbar .directory-crumbs { margin:0; }
-.source-toolbar .directory-crumbs { flex:1; min-width:0; }
-.source-toolbar .directory-path-label{display:flex;align-items:center;gap:8px;flex:1;min-width:0;overflow:hidden;padding:0 10px;color:var(--text);font-size:13px}.directory-path-label .text-btn{flex:none;padding:0;color:var(--muted);font-size:13px}.directory-path-label span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.source-toolbar .search-field { flex:0 1 190px; margin:0; }
+.source-toolbar { display:grid; grid-template-columns:minmax(0,1fr) 36px; margin-bottom:10px; }
+.source-toolbar .directory-crumbs { grid-column:1/-1; min-width:0; margin:0; }
+.source-toolbar .search-field { width:100%; margin:0; }
 .source-toolbar .search-field input { margin:0; }
 .source-toolbar > .icon-btn { flex: 0 0 36px; }
 .source-columns { padding:8px 14px; font-size:12px; color:var(--text); }
 .source-directory time { font-size:14px; }
 @media (max-width: 700px) {
-  .source-toolbar { flex-wrap:wrap; }
-  .source-toolbar .directory-crumbs { flex-basis:calc(100% - 46px); }
-  .source-toolbar .search-field { order:1; flex-basis:100%; }
+  .source-toolbar .search-field { order:0; }
 }
 </style>

@@ -50,6 +50,7 @@ func (a *App) backupProgress(rule *BackupRule, message string) error {
 }
 
 func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
+	ctx = context.WithValue(ctx, backupAncestryKey{}, backupAncestryCache{})
 	ctx = context.WithValue(ctx, backupTransferSnapshotKey{}, a.transferConfig())
 	if err := ctx.Err(); err != nil {
 		return err
@@ -100,7 +101,7 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 				return errors.New("备份目录过深或存在循环")
 			}
 			for j, target := range targets {
-				if backupSameTree(source, target) && dir == backupDir(target, locations[j].Path) {
+				if backupSameTree(source, target) && backupScopePath(source, dir) == backupScopePath(target, locations[j].Path) {
 					return errors.New("备份目标位于源目录内")
 				}
 			}
@@ -117,13 +118,27 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 				if visited > 100000 {
 					return errors.New("单次备份最多扫描100000项，请拆分规则")
 				}
+				relative := path.Join(rel, f.Name)
+				if backupNameExcluded(filters, f, relative) {
+					if f.IsDir {
+						for j, target := range targets {
+							if backupSameTree(source, target) {
+								if err := a.backupPrunedSafe(ctx, source, f.ID, target, locations[j].Path); err != nil {
+									return err
+								}
+							}
+						}
+					} else {
+						rule.Skipped++
+					}
+					continue
+				}
 				if !safeName(f.Name) {
 					return errors.New("源文件名称无效")
 				}
-				relative := path.Join(rel, f.Name)
 				allowed := accepted && backupFilterAccept(filters, f, relative)
 				if f.IsDir {
-					// Even excluded branches are traversed to verify opaque-ID containment.
+					// Other filter types retain their existing containment traversal.
 					if err := scan(f.ID, relative, depth+1, allowed); err != nil {
 						return err
 					}
@@ -161,22 +176,22 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 		for _, loc := range sources {
 			source, _ := backupStorage(st, loc.StorageID)
 			if source.Type != "local" && backupSameTree(source, target) {
-				roots[backupDir(source, loc.Path)] = true
+				roots[backupScopePath(source, loc.Path)] = true
 			}
 		}
 		if len(roots) == 0 {
 			continue
 		}
 		seen := map[string]bool{}
-		var check func(string, int) error
-		check = func(dir string, depth int) error {
+		var check func(string, string, int) error
+		check = func(dir, rel string, depth int) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 			if depth > 128 || seen[dir] {
 				return errors.New("目标目录过深或存在循环")
 			}
-			if roots[dir] {
+			if roots[backupScopePath(target, dir)] {
 				return errors.New("备份源位于目标目录内")
 			}
 			seen[dir] = true
@@ -189,15 +204,30 @@ func (a *App) executeBackup(ctx context.Context, rule *BackupRule) error {
 				if visited > 100000 {
 					return errors.New("备份范围过大，请拆分规则")
 				}
+				relative := path.Join(rel, f.Name)
+				if backupNameExcluded(filters, f, relative) {
+					if f.IsDir {
+						for _, sourceLoc := range sources {
+							source, _ := backupStorage(st, sourceLoc.StorageID)
+							if !backupSameTree(source, target) {
+								continue
+							}
+							if err := a.backupPrunedSafe(ctx, target, f.ID, source, sourceLoc.Path); err != nil {
+								return err
+							}
+						}
+					}
+					continue
+				}
 				if f.IsDir {
-					if err := check(f.ID, depth+1); err != nil {
+					if err := check(f.ID, relative, depth+1); err != nil {
 						return err
 					}
 				}
 			}
 			return nil
 		}
-		if err := check(backupDir(target, locations[j].Path), 0); err != nil {
+		if err := check(backupDir(target, locations[j].Path), "", 0); err != nil {
 			return err
 		}
 	}

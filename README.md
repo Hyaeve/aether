@@ -4,7 +4,7 @@
 
 自托管的云盘与本地存储工作空间，使用 Go + Vue 构建。
 
-当前版本：**v0.6.3** · [版本说明](docs/releases/v0.6.3.md)
+当前版本：**v0.6.4** · [版本说明](docs/releases/v0.6.4.md)
 
 版本编号采用末位满10、中位满100进位，不按标准SemVer的无限补丁位递增。发布前运行 `node scripts/version.mjs --next` 计算下一个编号，运行 `node scripts/version.mjs --check` 校验各处版本一致。
 
@@ -20,7 +20,7 @@
 | STRM 刮削 | 按作品目录识别电影和剧集，匹配 TMDB、生成元数据和海报 |
 | 以太链接 | AudioBookShelf、Emby、飞牛影视反代、302 直链、中继、播放流水和直链缓存 |
 | 传输中心 | 查看传输进度，管理目录备份规则、文件筛选和备份计划 |
-| 辅助工具 | [115 秒传中心](docs/115-rapid.md)、TMDB、AI 接口、代理、Emby 通知、夸克 STRM 接管、115 同播复制、STRM 内容替换与加密配置备份 |
+| 辅助工具 | [115 秒传中心](docs/115-rapid.md)、TMDB、AI 接口、代理、Emby 通知、夸克 STRM 接管、115 同播复制、STRM 内容替换、加密配置备份与[只读插件市场](docs/plugin-market.md) |
 | 通知服务 | [TG Bot 接入](docs/notification-service.md)、授权会话、115/移动/夸克转存目录池、交互确认与转存日志 |
 | 系统设置 | 账号安全、全局传输限制、主题、日志保留及系统日志查询 |
 

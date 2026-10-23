@@ -88,10 +88,13 @@ func TestCASLifecycle(t *testing.T) {
 			}}
 		case "/file/create":
 			if payload["type"] == "folder" {
-				if payload["name"] != "Aether" || payload["parentFileId"] != "/" {
-					t.Error("restore folder must be /Aether")
+				if payload["name"] == "Aether" && payload["parentFileId"] == "/" {
+					result = map[string]any{"fileId": "aether-folder"}
+				} else if payload["name"] == "CAS" && payload["parentFileId"] == "aether-folder" {
+					result = map[string]any{"fileId": "temp-folder"}
+				} else {
+					t.Error("restore folder must be /Aether/CAS")
 				}
-				result = map[string]any{"fileId": "temp-folder"}
 			} else {
 				restores++
 				if payload["contentHash"] != hash || payload["parentFileId"] != "temp-folder" {

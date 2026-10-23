@@ -116,6 +116,7 @@ type LogEntry struct {
 }
 
 type State struct {
+	PluginRepositories []pluginRepository           `json:"pluginRepositories,omitempty"`
 	Notifications      notificationConfig           `json:"notifications"`
 	TelegramRuntime    telegramRuntime              `json:"telegramRuntime,omitempty"`
 	ShareTargets       *shareTransferPreferences    `json:"shareTransferPreferences,omitempty"`

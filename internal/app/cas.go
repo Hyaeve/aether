@@ -294,20 +294,30 @@ func (a *App) casFolder(ctx context.Context, s Storage, host string) (string, er
 	if nativeTianyi(s) {
 		return a.tianyiCASFolder(ctx, s)
 	}
-	name := "Aether"
-	files, err := a.mobileListAt(ctx, s, host, "/")
+	parent, err := a.mobileCASDirectory(ctx, s, host, "/", "Aether")
+	if err != nil {
+		return "", err
+	}
+	return a.mobileCASDirectory(ctx, s, host, parent, "CAS")
+}
+
+func (a *App) mobileCASDirectory(ctx context.Context, s Storage, host, parent, name string) (string, error) {
+	files, err := a.mobileListAt(ctx, s, host, parent)
 	if err != nil {
 		return "", err
 	}
 	for _, f := range files {
-		if f.IsDir && f.Name == name {
+		if f.Name == name {
+			if !f.IsDir {
+				return "", errors.New("CAS 临时目录与已有文件冲突")
+			}
 			return f.ID, nil
 		}
 	}
 	var data struct {
 		ID string `json:"fileId"`
 	}
-	err = a.mobilePost(ctx, s, host+"/file/create", map[string]any{"parentFileId": "/", "name": name, "description": "", "type": "folder", "fileRenameMode": "force_rename"}, false, &data)
+	err = a.mobilePost(ctx, s, host+"/file/create", map[string]any{"parentFileId": parent, "name": name, "description": "", "type": "folder", "fileRenameMode": "force_rename"}, false, &data)
 	if err != nil {
 		return "", err
 	}

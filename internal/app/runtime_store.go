@@ -191,6 +191,9 @@ func (s *Store) initRuntime(dir string) error {
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
 	for i := range s.state.TelegramRuntime.Jobs {
 		job := &s.state.TelegramRuntime.Jobs[i]
+		if (job.Status == "choosing" || job.Status == "confirming") && job.MessageID > 0 {
+			job.CleanupPending = true
+		}
 		if job.Status == "queued" || job.Status == "running" || job.Status == "choosing" || job.Status == "confirming" {
 			job.Status = "interrupted"
 			job.Link = ""

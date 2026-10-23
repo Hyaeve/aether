@@ -1,7 +1,7 @@
 <script setup>
 import { driverOf } from '../lib'
 import Icon from './Icon.vue'
-defineProps({ type: String, small: Boolean, compact: Boolean })
+defineProps({ type: String, small: Boolean, compact: Boolean, unframed: Boolean })
 const logos = {
   '115': '/providers/115.ico',
   mobile: '/providers/mobile.png',
@@ -12,7 +12,7 @@ const logos = {
 </script>
 <template>
   <span class="provider-icon" :data-provider="type" :class="{ small, compact }" :style="{ '--provider': driverOf(type).color }" aria-hidden="true">
-    <img v-if="logos[type]" :src="logos[type]" alt="" class="provider-logo" draggable="false" />
+    <img v-if="logos[type]" :src="unframed && ['mobile', 'quark'].includes(type) ? `/providers/${type}-mark.png` : logos[type]" alt="" class="provider-logo" draggable="false" />
     <Icon v-else-if="type === 'local'" name="CloudDownload" :size="small ? 20 : 27" />
     <Icon v-else-if="type === 'webdav'" name="WebDAV" :size="small ? 20 : 27" />
     <span v-else>{{ driverOf(type).icon }}</span>

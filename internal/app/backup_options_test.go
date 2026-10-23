@@ -200,7 +200,7 @@ func TestBackupRichFilterSemantics(t *testing.T) {
 	}
 }
 
-func TestBackupFiltersPruneCopyButPreserveTraversalAndEmptyDirs(t *testing.T) {
+func TestBackupFiltersPruneNamesButPreserveAllowedEmptyDirs(t *testing.T) {
 	a, rule, source, target := backupFixture(t)
 	for _, dir := range []string{"Books/Empty", "Temp"} {
 		if err := os.MkdirAll(filepath.Join(source, dir), 0700); err != nil {
@@ -219,7 +219,7 @@ func TestBackupFiltersPruneCopyButPreserveTraversalAndEmptyDirs(t *testing.T) {
 	if err := a.executeBackup(context.Background(), &rule); err != nil {
 		t.Fatal(err)
 	}
-	if rule.Copied != 1 || rule.Scanned != 3 || rule.Skipped != 2 || rule.Total != 1 {
+	if rule.Copied != 1 || rule.Scanned != 2 || rule.Skipped != 1 || rule.Total != 1 {
 		t.Fatal(rule)
 	}
 	if _, err := os.Stat(filepath.Join(target, "Books", "Empty")); err != nil {

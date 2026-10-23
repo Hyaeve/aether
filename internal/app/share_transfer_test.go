@@ -48,7 +48,41 @@ func shareMock(t *testing.T, fn func(*http.Request) string) {
 	t.Helper()
 	old := apiClient.Transport
 	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(fn(r))), Request: r}, nil
+		input := r
+		mobile := r.URL.Host == "share-kd-njs.yun.139.com"
+		if mobile {
+			raw, err := io.ReadAll(r.Body)
+			sign := strings.Split(r.Header.Get("Mcloud-Sign"), ",")
+			if err != nil || json.Valid(raw) || len(sign) != 3 || len(sign) == 3 && sign[2] != strings.ToUpper(mobileMD5(string(raw)+"|"+sign[0]+"|"+sign[1])) {
+				t.Fatal("mobile share mock received an unsigned or unencrypted request")
+			}
+			plain, err := mobileShareDecrypt(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input = r.Clone(r.Context())
+			input.Body = io.NopCloser(strings.NewReader(string(plain)))
+		}
+		body := fn(input)
+		if mobile {
+			// Legacy fixtures retain their payload assertions; emulate the official wire envelope.
+			var envelope map[string]json.RawMessage
+			if json.Unmarshal([]byte(body), &envelope) == nil && envelope["code"] != nil {
+				envelope["resultCode"] = envelope["code"]
+				delete(envelope, "code")
+				raw, err := json.Marshal(envelope)
+				if err != nil {
+					t.Fatal(err)
+				}
+				body = string(raw)
+			}
+			encoded, err := mobileShareEncrypt([]byte(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = encoded
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 	})
 	t.Cleanup(func() { apiClient.Transport = old })
 }

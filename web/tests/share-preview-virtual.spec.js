@@ -151,7 +151,8 @@ test('virtual library tabs use unframed provider outlines in both themes',async(
  for(const theme of ['light','dark']){
   await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
   const icons=tabs.locator('.provider-line-icon')
-  await expect(icons).toHaveCount(4)
+  await expect(icons).toHaveCount(3)
+  await expect(tabs.getByRole('link',{name:'CAS链库',exact:true}).locator('svg.lucide-box-icon')).toHaveCount(1)
   for(const icon of await icons.all()){
    await expect(icon).toHaveCSS('width','19px');await expect(icon).toHaveAttribute('stroke','currentColor')
    await expect(icon).toHaveAttribute('fill','none');await expect(icon).toHaveAttribute('stroke-linecap','round')
@@ -159,4 +160,35 @@ test('virtual library tabs use unframed provider outlines in both themes',async(
   }
   await page.screenshot({path:info.outputPath(`virtual-provider-outlines-${theme}.png`)})
  }
+})
+
+for(const width of [1440,390])for(const theme of ['light','dark'])test(`virtual library columns and CAS placeholder ${width} ${theme}`,async({page},info)=>{
+ await mock(page)
+ await page.setViewportSize({width,height:900})
+ await page.goto('/virtual/115')
+ await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+ const tabs=page.getByRole('navigation',{name:'虚拟链库栏目',exact:true})
+ expect((await tabs.getByRole('link').allTextContents()).map(text=>text.trim())).toEqual(['115链库','移动链库','夸克链库','CAS链库'])
+ await expect(tabs.getByRole('link',{name:'天翼链库',exact:true})).toHaveCount(0)
+ await tabs.getByRole('link',{name:'移动链库',exact:true}).click()
+ await expect(page).toHaveURL(/\/virtual\/mobile$/)
+ await expect(tabs.getByRole('link',{name:'移动链库',exact:true})).toHaveClass(/active/)
+ await tabs.getByRole('link',{name:'CAS链库',exact:true}).click()
+ await expect(page).toHaveURL(/\/virtual\/cas$/)
+ await expect(tabs.getByRole('link',{name:'CAS链库',exact:true})).toHaveClass(/active/)
+ await expect(tabs.getByRole('link',{name:'CAS链库',exact:true}).locator('svg.lucide-box-icon')).toHaveCount(1)
+ await expect(page.locator('.virtual-planned')).toContainText('尚未开放')
+ await expect(page.locator('.virtual-planned svg.lucide-box-icon')).toHaveCount(1)
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ await page.screenshot({path:info.outputPath(`cas-library-${width}-${theme}.png`)})
+ await page.reload()
+ await expect(tabs.getByRole('link',{name:'CAS链库',exact:true})).toHaveClass(/active/)
+})
+
+test('removed Tianyi virtual library address returns to the available 115 library',async({page})=>{
+ await mock(page)
+ await page.goto('/virtual/tianyi')
+ await expect(page).toHaveURL(/\/virtual\/115$/)
+ await expect(page.getByRole('navigation',{name:'虚拟链库栏目',exact:true}).getByRole('link',{name:'115链库',exact:true})).toHaveClass(/active/)
+ await expect(page.getByText('115分享链接',{exact:true})).toBeVisible()
 })

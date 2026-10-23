@@ -376,3 +376,41 @@ func backupFilterAccept(filters []compiledBackupFilter, f File, relative string)
 	}
 	return !hasInclude || included
 }
+
+// Name exclusions are applied before traversal or content/metadata validation.
+func backupNameExcluded(filters []compiledBackupFilter, f File, relative string) bool {
+	for i, filter := range filters {
+		if filter.Type == "name" && filter.Mode == "exclude" && !backupFilterAccept(filters[i:i+1], f, relative) {
+			return true
+		}
+	}
+	return false
+}
+
+func backupPathBased(s Storage) bool {
+	return s.Type == "local" || s.Type == "openlist" || s.Type == "webdav" || s.Type == "mobile" && !nativeMobile(s)
+}
+
+func backupScopePath(s Storage, dir string) string {
+	dir = backupDir(s, dir)
+	if backupPathBased(s) && s.Type != "local" {
+		return path.Join("/", s.Config["root"], dir)
+	}
+	return dir
+}
+
+func backupPrunedOverlap(s Storage, excluded, peer string) error {
+	if s.Type == "local" {
+		// validateBackup already resolves local aliases and checks every root pair.
+		return nil
+	}
+	if backupPathBased(s) {
+		dir, other := path.Clean("/"+excluded), path.Clean("/"+peer)
+		if other != dir && !strings.HasPrefix(other, dir+"/") && !strings.HasPrefix(dir, other+"/") && dir != "/" && other != "/" {
+			return nil
+		}
+		return errors.New("备份目录相互重叠，目标位于已排除分支内")
+	}
+	// An opaque ID cannot prove that a peer is outside the skipped subtree.
+	return errors.New("同账号云端目录无法核验已排除分支与其他备份目录是否重叠，已停止；请使用独立存储范围")
+}

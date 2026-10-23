@@ -1,5 +1,14 @@
 # Protocol References
 
+## Plugin Repository Catalog
+
+The static plugin-ID-to-metadata index convention was checked against MoviePilot
+v3, commit `5258e06fd7e2d512f8d303a8f20cd610449508a5`, especially
+`app/adapters/external/plugin/client.py`. Aether independently implements a
+bounded read-only catalog with Go standard-library JSON and HTTP APIs. No
+MoviePilot source, Python runtime, plugin package or installer is bundled.
+Catalog metadata compatibility does not imply plugin execution compatibility.
+
 ## Mobile Share Parsing and Confirmed CAS Import
 
 The official share-web transport and its three read endpoints were checked

@@ -1,6 +1,6 @@
 <script setup>
 import {
-  ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
+  Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,
   ListOrdered, ListMusic, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
   ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
@@ -14,20 +14,21 @@ import {
   CircleCheck, CircleDashed, Cloud, Database, Download, Upload, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
-  Moon, Network, Pause, Pencil, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,
+  Moon, Network, Pause, Play, Plus, RefreshCw, Save, ScanSearch, ScrollText, Search,
   Server, Settings2, ShieldCheck, Square, Sun, Trash2, UserRound, Waypoints, Wrench, X
 } from 'lucide-vue-next'
 import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 import RefreshIcon from './RefreshIcon.vue'
 const icons = {
-  ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
+  Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,
   ListOrdered, ListMusic, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
   ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
   FilePenLine, FileJson, FileAudio2, FileVideo2, FileText, BookOpen, RadioTower, Send,
   EmbyNotice: EmbyNoticeIcon,
   RefreshCw: RefreshIcon,
+  Pencil: SlidersHorizontal,
   MediaUpgrade: RefreshCw,
   TMDB: () => h('img', { src: '/providers/tmdb.svg', alt: '', width: 32, height: 32, style: 'object-fit:contain' }),
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
@@ -39,7 +40,7 @@ const icons = {
   CircleCheck, CircleDashed, Cloud, Database, Download, Upload, Ellipsis, Eye, EyeOff,
   FileVideo, Folder, FolderOpen, FolderTree, HardDrive, HardDriveDownload, Info,
   Layers3, LayoutDashboard, Link, ListTodo, LoaderCircle, LogOut, Menu, Monitor,
-  Moon, Network, Pause, Pencil, Play, Plus, Save, ScanSearch, ScrollText, Search,
+  Moon, Network, Pause, Play, Plus, Save, ScanSearch, ScrollText, Search,
   Server, Settings2, ShieldCheck, Square, Sun, Trash2, UserRound, Waypoints, Wrench, X
 }
 const props = defineProps({ name: String, size: { type: Number, default: 18 } })

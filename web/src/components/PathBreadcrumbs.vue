@@ -1,14 +1,14 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
-const props = defineProps({ entries: Array, disabled: Boolean })
+const props = defineProps({ entries: {type:Array,default:()=>[]}, disabled: Boolean })
 const emit = defineEmits(['jump'])
 const root = ref(null), measure = ref(null), hidden = ref(0), menu = ref(false)
 const displayed = computed(() => props.entries.map((entry, index) => ({ ...entry, index })).slice(hidden.value))
 function fit() {
   if (!root.value || !measure.value) return
   const widths = [...measure.value.children].map(el => el.getBoundingClientRect().width + 16)
-  const available = root.value.clientWidth - 60
+  const available = root.value.clientWidth - root.value.firstElementChild.getBoundingClientRect().width
   let total = widths.reduce((sum, n) => sum + n, 0), count = 0
   while (count < widths.length - 1 && total + (count ? 32 : 0) > available) total -= widths[count++]
   hidden.value = count

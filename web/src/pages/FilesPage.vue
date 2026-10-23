@@ -510,7 +510,7 @@ load()
   <Teleport to="body"><div v-if="menu" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
     <button :disabled="!downloadable" @click="downloadFile"><Icon name="Download" />下载</button>
     <button v-if="extractable" @click="showExtract"><Icon name="ArchiveRestore" />解压</button>
-    <button v-if="selection.length === 1" @click="rename"><Icon name="Pencil" />重命名</button>
+    <button v-if="selection.length === 1" @click="rename"><Icon name="TextCursorInput" />重命名</button>
     <button @click="operation = 'move'; closeMenu()"><Icon name="FolderInput" />移动到</button><button @click="operation = 'copy'; closeMenu()"><Icon name="Copy" />复制到</button>
     <button class="danger-text" @click="deleting = true; closeMenu()"><Icon name="Trash2" />删除</button>
     <button v-if="['115','quark'].includes(state.storages.find(s=>s.id===selected)?.type)" @click="cloudSharing=true;closeMenu()"><Icon name="Share2" />分享</button>

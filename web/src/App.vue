@@ -202,7 +202,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : currentPath.endsWith('strm')?'strm':'account'" />
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
-        <ToolsPage v-else-if="currentPath === '/tools'" />
+        <ToolsPage v-else-if="currentPath === '/tools' || currentPath === '/tools/market'" :section="currentPath.endsWith('/market') ? 'market' : 'tools'" />
         <Rapid115Page v-else-if="currentPath === '/tools/115-rapid'" />
         <NotificationPage v-else-if="currentPath.startsWith('/notifications')" :section="currentPath.endsWith('transfers') ? 'transfers' : 'telegram'" />
         <VirtualLibraryPage v-else-if="currentPath.startsWith('/virtual')" />

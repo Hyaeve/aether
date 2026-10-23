@@ -136,13 +136,16 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 		case "/feature":
 			raw = cas
 		case "/createFolder.action":
-			if r.URL.Query().Get("parentFolderId") != "-11" || r.URL.Query().Get("folderName") != "Aether" {
+			if r.URL.Query().Get("parentFolderId") == "-11" && r.URL.Query().Get("folderName") == "Aether" {
+				raw = `{"id":"20"}`
+			} else if r.URL.Query().Get("parentFolderId") == "20" && r.URL.Query().Get("folderName") == "CAS" {
+				raw = `{"id":"21"}`
+			} else {
 				t.Error("bad temp parent")
 			}
-			raw = `{"id":"20"}`
 		case "/person/initMultiUpload":
 			params := tianyiTestUploadParams(t, r, "0123456789abcdef")
-			if params.Get("sliceSize") != "10485760" || params.Get("parentFolderId") != "20" {
+			if params.Get("sliceSize") != "10485760" || params.Get("parentFolderId") != "21" {
 				t.Error("wrong restore parameters")
 			}
 			raw = `{"uploadFileId":"30"}`

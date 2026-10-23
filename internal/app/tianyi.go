@@ -443,19 +443,29 @@ func (a *App) tianyiLink(ctx context.Context, s Storage, fid string) (Download, 
 }
 
 func (a *App) tianyiCASFolder(ctx context.Context, s Storage) (string, error) {
-	name := "Aether"
-	files, err := a.tianyiList(ctx, s, "-11")
+	parent, err := a.tianyiCASDirectory(ctx, s, "-11", "Aether")
+	if err != nil {
+		return "", err
+	}
+	return a.tianyiCASDirectory(ctx, s, parent, "CAS")
+}
+
+func (a *App) tianyiCASDirectory(ctx context.Context, s Storage, parent, name string) (string, error) {
+	files, err := a.tianyiList(ctx, s, parent)
 	if err != nil {
 		return "", err
 	}
 	for _, f := range files {
-		if f.IsDir && f.Name == name {
+		if f.Name == name {
+			if !f.IsDir {
+				return "", errors.New("天翼临时目录与已有文件冲突")
+			}
 			return f.ID, nil
 		}
 	}
 	var folder struct{ ID json.Number }
 	// The PC API expects folder creation parameters in the query string.
-	address := tianyiAPI + "/createFolder.action?" + url.Values{"parentFolderId": {"-11"}, "folderName": {name}, "relativePath": {""}}.Encode()
+	address := tianyiAPI + "/createFolder.action?" + url.Values{"parentFolderId": {parent}, "folderName": {name}, "relativePath": {""}}.Encode()
 	err = a.tianyiRequest(ctx, s, "POST", address, nil, &folder)
 	if err == nil && folder.ID == "" {
 		err = errors.New("天翼临时目录创建失败")
