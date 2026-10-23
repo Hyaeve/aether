@@ -17,7 +17,7 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary", "cloudCASRecords"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary", "cloudCASRecords", "telegramRuntime"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -106,6 +106,7 @@ func (s *Store) initRuntime(dir string) error {
 	if err == nil && !s.state.RuntimeSeparated {
 		// Configuration import resets task results, not the administrator's file records.
 		var records struct {
+			Telegram           telegramRuntime      `json:"telegramRuntime"`
 			Favorites          []FileFavorite       `json:"fileFavorites"`
 			Visits             []FileVisit          `json:"fileVisits"`
 			RapidAttempts      map[string]bool      `json:"rapid115Attempts"`
@@ -124,6 +125,7 @@ func (s *Store) initRuntime(dir string) error {
 		}
 		s.state.Rapid115Attempts, s.state.Rapid115Records, s.state.SimulcastTemporary = records.RapidAttempts, records.RapidRecords, records.SimulcastTemporary
 		s.state.CloudCASRecords = records.CloudCASRecords
+		s.state.TelegramRuntime = records.Telegram
 	}
 	if err == nil && s.state.RuntimeSeparated {
 		var plain json.RawMessage
@@ -187,6 +189,13 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for i := range s.state.TelegramRuntime.Jobs {
+		job := &s.state.TelegramRuntime.Jobs[i]
+		if job.Status == "queued" || job.Status == "running" || job.Status == "choosing" || job.Status == "confirming" {
+			job.Status = "interrupted"
+			job.Link = ""
+		}
+	}
 	for i := range s.state.CloudCASRecords {
 		if s.state.CloudCASRecords[i].Status == "running" {
 			s.state.CloudCASRecords[i].Status = "interrupted"

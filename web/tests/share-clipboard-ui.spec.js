@@ -62,6 +62,7 @@ test('mixed clipboard batches preserve passwords and advance on cancel, submit a
     quark:Array.from({length:5},(_,i)=>`https://pan.quark.cn/s/test${i} 提取码: c00${i}`)
   }
   const mixed=[shares.quark[0],shares.mobile[0],shares['115'][0],shares.quark[1],shares.mobile[1],shares.quark[2],shares['115'][1],shares.quark[3],shares.mobile[2],shares.quark[4]].join('\n').replaceAll(' 提取码:', '\n提取码:')
+  const mobileLinks=shares.mobile.map(link=>link.replace(' 提取码: ','?pwd='))
   await page.evaluate(text=>{window.shareText=text;window.dispatchEvent(new Event('focus'))},mixed)
   const modal=page.getByRole('dialog',{name:'分享转存',exact:true})
   await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText('115资料')
@@ -69,7 +70,7 @@ test('mixed clipboard batches preserve passwords and advance on cancel, submit a
   await expect(modal.locator('.share-link-editor mark')).toHaveCount(2)
   await modal.getByRole('button',{name:'取消',exact:true}).click()
   await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText('mobile资料')
-  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(shares.mobile.join('\n'))
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(mobileLinks.join('\n'))
   for(const [theme,width] of [['light',1440],['dark',390]]){
     await page.setViewportSize({width,height:844});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
     await expect(modal.locator('.share-link-editor mark')).toHaveCount(3)
@@ -80,7 +81,7 @@ test('mixed clipboard batches preserve passwords and advance on cancel, submit a
   await expect(modal.getByRole('button',{name:'转存存储池'})).toHaveText('quark资料')
   await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue(shares.quark.join('\n'))
   await expect.poll(()=>submitted.length).toBe(3)
-  expect(submitted.map(body=>body.url)).toEqual(shares.mobile)
+  expect(submitted.map(body=>body.url)).toEqual(mobileLinks)
   expect(submitted.every(body=>body.storageId==='mobile')).toBe(true)
   await modal.getByRole('button',{name:'关闭',exact:true}).click()
   await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
@@ -112,8 +113,8 @@ test('returning to focus reads new clipboard even when an input retained focus',
   await page.evaluate(()=>{window.pageFocused=true;window.dispatchEvent(new Event('focus'))})
   const modal=page.getByRole('dialog',{name:'分享转存',exact:true})
   await expect(modal).toBeVisible()
-  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue('https://yun.139.com/shareweb/#/w/i/2ygb7gk5b1gfy 提取码: x2ol')
-  await expect(modal.locator('mark')).toHaveText('提取码: x2ol')
+  await expect(modal.getByRole('textbox',{name:'分享链接'})).toHaveValue('https://yun.139.com/shareweb/#/w/i/2ygb7gk5b1gfy?pwd=x2ol')
+  await expect(modal.locator('mark')).toHaveText('pwd=x2ol')
 })
 
 test('focus resume can read after a previous quiet permission denial',async({page})=>{

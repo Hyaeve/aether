@@ -36,6 +36,7 @@ import CASPoolPage from './pages/CASPoolPage.vue'
 import TransferSettings from './components/TransferSettings.vue'
 import VirtualLibraryPage from './pages/VirtualLibraryPage.vue'
 import Rapid115Page from './pages/Rapid115Page.vue'
+import NotificationPage from './pages/NotificationPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -66,7 +67,7 @@ const navigation = [
   { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
-  { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
+  { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }, { path: '/notifications', label: '通知服务', icon: 'RadioTower' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
 ]
 const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/strm' : route.path)
@@ -203,6 +204,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
         <ToolsPage v-else-if="currentPath === '/tools'" />
         <Rapid115Page v-else-if="currentPath === '/tools/115-rapid'" />
+        <NotificationPage v-else-if="currentPath.startsWith('/notifications')" :section="currentPath.endsWith('transfers') ? 'transfers' : 'telegram'" />
         <VirtualLibraryPage v-else-if="currentPath.startsWith('/virtual')" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />

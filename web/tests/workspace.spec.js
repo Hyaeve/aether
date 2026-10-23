@@ -44,7 +44,7 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.getByLabel('密码', { exact: true }).fill('a1')
   await page.getByRole('button', { name: '创建管理员账号' }).click()
   await expect(page.locator('.breadcrumbs strong')).toHaveText('存储管理')
-  await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link')).toHaveCount(10)
+  await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link')).toHaveText(['仪表盘', '文件服务', '存储管理', '传输中心', '任务管理', '虚拟链库', '以太链接', '辅助工具', '通知服务', '系统日志', '系统设置'])
   await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '虚拟链库', exact: true })).toBeVisible()
   await expect(page.locator('.sidebar a[href]')).toHaveCount(0)
   await expect(page.locator('.storage-actions')).toHaveCount(0)

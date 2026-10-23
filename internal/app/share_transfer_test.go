@@ -21,6 +21,8 @@ func TestParseShareLink(t *testing.T) {
 		{"https://yun.139.com/shareweb/abc", "mobile", "abc", ""},
 		{"https://yun.139.com/shareweb/#/w/i/abc", "mobile", "abc", ""},
 		{"https://yun.139.com/shareweb/#/w/i/2ygb7gk5b1gfy 提取码: x2ol", "mobile", "2ygb7gk5b1gfy", "x2ol"},
+		{"https://yun.139.com/shareweb/#/w/i/2yA8vJBMPc6kg?pwd=4xu4", "mobile", "2yA8vJBMPc6kg", "4xu4"},
+		{"https://yun.139.com/shareweb/#/w/i/2yA8vJBMPc6kg?password=Xy12", "mobile", "2yA8vJBMPc6kg", "Xy12"},
 		{"https://yun.139.com/shareweb/#/w/i/abc?password=Ab12 提取码: Ab12", "mobile", "abc", "Ab12"},
 		{"https://yun.139.com/w/r?linkID=abc&passwd=XD7G", "mobile", "abc", "XD7G"},
 		{"https://caiyun.139.com/m/i?abc", "mobile", "abc", ""},
@@ -49,6 +51,37 @@ func shareMock(t *testing.T, fn func(*http.Request) string) {
 		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(fn(r))), Request: r}, nil
 	})
 	t.Cleanup(func() { apiClient.Transport = old })
+}
+
+func TestMobileShareCanonicalPasswordPreview(t *testing.T) {
+	a := testApp(t)
+	s := Storage{ID: "mobile", Type: "mobile", Enabled: true, Config: map[string]string{"mode": "native", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:account:token"))}}
+	if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	h := a.Handler(t.TempDir())
+	cookie := setupTest(t, a, h)
+	reads := 0
+	shareMock(t, func(r *http.Request) string {
+		reads++
+		var body struct {
+			Request struct {
+				Code string `json:"linkID"`
+				Pass string `json:"passwd"`
+			} `json:"getOutLinkInfoReq"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if r.URL.Path != "/yun-share/richlifeApp/devapp/IOutLink/getOutLinkInfoV6" || body.Request.Code != "2yA8vJBMPc6kg" || body.Request.Pass != "4xu4" {
+			t.Fatal("canonical link password not passed to share API")
+		}
+		return `{"code":"0","data":{"coLst":[{"coID":"file","coName":"film.mkv","coPath":"root/file"}]}}`
+	})
+	w := request(t, h, "POST", "/api/files/share/preview", map[string]any{"storageId": s.ID, "url": "https://yun.139.com/shareweb/#/w/i/2yA8vJBMPc6kg?pwd=4xu4"}, cookie)
+	if w.Code != 200 || reads != 1 || !strings.Contains(w.Body.String(), `"batches":1`) {
+		t.Fatal(w.Code, w.Body.String(), reads)
+	}
 }
 
 func TestShareProtocols(t *testing.T) {

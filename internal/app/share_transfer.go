@@ -140,6 +140,17 @@ func parseShareLink(raw, password string) (provider, code, pass string, err erro
 		}
 	}
 	if pass == "" {
+		if provider == "mobile" {
+			if fragment, err := url.Parse(u.Fragment); err == nil {
+				for _, key := range []string{"pwd", "password", "passwd", "passcode", "receive_code"} {
+					if pass = fragment.Query().Get(key); pass != "" {
+						break
+					}
+				}
+			}
+		}
+	}
+	if pass == "" {
 		if match := sharePasswordPattern.FindStringSubmatch(raw); len(match) > 1 {
 			pass = match[1]
 		}
@@ -295,7 +306,12 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 		}
 	}
 	seen := map[string]bool{}
-	for page := 0; page < 50; page++ {
+	entryLimit, pageLimit := shareScanLimit(s), 50
+	if nativeMobile(s) {
+		// An exact full final page needs one more read to confirm the directory ends.
+		pageLimit = entryLimit/100 + 1
+	}
+	for page := 0; page < pageLimit; page++ {
 		if err := a.waitAPI(ctx, s.ID); err != nil {
 			return "", nil, err
 		}
@@ -407,8 +423,8 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			seen[item.ID] = true
 			items = append(items, item)
 		}
-		if total > 5000 || len(items) > 5000 {
-			return "", nil, errors.New("分享根目录最多支持 5000 项")
+		if total > entryLimit || len(items) > entryLimit {
+			return "", nil, fmt.Errorf("分享根目录最多支持 %d 项", entryLimit)
 		}
 		if s.Type == "mobile" && !mobileMore {
 			return token, items, nil

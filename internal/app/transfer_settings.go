@@ -335,6 +335,9 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State, allowLegacyPIN ...bool) error {
+	if err := validateNotifications(st.Notifications, *st); err != nil {
+		return err
+	}
 	for kind, options := range st.CloudShareOptions {
 		if err := validateCloudShareOptions(kind, options); err != nil {
 			return err

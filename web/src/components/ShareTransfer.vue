@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, notify, state } from '../lib'
 import { transferShares } from '../share-jobs'
 import { loadSharePreferences, saveSharePreferences } from '../share-preferences'
@@ -10,7 +10,24 @@ import RoundedSelect from './RoundedSelect.vue'
 import { shareEntries, shareHighlight, shareInput } from '../share-links.js'
 const props = defineProps({ storage: Object, parent: String, trail: Array, initialLinks: String, provider: String })
 const emit = defineEmits(['close'])
-const links = ref(props.initialLinks || ''), picker = ref(false)
+function normalizedLinks(text) {
+  const parsed = shareInput(text)
+  return !parsed.conflict && shareEntries(text).some(entry => entry.provider === 'mobile') ? parsed.lines.join('\n') : text
+}
+const links = ref(normalizedLinks(props.initialLinks || '')), picker = ref(false)
+function normalizeLinks() { links.value = normalizedLinks(links.value) }
+function pasteLinks(event) {
+  const text = event.clipboardData?.getData('text/plain')
+  if (!text) return
+  const normalized = normalizedLinks(text)
+  if (normalized === text) return
+  const input = event.currentTarget, start = input.selectionStart, end = input.selectionEnd
+  const value = links.value.slice(0, start) + normalized + links.value.slice(end)
+  if (value.length > 200000) return
+  event.preventDefault()
+  links.value = value
+  nextTick(() => { if (input.isConnected) input.setSelectionRange(start + normalized.length, start + normalized.length) })
+}
 const provider = computed(() => props.provider || shareEntries(links.value).find(entry => entry.provider)?.provider || props.storage?.type)
 const pools = computed(() => state.storages.filter(s => s.enabled && (!provider.value || s.type === provider.value) && (['115', 'quark'].includes(s.type) || s.type === 'mobile' && s.config?.mode === 'native')))
 const selected = ref(props.storage?.id || pools.value[0]?.id || '')
@@ -155,7 +172,7 @@ async function submit() {
     <form @submit.prevent="submit">
       <div class="modal-body share-transfer">
         <div v-if="!props.storage" class="field"><label>存储池</label><RoundedSelect v-model="selected" label="转存存储池" :disabled="loadingPreferences" :options="pools.map(s => ({value:s.id,label:s.name}))" @update:model-value="rememberTarget" /></div>
-        <label>分享链接<div class="share-link-editor"><pre aria-hidden="true"><template v-for="(part, index) in highlightedLinks" :key="index"><mark v-if="part.password">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></pre><textarea v-model="links" rows="5" required :placeholder="placeholder" maxlength="200000" @scroll="$event.target.previousElementSibling.scrollTop = $event.target.scrollTop" /></div></label>
+        <label>分享链接<div class="share-link-editor"><pre aria-hidden="true"><template v-for="(part, index) in highlightedLinks" :key="index"><mark v-if="part.password">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></pre><textarea v-model="links" rows="5" required :placeholder="placeholder" maxlength="200000" @paste="pasteLinks" @blur="normalizeLinks" @scroll="$event.target.previousElementSibling.scrollTop = $event.target.scrollTop" /></div></label>
         <p v-if="parsedLinks.conflict" class="error-message" role="alert">同一分享链接检测到不同提取码，请确认输入后再转存。</p>
         <div class="share-directory-row"><div class="field"><label>转存目录</label><button type="button" class="source-trigger" :disabled="!supported || loadingPreferences || submitting" aria-label="选择转存目录" @click="picker = true"><span><template v-if="props.storage && storage?.id !== props.storage.id">{{ storage?.name }} / </template>{{ targetLabel }}</span><Icon name="FolderOpen" /></button></div><div class="field" :aria-busy="directoryLoading"><label for="share-save-directory">保存目录</label><input id="share-save-directory" v-model="saveDirectory" :disabled="lines.length!==1 || submitting" maxlength="255" @input="customDirectory=true" /></div></div>
         <p v-if="!supported" class="error-message">当前存储不支持分享转存。</p>
@@ -181,7 +198,7 @@ async function submit() {
 .share-link-editor pre, .share-link-editor textarea { box-sizing:border-box; width:100%; min-height:130px; margin:0; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font:inherit; line-height:1.5; letter-spacing:inherit; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2; scrollbar-gutter:stable; }
 .share-link-editor pre { position:absolute; inset:0; overflow:auto; pointer-events:none; color:var(--text); background:var(--input); }
 .share-link-editor pre::-webkit-scrollbar { visibility:hidden; }
-.share-link-editor mark { color:color-mix(in srgb,var(--primary) 70%,var(--text)); background:color-mix(in srgb,#7775ee 25%,transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb,#8b82ff 52%,transparent),0 0 9px color-mix(in srgb,#8075ff 24%,transparent); border-radius:4px; }
+.share-link-editor mark { color:color-mix(in srgb,var(--primary) 70%,var(--text)); background:transparent; box-shadow:none; border-radius:0; }
 .share-link-editor textarea { position:relative; display:block; resize:vertical; color:transparent; caret-color:var(--primary); background:transparent; }
 .share-link-editor textarea::placeholder { color:var(--muted); }
 .share-link-editor textarea::selection { color:transparent; background:color-mix(in srgb,var(--primary) 28%,transparent); }

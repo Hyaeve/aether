@@ -58,6 +58,7 @@ for (const width of [1440, 390]) {
       }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0)
       return {
         normal: pre.color, highlighted: marks.map(mark => mark.color), backgrounds: marks.map(mark => mark.backgroundColor),
+        shadows: marks.map(mark => mark.boxShadow), radii: marks.map(mark => mark.borderRadius),
         contrast: marks.map(mark => {
           const fg = luminance(pixel(mark.color)), bg = luminance(pixel(pre.backgroundColor, mark.backgroundColor))
           return (Math.max(fg, bg) + .05) / (Math.min(fg, bg) + .05)
@@ -66,7 +67,9 @@ for (const width of [1440, 390]) {
     })
     expect(colors.highlighted.every(color => color !== colors.normal)).toBe(true)
     expect(colors.highlighted.every(color => color === colors.highlighted[0])).toBe(true)
-    expect(colors.backgrounds.every(color => color !== 'rgba(0, 0, 0, 0)')).toBe(true)
+    expect(colors.backgrounds.every(color => color === 'rgba(0, 0, 0, 0)')).toBe(true)
+    expect(colors.shadows.every(value => value === 'none')).toBe(true)
+    expect(colors.radii.every(value => value === '0px')).toBe(true)
     expect(Math.min(...colors.contrast)).toBeGreaterThanOrEqual(4.5)
     await page.screenshot({ path: info.outputPath(`parameters-${theme}.png`), animations: 'disabled' })
     expect(await modal.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
@@ -82,3 +85,41 @@ for (const width of [1440, 390]) {
     await expect(modal.locator('mark')).toHaveCount(0)
   })
 }
+
+test('mobile pasted and typed access codes normalize before tree and transfer requests', async ({ page }) => {
+  const modal = await openEditor(page)
+  const calls = []
+  await page.route('**/api/files/share/*', route => {
+    const body = route.request().postDataJSON(), action = new URL(route.request().url()).pathname.split('/').at(-1)
+    calls.push({ action, ...body })
+    const json = action === 'info' ? { directory: '' } : action === 'tree' ? { items: [{ id: 'file', name: 'film.mkv', isDir: false }], tree: [{ path: 'film.mkv', name: 'film.mkv', isDir: false }] } : action === 'preview' ? { preview: 'normalized', items: [{ name: 'film.mkv' }], batches: 1 } : { status: 'submitted', taskId: 'job' }
+    return route.fulfill({ json })
+  })
+  const base = 'https://yun.139.com/shareweb/#/w/i/2yA8vJBMPc6kg', canonical = `${base}?pwd=4xu4`
+  const input = modal.getByRole('textbox', { name: '分享链接', exact: true })
+  await input.evaluate((el, text) => {
+    const data = new DataTransfer()
+    data.setData('text/plain', text)
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, `链接: ${base}\n提取码: 4xu4`)
+  await expect(input).toHaveValue(canonical)
+  await expect(modal.locator('mark')).toHaveText('pwd=4xu4')
+  await input.fill(`${base} 提取码: 4xu4`)
+  await input.blur()
+  await expect(input).toHaveValue(canonical)
+  await modal.getByRole('button', { name: '解析', exact: true }).click()
+  const tree = page.getByRole('dialog', { name: '分享内容', exact: true })
+  await expect(tree).toBeVisible()
+  await tree.getByRole('button', { name: '应用', exact: true }).click()
+  await modal.getByRole('button', { name: '转存', exact: true }).click()
+  await expect(modal).toHaveCount(0)
+  await expect.poll(() => calls.filter(call => call.action === 'batch').length).toBe(1)
+  expect(calls.filter(call => ['info', 'tree', 'preview'].includes(call.action)).every(call => call.url === canonical)).toBe(true)
+  await page.getByRole('button', { name: '工具', exact: true }).click()
+  await page.getByRole('menuitem', { name: '分享转存', exact: true }).click()
+  const again = page.getByRole('dialog', { name: '分享转存', exact: true })
+  await again.getByRole('textbox', { name: '分享链接', exact: true }).fill(`${base}?pwd=Ab12 提取码: Cd34`)
+  await again.getByRole('textbox', { name: '分享链接', exact: true }).blur()
+  await expect(again.getByRole('textbox', { name: '分享链接', exact: true })).toHaveValue(`${base}?pwd=Ab12 提取码: Cd34`)
+  await expect(again.getByRole('button', { name: '转存', exact: true })).toBeDisabled()
+})

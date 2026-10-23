@@ -16,6 +16,35 @@ function providerOf(url) {
   return ''
 }
 
+function mobileShareURL(raw, password) {
+  const url = new URL(raw)
+  if (url.pathname === '/m/i' && /^[a-z\d_-]+$/i.test(url.search.slice(1))) {
+    const code = url.search.slice(1)
+    url.pathname = '/shareweb/'
+    url.search = ''
+    url.hash = `/w/i/${code}`
+  }
+  const at = url.hash.indexOf('?')
+  const fragment = at < 0 ? url.hash : url.hash.slice(0, at)
+  const params = new URLSearchParams(at < 0 ? '' : url.hash.slice(at + 1))
+  for (const key of passwordKeys) {
+    url.searchParams.delete(key)
+    params.delete(key)
+  }
+  if (fragment.startsWith('#/w/')) {
+    if (password) params.set('pwd', password)
+    url.hash = fragment + (params.size ? `?${params}` : '')
+  } else if (password) url.searchParams.set('pwd', password)
+  return url.href
+}
+
+function entryLink(entry) {
+  if (entry.provider === 'mobile' && entry.passwords.length === 1) return mobileShareURL(entry.url, entry.passwords[0])
+  const query = new URL(entry.url).searchParams
+  const existing = passwordKeys.flatMap(key => query.getAll(key))
+  return entry.url + entry.passwords.filter(value => !existing.includes(value)).map(value => ` 提取码: ${value}`).join('')
+}
+
 export function shareEntries(text) {
   if (typeof text !== 'string' || text.length > 200000) return []
   const matches = [...text.matchAll(urls)]
@@ -34,20 +63,20 @@ export function shareEntries(text) {
     const unique = [...new Set(passwords)]
     const conflict = unique.length > 1
     const password = unique[0] || ''
-    const queryPasswords = passwordKeys.map(key => url.searchParams.get(key)).filter(Boolean)
-    const link = raw + unique.filter(value => !queryPasswords.includes(value)).map(value => ` 提取码: ${value}`).join('')
     // Merge duplicate shares, including Markdown's repeated label and target URL.
-    const previous = seen.get(raw)
+    const identity = provider === 'mobile' ? mobileShareURL(raw) : raw
+    const previous = seen.get(identity)
     if (previous) {
       previous.passwords = [...new Set([...previous.passwords, ...unique])]
       previous.conflict ||= conflict || previous.passwords.length > 1
       previous.password = previous.passwords[0] || ''
-      previous.link = raw + previous.passwords.filter(value => !queryPasswords.includes(value)).map(value => ` 提取码: ${value}`).join('')
+      previous.link = entryLink(previous)
       continue
     }
-    const entry = { provider, url: raw, password, passwords: unique, conflict, link }
+    const entry = { provider, url: raw, password, passwords: unique, conflict }
+    entry.link = entryLink(entry)
     entries.push(entry)
-    seen.set(raw, entry)
+    seen.set(identity, entry)
   }
   return entries
 }

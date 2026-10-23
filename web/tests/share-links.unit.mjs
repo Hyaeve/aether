@@ -8,14 +8,14 @@ test('multiline and inline passwords stay attached to their own URL', () => {
   const input = `链接: ${mobile}\n提取码: x2ol\nhttps://pan.quark.cn/s/abc 提取码：Ab12\nhttps://115cdn.com/s/def?password=q526`
   assert.deepEqual(clipboardShareBatches(input), [
     { provider: '115', links: 'https://115cdn.com/s/def?password=q526' },
-    { provider: 'mobile', links: mobile + ' 提取码: x2ol' },
+    { provider: 'mobile', links: mobile + '?pwd=x2ol' },
     { provider: 'quark', links: 'https://pan.quark.cn/s/abc 提取码: Ab12' }
   ])
-  assert.deepEqual(shareInput(input).lines, [mobile + ' 提取码: x2ol', 'https://pan.quark.cn/s/abc 提取码: Ab12', 'https://115cdn.com/s/def?password=q526'])
+  assert.deepEqual(shareInput(input).lines, [mobile + '?pwd=x2ol', 'https://pan.quark.cn/s/abc 提取码: Ab12', 'https://115cdn.com/s/def?password=q526'])
 })
 
 test('markdown duplication, repeated shares and unrelated URLs do not mix passwords', () => {
-  assert.equal(clipboardShareBatches(`[${mobile}](${mobile})\n提取码: x2ol\n${mobile}`)[0].links, mobile + ' 提取码: x2ol')
+  assert.equal(clipboardShareBatches(`[${mobile}](${mobile})\n提取码: x2ol\n${mobile}`)[0].links, mobile + '?pwd=x2ol')
   const entries = clipboardShareBatches(`${mobile}\nhttps://example.com/doc 提取码: abcd\nhttps://pan.quark.cn/s/abc`)
   assert.equal(entries[0].links, mobile)
   assert.equal(entries[1].links, 'https://pan.quark.cn/s/abc')
@@ -30,8 +30,8 @@ test('conflicting query, text and repeated passwords require correction', () => 
   assert.equal(shareInput(`${mobile}\n提取码: x2ol`).conflict, false)
 })
 
-test('fragment passwords are forwarded as labelled text for backend compatibility', () => {
-  assert.equal(clipboardShareBatches(mobile + '?password=Ab12')[0].links, mobile + '?password=Ab12 提取码: Ab12')
+test('fragment passwords use one canonical pwd parameter without appended labels', () => {
+  assert.equal(clipboardShareBatches(mobile + '?password=Ab12')[0].links, mobile + '?pwd=Ab12')
 })
 
 test('batching uses provider order and chunks at 50 without dropping shares', () => {

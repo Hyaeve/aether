@@ -11,6 +11,7 @@ const router = createRouter({
   routes: [
     { path: '/backup', redirect: '/transfer/backup' },
     { path: '/links', redirect: '/links/manage' },
+    { path: '/notifications', redirect: '/notifications/telegram' },
     { path: '/webdav', redirect: '/files/webdav' },
     { path: '/mounts', redirect: '/files/mounts' },
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } }

@@ -206,6 +206,9 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	a.wg.Add(1)
 	go a.rapid115Monitor()
 	go a.recycleCleanupMonitor()
+	a.wg.Add(2)
+	go a.telegramPoll()
+	go a.telegramWorker()
 	go a.casExportResultMonitor()
 	a.wg.Add(1)
 	go a.storageHealthLoop()
@@ -306,6 +309,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/115-recycle-cleanup/run", a.protected(http.HandlerFunc(a.recycleCleanupRunAPI)))
 	mux.Handle("/api/115-rapid", a.protected(http.HandlerFunc(a.rapid115Settings)))
 	mux.Handle("POST /api/115-rapid/run", a.protected(http.HandlerFunc(a.rapid115Start)))
+	mux.Handle("/api/notification-service", a.protected(http.HandlerFunc(a.notificationSettings)))
+	mux.Handle("PUT /api/notification-service/{section}", a.protected(http.HandlerFunc(a.notificationSettings)))
+	mux.Handle("POST /api/notification-service/test", a.protected(http.HandlerFunc(a.telegramTest)))
 	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, a.store.logSnapshot())
@@ -902,6 +908,13 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				st.RecycleCleanup.Rules = kept
+				targets := st.Notifications.Targets[:0]
+				for _, target := range st.Notifications.Targets {
+					if target.StorageID != sid {
+						targets = append(targets, target)
+					}
+				}
+				st.Notifications.Targets = targets
 				return nil
 			}
 			if incoming.Type != s.Type {

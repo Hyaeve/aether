@@ -21,7 +21,7 @@ func TestMobileShareDirectoryResponse(t *testing.T) {
 		{name: "mixed", count: 3},
 		{name: "over-page-size", count: 201},
 		{name: "limit", count: 4999},
-		{name: "too-large", count: 5000, wantError: true},
+		{name: "over-old-limit", count: 5000},
 		{name: "duplicate", count: 3, duplicate: true, wantError: true},
 		{name: "invalid", count: 3, invalid: true, wantError: true},
 		{name: "missing-data", missingData: true, wantError: true},

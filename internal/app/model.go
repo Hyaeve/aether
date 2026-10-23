@@ -116,6 +116,8 @@ type LogEntry struct {
 }
 
 type State struct {
+	Notifications      notificationConfig           `json:"notifications"`
+	TelegramRuntime    telegramRuntime              `json:"telegramRuntime,omitempty"`
 	ShareTargets       *shareTransferPreferences    `json:"shareTransferPreferences,omitempty"`
 	CloudCASRecords    []cloudCASRecord             `json:"cloudCASRecords,omitempty"`
 	CloudShareOptions  map[string]cloudShareOptions `json:"cloudShareOptions,omitempty"`
