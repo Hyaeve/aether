@@ -446,7 +446,8 @@ func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir
 		if e != nil {
 			return stage, e
 		}
-		progress = a.beginTransfer(ctx, "download", source, f.Name, f.Size)
+		progress = a.beginTransfer(ctx, "download", source, f.Name, f.Size,
+			transferLocations{From: a.transferFileLocation(source, f.ID), To: transferLocalLocation("本机临时目录", dir)})
 		reader := &davFile{ctx: ctx, info: davInfo{f}, download: d, progress: progress}
 		if progress != nil {
 			reader.ctx = progress.ctx

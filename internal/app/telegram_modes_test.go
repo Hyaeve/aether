@@ -96,6 +96,12 @@ func TestTelegramDirectoryPagination(t *testing.T) {
 	var markup telegramTestMarkup
 	shareMock(t, func(r *http.Request) string {
 		if r.URL.Host != "api.telegram.org" {
+			if r.URL.Host == "drive.quark.cn" && strings.HasSuffix(r.URL.Path, "/token") && r.Method == "POST" {
+				return `{"code":0,"data":{"stoken":"readonly"}}`
+			}
+			if r.URL.Host == "drive.quark.cn" && strings.HasSuffix(r.URL.Path, "/detail") && r.Method == "GET" {
+				return `{"code":0,"data":{"list":[{"fid":"shared","file_name":"分享目录","dir":true}]},"metadata":{"_total":1}}`
+			}
 			t.Fatal("pagination wrote cloud")
 		}
 		if err := json.NewDecoder(r.Body).Decode(&markup); err != nil {
@@ -146,7 +152,7 @@ func TestTelegramDirectoryPagination(t *testing.T) {
 	if err := a.telegramCallback(context.Background(), cfg, 123, 123, 77, fmt.Sprintf("t:%s:10", job.ID)); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(markup.Text, "/目录10") || markup.Markup.Rows[0][0].Text != "取消" || markup.Markup.Rows[0][1].Text != "确认转存" {
+	if !strings.Contains(markup.Text, "/目录10") || !strings.Contains(markup.Text, "分享目录") || markup.Markup.Rows[0][0].Text != "返回" || markup.Markup.Rows[0][1].Text != "确认转存" {
 		t.Fatal("absolute index or confirmation wrong", markup)
 	}
 }

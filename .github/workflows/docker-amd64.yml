@@ -35,7 +35,7 @@ jobs:
       - run: go test -race ./...
       - run: npm ci && npm run build
         working-directory: web
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
         working-directory: web
       - run: npm run test:e2e
         working-directory: web

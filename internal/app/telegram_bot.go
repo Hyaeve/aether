@@ -439,7 +439,7 @@ func telegramTargetCurrent(st State, job telegramTransfer, target telegramTarget
 
 func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, user, message int64, data string) error {
 	parts := strings.Split(data, ":")
-	if len(parts) != 3 || (parts[0] != "t" && parts[0] != "c" && parts[0] != "x" && parts[0] != "p") {
+	if len(parts) != 3 || (parts[0] != "t" && parts[0] != "c" && parts[0] != "x" && parts[0] != "p" && parts[0] != "b") {
 		return errors.New("无效操作")
 	}
 	index, err := strconv.Atoi(parts[2])
@@ -479,6 +479,8 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 				job.Selected, job.Status = index, "confirming"
 			} else if parts[0] == "c" && job.Status == "confirming" && job.Selected == index {
 				job.Status = "queued"
+			} else if parts[0] == "b" && job.Status == "confirming" && job.Selected == index {
+				job.Status, job.Selected = "choosing", -1
 			} else if parts[0] == "x" && job.Status == "confirming" {
 				job.Status, job.Link = "cancelled", ""
 			} else {
@@ -504,11 +506,42 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 	}
 	if selected.Status == "confirming" {
 		target := selected.Targets[index]
+		if selected.Name == "" && selected.Provider != "" {
+			name := a.telegramResourceName(ctx, selected, target)
+			if name != "" {
+				err := a.store.update(func(st *State) error {
+					for i := range st.TelegramRuntime.Jobs {
+						current := &st.TelegramRuntime.Jobs[i]
+						if current.ID == selected.ID && current.Status == "confirming" && current.Selected == index && telegramTargetCurrent(*st, *current, target) && !telegramInteractionExpired(*current, time.Now()) {
+							current.Name = name
+							selected = *current
+							return nil
+						}
+					}
+					return errors.New("目录选择已变化")
+				})
+				if err != nil {
+					return err
+				}
+			}
+		}
 		text = "确认" + action + "到：" + target.Path
 		if s, e := a.store.storage(target.StorageID); e == nil {
 			text = "确认" + action + "到：" + s.Name + " · " + target.Path
 		}
-		keyboard = [][]map[string]string{{{"text": "取消", "callback_data": fmt.Sprintf("x:%s:%d", selected.ID, index)}, {"text": "确认" + action, "callback_data": fmt.Sprintf("c:%s:%d", selected.ID, index)}}}
+		if selected.Name != "" {
+			text = "分享内容：" + selected.Name + "\n" + text
+		}
+		keyboard = [][]map[string]string{{{"text": "返回", "callback_data": fmt.Sprintf("b:%s:%d", selected.ID, index)}, {"text": "确认" + action, "callback_data": fmt.Sprintf("c:%s:%d", selected.ID, index)}}}
+	}
+	for _, current := range a.store.snapshotWithLogLimit(0).TelegramRuntime.Jobs {
+		if current.ID == selected.ID {
+			if current.Status != selected.Status || current.Page != selected.Page || current.Selected != selected.Selected ||
+				!current.LastActivity.Equal(selected.LastActivity) || current.MessageID != message {
+				return errors.New("交互状态已变化，未覆盖较新的消息")
+			}
+			break
+		}
 	}
 	return telegramRequest(ctx, cfg, "editMessageText", map[string]any{"chat_id": chat, "message_id": message, "text": text, "reply_markup": map[string]any{"inline_keyboard": keyboard}}, nil)
 }

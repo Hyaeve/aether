@@ -36,7 +36,7 @@ onUnmounted(() => { if (!document.querySelector('.modal')) document.body.style.o
   <Teleport to="body">
     <div class="modal-backdrop" :class="{ 'confirmation-backdrop': confirmation }" @mousedown.self="emit('close')">
       <section ref="panel" tabindex="-1" role="dialog" aria-modal="true" :aria-label="title" class="modal" :class="{ wide, 'compact-modal': compact, 'standard-modal': standard }" @toggle.capture="expanded">
-        <header class="modal-header"><div><span v-if="eyebrow" class="eyebrow">{{ eyebrow }}</span><h2>{{ title }}</h2></div><button class="icon-btn" aria-label="关闭" title="关闭" @click="emit('close')"><Icon name="X" /></button></header>
+        <slot name="header"><header class="modal-header"><div><span v-if="eyebrow" class="eyebrow">{{ eyebrow }}</span><h2>{{ title }}</h2></div><button class="icon-btn" aria-label="关闭" title="关闭" @click="emit('close')"><Icon name="X" /></button></header></slot>
         <slot />
       </section>
     </div>

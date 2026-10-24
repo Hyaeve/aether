@@ -10,6 +10,45 @@ import (
 	"time"
 )
 
+func telegramShareName(items []shareEntry) string {
+	names := []string{}
+	for _, item := range items {
+		if len(names) == 2 {
+			break
+		}
+		names = append(names, item.Name)
+	}
+	name := strings.Join(names, "、")
+	if len([]rune(name)) > 120 {
+		name = string([]rune(name)[:119]) + "…"
+	}
+	return name
+}
+
+func (a *App) telegramResourceName(ctx context.Context, job telegramTransfer, target telegramTarget) string {
+	if a.telegramExecutionValid(job, target, "") != nil {
+		return ""
+	}
+	if job.Kind == "ed2k" {
+		if info, err := parseED2KText(job.Link); err == nil {
+			return telegramShareName([]shareEntry{{Name: info.Name}})
+		}
+		return ""
+	}
+	s, err := a.store.storage(target.StorageID)
+	provider, code, pass, parseErr := parseShareLink(job.Link, "")
+	if err != nil || parseErr != nil || provider != s.Type {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	_, items, err := a.readShareSession(ctx, &s, code, pass, "root", "")
+	if err != nil {
+		return ""
+	}
+	return telegramShareName(items)
+}
+
 func (a *App) finishTelegram(key, status, message string, processed int) {
 	err := a.store.update(func(st *State) error {
 		for i := range st.TelegramRuntime.Jobs {
@@ -119,7 +158,6 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 	}
 	action := telegramAction(job.Kind)
 	a.store.event("info", "notifications", fmt.Sprintf("[TG:%s] 开始%s：%s · %s", job.ID, action, s.Name, target.Path))
-	_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+s.Name+" · "+target.Path, nil)
 	if job.Kind == "ed2k" {
 		info, e := parseED2KText(job.Link)
 		if e != nil || s.Type != "115" {
@@ -127,6 +165,7 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 			return
 		}
 		name = info.Name
+		_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+name+"\n目标："+s.Name+" · "+target.Path, nil)
 		processed, err = a.submitTelegramED2K(ctx, job, target, s, stampText, submit115URIs)
 		if err != nil {
 			finish("failed", err.Error())
@@ -145,24 +184,16 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 	token, items, err := a.readShareSession(previewCtx, &session, code, pass, "root", "")
 	var batches []shareBatch
 	if err == nil {
+		if resolved := telegramShareName(items); resolved != "" {
+			name = resolved
+		}
+		_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+name+"\n目标："+s.Name+" · "+target.Path, nil)
 		batches, err = a.planShareSession(previewCtx, &session, code, pass, token, items)
 	}
 	previewCancel()
 	if err != nil {
 		finish("failed", "读取分享失败："+err.Error())
 		return
-	}
-	names := []string{}
-	for _, item := range items {
-		if len(names) < 2 {
-			names = append(names, item.Name)
-		}
-	}
-	if len(names) > 0 {
-		name = strings.Join(names, "、")
-	}
-	if len([]rune(name)) > 120 {
-		name = string([]rune(name)[:119]) + "…"
 	}
 	preview := sharePreview{Code: code, Pass: pass, Token: token}
 	parent := target.Parent

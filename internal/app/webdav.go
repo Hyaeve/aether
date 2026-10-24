@@ -265,13 +265,15 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 			if err != nil {
 				return nil, err
 			}
-			return d.a.trackedFile(ctx, s, name, file, flag), nil
+			return d.a.trackedFile(ctx, s, name, file, flag,
+				transferLocations{From: transferClientLocation(ctx), To: d.a.transferUploadLocation(s, source, rel)}), nil
 		}
 		file, err := fs.openCloudWrite(ctx, s, source, rel, flag)
 		if err != nil {
 			return nil, err
 		}
-		return d.a.trackedFile(ctx, s, name, file, flag), nil
+		return d.a.trackedFile(ctx, s, name, file, flag,
+			transferLocations{From: transferClientLocation(ctx), To: d.a.transferUploadLocation(s, source, rel)}), nil
 	}
 	s, f, err := d.resolve(ctx, name)
 	if err != nil {
@@ -309,7 +311,8 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 		return df, nil
 	}
 	df.open = func() error {
-		df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size)
+		df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size,
+			transferLocations{From: d.a.transferFileLocation(s, f.ID), To: transferClientLocation(ctx)})
 		if df.progress != nil {
 			df.ctx = df.progress.ctx
 		}

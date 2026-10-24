@@ -95,6 +95,12 @@ func TestTelegramAuthorizedMessagesAndOrderedConfirmation(t *testing.T) {
 	var sent []map[string]any
 	shareMock(t, func(r *http.Request) string {
 		if r.URL.Host != "api.telegram.org" {
+			if r.URL.Host == "drive.quark.cn" && strings.HasSuffix(r.URL.Path, "/token") && r.Method == "POST" {
+				return `{"code":0,"data":{"stoken":"readonly"}}`
+			}
+			if r.URL.Host == "drive.quark.cn" && strings.HasSuffix(r.URL.Path, "/detail") && r.Method == "GET" {
+				return `{"code":0,"data":{"list":[{"fid":"shared","file_name":"分享目录","dir":true}]},"metadata":{"_total":1}}`
+			}
 			t.Fatal("message handling wrote cloud", r.URL.Host)
 		}
 		var body map[string]any
@@ -202,8 +208,21 @@ func TestTelegramTransferSharesBatchesAndLogs(t *testing.T) {
 			job := telegramTransfer{ID: "transfer", ChatID: 123, UserID: 123, Status: "queued", Selected: 0, Targets: a.store.snapshot().Notifications.Targets, Auth: telegramDigest(cfg), Created: time.Now(), Link: "https://pan.quark.cn/s/code?pwd=Ab12"}
 			a.store.update(func(st *State) error { st.TelegramRuntime.Jobs = []telegramTransfer{job}; return nil })
 			writes := 0
+			prepared := false
 			shareMock(t, func(r *http.Request) string {
 				if r.URL.Host == "api.telegram.org" {
+					if strings.HasSuffix(r.URL.Path, "/sendMessage") {
+						var body struct {
+							Text string `json:"text"`
+						}
+						json.NewDecoder(r.Body).Decode(&body)
+						if strings.HasPrefix(body.Text, "准备转存") {
+							if !strings.Contains(body.Text, "0.mkv") || !strings.Contains(body.Text, "夸克影视") {
+								t.Fatal("preparation lacks resource or storage", body.Text)
+							}
+							prepared = true
+						}
+					}
 					return `{"ok":true,"result":{"message_id":5}}`
 				}
 				switch {
@@ -223,6 +242,9 @@ func TestTelegramTransferSharesBatchesAndLogs(t *testing.T) {
 				case strings.HasSuffix(r.URL.Path, "/task"):
 					return `{"code":0,"data":{"status":2}}`
 				case strings.HasSuffix(r.URL.Path, "/save"):
+					if !prepared {
+						t.Fatal("write before named preparation")
+					}
 					writes++
 					var body struct {
 						IDs []string `json:"fid_list"`

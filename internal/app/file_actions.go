@@ -81,11 +81,15 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 	if s.Type != "local" {
 		var progress *transferProgress
 		if req.Action == "copy" || req.Action == "move" {
-			progress = a.beginTransfer(r.Context(), "copy", s, fmt.Sprintf("%s · %d 项", req.Action, len(req.IDs)), 0)
+			progress = a.beginTransfer(r.Context(), "copy", s, fmt.Sprintf("%s · %d 项", req.Action, len(req.IDs)), 0,
+				transferLocations{From: a.transferDirectory(s, req.Source), To: a.transferDirectory(target, req.Target)})
 		}
 		err := a.cloudFileAction(r.Context(), s, target, req)
 		progress.finish(err)
 		a.cache.clear()
+		if req.Action != "copy" {
+			a.invalidateTransferPaths(s)
+		}
 		if err != nil {
 			fail(w, 400, err)
 			return
@@ -192,7 +196,8 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 				err = src.Rename(name, out)
 			}
 		case "copy", "move":
-			progress := a.beginTransfer(r.Context(), "copy", s, path.Base(name), 0)
+			progress := a.beginTransfer(r.Context(), "copy", s, path.Base(name), 0,
+				transferLocations{From: a.transferFileLocation(s, name), To: a.transferFileLocation(target, out)})
 			if req.Action == "move" && s.ID == target.ID {
 				err = src.Rename(name, out)
 			} else {

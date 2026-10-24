@@ -145,7 +145,9 @@ func (a *App) listFiles(ctx context.Context, s Storage, dir string, ttl int, fre
 	key := s.ID + ":" + dir
 	cfg := a.store.snapshotWithLogLimit(0).Settings
 	if !fresh && cfg.CacheEnabled {
+		pathGeneration := a.transferPathGeneration()
 		if f, ok := a.cache.get(key); ok {
+			a.rememberTransferPaths(s, dir, f, pathGeneration)
 			return f, nil
 		}
 	}
@@ -201,7 +203,13 @@ func (a *App) listFiles(ctx context.Context, s Storage, dir string, ttl int, fre
 	return files, nil
 }
 
-func (a *App) rawList(ctx context.Context, s Storage, dir string) ([]File, error) {
+func (a *App) rawList(ctx context.Context, s Storage, dir string) (files []File, err error) {
+	pathGeneration := a.transferPathGeneration()
+	defer func() {
+		if err == nil {
+			a.rememberTransferPaths(s, dir, files, pathGeneration)
+		}
+	}()
 	if s.Type == "tianyi" {
 		return a.tianyiList(ctx, s, dir)
 	}

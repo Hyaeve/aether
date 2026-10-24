@@ -180,7 +180,12 @@ func (r *cancelReader) Read(p []byte) (int, error) {
 }
 
 func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, body io.Reader, size int64) (resultErr error) {
-	progress := a.beginTransfer(ctx, "upload", s, name, size)
+	from := transferClientLocation(ctx)
+	if directory := path.Dir(strings.ReplaceAll(name, "\\", "/")); directory != "." {
+		from.Directory = path.Base(directory)
+	}
+	progress := a.beginTransfer(ctx, "upload", s, name, size,
+		transferLocations{From: from, To: a.transferUploadLocation(s, parent, name)})
 	defer func() { progress.finish(resultErr) }()
 	body = transferReader{body, progress}
 	const limit = int64(100 << 30)

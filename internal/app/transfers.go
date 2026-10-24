@@ -21,15 +21,17 @@ import (
 type transferSourceKey struct{}
 type transferOwnedKey struct{}
 type transferEntry struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Source  string `json:"source"`
-	Storage string `json:"storage"`
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Done    int64  `json:"done"`
-	Total   int64  `json:"total"`
-	Speed   int64  `json:"speed"`
+	ID      string            `json:"id"`
+	Kind    string            `json:"kind"`
+	Source  string            `json:"source"`
+	Storage string            `json:"storage"`
+	From    *transferLocation `json:"from,omitempty"`
+	To      *transferLocation `json:"to,omitempty"`
+	Name    string            `json:"name"`
+	Status  string            `json:"status"`
+	Done    int64             `json:"done"`
+	Total   int64             `json:"total"`
+	Speed   int64             `json:"speed"`
 	rate    *trafficMeter
 	cancel  context.CancelFunc
 	Started time.Time `json:"started"`
@@ -37,14 +39,17 @@ type transferEntry struct {
 	Message string    `json:"message,omitempty"`
 }
 type transferLog struct {
-	mu    sync.Mutex
-	items map[string]transferEntry
-	file  string
+	mu             sync.Mutex
+	items          map[string]transferEntry
+	file           string
+	paths          map[string]transferPathHint
+	pathGeneration uint64
 }
 
 func (l *transferLog) restore(file string) {
 	l.file = file
 	l.items = map[string]transferEntry{}
+	l.paths, l.pathGeneration = nil, 0
 	b, err := os.ReadFile(file)
 	if err != nil || len(b) > 4<<20 {
 		return
@@ -105,7 +110,11 @@ func (a *App) transferEvent(level string, entry transferEntry, result string) {
 	if kind == "" {
 		kind = "传输"
 	}
-	a.store.event(level, "transfers", fmt.Sprintf("传输%s：任务 %q，来源 %q，存储池 %q，文件 %q，已处理 %d/%d 字节：%s", kind, entry.ID, entry.Source, entry.Storage, entry.Name, entry.Done, entry.Total, result))
+	locations := ""
+	if entry.From != nil && entry.To != nil {
+		locations = fmt.Sprintf("，来源位置 %q / %q，目标位置 %q / %q", entry.From.Storage, entry.From.Directory, entry.To.Storage, entry.To.Directory)
+	}
+	a.store.event(level, "transfers", fmt.Sprintf("传输%s：任务 %q，来源 %q，存储池 %q，文件 %q%s，已处理 %d/%d 字节：%s", kind, entry.ID, entry.Source, entry.Storage, entry.Name, locations, entry.Done, entry.Total, result))
 }
 
 // Error text can contain signed URLs, credentials and upstream response bodies.
@@ -128,7 +137,7 @@ func transferFailureReason(err error) string {
 	}
 }
 
-func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name string, total int64) *transferProgress {
+func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name string, total int64, locations ...transferLocations) *transferProgress {
 	if owned, _ := ctx.Value(transferOwnedKey{}).(bool); owned {
 		return nil
 	}
@@ -139,6 +148,16 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 	ctx, cancel := context.WithCancel(ctx)
 	now := time.Now()
 	entry := transferEntry{ID: id(), Kind: kind, Source: source, Storage: s.Name, Name: name, Status: "running", Total: total, Started: now, Updated: now}
+	pair := transferLocations{From: a.transferFileLocation(s, name), To: transferClientLocation(ctx)}
+	if kind == "upload" {
+		pair.From, pair.To = pair.To, pair.From
+	} else if kind == "copy" {
+		pair.To = transferLocation{}
+	}
+	if len(locations) > 0 {
+		pair = locations[0]
+	}
+	entry.From, entry.To = &pair.From, &pair.To
 	entry.rate = &trafficMeter{}
 	entry.cancel = cancel
 	l := &a.transfers
@@ -595,7 +614,7 @@ func writeResourceChunks(out io.Writer, b []byte, p *transferProgress) (int, err
 	}
 	return total, nil
 }
-func (a *App) trackedFile(ctx context.Context, s Storage, name string, file webdav.File, flag int) webdav.File {
+func (a *App) trackedFile(ctx context.Context, s Storage, name string, file webdav.File, flag int, locations ...transferLocations) webdav.File {
 	info, err := file.Stat()
 	if err != nil || info.IsDir() {
 		return file
@@ -612,7 +631,7 @@ func (a *App) trackedFile(ctx context.Context, s Storage, name string, file webd
 			total = expected
 		}
 	}
-	progress := a.beginTransfer(ctx, kind, s, name, total)
+	progress := a.beginTransfer(ctx, kind, s, name, total, locations...)
 	if progress != nil {
 		switch f := file.(type) {
 		case *cloudWriteFile:

@@ -4,7 +4,9 @@ import App from './App.vue'
 import './style.css'
 import { preloadLogos } from './assets-preload'
 import { tabScroll } from './tab-scroll'
+import { registerPWA } from './pwa'
 preloadLogos()
+registerPWA()
 
 const router = createRouter({
   history: createWebHistory(),

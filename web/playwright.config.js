@@ -13,7 +13,9 @@ export default defineConfig({
   testDir: './tests',
   timeout: 45000,
   workers: 1,
-  use: { baseURL: 'http://127.0.0.1:15159', screenshot: 'only-on-failure', trace: 'retain-on-failure', viewport: { width: 1440, height: 1000 } },
+  // Mocked UI requests must not bypass Playwright routes through a Worker.
+  // PWA integration tests opt back in and exercise the real lifecycle.
+  use: { baseURL: 'http://127.0.0.1:15159', serviceWorkers: 'block', screenshot: 'only-on-failure', trace: 'retain-on-failure', viewport: { width: 1440, height: 1000 } },
   webServer: {
     command: `go run ./cmd/aether -config-dir "${path.join(testRoot, 'config')}" -data-dir "${path.join(testRoot, 'data')}"`,
     cwd: '..',

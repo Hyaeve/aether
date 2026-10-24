@@ -227,6 +227,20 @@ func shareSessionRequest(ctx context.Context, session *Storage, method, address 
 	if s.Type == "quark" && (res.Request == nil || (res.Request.URL.Scheme == req.URL.Scheme && res.Request.URL.Host == req.URL.Host)) {
 		*session = mergeQuarkCookies(s, res.Header)
 	}
+	b, readErr := io.ReadAll(io.LimitReader(res.Body, (4<<20)+1))
+	var envelope struct {
+		State      *bool           `json:"state"`
+		Code       json.RawMessage `json:"code"`
+		ResultCode json.RawMessage `json:"resultCode"`
+	}
+	validEnvelope := readErr == nil && len(b) <= 4<<20 && json.Unmarshal(b, &envelope) == nil
+	code := strings.Trim(string(envelope.Code), `"`)
+	// Quark also returns its explicit share-revoked code with HTTP 404.
+	// A generic gateway 404 is not evidence that a share has expired.
+	if validEnvelope && s.Type == "quark" && (res.StatusCode == 200 || res.StatusCode == 404) &&
+		(code == "41006" || code == "41007") && strings.HasPrefix(req.URL.Path, "/1/clouddrive/share/sharepage/") {
+		return &quarkShareUnavailable{code: code}
+	}
 	if res.StatusCode != 200 {
 		if s.Type == "115" {
 			stage := "预览"
@@ -251,19 +265,12 @@ func shareSessionRequest(ctx context.Context, session *Storage, method, address 
 		}
 		return fmt.Errorf("分享服务 HTTP %d，请检查授权或网络", res.StatusCode)
 	}
-	b, err := io.ReadAll(io.LimitReader(res.Body, (4<<20)+1))
-	if err != nil || len(b) > 4<<20 {
+	if readErr != nil || len(b) > 4<<20 {
 		return errors.New("分享服务响应过大或不完整")
 	}
-	var envelope struct {
-		State      *bool           `json:"state"`
-		Code       json.RawMessage `json:"code"`
-		ResultCode json.RawMessage `json:"resultCode"`
-	}
-	if json.Unmarshal(b, &envelope) != nil {
+	if !validEnvelope {
 		return errors.New("分享服务响应格式异常")
 	}
-	code := strings.Trim(string(envelope.Code), `"`)
 	if s.Type == "mobile" && code == "" {
 		code = strings.Trim(string(envelope.ResultCode), `"`)
 	}
@@ -327,10 +334,10 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 		case "115":
 			var result struct {
 				Data struct {
-					Count int `json:"count"`
+					Count driver115.StringInt64 `json:"count"`
 					List  []struct {
-						ID   string                `json:"fid"`
-						CID  string                `json:"cid"`
+						ID   driver115.IntString   `json:"fid"`
+						CID  driver115.IntString   `json:"cid"`
 						Name string                `json:"n"`
 						Size driver115.StringInt64 `json:"s"`
 						SHA1 string                `json:"sha"`
@@ -344,13 +351,14 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			if err := read115Share(ctx, s, q, &result); err != nil {
 				return "", nil, err
 			}
-			total = result.Data.Count
+			total = int(result.Data.Count)
 			for _, f := range result.Data.List {
-				id := f.ID
-				if id == "" {
-					id = f.CID
+				id := string(f.ID)
+				dir := id == "" || id == "0"
+				if dir {
+					id = string(f.CID)
 				}
-				batch = append(batch, shareEntry{ID: id, Name: f.Name, IsDir: f.ID == "", Size: int64(f.Size), SHA1: f.SHA1})
+				batch = append(batch, shareEntry{ID: id, Name: f.Name, IsDir: dir, Size: int64(f.Size), SHA1: f.SHA1})
 			}
 		case "quark":
 			var result struct {

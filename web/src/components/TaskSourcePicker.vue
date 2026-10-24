@@ -97,7 +97,7 @@ onUnmounted(() => generation++)
     <div class="task-source-picker">
       <aside class="source-accounts"><h3>选择存储</h3><button v-if="allowAll" type="button" :class="{ active: !selected }" @click="choose('')"><Icon name="Layers" /><span>所有存储池</span></button><button v-for="s in storages" :key="s.id" type="button" :class="{ active: selected === s.id }" :aria-pressed="selected === s.id" @click="choose(s.id)"><ProviderIcon :type="s.type" small /><span><strong>{{ s.name }}</strong><small>{{ driverOf(s.type).name }}</small></span></button><p v-if="!storages.length" class="small-empty">暂无可用存储池</p></aside>
       <section class="source-directories">
-        <div class="source-toolbar"><PathBreadcrumbs class="directory-crumbs" aria-label="存储目录路径" :entries="crumbs.slice(1)" :disabled="busy || creating" @jump="jump($event + 1)" /><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选当前目录文件夹" /></div><button type="button" class="icon-btn" aria-label="新建文件夹" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" :size="23" /></button></div>
+        <div class="source-toolbar"><PathBreadcrumbs class="directory-crumbs" aria-label="存储目录路径" :entries="crumbs.slice(1)" :disabled="busy || creating" @jump="jump($event + 1)" /><div class="search-field"><Icon name="Search" :size="16" /><input v-model="query" aria-label="筛选当前目录文件夹" placeholder="筛选文件夹" /></div><button type="button" class="btn source-create" aria-label="新建文件夹" :disabled="!selected || busy || creating || !!error" @click="showCreate"><Icon name="FolderPlus" :size="18" /><span>新建</span></button></div>
         <div class="source-list" :aria-busy="busy">
           <div class="source-columns"><span>名称</span><span>修改时间</span></div>
           <p v-if="error" class="error-message" role="alert">{{ error }}</p>
@@ -115,14 +115,18 @@ onUnmounted(() => generation++)
 .picker-create-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
 .picker-create-form input { flex: 1; min-width: 100px; width: 0; }
 .picker-create-form .error-message { flex-basis: 100%; margin: 0; }
-.source-toolbar { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,min(32%,230px)) 36px; grid-template-areas:"path search create"; align-items:center; gap:10px; margin-bottom:10px; }
+.source-toolbar { display:grid; grid-template-columns:minmax(0,1fr) minmax(100px,min(25%,160px)) 76px; grid-template-areas:"path search create"; align-items:center; gap:10px; margin-bottom:10px; }
 .source-toolbar .directory-crumbs { grid-area:path; min-width:0; margin:0; }
 .source-toolbar .search-field { grid-area:search; width:100%; margin:0; }
 .source-toolbar .search-field input { margin:0; }
-.source-toolbar > .icon-btn { grid-area:create; width:36px; height:36px; }
+.source-toolbar > .source-create { grid-area:create; width:76px; height:36px; min-height:36px; padding:0 10px; white-space:nowrap;gap:6px }
 .source-columns { padding:8px 14px; font-size:12px; color:var(--text); }
 .source-directory time { font-size:14px; }
 @media (max-width: 700px) {
-  .source-toolbar { grid-template-columns:minmax(0,1fr) 36px; grid-template-areas:"path create" "search search"; }
+  .source-toolbar { grid-template-columns:minmax(0,1fr) 76px; grid-template-areas:"path create" "search search"; }
+}
+@media (max-width:480px){
+  .task-source-picker{grid-template-columns:100px minmax(0,1fr)}
+  .source-toolbar{gap:6px}
 }
 </style>

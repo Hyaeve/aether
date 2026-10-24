@@ -277,7 +277,10 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 		a.quarkTemporaryMu.Unlock()
 	}()
-	progress := a.beginTransfer(r.Context(), "download", session, grant.Name, grant.Size)
+	from := a.transferDirectory(session, record.Folder)
+	from.Directory = record.FolderName
+	progress := a.beginTransfer(r.Context(), "download", session, grant.Name, grant.Size,
+		transferLocations{From: from, To: transferClientLocation(r.Context())})
 	reader := &davFile{ctx: progress.ctx, info: davInfo{File{Name: grant.Name, Size: grant.Size}}, download: download, progress: progress}
 	defer reader.Close()
 	a.store.event("info", "virtual", "夸克链库中继播放："+card.Name+" · "+grant.Name)

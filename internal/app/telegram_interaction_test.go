@@ -34,7 +34,7 @@ func TestTelegramConfirmButtonOrder(t *testing.T) {
 	if err := a.telegramCallback(context.Background(), cfg, 123, 123, 77, "t:order:0"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(buttons, ",") != "取消,确认转存" {
+	if strings.Join(buttons, ",") != "返回,确认转存" {
 		t.Fatal("confirmation must be on the right", buttons)
 	}
 }

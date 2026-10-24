@@ -494,6 +494,7 @@ func sameBackupStorage(a, b Storage) bool {
 }
 
 func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File, parent, name, replace string, digest ...*string) (resultErr error) {
+	ctx = context.WithValue(ctx, transferSourceKey{}, "备份")
 	if err := a.checkBackupMutation(ctx); err != nil {
 		return err
 	}
@@ -531,7 +532,8 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	}
 	n := stage.size
 	release()
-	progress := a.beginTransfer(ctx, "upload", target, name, n)
+	progress := a.beginTransfer(ctx, "upload", target, name, n,
+		transferLocations{From: a.transferFileLocation(source, f.ID), To: a.transferDirectory(target, parent)})
 	defer func() { progress.finish(resultErr) }()
 	if err := progress.wait(); err != nil {
 		return err

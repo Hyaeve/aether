@@ -449,7 +449,19 @@ func (a *App) Handler(webDir string) http.Handler {
 		}
 		name := filepath.Join(webDir, p)
 		if info, err := os.Stat(name); err == nil && !info.IsDir() {
+			if r.URL.Path == "/manifest.webmanifest" {
+				w.Header().Set("Content-Type", "application/manifest+json")
+				w.Header().Set("Cache-Control", "no-cache")
+			}
+			if r.URL.Path == "/sw.js" {
+				w.Header().Set("Content-Type", "application/javascript")
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			http.ServeFile(w, r, name)
+			return
+		}
+		if r.URL.Path == "/sw.js" || r.URL.Path == "/manifest.webmanifest" || strings.HasPrefix(r.URL.Path, "/pwa/") {
+			http.NotFound(w, r)
 			return
 		}
 		http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
@@ -1441,7 +1453,8 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	cw := countWriter{w, &a.downloaded}
 	if r.Method == "GET" {
-		tracked := &transferResponse{ResponseWriter: w, progress: a.beginTransfer(r.Context(), "download", s, claim.File, 0)}
+		tracked := &transferResponse{ResponseWriter: w, progress: a.beginTransfer(r.Context(), "download", s, claim.File, 0,
+			transferLocations{From: a.transferFileLocation(s, claim.File), To: transferClientLocation(r.Context())})}
 		r = r.WithContext(tracked.progress.ctx)
 		cw.ResponseWriter = tracked
 		defer func() {

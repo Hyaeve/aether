@@ -259,8 +259,14 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 		}
 	}
 	{
-		s, _, _, _ := n.backend.selectPath(n.name())
-		handle.progress = n.backend.app.beginTransfer(context.WithValue(ctx, transferSourceKey{}, "FUSE"), map[bool]string{true: "upload", false: "download"}[write], s, n.name(), 0)
+		s, source, rel, _ := n.backend.selectPath(n.name())
+		storageLocation := n.backend.app.transferUploadLocation(s, source, rel)
+		mountLocation := transferLocalLocation("本地挂载", path.Dir(path.Join(mountTarget(n.backend.config), n.name())))
+		pair := transferLocations{From: storageLocation, To: mountLocation}
+		if write {
+			pair.From, pair.To = pair.To, pair.From
+		}
+		handle.progress = n.backend.app.beginTransfer(context.WithValue(ctx, transferSourceKey{}, "FUSE"), map[bool]string{true: "upload", false: "download"}[write], s, n.name(), 0, pair)
 		if !write {
 			if info, err := file.Stat(); err == nil {
 				handle.progress.setTotal(info.Size())

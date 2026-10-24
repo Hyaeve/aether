@@ -320,7 +320,8 @@ func (a *App) stageArchive(ctx context.Context, s Storage, f File, ua, target st
 		return err
 	}
 	defer out.Close()
-	progress := a.beginTransfer(ctx, "download", s, f.Name, f.Size)
+	progress := a.beginTransfer(ctx, "download", s, f.Name, f.Size,
+		transferLocations{From: a.transferFileLocation(s, f.ID), To: transferLocalLocation("本机临时目录", filepath.Dir(target))})
 	n, err := io.Copy(out, io.LimitReader(&cancelReader{ctx: ctx, reader: transferReader{reader, progress}}, extractInputLimit+1))
 	if closeErr := out.Close(); err == nil {
 		err = closeErr
