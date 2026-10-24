@@ -90,7 +90,7 @@ async function loadPlayback() {
   finally { playbackLoading = false }
 }
 watch(tab, value => { if (value === 'cache') loadPlayback() }, { immediate: true })
-function open(link) { closeMenu(); Object.assign(form, { id: '', name: '', type: '', address: '', port: '', apiKey: '', username: '', password: '', mode: 'always', enabled: true, blockedUA: '', mediaRoot: '', upstreamRoot: '' }, link || {}); error.value = ''; step.value = link ? 2 : 1; modal.value = true }
+function open(link) { closeMenu(); Object.assign(form, { id: '', name: '', type: '', address: '', port: '', apiKey: '', username: '', password: '', mode: 'always', enabled: true, blockedUA: '', mediaRoot: '', upstreamRoot: '', relayGuard: true }, link || {}); form.relayGuard = link?.relayGuard !== false; error.value = ''; step.value = link ? 2 : 1; modal.value = true }
 async function save() {
   busy.value = true; error.value = ''
   try { await api(form.id ? `/links/${form.id}` : '/links', form.id ? 'PUT' : 'POST', form); await load(); modal.value = false; notify('以链已保存') }
@@ -147,7 +147,10 @@ onUnmounted(() => { clearInterval(timer); document.removeEventListener('click', 
       <label>反代端口<input v-model.number="form.port" type="number" min="1024" max="65535" required /></label>
       <template v-if="form.type === 'fnos'"><label>账号<input v-model="form.username" required autocomplete="off" /></label><label>密码<SecretInput v-model="form.password" :secret-path="form.id ? `/links/${form.id}/secret` : ''" secret-field="password" required autocomplete="new-password" /></label></template>
       <label v-else class="full">API Key<SecretInput v-model="form.apiKey" :secret-path="form.id ? `/links/${form.id}/secret` : ''" secret-field="apiKey" required autocomplete="off" /></label>
-    </div><details class="link-more"><summary class="disclosure"><Icon name="ChevronRight" :size="16" />更多选项</summary><label>屏蔽 UA<textarea v-model="form.blockedUA" rows="5" placeholder="一行一个关键词" /></label></details><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button v-if="!form.id" type="button" class="btn" @click="step = 1">上一步</button><button class="btn primary" :disabled="busy">保存以链</button></footer></form>
+    </div><details class="link-more"><summary class="disclosure"><Icon name="ChevronRight" :size="16" />更多选项</summary><label class="link-relay-guard">中继守护<input v-model="form.relayGuard" type="checkbox" class="switch" role="switch" aria-label="中继守护" :disabled="form.mode==='never'" /></label><label>屏蔽 UA<textarea v-model="form.blockedUA" rows="5" placeholder="一行一个关键词" /></label></details><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button v-if="!form.id" type="button" class="btn" @click="step = 1">上一步</button><button class="btn primary" :disabled="busy">保存以链</button></footer></form>
   </Modal>
   <Modal v-if="deleting" title="删除以链" @close="deleting = null"><div class="modal-body">确认删除「{{ deleting.name }}」？</div><footer class="modal-footer"><button class="btn" @click="deleting = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">确认删除</button></footer></Modal>
 </template>
+<style scoped>
+.link-relay-guard{display:flex;flex-direction:row;align-items:center;justify-content:space-between;margin:12px 0 16px}
+</style>

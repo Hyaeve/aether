@@ -7,9 +7,11 @@ import ProviderIcon from '../components/ProviderIcon.vue'
 import ProviderLineIcon from '../components/ProviderLineIcon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
+import QuarkLibrary from '../components/QuarkLibrary.vue'
 const route=useRoute(),router=useRouter()
 const tabs=[{id:'115',name:'115链库'},{id:'mobile',name:'移动链库'},{id:'quark',name:'夸克链库'},{id:'cas',name:'CAS链库',icon:'Box'}]
-const kind=computed(()=>route.path.split('/').at(-1)==='virtual'?'115':route.path.split('/').at(-1))
+const kind=computed(()=>route.path.startsWith('/virtual/quark')?'quark':route.path.split('/').at(-1)==='virtual'?'115':route.path.split('/').at(-1))
+const quark=ref(null)
 const pools=computed(()=>state.storages.filter(s=>s.type==='115'&&s.enabled))
 const storage=ref(pools.value[0]?.id||''),link=ref(''),directory=ref(''),picker=ref(false),preview=ref(null),busy=ref(false),error=ref('')
 let alive=true
@@ -24,8 +26,9 @@ async function generate(){
 }
 </script>
 <template>
- <section class="task-heading"><nav v-tab-scroll class="content-tabs" aria-label="虚拟链库栏目"><RouterLink v-for="tab in tabs" :key="tab.id" :to="`/virtual/${tab.id}`" :class="{active:kind===tab.id}"><Icon v-if="tab.icon" :name="tab.icon" :size="19" /><ProviderLineIcon v-else :type="tab.id" />{{ tab.name }}</RouterLink></nav><button class="btn" @click="router.push('/tasks/ed2k/pool')"><Icon name="Settings2" />存储绑定池</button></section>
+ <section v-if="!route.path.endsWith('/quark/settings')" class="task-heading"><nav v-tab-scroll class="content-tabs" aria-label="虚拟链库栏目"><RouterLink v-for="tab in tabs" :key="tab.id" :to="`/virtual/${tab.id}`" :class="{active:kind===tab.id}"><Icon v-if="tab.icon" :name="tab.icon" :size="19" /><ProviderLineIcon v-else :type="tab.id" />{{ tab.name }}</RouterLink></nav><button v-if="kind==='quark'" class="btn primary" @click="quark?.open()"><Icon name="Plus" />添加链接</button><button v-else class="btn" @click="router.push('/tasks/ed2k/pool')"><Icon name="Settings2" />存储绑定池</button></section>
  <section v-if="kind==='115'" class="virtual-library-panel"><form @submit.prevent="parse"><div class="virtual-fields"><label>解析存储池<RoundedSelect v-model="storage" label="解析存储池" :disabled="busy" :options="pools.map(s=>({value:s.id,label:s.name}))" /></label><label>生成目录<button type="button" class="source-trigger" :disabled="busy" @click="picker=true"><span>{{ directory || '选择容器目录' }}</span><Icon name="FolderOpen" /></button></label></div><label>115分享链接<textarea v-model="link" rows="3" :disabled="busy" required @input="preview=null" /></label><div class="virtual-actions"><p v-if="error" class="error-message" role="alert">{{ error }}</p><button class="btn" :disabled="busy || !storage || !link"><Icon name="ScanSearch" />{{ busy?'处理中…':'解析' }}</button><button type="button" class="btn primary" :disabled="busy || !directory || !preview?.files.length" @click="generate"><Icon name="FileSymlink" />生成 STRM</button></div></form><div v-if="preview" class="virtual-results"><header>{{ preview.files.length }} 项</header><div v-for="item in preview.files" :key="item.path"><Icon name="FileSymlink" /><span><strong>{{ item.path }}</strong><small>{{ item.content }}</small></span><span>{{ bytes(item.size) }}</span></div></div></section>
+ <QuarkLibrary v-else-if="kind==='quark'" ref="quark" />
  <section v-else class="virtual-library-panel virtual-planned"><Icon v-if="kind==='cas'" name="Box" :size="27" /><ProviderIcon v-else :type="kind" /><span>尚未开放</span></section>
  <LocalDirectoryPicker v-if="picker" :initial="directory" @close="picker=false" @select="directory=$event;picker=false" />
 </template>

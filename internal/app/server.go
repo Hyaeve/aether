@@ -29,6 +29,9 @@ import (
 )
 
 type App struct {
+	quarkLibraryMu      sync.Mutex
+	quarkTemporaryMu    sync.Mutex
+	quarkPlaybackActive map[string]int
 	marketMu            sync.Mutex
 	marketCache         map[string]*pluginMarketCache
 	marketGate          chan struct{}
@@ -213,6 +216,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.telegramPoll()
 	go a.telegramWorker()
 	go a.telegramInteractionCleaner()
+	a.wg.Add(1)
+	go a.quarkLibraryMonitor()
 	go a.casExportResultMonitor()
 	a.wg.Add(1)
 	go a.storageHealthLoop()
@@ -307,6 +312,11 @@ func (a *App) Handler(webDir string) http.Handler {
 	a.RegisterStrmReplace(mux)
 	mux.Handle("POST /api/virtual-library/115/{action}", a.protected(http.HandlerFunc(a.virtualLibrary)))
 	mux.HandleFunc("/s/{key}", a.playVirtualShare)
+	mux.Handle("/api/virtual-library/quark", a.protected(http.HandlerFunc(a.quarkLibraryAPI)))
+	mux.Handle("/api/virtual-library/quark/{id}", a.protected(http.HandlerFunc(a.quarkLibraryAPI)))
+	mux.Handle("POST /api/virtual-library/quark/resolve", a.protected(http.HandlerFunc(a.quarkLibraryResolve)))
+	mux.Handle("POST /api/virtual-library/quark/{id}/run", a.protected(http.HandlerFunc(a.quarkLibraryRunAPI)))
+	mux.HandleFunc("/q/{key}/{name}", a.playQuarkLibrary)
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
 	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))

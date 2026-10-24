@@ -17,7 +17,7 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary", "cloudCASRecords", "telegramRuntime"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -106,6 +106,7 @@ func (s *Store) initRuntime(dir string) error {
 	if err == nil && !s.state.RuntimeSeparated {
 		// Configuration import resets task results, not the administrator's file records.
 		var records struct {
+			QuarkLibrary       quarkLibraryRuntime  `json:"quarkLibraryRuntime"`
 			Telegram           telegramRuntime      `json:"telegramRuntime"`
 			Favorites          []FileFavorite       `json:"fileFavorites"`
 			Visits             []FileVisit          `json:"fileVisits"`
@@ -126,6 +127,7 @@ func (s *Store) initRuntime(dir string) error {
 		s.state.Rapid115Attempts, s.state.Rapid115Records, s.state.SimulcastTemporary = records.RapidAttempts, records.RapidRecords, records.SimulcastTemporary
 		s.state.CloudCASRecords = records.CloudCASRecords
 		s.state.TelegramRuntime = records.Telegram
+		s.state.QuarkLibraryRuntime = records.QuarkLibrary
 	}
 	if err == nil && s.state.RuntimeSeparated {
 		var plain json.RawMessage
@@ -189,6 +191,12 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for key, result := range s.state.QuarkLibraryRuntime.Results {
+		if result.Status == "running" {
+			result.Status, result.Message = "interrupted", "服务重启，生成已中断，已生成文件保留"
+			s.state.QuarkLibraryRuntime.Results[key] = result
+		}
+	}
 	for i := range s.state.TelegramRuntime.Jobs {
 		job := &s.state.TelegramRuntime.Jobs[i]
 		if (job.Status == "choosing" || job.Status == "confirming") && job.MessageID > 0 {

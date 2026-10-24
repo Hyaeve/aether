@@ -70,7 +70,8 @@ type Resolution struct {
 	// redirect following was enabled and the backend answered with a 3xx.
 	FinalURL string `json:"finalUrl,omitempty"`
 	// Hops records the redirect chain that was followed.
-	Hops []string `json:"hops,omitempty"`
+	Hops        []string `json:"hops,omitempty"`
+	ProbeFailed bool     `json:"probeFailed,omitempty"`
 	// ResolvedAt is when the resolution was computed.
 	ResolvedAt time.Time `json:"resolvedAt"`
 }
@@ -188,7 +189,11 @@ func (r *Resolver) ResolveWithSource(ctx context.Context, provider upstream.Prov
 	resolvedTTL := time.Duration(0)
 	if call.err == nil {
 		resolvedTTL = r.cacheTTLFor(provider, call.resolution, ttl)
-		r.putResolution(key, sharedKey, call.resolution, resolvedTTL)
+		if !call.resolution.ProbeFailed {
+			r.putResolution(key, sharedKey, call.resolution, resolvedTTL)
+		} else {
+			resolvedTTL = 0
+		}
 	}
 	r.inflightMu.Lock()
 	close(call.done)
@@ -409,6 +414,7 @@ func (r *Resolver) resolveUncached(ctx context.Context, provider upstream.Provid
 				// A failed pre-flight is not fatal: hand the original URL to the
 				// client and let the player negotiate directly.
 				logx.Warnf("[resolver] follow redirects failed for %s: %v", resolution.Target.URL, err)
+				resolution.ProbeFailed = true
 			} else {
 				resolution.FinalURL = finalURL
 				resolution.Hops = hops
@@ -545,6 +551,11 @@ func (r *Resolver) ShouldRedirectForClient(resolution *Resolution, redirectCfg c
 	if playURL == "" {
 		return false
 	}
+	return WantsRedirectForClient(redirectCfg, client)
+}
+
+// Network policy is separate from target capability, including resolution failures.
+func WantsRedirectForClient(redirectCfg config.Redirect, client string) bool {
 	switch redirectCfg.Mode {
 	case config.RedirectNever:
 		return false

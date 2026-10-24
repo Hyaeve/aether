@@ -164,6 +164,7 @@ func (u Upstream) Clone() Upstream {
 
 // Redirect holds the 302 behaviour shared by all upstreams.
 type Redirect struct {
+	RelayGuard        *bool        `yaml:"relay_guard,omitempty" json:"relayGuard,omitempty"`
 	TrustedProxyCIDRs []string     `yaml:"trusted_proxy_cidrs,omitempty" json:"trustedProxyCidrs"`
 	Mode              RedirectMode `yaml:"mode" json:"mode"`
 	// IntranetCIDRs 补充内置的内网判断。内置只认 RFC1918、回环、链路本地与
@@ -198,6 +199,10 @@ type Redirect struct {
 	StreamTimeout                            time.Duration `yaml:"stream_timeout" json:"streamTimeout"`
 	// AllowPublicTargets permits redirecting to non-private hosts.
 	AllowPublicTargets *bool `yaml:"allow_public_targets" json:"allowPublicTargets"`
+}
+
+func (r Redirect) ShouldGuardRelay() bool {
+	return r.RelayGuard == nil || *r.RelayGuard
 }
 
 // ShouldForwardUserAgent reports the effective ForwardUserAgent value.
@@ -414,6 +419,7 @@ func (c *Config) Clone() *Config {
 	copied.Redirect.TrustedProxyCIDRs = append([]string(nil), c.Redirect.TrustedProxyCIDRs...)
 	copied.Redirect.IntranetCIDRs = append([]string(nil), c.Redirect.IntranetCIDRs...)
 	copied.Redirect.ForwardUserAgent = clonePointer(c.Redirect.ForwardUserAgent)
+	copied.Redirect.RelayGuard = clonePointer(c.Redirect.RelayGuard)
 	copied.Redirect.BlockClientUserAgent = clonePointer(c.Redirect.BlockClientUserAgent)
 	copied.Redirect.BlockClientUserAgentEmby = clonePointer(c.Redirect.BlockClientUserAgentEmby)
 	copied.Redirect.BlockClientUserAgentAudiobookshelf = clonePointer(c.Redirect.BlockClientUserAgentAudiobookshelf)
@@ -652,6 +658,7 @@ func merge(base, parsed *Config) {
 		base.Redirect.Mode = parsed.Redirect.Mode
 	}
 	base.Redirect.FollowUpstreamRedirects = parsed.Redirect.FollowUpstreamRedirects
+	base.Redirect.RelayGuard = parsed.Redirect.RelayGuard
 	if parsed.Redirect.MaxFollowHops != 0 {
 		base.Redirect.MaxFollowHops = parsed.Redirect.MaxFollowHops
 	}

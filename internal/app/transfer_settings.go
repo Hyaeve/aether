@@ -335,6 +335,9 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State, allowLegacyPIN ...bool) error {
+	if err := validateQuarkLibrary(*st); err != nil {
+		return err
+	}
 	if err := validatePluginRepositories(st.PluginRepositories); err != nil {
 		return err
 	}

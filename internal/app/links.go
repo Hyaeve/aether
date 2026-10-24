@@ -34,6 +34,7 @@ type MediaLink struct {
 	Username     string `json:"username"`
 	Password     string `json:"password"`
 	Mode         string `json:"mode"`
+	RelayGuard   *bool  `json:"relayGuard,omitempty"`
 	BlockedUA    string `json:"blockedUA"`
 	Enabled      bool   `json:"enabled"`
 }
@@ -88,6 +89,7 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 	}
 	cfg := lc.Default()
 	cfg.Redirect.Mode = lc.RedirectMode(link.Mode)
+	cfg.Redirect.RelayGuard = link.RelayGuard
 	cfg.Redirect.TrustedProxyCIDRs = linkTrustedProxies()
 	cfg.Redirect.FollowUpstreamRedirects = true
 	cfg.Redirect.BlockClientUserAgent = lc.Bool(strings.TrimSpace(link.BlockedUA) != "")

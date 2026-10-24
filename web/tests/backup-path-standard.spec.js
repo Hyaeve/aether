@@ -20,7 +20,7 @@ async function fixture(page, legacy=false) {
   return ()=>rule
 }
 
-for(const width of [1440,390])for(const theme of ['light','dark'])test(`backup switch and full clickable path ${width} ${theme}`,async({page},info)=>{
+for(const width of [1440,701,390])for(const theme of ['light','dark'])test(`backup switch and full clickable path ${width} ${theme}`,async({page},info)=>{
   await page.setViewportSize({width,height:900});const saved=await fixture(page)
   await page.goto('/transfer/backup');await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
   await page.locator('.backup-name').click()
@@ -40,6 +40,9 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`backup s
   await modal.getByRole('button',{name:'选择备份源目录',exact:true}).click()
   let picker=page.getByRole('dialog',{name:'选择存储目录',exact:true}),crumbs=picker.getByRole('navigation',{name:'存储目录路径'})
   await expect(crumbs.getByRole('button',{name:parts[2],exact:true})).toBeVisible()
+  const pathBox=await crumbs.boundingBox(),createBox=await picker.getByRole('button',{name:'新建文件夹',exact:true}).boundingBox()
+  expect(Math.abs(pathBox.y+pathBox.height/2-createBox.y-createBox.height/2)).toBeLessThan(1)
+  expect(pathBox.x+pathBox.width).toBeLessThan(createBox.x)
   expect(await crumbs.getByRole('button',{name:parts[2],exact:true}).evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
   if(width===1440)for(const part of parts)await expect(crumbs.getByRole('button',{name:part,exact:true})).toBeVisible()
   else {await crumbs.getByRole('button',{name:'展开省略路径',exact:true}).click();await expect(crumbs.getByRole('button',{name:parts[0],exact:true})).toBeVisible()}

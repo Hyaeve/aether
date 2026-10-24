@@ -48,17 +48,48 @@ test('rename virtual row frames and rule footer remain visible while both panes 
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 })
 
-test('storage picker toolbar is aligned and date values are larger than headers',async({page},info)=>{
+for(const width of [1440,701,700,390])for(const theme of ['light','dark'])test(`storage picker keeps path and create aligned without wrapping ${width} ${theme}`,async({page},info)=>{
+  await page.setViewportSize({width,height:1000})
   await workspace(page)
   await page.goto('/files')
+  await page.evaluate(value=>document.documentElement.dataset.theme=value,theme)
   await page.getByRole('button',{name:'目录0',exact:true}).click({button:'right'})
   await page.getByRole('button',{name:'移动到',exact:true}).click()
-  const toolbar=page.locator('.source-toolbar')
+  const picker=page.getByRole('dialog',{name:'选择存储目录',exact:true})
+  const toolbar=picker.locator('.source-toolbar')
   await expect(toolbar).toBeVisible()
-  const centers=await toolbar.evaluate(el=>[...el.children].map(c=>{const r=c.getBoundingClientRect();return r.top+r.height/2}))
-  expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(1)
+  await picker.getByRole('button',{name:'目录0',exact:true}).click()
+  const crumbs=picker.getByRole('navigation',{name:'存储目录路径',exact:true})
+  await expect(crumbs.getByRole('button',{name:'目录0',exact:true})).toBeVisible()
+  const boxes=await toolbar.evaluate(el=>{
+    const rect=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,center:r.top+r.height/2}}
+    return {toolbar:rect(el),path:rect(el.querySelector('.directory-crumbs')),search:rect(el.querySelector('.search-field')),create:rect(el.querySelector('[aria-label="新建文件夹"]'))}
+  })
+  expect(Math.abs(boxes.path.center-boxes.create.center)).toBeLessThan(1)
+  expect(Math.abs(boxes.path.left-boxes.toolbar.left)).toBeLessThan(1)
+  if(width>700){
+    const centers=[boxes.path.center,boxes.search.center,boxes.create.center]
+    expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(1)
+    expect(boxes.path.right).toBeLessThan(boxes.search.left)
+    expect(boxes.search.right).toBeLessThan(boxes.create.left)
+  }else{
+    expect(boxes.path.right).toBeLessThan(boxes.create.left)
+    expect(boxes.search.top).toBeGreaterThanOrEqual(Math.max(boxes.path.bottom,boxes.create.bottom))
+    expect(Math.abs(boxes.search.width-boxes.toolbar.width)).toBeLessThan(1)
+  }
+  expect(boxes.create.right).toBeLessThanOrEqual(boxes.toolbar.right)
+  expect(await crumbs.evaluate(el=>el.scrollHeight<=el.clientHeight+1)).toBe(true)
+  expect(await picker.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
   await expect(page.locator('.source-columns')).toHaveCSS('font-size','12px')
   await expect(page.locator('.source-directory time').first()).toHaveCSS('font-size','14px')
+  await expect(picker.getByRole('button',{name:'新建文件夹',exact:true})).toBeEnabled()
+  await page.screenshot({path:info.outputPath('picker-path-aligned.png')})
+  await picker.getByRole('textbox',{name:'筛选当前目录文件夹',exact:true}).fill('目录29')
+  await expect(picker.locator('.source-directory').first()).toHaveAccessibleName('目录29')
+  await expect(picker.locator('.source-directory[aria-label="目录0"]')).toHaveCount(0)
+  await crumbs.getByRole('button',{name:'根目录',exact:true}).click()
+  await expect(picker.getByRole('textbox',{name:'筛选当前目录文件夹',exact:true})).toHaveValue('')
+  await expect(picker.locator('.source-directory').first()).toHaveAccessibleName('目录0')
   await page.screenshot({path:info.outputPath('picker-aligned.png')})
 })
 

@@ -266,6 +266,9 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 func virtualOutputRoot(root *os.Root, directory string) (*os.Root, error) {
+	if directory == "." {
+		directory = ""
+	}
 	current, err := root.OpenRoot(".")
 	if err != nil {
 		return nil, err

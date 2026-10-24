@@ -253,6 +253,7 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 		UserAgent: request.UserAgent(),
 	}
 	event.EffectiveUserAgent = s.resolver.EffectiveUserAgentForUpstream(s.provider.Type(), s.provider.Name(), request.UserAgent())
+	strictRedirect := !s.redirect.ShouldGuardRelay() && resolver.WantsRedirectForClient(s.redirect, event.Client)
 
 	// finish 是所有出口的唯一收尾：记录事件之后必定打一行日志。
 	// 之前只有 s.stats.Record，成功的 302 与透传一行日志都没有，
@@ -263,8 +264,18 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 		s.stats.Record(event)
 		s.logOutcome(event, note)
 	}
+	redirectUnavailable := func() {
+		event.Error = "中继守护已关闭，当前网络要求302，但未取得可用直链"
+		event.StatusCode = http.StatusBadGateway
+		finish(stats.OutcomeError, event.Error)
+		http.Error(writer, event.Error, http.StatusBadGateway)
+	}
 
 	if !s.provider.HasCredentials() {
+		if strictRedirect {
+			redirectUnavailable()
+			return
+		}
 		// Without an API key AetherLink cannot ask the upstream where the media
 		// lives, so behave like a plain reverse proxy.
 		event.Error = upstream.ErrNoAPIKey.Error()
@@ -289,6 +300,10 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 			s.proxy.ServeHTTP(writer, request)
 			return
 		}
+		if strictRedirect {
+			redirectUnavailable()
+			return
+		}
 		if errors.Is(err, resolver.ErrPointerUnavailable) {
 			// 指针确实是 strm，但这个容器读不到它（媒体目录没挂进来）。
 			// 上游自己能读，退回透传让播放继续，同时把原因记进日志与事件，
@@ -308,11 +323,29 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 	}
 
 	event.MediaPath = resolution.ContainerPath
+	if resolution.ProbeFailed && resolver.WantsRedirectForClient(s.redirect, event.Client) {
+		if strictRedirect {
+			redirectUnavailable()
+		} else {
+			event.Error = "STRM来源未返回可用直链，中继守护回退上游播放"
+			finish(stats.OutcomePassthrough, event.Error)
+			s.proxy.ServeHTTP(writer, request)
+		}
+		return
+	}
 	if resolution.Target != nil {
 		event.Kind = string(resolution.Target.Kind)
 	}
+	if strictRedirect && (!resolution.IsRemote() || resolution.PlayURL() == "") {
+		redirectUnavailable()
+		return
+	}
 
 	if resolution.Target != nil && resolution.Target.Type == strm.TargetLocal {
+		if strictRedirect {
+			redirectUnavailable()
+			return
+		}
 		if s.shouldTranscode(request, resolution) {
 			event.Target = resolution.Target.Path
 			status, cacheHit, err := s.relayTranscoded(writer, request, resolution.Target.Path, resolution)
@@ -334,7 +367,7 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 
 	playURL := resolution.PlayURL()
 	event.Target = playURL
-	if s.shouldTranscode(request, resolution) {
+	if !strictRedirect && s.shouldTranscode(request, resolution) {
 		status, cacheHit, err := s.relayTranscoded(writer, request, playURL, resolution)
 		event.StatusCode = status
 		if err != nil {
@@ -356,6 +389,10 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 		urlx.IsPrivateHost(playURL) &&
 		resolver.ScopeOfClient(event.Client, s.redirect.IntranetCIDRs...) == resolver.ClientScopePublic
 	if intranetTargetPublicClient {
+		if strictRedirect {
+			redirectUnavailable()
+			return
+		}
 		// 直链是内网地址而客户端在外网时，302 出去也连不上，只能中继。
 		wantRedirect = false
 	}

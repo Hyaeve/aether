@@ -272,6 +272,11 @@ func shareSessionRequest(ctx context.Context, session *Storage, method, address 
 			return errors.New("115 拒绝分享请求，请检查提取码、链接有效期和账号权限")
 		}
 	} else if code != "0" && code != "0000" {
+		// Token expiry, credentials, permissions and network failures are not
+		// evidence that the share itself was revoked.
+		if s.Type == "quark" && (code == "41006" || code == "41007") && strings.Contains(req.URL.Path, "/share/sharepage/") {
+			return &quarkShareUnavailable{code: code}
+		}
 		return errors.New("网盘拒绝分享请求，请检查提取码、链接有效期和账号权限")
 	}
 	if err := json.Unmarshal(b, out); err != nil {
@@ -355,6 +360,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 						Name  string `json:"file_name"`
 						Dir   bool   `json:"dir"`
 						Token string `json:"share_fid_token"`
+						Size  int64  `json:"size"`
 					} `json:"list"`
 				} `json:"data"`
 				Metadata struct {
@@ -370,7 +376,7 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			}
 			total = result.Metadata.Total
 			for _, f := range result.Data.List {
-				batch = append(batch, shareEntry{ID: f.ID, Name: f.Name, IsDir: f.Dir, Token: f.Token})
+				batch = append(batch, shareEntry{ID: f.ID, Name: f.Name, IsDir: f.Dir, Token: f.Token, Size: f.Size})
 			}
 		case "mobile":
 			account, _, err := mobileAccount(s)

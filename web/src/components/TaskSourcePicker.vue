@@ -115,14 +115,14 @@ onUnmounted(() => generation++)
 .picker-create-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
 .picker-create-form input { flex: 1; min-width: 100px; width: 0; }
 .picker-create-form .error-message { flex-basis: 100%; margin: 0; }
-.source-toolbar { display:grid; grid-template-columns:minmax(0,1fr) 36px; margin-bottom:10px; }
-.source-toolbar .directory-crumbs { grid-column:1/-1; min-width:0; margin:0; }
-.source-toolbar .search-field { width:100%; margin:0; }
+.source-toolbar { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,min(32%,230px)) 36px; grid-template-areas:"path search create"; align-items:center; gap:10px; margin-bottom:10px; }
+.source-toolbar .directory-crumbs { grid-area:path; min-width:0; margin:0; }
+.source-toolbar .search-field { grid-area:search; width:100%; margin:0; }
 .source-toolbar .search-field input { margin:0; }
-.source-toolbar > .icon-btn { flex: 0 0 36px; }
+.source-toolbar > .icon-btn { grid-area:create; width:36px; height:36px; }
 .source-columns { padding:8px 14px; font-size:12px; color:var(--text); }
 .source-directory time { font-size:14px; }
 @media (max-width: 700px) {
-  .source-toolbar .search-field { order:0; }
+  .source-toolbar { grid-template-columns:minmax(0,1fr) 36px; grid-template-areas:"path create" "search search"; }
 }
 </style>

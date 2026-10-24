@@ -47,12 +47,28 @@ func (a *App) quarkJSON(ctx context.Context, s Storage, method, address string, 
 	if updated.Config["cookie"] == s.Config["cookie"] {
 		return s, err
 	}
+	if persistErr := a.persistQuarkCookies(s, updated); persistErr != nil {
+		return updated, persistErr
+	}
+	return updated, err
+}
+
+func (a *App) persistQuarkCookies(s, updated Storage) error {
+	if updated.Config["cookie"] == s.Config["cookie"] {
+		return nil
+	}
 	// Do not let a late response overwrite an edited or concurrently refreshed account.
 	a.quarkTVMu.Lock()
 	persistErr := a.store.update(func(st *State) error {
 		for i := range st.Storages {
 			current := &st.Storages[i]
 			if current.ID == s.ID && current.Type == "quark" && storageRevision(*current) == storageRevision(s) {
+				for key, record := range st.QuarkLibraryRuntime.Temporary {
+					if record.StorageID == current.ID && record.Revision == storageRevision(*current) {
+						record.Revision = storageRevision(updated)
+						st.QuarkLibraryRuntime.Temporary[key] = record
+					}
+				}
 				binding := st.QuarkTV[s.ID]
 				// Only carry a valid binding across this trusted automatic Cookie rotation.
 				if binding.AccessToken != "" && binding.CookieHash == quarkCookieHash(*current) {
@@ -67,9 +83,9 @@ func (a *App) quarkJSON(ctx context.Context, s Storage, method, address string, 
 	})
 	a.quarkTVMu.Unlock()
 	if persistErr != nil {
-		return updated, errors.New("夸克更新凭据保存失败，请检查配置目录写入权限")
+		return errors.New("夸克更新凭据保存失败，请检查配置目录写入权限")
 	}
-	return updated, err
+	return nil
 }
 
 func mergeQuarkCookies(s Storage, headers http.Header) Storage {
