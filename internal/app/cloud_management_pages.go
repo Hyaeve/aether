@@ -149,7 +149,15 @@ func (a *App) cloudManagementPage(w http.ResponseWriter, r *http.Request, ctx co
 		for _, record := range st.CloudCASRecords {
 			for _, pool := range st.Storages {
 				if pool.ID == record.StorageID && pool.Enabled && casStorage(pool) {
-					all = append(all, cloudCASManagementEntry(pool, record))
+					row := cloudCASManagementEntry(pool, record)
+					if row.Path == "" {
+						location := a.transferDirectory(pool, record.Parent)
+						row.Path = location.Path
+						if row.Path == "" {
+							row.Path = location.Directory
+						}
+					}
+					all = append(all, row)
 					break
 				}
 			}
@@ -207,7 +215,11 @@ func cloudCASManagementEntry(s Storage, record cloudCASRecord) cloudManagementEn
 	if record.Status == "success" {
 		progress = 1
 	}
-	return cloudManagementEntry{ID: record.ID, Name: record.CAS.Name, Size: record.CAS.Size, Path: record.Parent, ParentID: record.Parent, Time: record.Time, Status: record.Status, Progress: progress, StorageID: s.ID, StorageName: s.Name, Provider: s.Type}
+	fullPath := record.Path
+	if fullPath == "" && strings.HasPrefix(record.Parent, "/") {
+		fullPath = record.Parent
+	}
+	return cloudManagementEntry{ID: record.ID, Name: record.CAS.Name, Size: record.CAS.Size, Path: fullPath, ParentID: record.Parent, Time: record.Time, Status: record.Status, Progress: progress, StorageID: s.ID, StorageName: s.Name, Provider: s.Type}
 }
 
 func (a *App) readCloudManagementPage(ctx context.Context, s Storage, kind string, page int) ([]cloudManagementEntry, bool, int64, error) {

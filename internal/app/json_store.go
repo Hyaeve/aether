@@ -63,7 +63,7 @@ func (s *Store) configMAC(module string, data []byte) []byte {
 
 func secretJSONField(key string) bool {
 	switch strings.ToLower(key) {
-	case "password", "token", "accesstoken", "refreshtoken", "cookie", "ck", "authorization", "apikey", "signkey", "directorypassword", "clientsecret", "secret", "recyclepin":
+	case "password", "token", "accesstoken", "refreshtoken", "cookie", "ck", "authorization", "apikey", "signkey", "directorypassword", "clientsecret", "secret", "recyclepin", "encodingaeskey":
 		return true
 	}
 	return false

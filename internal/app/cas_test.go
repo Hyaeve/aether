@@ -109,7 +109,7 @@ func TestCASLifecycle(t *testing.T) {
 			if payload["fileId"] == "cas-file" {
 				result = map[string]string{"url": "https://cdn.example/cas"}
 			} else {
-				result = map[string]string{"cdnUrl": media.URL}
+				result = map[string]any{"cdnUrl": media.URL, "cdnSwitch": true}
 			}
 		case "/cas":
 			raw = cas

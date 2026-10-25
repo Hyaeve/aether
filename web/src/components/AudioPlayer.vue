@@ -131,15 +131,16 @@ async function collapse(focus = true) { more.value = false; volumeOpen.value = f
 async function reopen() { if (dragged) { dragged = false; return }; expanded.value = true; await nextTick(); panel.value?.focus() }
 function outside(event) { if (expanded.value && !event.target.closest('.audio-player, .audio-capsule')) collapse(false) }
 function resetHover(event){if(volumeOpen.value&&!event.target.closest('.audio-volume'))volumeOpen.value=false;if(more.value&&!event.target.closest('.audio-more'))more.value=false}
+function close(){player.value?.pause();emit('close')}
 function key(event) {
   event.stopPropagation()
-  if (event.key === 'Escape') { event.preventDefault(); emit('close') }
+  if (event.key === 'Escape') { event.preventDefault(); close() }
   if (event.key === ' ' && event.target === panel.value) { event.preventDefault(); togglePlayback() }
 }
 function escape(event) {
   if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.target.closest?.('.audio-player, .audio-capsule')) return
   if ([...document.querySelectorAll('[role=dialog], [role=alertdialog]')].some(el => el !== panel.value && el.getClientRects().length)) return
-  event.preventDefault(); emit('close')
+  event.preventDefault(); close()
 }
 function constrainDock() { dock.value.y = Math.min(Math.max(56, dock.value.y), Math.max(56, window.innerHeight - 56)); dock.value.x = null }
 function startDrag(event) {
@@ -164,7 +165,7 @@ function endDrag() {
   drag = null; dock.value.x = null; isDragging.value = false
 }
 function dockKey(event) {
-  if (event.key === 'Escape') { event.preventDefault(); emit('close'); return }
+  if (event.key === 'Escape') { event.preventDefault(); close(); return }
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
   event.preventDefault()
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') dock.value.side = event.key === 'ArrowLeft' ? 'left' : 'right'
@@ -177,7 +178,7 @@ onMounted(async () => {
   previousFocus = document.activeElement
   document.addEventListener('pointerdown', outside)
   document.addEventListener('pointermove',resetHover)
-  document.addEventListener('keydown', escape)
+  document.addEventListener('keydown', escape, true)
   window.addEventListener('resize', constrainDock)
   constrainDock(); await nextTick(); panel.value?.focus(); play()
 })
@@ -185,7 +186,7 @@ onBeforeUnmount(() => {
   generation++; controller?.abort(); clearTimeout(deadline)
   document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', constrainDock)
   document.removeEventListener('pointermove',resetHover)
-  document.removeEventListener('keydown', escape)
+  document.removeEventListener('keydown', escape, true)
   if (artworkURL) URL.revokeObjectURL(artworkURL)
   player.value?.pause(); player.value?.removeAttribute('src'); player.value?.load()
 })
@@ -198,7 +199,7 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
       <section v-show="expanded" ref="panel" class="audio-player" :class="{ 'has-artwork': cover }" role="dialog" :aria-label="file.name" tabindex="-1" @keydown="key">
         <img v-if="cover" class="audio-ambient" :src="cover" alt="" aria-hidden="true" />
         <div class="audio-shade" aria-hidden="true" />
-        <header><button class="icon-btn audio-collapse" aria-label="收起音频播放" @click="collapse()"><Icon :name="dock.side==='left'?'ChevronLeft':'ChevronRight'" /></button><span>音频播放</span></header>
+        <header><div class="audio-window-actions"><button class="icon-btn audio-close" aria-label="关闭音频播放" @click="close"><Icon name="X" /></button><button class="icon-btn audio-collapse" aria-label="收起音频播放" @click="collapse()"><Icon :name="dock.side==='left'?'ChevronLeft':'ChevronRight'" /></button></div><span>音频播放</span></header>
         <div class="audio-stage">
           <Transition name="audio-view" mode="out-in">
             <ThinScroll v-if="view === 'cover'" key="cover" class="audio-cover-view">
@@ -268,6 +269,6 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 .audio-track-row{display:flex;align-items:center;position:relative;border-radius:6px;height:52px;min-width:0}.audio-track-row.active{background:var(--primary-soft)}.audio-track-row.active .audio-track{color:var(--primary)}.audio-track{flex:1;min-width:0;height:100%;padding-right:36px}.audio-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.audio-track-remove{position:absolute;right:4px;width:28px;height:28px;opacity:0;transition:opacity .15s}.audio-track-row:hover .audio-track-remove,.audio-track-row:focus-within .audio-track-remove{opacity:1}@media(hover:none){.audio-track-remove{opacity:1}}
 </style>
 <style scoped>
-.audio-player-shell.dock-left{justify-content:flex-start}.dock-left .audio-player{border-left:0;border-right:1px solid var(--border);border-radius:0 16px 16px 0;box-shadow:12px 0 50px #0b173321}.audio-player header{justify-content:space-between}.audio-player header>span{flex:1;text-align:center}.dock-left .audio-collapse{order:2}.dock-left .audio-slide-enter-from,.dock-left .audio-slide-leave-to{transform:translateX(-100%)}
+.audio-player-shell.dock-left{justify-content:flex-start}.dock-left .audio-player{border-left:0;border-right:1px solid var(--border);border-radius:0 16px 16px 0;box-shadow:12px 0 50px #0b173321}.audio-player header{justify-content:space-between}.audio-player header>span{flex:1;text-align:center}.audio-window-actions{display:flex;align-items:center;gap:4px;flex:none}.dock-left .audio-window-actions{order:2;flex-direction:row-reverse}.dock-left .audio-slide-enter-from,.dock-left .audio-slide-leave-to{transform:translateX(-100%)}
 .audio-more>button,.audio-volume>button{border-radius:5px}.audio-more.open>button{opacity:0;pointer-events:none}.audio-more .audio-popover{bottom:0;min-height:84px}.audio-more.open{z-index:5}.audio-capsule{width:min(140px,calc(100vw - 16px));border:0;background:color-mix(in srgb,var(--surface) 78%,transparent);backdrop-filter:blur(30px) saturate(1.3)}.audio-capsule.has-artwork{background:#39454ebd}.audio-capsule.dock-left{flex-direction:row-reverse;padding:5px 6px 5px 8px}.audio-capsule .capsule-title{text-overflow:ellipsis;max-width:5.5em;overflow:hidden}.audio-capsule img{pointer-events:none;-webkit-user-drag:none}
 </style>

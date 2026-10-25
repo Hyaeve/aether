@@ -208,7 +208,7 @@ func TestQuarkTVSignedPlaybackCacheAndSecretIsolation(t *testing.T) {
 	if n, err := a.executeTask(context.Background(), task, s); err != nil || n != 1 {
 		t.Fatal("Quark STRM generation failed", n, err)
 	}
-	content, err := os.ReadFile(filepath.Join(a.outputDir, "quark-strm", "movie.mp4.strm"))
+	content, err := os.ReadFile(filepath.Join(a.outputDir, "quark-strm", "movie.strm"))
 	if err != nil {
 		t.Fatal(err)
 	}

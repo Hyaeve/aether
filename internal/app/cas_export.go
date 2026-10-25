@@ -172,7 +172,7 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 		info, e := a.generateCASInfo(ctx, s, item.File)
 		if e != nil {
 			a.casFailureLog(s, item.File.Name, "导出特征获取", e)
-			fail(w, 400, errors.New("CAS特征获取失败；未输出不完整文件，请查看系统日志"))
+			fail(w, 400, errors.New("CAS特征获取失败；未输出不完整文件，请查看运行日志"))
 			return
 		}
 		raw, e := marshalCASContent(info)

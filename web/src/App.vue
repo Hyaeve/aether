@@ -64,15 +64,32 @@ function applyTheme() { document.documentElement.dataset.theme = theme.value ===
 watch(theme, () => { localStorage.setItem('aether-theme', theme.value); applyTheme() })
 applyTheme()
 const navigation = [
-  { path: '/dashboard', label: '仪表盘', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
+  { path: '/dashboard', label: '以太视界', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
   { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
   { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
-  { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }, { path: '/notifications', label: '通知服务', icon: 'RadioTower' }, { path: '/logs', label: '系统日志', icon: 'ScrollText' },
+  { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }, { path: '/notifications', label: '通知服务', icon: 'RadioTower' }, { path: '/logs', label: '运行日志', icon: 'ScrollText' },
   { path: '/settings', label: '系统设置', icon: 'Settings' }
 ]
 const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/strm' : route.path)
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
 const title = computed(() => activeNav.value?.label || '以太')
+const sectionTitles = {
+  '/files':['文件管理'], '/files/webdav':['WebDAV'], '/files/mounts':['本地挂载'],
+  '/storage':['存储池'], '/storage/shares':['分享栏'], '/storage/downloads':['云下载'], '/storage/trash':['回收站'],
+  '/transfer':['传输任务'], '/transfer/backup':['备份规则'], '/transfer/backup/settings':['备份规则','备份设置'],
+  '/tasks/strm':['STRM 任务'], '/tasks/cas':['CAS 任务'], '/tasks/cas/pool':['CAS 任务','存储绑定池'],
+  '/tasks/ed2k':['ED2K 任务'], '/tasks/ed2k/pool':['ED2K 任务','存储绑定池'],
+  '/tasks/cache':['缓存任务'], '/tasks/cache/settings':['缓存任务','缓存设置'],
+  '/tasks/organize':['目录整理'], '/tasks/scrape':['STRM 刮削'], '/tasks/automation':['联动任务'],
+  '/virtual':['115链库'], '/virtual/115':['115链库'], '/virtual/mobile':['移动链库'], '/virtual/quark':['夸克链库'],
+  '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/cas':['CAS链库'],
+  '/links/manage':['以链管理'], '/links/cache':['直链缓存'],
+  '/tools':['辅助工具'], '/tools/market':['插件市场'], '/tools/115-rapid':['115秒传中心'],
+  '/notifications/telegram':['消息配置'], '/notifications/transfers':['链接转存'],
+  '/settings':['账号与安全'], '/settings/account':['账号与安全'], '/settings/transfer':['传输设置'],
+  '/settings/strm':['STRM 配置'], '/settings/logs':['日志管理'], '/settings/about':['关于以太']
+}
+const breadcrumbs = computed(() => sectionTitles[currentPath.value] || [])
 const planned = computed(() => ({
   '/backup': { title: '备份中心', icon: 'ArchiveRestore', items: ['备份计划', '备份历史', '恢复与校验'] },
   '/files/mounts': { title: '本地挂载', icon: 'CloudDownload', items: ['FUSE 挂载管理', '挂载点状态'] },
@@ -161,12 +178,12 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
     <aside class="sidebar" :class="{ open: mobileNav }">
       <div class="brand"><img src="/aether.svg" alt="" /><span>Aether<small>云端本地 · 以太空间</small></span></div>
-      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path, 'nav-bottom': item.path === '/logs' }" @click="router.push(rememberedRoute(state.username, item.path))"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
+      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path }" @click="router.push(rememberedRoute(state.username, item.path))"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
     </aside>
     <div class="main-shell">
       <header class="topbar">
         <button class="icon-btn mobile-menu" aria-label="打开导航" @click="mobileNav = !mobileNav"><Icon name="Menu" /></button>
-        <div class="breadcrumbs"><span>Aether</span><Icon name="ChevronRight" :size="16" /><strong>{{ title }}</strong></div>
+        <div class="breadcrumbs" aria-label="当前位置"><span class="breadcrumb-root">Aether</span><Icon class="breadcrumb-root" name="ChevronRight" :size="16" /><strong :aria-current="!breadcrumbs.length?'page':undefined" :data-tooltip="title">{{ title }}</strong><template v-for="(label,index) in breadcrumbs" :key="label"><Icon class="breadcrumb-separator" name="ChevronRight" :size="14" /><span class="breadcrumb-section" :aria-current="index===breadcrumbs.length-1?'page':undefined" :data-tooltip="label">{{ label }}</span></template></div>
         <div class="topbar-actions">
           <button class="traffic-stat upload" aria-label="上传速率" @click="router.push('/transfer?mode=upload')"><Icon name="ArrowUp" /><b>{{ rateText(trafficRates?.uploadRate) }}</b></button>
           <button class="traffic-stat download" aria-label="下载速率" @click="router.push('/transfer?mode=download')"><Icon name="ArrowDown" /><b>{{ rateText(trafficRates?.downloadRate) }}</b></button>

@@ -24,7 +24,7 @@ test('library and playback notices open the specific correlated log',async({page
   await expect(page.getByRole('textbox',{name:'搜索日志'})).toHaveValue('[playing]')
   await expect(page.locator('.log-entry')).toHaveCount(1)
   await page.getByRole('link',{name:'文件服务',exact:true}).click()
-  await page.getByRole('link',{name:'系统日志',exact:true}).click()
+  await page.getByRole('link',{name:'运行日志',exact:true}).click()
   await expect(page.getByRole('textbox',{name:'搜索日志'})).toHaveValue('')
   await expect(page.getByRole('button',{name:'日志模块',exact:true})).toHaveText('全部模块')
   await expect(page.locator('.log-entry')).toHaveCount(2)

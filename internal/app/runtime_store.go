@@ -17,7 +17,7 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -106,14 +106,15 @@ func (s *Store) initRuntime(dir string) error {
 	if err == nil && !s.state.RuntimeSeparated {
 		// Configuration import resets task results, not the administrator's file records.
 		var records struct {
-			QuarkLibrary       quarkLibraryRuntime  `json:"quarkLibraryRuntime"`
-			Telegram           telegramRuntime      `json:"telegramRuntime"`
-			Favorites          []FileFavorite       `json:"fileFavorites"`
-			Visits             []FileVisit          `json:"fileVisits"`
-			RapidAttempts      map[string]bool      `json:"rapid115Attempts"`
-			RapidRecords       []Rapid115Record     `json:"rapid115Records"`
-			SimulcastTemporary []SimulcastTemporary `json:"simulcastTemporary"`
-			CloudCASRecords    []cloudCASRecord     `json:"cloudCASRecords"`
+			QuarkLibrary       quarkLibraryRuntime      `json:"quarkLibraryRuntime"`
+			Telegram           telegramRuntime          `json:"telegramRuntime"`
+			Favorites          []FileFavorite           `json:"fileFavorites"`
+			Visits             []FileVisit              `json:"fileVisits"`
+			RapidAttempts      map[string]bool          `json:"rapid115Attempts"`
+			RapidRecords       []Rapid115Record         `json:"rapid115Records"`
+			RapidRetries       map[string]rapid115Retry `json:"rapid115Retries"`
+			SimulcastTemporary []SimulcastTemporary     `json:"simulcastTemporary"`
+			CloudCASRecords    []cloudCASRecord         `json:"cloudCASRecords"`
 		}
 		if err := s.decodeJSONConfig("runtime/state", raw, &records); err != nil {
 			return err
@@ -125,6 +126,7 @@ func (s *Store) initRuntime(dir string) error {
 			s.state.FileVisits = records.Visits
 		}
 		s.state.Rapid115Attempts, s.state.Rapid115Records, s.state.SimulcastTemporary = records.RapidAttempts, records.RapidRecords, records.SimulcastTemporary
+		s.state.Rapid115Retries = records.RapidRetries
 		s.state.CloudCASRecords = records.CloudCASRecords
 		s.state.TelegramRuntime = records.Telegram
 		s.state.QuarkLibraryRuntime = records.QuarkLibrary
@@ -202,7 +204,7 @@ func (s *Store) initRuntime(dir string) error {
 		if (job.Status == "choosing" || job.Status == "confirming") && job.MessageID > 0 {
 			job.CleanupPending = true
 		}
-		if job.Status == "queued" || job.Status == "running" || job.Status == "choosing" || job.Status == "confirming" {
+		if telegramActive(job.Status) {
 			job.Status = "interrupted"
 			job.Link = ""
 		}
@@ -216,6 +218,11 @@ func (s *Store) initRuntime(dir string) error {
 		if s.state.Rapid115Records[i].Status == "running" {
 			s.state.Rapid115Records[i].Status = "failed"
 			s.state.Rapid115Records[i].Message = "服务重启，执行结果未确认；源文件保留，请检查网盘"
+		}
+	}
+	for key, retry := range s.state.Rapid115Retries {
+		if s.state.Rapid115Attempts[key] || retry.Revision != rapid115Stamp(s.state.Rapid115) {
+			delete(s.state.Rapid115Retries, key)
 		}
 	}
 	for i := range s.state.GenerationJobs {

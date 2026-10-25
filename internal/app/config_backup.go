@@ -119,6 +119,7 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	b.State.RenameHistory = nil
 	b.State.FileFavorites, b.State.FileVisits = nil, nil
 	b.State.Rapid115Records, b.State.Rapid115Attempts, b.State.SimulcastTemporary = nil, nil, nil
+	b.State.Rapid115Retries = nil
 	b.State.CloudCASRecords = nil
 	b.State.CASStats = CASRestoreStats{}
 	b.State.ED2KStats, b.State.ED2KTemporary, b.State.GenerationJobs = CASRestoreStats{}, nil, nil

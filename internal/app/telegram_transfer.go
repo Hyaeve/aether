@@ -55,6 +55,14 @@ func (a *App) finishTelegram(key, status, message string, processed int) {
 			job := &st.TelegramRuntime.Jobs[i]
 			if job.ID == key {
 				job.Status, job.Link, job.Processed = status, "", processed
+				if job.GroupID == job.ID {
+					for j := range st.TelegramRuntime.Jobs {
+						member := &st.TelegramRuntime.Jobs[j]
+						if member.ID != job.ID && telegramSameGroup(*job, *member) && member.Status == "waiting" {
+							member.Status, member.Link = status, ""
+						}
+					}
+				}
 			}
 		}
 		return nil
@@ -72,6 +80,17 @@ func (a *App) finishTelegram(key, status, message string, processed int) {
 func (a *App) telegramWorker() {
 	defer a.wg.Done()
 	for a.ctx.Err() == nil {
+		batches := map[string]bool{}
+		for _, job := range a.store.snapshotWithLogLimit(0).TelegramRuntime.Jobs {
+			if job.BatchID != "" && job.Status == "waiting" && job.GroupID == job.ID {
+				batches[job.BatchID] = true
+			}
+		}
+		for batch := range batches {
+			if err := a.advanceTelegramBatch(a.ctx, batch); err != nil {
+				a.store.event("warn", "notifications", "TG 下一批交互未确认："+err.Error())
+			}
+		}
 		st := a.store.snapshotWithLogLimit(0)
 		var next *telegramTransfer
 		for _, job := range st.TelegramRuntime.Jobs {
@@ -110,6 +129,10 @@ func (a *App) telegramExecutionValid(job telegramTransfer, target telegramTarget
 }
 
 func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer) {
+	if job.Kind == "library" {
+		a.executeTelegramLibrary(ctx, job)
+		return
+	}
 	if job.Selected < 0 || job.Selected >= len(job.Targets) {
 		a.finishTelegram(job.ID, "failed", "TG 转存目录无效", 0)
 		return
@@ -129,7 +152,7 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 		a.finishTelegram(job.ID, status, message, processed)
 		if current := a.store.snapshotWithLogLimit(0).Notifications.Telegram; telegramDigest(current) == job.Auth && telegramAllowed(current, job.ChatID, job.UserID) {
 			if _, e := a.telegramSend(ctx, cfg, job.ChatID, message, nil); e != nil && ctx.Err() == nil {
-				a.store.event("warn", "notifications", "TG 转存反馈消息未确认，请查看系统日志")
+				a.store.event("warn", "notifications", "TG 转存反馈消息未确认，请查看运行日志")
 			}
 		}
 	}

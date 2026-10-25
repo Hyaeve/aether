@@ -81,7 +81,7 @@ test('editing query and leaving the page discard delayed recursive results',asyn
   started=false
   await input.fill('match');await input.press('Enter')
   await expect.poll(()=>started).toBe(true)
-  await page.getByRole('link',{name:'仪表盘',exact:true}).click();release()
+  await page.getByRole('link',{name:'以太视界',exact:true}).click();release()
   await expect(page).toHaveURL(/\/dashboard$/)
   await page.getByRole('link',{name:'文件服务',exact:true}).click()
   await expect(input).toHaveValue('')

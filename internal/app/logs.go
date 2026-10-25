@@ -133,6 +133,8 @@ func logModule(path string) string {
 		return "tasks"
 	case strings.HasPrefix(path, "/api/links"), path == "/api/link-playback", path == "/api/emby/webhook":
 		return "links"
+	case path == "/api/notification-service", strings.HasPrefix(path, "/api/notification-service/"):
+		return "notifications"
 	default:
 		return "system"
 	}

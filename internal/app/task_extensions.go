@@ -15,15 +15,15 @@ const taskAudioExtensions = "mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus"
 
 var extensionToken = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
-func taskOutputName(t Task, s Storage, name, suffix string) string {
+func taskOutputName(t Task, _ Storage, name, suffix string) string {
 	if t.Kind == "cas" || t.Kind == "ed2k" {
 		return name + suffix
 	}
+	retained := "iso"
 	if t.RetainedExtensions != nil {
-		if !excludedType(name, *t.RetainedExtensions) {
-			name = strings.TrimSuffix(name, path.Ext(name))
-		}
-	} else if t.Kind == "strm" && s.Type == "openlist" {
+		retained = *t.RetainedExtensions
+	}
+	if !excludedType(name, retained) {
 		name = strings.TrimSuffix(name, path.Ext(name))
 	}
 	return name + suffix

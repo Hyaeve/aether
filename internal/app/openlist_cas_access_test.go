@@ -146,7 +146,7 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 				data = map[string]any{"fileId": "restored", "rapidUpload": true}
 			}
 		case "/file/getDownloadUrl":
-			data = map[string]string{"cdnUrl": "https://cdn.example/film.mp4"}
+			data = map[string]any{"cdnUrl": "https://cdn.example/film.mp4", "cdnSwitch": true}
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}

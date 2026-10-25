@@ -33,6 +33,7 @@ for (const width of [1440, 701, 700, 390]) for (const theme of ['light', 'dark']
     await expect(row.locator('.transfer-from')).toContainText('源目录')
     await expect(row.locator('.transfer-to')).toContainText('夸克备份')
     await expect(row.locator('.transfer-to')).toContainText('目标目录')
+    await expect(row.locator('.transfer-started')).toHaveText(/^26\/10\/24 \d{2}:00$/)
     await expect(row.locator('.transfer-from [data-provider="115"]')).toBeVisible()
     await expect(row.locator('.transfer-to [data-provider="quark"]')).toBeVisible()
     for (const side of ['.transfer-from','.transfer-to']) {

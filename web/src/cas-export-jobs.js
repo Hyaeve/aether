@@ -20,7 +20,7 @@ async function refresh(){
    if(['success','error'].includes(job.status)){
     remove(id,item)
     if(job.status==='success'&&job.download){const anchor=document.createElement('a');anchor.href=`/api/files/cas-export/jobs/${id}/download`;anchor.download=job.name||'CAS.zip';document.body.append(anchor);anchor.click();anchor.remove()}
-    notify(job.status==='success'?'CAS导出完成':'CAS导出失败，请查看系统日志',job.status==='error')
+    notify(job.status==='success'?'CAS导出完成':'CAS导出失败，请查看运行日志',job.status==='error')
    }
   }catch(e){if(e.status===404){remove(id,item);notify('CAS导出任务已失效，服务可能已重启；请检查日志和导出目录',true)}else{item.notice.message='CAS导出 · 状态查询失败，稍后重试';if(!state.authenticated)remove(id,item)}}
  }}finally{reading=false;if(!tracked.size){clearInterval(timer);timer=null}}

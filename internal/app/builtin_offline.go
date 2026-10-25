@@ -103,7 +103,7 @@ func (a *App) builtinOffline(w http.ResponseWriter, r *http.Request, s Storage, 
 	}
 	results := make([]offlineResult, 0, len(jobs))
 	for _, j := range jobs {
-		results = append(results, offlineResult{Name: j.name, Success: true, Message: "已排队，执行结果见系统日志"})
+		results = append(results, offlineResult{Name: j.name, Success: true, Message: "已排队，执行结果见运行日志"})
 	}
 	a.wg.Add(1)
 	accepted = true

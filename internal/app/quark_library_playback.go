@@ -65,8 +65,11 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !card.Enabled || a.quarkLibraryCheckCard(card) != nil {
+		if !card.Enabled {
 			return errors.New("分享卡片已变更或停用")
+		}
+		if err := a.quarkLibraryCheckExecution(ctx, card); err != nil {
+			return err
 		}
 		return a.quarkLibraryCheckStorage(storage)
 	}

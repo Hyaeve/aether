@@ -176,7 +176,7 @@ func (a *App) executeCASExport(job *casExportJob) {
 		a.casExportMu.Lock()
 		if err != nil {
 			job.Status = "error"
-			job.Message = "导出失败，请查看系统日志"
+			job.Message = "导出失败，请查看运行日志"
 		} else {
 			job.Status = "success"
 			job.Message = "导出完成"

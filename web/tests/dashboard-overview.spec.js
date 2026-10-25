@@ -76,7 +76,7 @@ test('recent activity shows module, severity and compact time, with themed layou
   await expect(rows).toHaveCount(3)
   await expect(rows.first()).toContainText('任务管理')
   await expect(rows.first()).toContainText('完成')
-  await expect(rows.first().locator('time')).toHaveText(/\d{2}-\d{2} \d{2}:\d{2}/)
+  await expect(rows.first().locator('time')).toHaveText(/^\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}$/)
   await expect(rows.first().locator('time')).toHaveAttribute('datetime',data.logs[2].time)
   const error=rows.filter({hasText:'存储服务读取失败'})
   await expect(error).toHaveAttribute('data-level','error')

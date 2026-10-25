@@ -24,7 +24,7 @@ test('task rows have paired layout, scan times, direct actions and toggle feedba
   expect(first.y).toBe(second.y)
   expect(first.x + first.width).toBeLessThan(second.x)
   await expect(rows.first()).not.toContainText('最后扫描')
-  await expect(rows.first().locator('time')).toHaveText(/^最近执行：10-08 \d{2}:\d{2}:\d{2}$/)
+  await expect(rows.first().locator('time')).toHaveText(/^最近执行：26\/10\/08 \d{2}:\d{2}$/)
   const status = await rows.first().locator('.task-last-scan').boundingBox()
   expect((status.x - first.x) / first.width).toBeLessThan(.44)
   expect(status.width / first.width).toBeGreaterThan(.35)

@@ -132,6 +132,7 @@ type State struct {
 	Rapid115            Rapid115Settings             `json:"rapid115"`
 	Rapid115Records     []Rapid115Record             `json:"rapid115Records,omitempty"`
 	Rapid115Attempts    map[string]bool              `json:"rapid115Attempts,omitempty"`
+	Rapid115Retries     map[string]rapid115Retry     `json:"rapid115Retries,omitempty"`
 	SimulcastTemporary  []SimulcastTemporary         `json:"simulcastTemporary,omitempty"`
 	ED2KPool            ED2KPoolConfig               `json:"ed2kPool"`
 	ED2KPoolVersion     int                          `json:"ed2kPoolVersion,omitempty"`

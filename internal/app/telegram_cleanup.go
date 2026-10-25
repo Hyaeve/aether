@@ -68,6 +68,12 @@ func (a *App) cleanupTelegramInteractions(ctx context.Context, now time.Time) {
 				job.Status, job.Link = "expired", ""
 				job.CleanupPending = job.MessageID > 0
 				expired = append(expired, job.ID)
+				for j := range st.TelegramRuntime.Jobs {
+					member := &st.TelegramRuntime.Jobs[j]
+					if member.ID != job.ID && telegramSameGroup(*job, *member) && member.Status == "waiting" {
+						member.Status, member.Link = "expired", ""
+					}
+				}
 			}
 			if !job.CleanupPending {
 				continue

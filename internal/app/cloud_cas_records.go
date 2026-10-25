@@ -6,6 +6,7 @@ type cloudCASRecord struct {
 	ID        string    `json:"id"`
 	StorageID string    `json:"storageId"`
 	Parent    string    `json:"parent"`
+	Path      string    `json:"path,omitempty"`
 	Time      time.Time `json:"time"`
 	Status    string    `json:"status"`
 	CAS       CASInfo   `json:"cas"`
@@ -14,8 +15,13 @@ type cloudCASRecord struct {
 
 func (a *App) beginCloudCASRecord(s Storage, parent string, info CASInfo) (string, error) {
 	key := id()
+	location := a.transferDirectory(s, parent)
+	fullPath := location.Path
+	if fullPath == "" {
+		fullPath = location.Directory
+	}
 	err := a.store.update(func(st *State) error {
-		st.CloudCASRecords = append([]cloudCASRecord{{ID: key, StorageID: s.ID, Parent: parent, Time: time.Now(), Status: "running", CAS: info, Revision: rapid115Stamp(s.Config)}}, st.CloudCASRecords...)
+		st.CloudCASRecords = append([]cloudCASRecord{{ID: key, StorageID: s.ID, Parent: parent, Path: fullPath, Time: time.Now(), Status: "running", CAS: info, Revision: rapid115Stamp(s.Config)}}, st.CloudCASRecords...)
 		if len(st.CloudCASRecords) > 1000 {
 			st.CloudCASRecords = st.CloudCASRecords[:1000]
 		}

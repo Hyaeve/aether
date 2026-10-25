@@ -67,8 +67,18 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 	target := s
 	if req.Action == "copy" || req.Action == "move" {
 		target, err = a.store.storage(req.TargetStorage)
-		if err != nil || target.Type != s.Type {
-			fail(w, 400, errors.New("只能在同类型的启用存储池中操作"))
+		if err != nil {
+			fail(w, 400, errors.New("请选择已启用的目标存储池"))
+			return
+		}
+		if target.ID != s.ID && (s.Type != "local" || target.Type != "local") {
+			processed, err := a.crossStorageFileAction(r.Context(), s, target, req)
+			a.cache.clear()
+			if err != nil {
+				fail(w, 400, fmt.Errorf("已完成%d项；%w；未自动重试，请核对目标", processed, err))
+				return
+			}
+			jsonResponse(w, 200, a.fileActionResult(s, req, processed))
 			return
 		}
 	}

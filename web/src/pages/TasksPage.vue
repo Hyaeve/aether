@@ -1,4 +1,5 @@
 <script setup>
+import { compactDate } from '../date-time.mjs'
 import { computed, reactive, ref, onMounted, onUnmounted } from 'vue'
 import { api, state, reload, notify, date, driverOf } from '../lib'
 import Icon from '../components/Icon.vue'
@@ -32,18 +33,6 @@ const validED2KBinding = computed(() => ed2kBindings.value.some(s => s.id === fo
 const availableStorages = computed(() => state.storages.filter(s => s.enabled && (props.kind !== 'ed2k' || ['local', '115'].includes(s.type))))
 const modal = ref(false), busy = ref(false), error = ref(''), editing = ref(''), more = ref(false), picker = ref(false), confirmDelete = ref(null), menu = ref('')
 const form = reactive({})
-const extensionGroups = {
-  video: 'mp4;mkv;avi;mov;wmv;flv;webm;m4v;ts;m2ts;mkvb;rm;3gp;iso',
-  audio: 'mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus',
-  image: 'jpg;jpeg;png;webp', data: 'nfo;ass;srt'
-}
-const extensionTokens = value => [...new Set((value || '').toLowerCase().split(';').map(v => v.trim().replace(/^\./, '')).filter(Boolean))]
-function groupActive(field, group) { return extensionGroups[group].split(';').every(v => extensionTokens(form[field]).includes(v)) }
-function toggleExtensions(field, group) {
-  const set = new Set(extensionTokens(form[field])), values = extensionGroups[group].split(';'), remove = groupActive(field, group)
-  values.forEach(v => remove ? set.delete(v) : set.add(v))
-  form[field] = [...set].join(';')
-}
 const tasks = computed(() => state.tasks.filter(t => t.kind === props.kind))
 const pending = ref(new Set())
 const sorting = ref(false)
@@ -74,11 +63,7 @@ function reorderKey(event, task) {
   moveBy(task, ['ArrowUp', 'ArrowLeft'].includes(event.key) ? -1 : 1)
 }
 function scanTime(value) {
-  if (!value || value.startsWith('0001-')) return '尚未扫描'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '尚未扫描'
-  const pad = n => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return compactDate(value, '尚未扫描')
 }
 function taskResult(task) {
 	if (task.healthPause) return task.healthPause
@@ -108,7 +93,7 @@ function open(t) {
 }
 async function save() {
   busy.value = true; error.value = ''
-  for (const [key,label] of [['mediaExtensions','媒体扩展名'],['metadataExtensions','元数据扩展名']]) { const invalid=extensionError(label,form[key]); if(invalid){ notify(invalid,true); busy.value=false; return } }
+  for (const [key,label] of [['mediaExtensions','媒体扩展名'],['metadataExtensions','元数据扩展名'],...(props.kind==='strm'?[['retainedExtensions','保留扩展名']]:[])]) { const invalid=extensionError(label,form[key]); if(invalid){ notify(invalid,true); busy.value=false; return } }
   try { await api(editing.value ? `/tasks/${editing.value}` : '/tasks', editing.value ? 'PUT' : 'POST', form); await reload(); modal.value = false; notify('任务已保存') }
   catch (e) { error.value = e.message } finally { busy.value = false }
 }
@@ -173,7 +158,7 @@ async function toggle(t) {
       </div>
       <template v-if="kind !== 'cache'"><button type="button" class="disclosure" :aria-expanded="more" @click="toggleMore"><Icon :name="more ? 'ChevronDown' : 'ChevronRight'" :size="16" />更多选项</button><div v-if="more" class="form-grid more-options">
         <div v-if="['cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>完成动作</label></div><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
-        <div v-if="kind === 'strm'" class="field extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><span><button v-for="group in ['video', 'audio']" :key="group" type="button" class="icon-btn extension-preset" :class="group" :aria-label="`保留${group === 'video' ? '视频' : '音频'}扩展名`" :aria-pressed="groupActive('retainedExtensions', group)" @click="toggleExtensions('retainedExtensions', group)"><Icon :name="group === 'video' ? 'Film' : 'Music'" /></button></span></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
+        <div v-if="kind === 'strm'" class="field extension-field retained-extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><ExtensionPresets v-model="form.retainedExtensions" :groups="['video','audio','comic']" label-prefix="保留" /></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
         <div v-if="['strm', 'cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>STRM 刮削</label></div><RoundedSelect :model-value="form.scrapeExcluded ? 'exclude' : 'include'" @update:model-value="form.scrapeExcluded = $event === 'exclude'" label="STRM 刮削" :options="[{value:'include',label:'参与'},{value:'exclude',label:'不参与'}]" /></div>
         <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div></div></template>
       <p v-if="form.completionAction === 'delete'" class="inline-note">将删除已成功生成的媒体、已复制的元数据及其他未纳入扩展名范围的文件，只清理本地空子目录，远程空目录保留；未生成、未复制或执行期间新增及变化的文件保留。源目录不能是存储池根目录。</p><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">取消</button><button class="btn primary" :disabled="busy || !form.storageId"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>
@@ -187,6 +172,7 @@ async function toggle(t) {
 .health-paused .task-last-scan time{visibility:hidden}.health-paused .task-last-scan .task-result{visibility:visible}
 .add-task-tile{min-height:72px;align-self:stretch;flex-direction:row;border-radius:8px;padding:12px 16px}.add-task-tile strong{font-size:13px;font-weight:500}@media(max-width:480px){.add-task-tile{min-height:98px}}.generation-job-list{display:grid;gap:10px;margin-top:16px}.generation-job-list article{padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.generation-job-list article.running{border-color:var(--green)}.generation-job-list article.failed{border-color:var(--red)}.generation-job-list article>div{display:flex;justify-content:space-between;gap:16px}.generation-job-list strong{font-size:14px}.generation-job-list small{color:var(--muted);font-size:12px;overflow-wrap:anywhere}.generation-job-list progress{width:100%;height:6px;margin-top:10px;accent-color:var(--primary)}
 .extension-heading { display: flex; align-items: center; gap: 12px; min-height: 32px; }
-.extension-heading label { margin: 0; }
+.extension-heading label { margin: 0; flex: none; white-space: nowrap; }
 .extension-heading > span { display: flex; gap: 4px; margin-left: auto; }
+@media(max-width:480px){.more-options>.retained-extension-field{grid-column:1 / -1}}
 </style>

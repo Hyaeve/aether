@@ -23,7 +23,7 @@ function scrollShortcuts(event) {
 </script>
 <template>
   <div class="dashboard-page">
-    <section class="page-head"><div><h1>以太概览</h1></div><span class="status success"><i />服务运行中</span></section>
+    <section class="page-head"><div><h1>以太视界</h1></div><span class="status success"><i />服务运行中</span></section>
     <div class="metric-strip">
       <div><span class="metric-icon"><Icon name="Layers3" /></span><span><small>已添加存储</small><strong><AnimatedNumber :value="state.storages.length" /><em>个</em></strong></span></div>
       <div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>运行中任务</small><strong><AnimatedNumber :value="state.tasks.filter(t => t.status === 'running').length" /><em>项</em></strong></span></div>

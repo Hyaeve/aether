@@ -16,6 +16,7 @@ import (
 
 type quarkLibrarySettings struct {
 	StorageIDs         []string `json:"storageIds"`
+	Directory          string   `json:"directory"`
 	InvalidDays        int      `json:"invalidDays"`
 	RetentionHours     int      `json:"retentionHours"`
 	MediaExtensions    string   `json:"mediaExtensions"`
@@ -97,14 +98,21 @@ func initQuarkLibraryRuntime(st *State) {
 }
 
 func effectiveQuarkLibrary(st State) quarkLibrarySettings {
-	if st.QuarkLibrary != nil {
-		return *st.QuarkLibrary
-	}
 	cfg := quarkLibrarySettings{StorageIDs: []string{}, InvalidDays: 15, RetentionHours: 12,
 		MediaExtensions: taskVideoExtensions + ";" + taskAudioExtensions, MetadataExtensions: "nfo;ass;srt;ssa;sub;jpg;jpeg;png;webp"}
+	if st.QuarkLibrary != nil {
+		cfg = *st.QuarkLibrary
+	}
+	cfg.StorageIDs = append([]string{}, cfg.StorageIDs...)
 	for _, s := range st.Storages {
 		if s.Type == "quark" && s.Enabled {
-			cfg.StorageIDs = []string{s.ID}
+			ids := []string{s.ID}
+			for _, sid := range cfg.StorageIDs {
+				if sid != s.ID {
+					ids = append(ids, sid)
+				}
+			}
+			cfg.StorageIDs = ids
 			break
 		}
 	}
@@ -113,6 +121,9 @@ func effectiveQuarkLibrary(st State) quarkLibrarySettings {
 
 func validateQuarkLibrary(st State) error {
 	if cfg := st.QuarkLibrary; cfg != nil {
+		if cfg.Directory != "" && (!filepath.IsAbs(cfg.Directory) || len(cfg.Directory) > 4096 || strings.ContainsAny(cfg.Directory, "\x00\r\n")) {
+			return errors.New("请选择容器内绝对生成位置")
+		}
 		if cfg.InvalidDays < 1 || cfg.InvalidDays > 3650 || cfg.RetentionHours < 1 || cfg.RetentionHours > 8760 || len(cfg.StorageIDs) > 32 {
 			return errors.New("夸克链库保留天数须为1–3650，临时保活须为1–8760 h，最多32个存储")
 		}
@@ -156,7 +167,7 @@ func validateQuarkLibrary(st State) error {
 		}
 		shares[code] = true
 		for _, other := range st.QuarkLibraryCards[:i] {
-			if backupPathsOverlap(quarkLibraryRoot(card), quarkLibraryRoot(other)) || backupPathsOverlap(quarkLibraryRoot(other), quarkLibraryRoot(card)) {
+			if quarkLibraryOutputsOverlap(card, other) {
 				return errors.New("夸克链库生成目录不能互相包含")
 			}
 		}
@@ -178,10 +189,13 @@ func validateQuarkLibraryCard(card *quarkLibraryCard) error {
 	if len(card.Name) > 255 || len(card.Secret) > 4096 || !validShareDirectory(card.DirectoryName) {
 		return errors.New("分享名称过长或目录名称不合规范")
 	}
-	if !filepath.IsAbs(card.Directory) || len(card.Directory) > 4096 || strings.ContainsAny(card.Directory, "\x00\r\n") {
+	card.Directory = strings.TrimSpace(card.Directory)
+	if card.Directory == "" && card.Enabled || card.Directory != "" && (!filepath.IsAbs(card.Directory) || len(card.Directory) > 4096 || strings.ContainsAny(card.Directory, "\x00\r\n")) {
 		return errors.New("请选择容器内绝对生成位置")
 	}
-	card.Directory = filepath.Clean(card.Directory)
+	if card.Directory != "" {
+		card.Directory = filepath.Clean(card.Directory)
+	}
 	if card.Cron != "" {
 		if _, err := cronParser.Parse(card.Cron); err != nil {
 			return errors.New("Cron表达式无效，须为五段表达式")
@@ -196,6 +210,11 @@ func validateQuarkLibraryCard(card *quarkLibraryCard) error {
 		return fmt.Errorf("元数据扩展名：%w", err)
 	}
 	return nil
+}
+
+func quarkLibraryOutputsOverlap(a, b quarkLibraryCard) bool {
+	return a.Directory != "" && b.Directory != "" &&
+		(backupPathsOverlap(quarkLibraryRoot(a), quarkLibraryRoot(b)) || backupPathsOverlap(quarkLibraryRoot(b), quarkLibraryRoot(a)))
 }
 
 func quarkLibraryStamp(secret string) string {
@@ -229,6 +248,20 @@ func (a *App) quarkLibraryCheckCard(card quarkLibraryCard) error {
 		return errors.New("夸克链库卡片配置已改变，执行停止")
 	}
 	return nil
+}
+
+type quarkLibraryGuardKey struct{}
+
+func (a *App) quarkLibraryCheckExecution(ctx context.Context, card quarkLibraryCard) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if guard, ok := ctx.Value(quarkLibraryGuardKey{}).(func() error); ok {
+		if err := guard(); err != nil {
+			return err
+		}
+	}
+	return a.quarkLibraryCheckCard(card)
 }
 
 func (a *App) quarkLibraryResolve(w http.ResponseWriter, r *http.Request) {
@@ -316,7 +349,19 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &cfg) {
 			return
 		}
+		cfg.Directory = strings.TrimSpace(cfg.Directory)
+		if cfg.Directory != "" {
+			root, err := openStrmReplaceRoot(cfg.Directory)
+			if err != nil {
+				fail(w, 400, errors.New("生成位置不存在、无权访问或包含符号链接"))
+				return
+			}
+			root.Close()
+			cfg.Directory = filepath.Clean(cfg.Directory)
+		}
 		err := a.store.update(func(st *State) error {
+			st.QuarkLibrary = &cfg
+			cfg = effectiveQuarkLibrary(*st)
 			st.QuarkLibrary = &cfg
 			return validateQuarkLibrary(*st)
 		})
@@ -374,6 +419,9 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	card := quarkLibraryCard{ID: sid, Secret: in.URL, Name: in.Name, Cron: in.Cron, Directory: in.Directory, DirectoryName: in.DirectoryName,
 		MediaExtensions: in.MediaExtensions, MetadataExtensions: in.MetadataExtensions, Enabled: in.Enabled}
+	if strings.TrimSpace(card.Directory) == "" && card.Enabled {
+		card.Directory = effectiveQuarkLibrary(st).Directory
+	}
 	if err := validateQuarkLibraryCard(&card); err != nil {
 		fail(w, 400, err)
 		return
@@ -381,14 +429,20 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	s, err := a.quarkLibraryStorage(st)
-	if err != nil {
+	if err != nil && card.Enabled {
 		fail(w, 400, err)
 		return
 	}
-	title, _, _, err := a.quarkLibraryRead(ctx, &s, card.Secret, false)
-	if err != nil {
-		fail(w, 400, err)
-		return
+	title := old.ShareName
+	if s.ID != "" {
+		title, _, _, err = a.quarkLibraryRead(ctx, &s, card.Secret, false)
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+	} else if !exists || old.Secret != card.Secret {
+		_, code, _, _ := parseShareLink(card.Secret, "")
+		title = "夸克分享-" + quarkLibraryStamp(code)[:8]
 	}
 	card.ShareName = title
 	if card.Name == "" {
@@ -402,7 +456,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, other := range st.QuarkLibraryCards {
-		if other.ID != sid && (backupPathsOverlap(quarkLibraryRoot(other), quarkLibraryRoot(card)) || backupPathsOverlap(quarkLibraryRoot(card), quarkLibraryRoot(other)) || quarkLibraryStamp(other.Secret) == quarkLibraryStamp(card.Secret)) {
+		if other.ID != sid && (quarkLibraryOutputsOverlap(other, card) || quarkLibraryStamp(other.Secret) == quarkLibraryStamp(card.Secret)) {
 			fail(w, 400, errors.New("该分享已存在或生成目录互相包含，请编辑已有卡片"))
 			return
 		}
@@ -420,7 +474,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		for _, other := range st.QuarkLibraryCards {
-			if other.ID != sid && (filepath.Join(other.Directory, other.DirectoryName) == filepath.Join(card.Directory, card.DirectoryName) || quarkLibraryStamp(other.Secret) == quarkLibraryStamp(card.Secret)) {
+			if other.ID != sid && (quarkLibraryOutputsOverlap(other, card) || quarkLibraryStamp(other.Secret) == quarkLibraryStamp(card.Secret)) {
 				return errors.New("该分享或生成目录已存在，请编辑已有卡片")
 			}
 		}

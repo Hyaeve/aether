@@ -494,7 +494,9 @@ func sameBackupStorage(a, b Storage) bool {
 }
 
 func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File, parent, name, replace string, digest ...*string) (resultErr error) {
-	ctx = context.WithValue(ctx, transferSourceKey{}, "备份")
+	if ctx.Value(transferSourceKey{}) == nil {
+		ctx = context.WithValue(ctx, transferSourceKey{}, "备份")
+	}
 	if err := a.checkBackupMutation(ctx); err != nil {
 		return err
 	}

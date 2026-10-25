@@ -127,7 +127,7 @@ onMounted(() => {
 onUnmounted(() => { alive = false; clearInterval(refreshTimer); observer?.disconnect(); rowObserver?.disconnect(); scrollHost.value?.removeEventListener('scroll', syncScroll); rowNodes.clear() })
 </script>
 <template>
-  <section class="log-panel" aria-label="系统日志">
+  <section class="log-panel" aria-label="运行日志">
     <div class="log-toolbar">
       <button class="icon-btn log-view-toggle" :aria-label="filters.view === 'raw' ? '当前原始列表，切换结构化列表' : '当前结构化列表，切换原始列表'" @click="toggleView"><Icon :name="filters.view === 'raw' ? 'Logs' : 'TableProperties'" :size="21" /></button>
       <RoundedSelect v-model="filters.level" label="日志级别" :options="[{ value: 'all', label: '全部级别' }, ...Object.entries(levels).map(([value, label]) => ({ value, label }))]" />

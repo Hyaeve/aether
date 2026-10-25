@@ -15,9 +15,12 @@ import AnimatedNumber from './AnimatedNumber.vue'
 const route = useRoute()
 const settingsPage = computed(() => route.path.endsWith('/settings'))
 const { leaving, back } = usePageSlide('/virtual/quark')
-const cards = ref([]), stats = ref({}), cfg = reactive({storageIds:[],invalidDays:15,retentionHours:12,mediaExtensions:'',metadataExtensions:''})
+const cards = ref([]), stats = ref({}), cfg = reactive({storageIds:[],directory:'',invalidDays:15,retentionHours:12,mediaExtensions:'',metadataExtensions:''})
 const form = reactive({}), modal = ref(false), picker = ref(false), deleting = ref(null), loading = ref(false), saving = ref(false), running = ref('')
+const settingsPicker = ref(false)
 const accounts = computed(() => state.storages.filter(s => s.enabled && s.type === 'quark'))
+const firstAccount = computed(() => accounts.value[0]?.id)
+watch(firstAccount, id => { if(id&&!cfg.storageIds.includes(id)) cfg.storageIds=[id,...cfg.storageIds] })
 let active = true, timer
 let resolveSequence = 0, resolvedName = ''
 watch(settingsPage,value=>{if(value){leaving.value=false;load()}})
@@ -30,12 +33,14 @@ async function load() {
     cards.value = value.cards || []
     stats.value = value.stats || {}
     Object.assign(cfg, value.settings)
+    if(firstAccount.value&&!cfg.storageIds.includes(firstAccount.value))cfg.storageIds=[firstAccount.value,...cfg.storageIds]
   } catch(e) { if(active) notify(e.message,true) } finally { if(active) loading.value=false }
 }
 function open(card) {
   resolveSequence++;resolvedName=''
-  Object.assign(form,{id:'',url:'',name:'',cron:'',directory:'',directoryName:'',mediaExtensions:'',metadataExtensions:'',enabled:true},
+  Object.assign(form,{id:'',url:'',name:'',cron:'',directory:cfg.directory||'',directoryName:'',mediaExtensions:'',metadataExtensions:'',enabled:!!cfg.directory},
     card ? Object.fromEntries(['id','url','name','cron','directory','directoryName','mediaExtensions','metadataExtensions','enabled'].map(k=>[k,card[k]])) : {})
+  if(!form.directory)form.directory=cfg.directory||''
   modal.value=true
 }
 async function resolveName() {
@@ -77,10 +82,11 @@ async function remove() {
 async function saveSettings() {
   if(!validExtensions(cfg))return
   saving.value=true
-  try{await api('/virtual-library/quark/settings','PUT',{...cfg});if(active)notify('夸克链库设置已保存')}
+  try{const value=await api('/virtual-library/quark/settings','PUT',{...cfg});if(active){Object.assign(cfg,value);notify('夸克链库设置已保存')}}
   catch(e){if(active)notify(e.message,true)}finally{if(active)saving.value=false}
 }
-function toggle(id){cfg.storageIds=cfg.storageIds.includes(id)?cfg.storageIds.filter(v=>v!==id):[...cfg.storageIds,id]}
+function toggle(id){if(id===firstAccount.value)return;cfg.storageIds=cfg.storageIds.includes(id)?cfg.storageIds.filter(v=>v!==id):[...cfg.storageIds,id]}
+watch(()=>form.directory,value=>{if(!value?.trim())form.enabled=false})
 const invalid = computed(() => cards.value.filter(c=>c.result?.invalidSince&&!c.result.invalidSince.startsWith('0001')).length)
 function hasTime(value){return value&&!value.startsWith('0001')}
 onMounted(()=>{load();timer=setInterval(()=>{if(!modal.value&&!settingsPage.value&&!saving.value)load()},10000)})
@@ -92,10 +98,12 @@ defineExpose({open})
     <header class="task-heading jump-heading"><h2 class="module-title"><ProviderIcon type="quark" small />夸克链库设置</h2><button class="btn" @click="back"><Icon name="ArrowLeft" />返回页面</button></header>
     <form class="quark-settings-form" @submit.prevent="saveSettings">
       <section class="quark-account-section" aria-label="链库存储池"><h3><Icon name="Database" />链库存储池</h3>
-        <div class="quark-account-list"><article v-for="storage in accounts" :key="storage.id" class="quark-account" :class="{selected:cfg.storageIds.includes(storage.id)}"><button type="button" :aria-label="`绑定 ${storage.name}`" :aria-pressed="cfg.storageIds.includes(storage.id)" :disabled="saving||loading" @click="toggle(storage.id)"><ProviderIcon type="quark" /></button><div><strong>{{storage.name}}</strong><small>{{storage.usage?.username||storage.config?.username||'夸克网盘'}}</small></div></article></div>
+        <div class="quark-account-list"><article v-for="storage in accounts" :key="storage.id" class="quark-account" :class="{selected:cfg.storageIds.includes(storage.id)}"><button type="button" :aria-label="`绑定 ${storage.name}`" :aria-pressed="cfg.storageIds.includes(storage.id)" :disabled="saving||loading||storage.id===firstAccount" @click="toggle(storage.id)"><ProviderIcon type="quark" /></button><div><strong>{{storage.name}}</strong><small>{{storage.usage?.username||storage.config?.username||'夸克网盘'}}</small></div></article></div>
+        <div v-if="!accounts.length" class="small-empty quark-account-empty"><ProviderIcon type="quark" small /><span>暂无夸克存储</span></div>
         <div v-for="id in cfg.storageIds.filter(id=>!accounts.some(s=>s.id===id))" :key="id" class="quark-unavailable"><span>不可用的存储池</span><button type="button" class="icon-btn" aria-label="移除不可用的存储池" @click="toggle(id)"><Icon name="X" /></button></div>
       </section>
       <section class="quark-settings-fields" aria-label="链库生成设置"><h3><Icon name="Settings2" />链库设置</h3><div class="form-grid">
+        <label class="full">生成位置<div class="quark-directory-field"><input v-model="cfg.directory" aria-label="默认生成位置" :disabled="saving||loading" /><button type="button" class="icon-btn" aria-label="选择默认生成位置" :disabled="saving||loading" @click="settingsPicker=true"><Icon name="FolderOpen" /></button></div></label>
         <label>失效链接保留时间<NumberInput v-model="cfg.invalidDays" aria-label="失效链接保留时间" unit="天" :min="1" :max="3650" required /></label>
         <label>临时转存保活期<NumberInput v-model="cfg.retentionHours" aria-label="临时转存保活期" unit="h" :min="1" :max="8760" required /></label>
         <label class="full"><span class="quark-extension-label">默认媒体扩展名<ExtensionPresets v-model="cfg.mediaExtensions" :groups="['video','audio','comic']" /></span><input v-model="cfg.mediaExtensions" aria-label="默认媒体扩展名" /></label>
@@ -108,10 +116,10 @@ defineExpose({open})
     <div class="quark-library-grid" aria-label="夸克分享链接">
       <article v-for="card in cards" :key="card.id" class="quark-library-card" :class="{invalid:hasTime(card.result?.invalidSince),disabled:!card.enabled}" :aria-label="card.name">
         <header><ProviderIcon type="quark" small /><h3 :data-tooltip="card.name">{{card.name}}</h3><button class="icon-btn" :aria-label="`编辑 ${card.name}`" :disabled="saving||!!running" @click="open(card)"><Icon name="Pencil" /></button><button class="icon-btn danger-text" :aria-label="`移除 ${card.name}`" :disabled="saving||!!running" @click="deleting=card"><Icon name="Trash2" /></button></header>
-        <div class="quark-card-directory" :data-tooltip="`${card.directory}/${card.directoryName}`"><Icon name="FolderOpen" :size="17" /><span>{{card.directory}}<strong>/{{card.directoryName}}</strong></span></div>
+        <div class="quark-card-directory" :data-tooltip="card.directory?`${card.directory}/${card.directoryName}`:'未设置生成位置'"><Icon name="FolderOpen" :size="17" /><span v-if="card.directory">{{card.directory}}<strong>/{{card.directoryName}}</strong></span><span v-else>未设置生成位置</span></div>
         <dl><div><dt><Icon name="Clock3" :size="14" />Cron</dt><dd>{{card.cron||'手动执行'}}</dd></div><div><dt>最近执行：</dt><dd>{{hasTime(card.result?.lastRun)?date(card.result.lastRun):'尚未执行'}}</dd></div></dl>
         <p class="quark-result" :class="card.result?.status" :data-tooltip="card.result?.message"><Icon :name="card.result?.status==='invalid'?'Link2Off':card.result?.status==='failed'?'CircleAlert':'FileSymlink'" :size="16" /><span>{{card.result?.message||'等待执行'}}</span></p>
-        <footer><span class="quark-card-status" :class="card.result?.status">{{!card.enabled?'已停用':card.result?.status==='invalid'?'分享失效':card.result?.status==='running'||running===card.id?'执行中':card.result?.status==='failed'?'执行失败':'活链'}}</span><button class="btn" :disabled="!card.enabled||saving||!!running" @click="run(card)"><Icon :name="running===card.id?'LoaderCircle':'Play'" />{{running===card.id?'生成中':'立即生成'}}</button></footer>
+        <footer><span class="quark-card-status" :class="card.result?.status">{{!card.enabled?(card.directory?'已停用':'未启用'):card.result?.status==='invalid'?'分享失效':card.result?.status==='running'||running===card.id?'执行中':card.result?.status==='failed'?'执行失败':'活链'}}</span><button class="btn" :disabled="!card.enabled||saving||!!running" @click="run(card)"><Icon :name="running===card.id?'LoaderCircle':'Play'" />{{running===card.id?'生成中':'立即生成'}}</button></footer>
       </article>
     </div>
     <div v-if="!cards.length&&!loading" class="small-empty quark-library-empty"><ProviderIcon type="quark" /><span>暂无分享链接</span></div>
@@ -120,14 +128,15 @@ defineExpose({open})
     <form @submit.prevent="save" @keydown.enter="['INPUT'].includes($event.target.tagName)&&$event.preventDefault()"><div class="modal-body quark-library-editor"><fieldset :disabled="saving"><div class="form-grid">
       <label class="full">分享链接<input v-model="form.url" aria-label="分享链接" required autocomplete="off" @blur="resolveName" /></label>
       <label>分享名称<input v-model="form.name" aria-label="分享名称" maxlength="85" /></label><label>Cron表达式<input v-model="form.cron" aria-label="Cron表达式" /></label>
-      <label>生成位置<div class="quark-directory-field"><input v-model="form.directory" aria-label="生成位置" required /><button type="button" class="icon-btn" aria-label="选择生成位置" @click="picker=true"><Icon name="FolderOpen" /></button></div></label>
+      <label>生成位置<div class="quark-directory-field"><input v-model="form.directory" aria-label="生成位置" :required="form.enabled" /><button type="button" class="icon-btn" aria-label="选择生成位置" @click="picker=true"><Icon name="FolderOpen" /></button></div></label>
       <label>目录名称<input v-model="form.directoryName" aria-label="目录名称" maxlength="255" /></label>
       <label class="full"><span class="quark-extension-label">媒体扩展名<ExtensionPresets v-model="form.mediaExtensions" :groups="['video','audio','comic']" /></span><input v-model="form.mediaExtensions" aria-label="媒体扩展名" /></label>
       <label class="full"><span class="quark-extension-label">元数据扩展名<ExtensionPresets v-model="form.metadataExtensions" :groups="['image','data']" /></span><input v-model="form.metadataExtensions" aria-label="元数据扩展名" /></label>
-      <label class="switch-label full">启用链接<input v-model="form.enabled" class="switch" type="checkbox" role="switch" aria-label="启用链接" /></label>
+      <label class="switch-label full">启用链接<input v-model="form.enabled" class="switch" type="checkbox" role="switch" aria-label="启用链接" :disabled="!form.directory?.trim()" /></label>
     </div></fieldset></div><footer class="modal-footer"><button type="button" class="btn" :disabled="saving" @click="modal=false">取消</button><button class="btn primary" :disabled="saving"><Icon name="Save" />{{saving?'保存中':'保存链接'}}</button></footer></form>
   </Modal>
   <LocalDirectoryPicker v-if="picker" :initial="form.directory" @close="picker=false" @select="form.directory=$event;picker=false" />
+  <LocalDirectoryPicker v-if="settingsPicker" :initial="cfg.directory" @close="settingsPicker=false" @select="cfg.directory=$event;settingsPicker=false" />
   <Modal v-if="deleting" compact confirmation title="移除夸克链接" @close="!saving&&(deleting=null)"><div class="modal-body">确认移除「{{deleting.name}}」？已生成的本地文件保留，分享播放授权将失效。</div><footer class="modal-footer"><button class="btn" :disabled="saving" @click="deleting=null">取消</button><button class="btn danger" :disabled="saving" @click="remove">确认移除</button></footer></Modal>
 </template>
 <style scoped>
@@ -138,5 +147,6 @@ defineExpose({open})
 .quark-library-editor fieldset{padding:0;margin:0;border:0;min-width:0}.quark-library-editor .form-grid{gap:14px 16px}.quark-library-editor label{min-width:0}.quark-directory-field{position:relative;min-width:0}.quark-directory-field input{width:100%;padding-right:40px;height:40px}.quark-directory-field .icon-btn{position:absolute;right:2px;top:2px;width:36px;height:36px}.quark-extension-label{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:28px}.quark-library-editor input:not(.switch){height:40px}.switch-label{display:flex!important;align-items:center;justify-content:space-between}.quark-library-editor .switch-label{margin-top:4px}
 .quark-library-editor .form-grid>.full{grid-column:1/-1}.quark-library-editor .form-grid>label:not(.full){grid-column:auto}.quark-library-editor .switch-label{flex-direction:row}
 .quark-library-stats{margin:0 0 20px;padding:0 0 18px;flex:none;border-bottom:1px solid var(--border)}
+.quark-account>button:disabled{cursor:default}.quark-account-empty{display:flex;align-items:center;gap:10px;padding:24px 0}.quark-settings-fields .full{grid-column:1/-1}
 @media(max-width:1100px){.quark-library-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.quark-settings-form{gap:20px}.quark-account-list{grid-template-columns:minmax(0,1fr)}}@media(max-width:700px){.quark-library-grid,.quark-settings-form{grid-template-columns:minmax(0,1fr)}.quark-library-stats{gap:12px;padding-inline:0}.quark-library-stats dl{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.quark-library-stats :deep(.cache-chart){--cache-chart-size:88px}.quark-library-stats dd{font-size:18px;margin-top:3px}.quark-library-settings-link{width:32px}.quark-library-editor .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>

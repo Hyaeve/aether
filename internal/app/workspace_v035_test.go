@@ -99,7 +99,7 @@ func TestTaskResetRegeneratesOnlyItsLibrary(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	for _, name := range []string{"A/new.mp4.strm", "B/keep.strm"} {
+	for _, name := range []string{"A/new.strm", "B/keep.strm"} {
 		if _, err := os.Stat(filepath.Join(target, name)); err != nil {
 			t.Fatal(name, err)
 		}

@@ -202,7 +202,8 @@ func TestSTRMGenerationFilteringAndIncremental(t *testing.T) {
 	for _, name := range []string{"Film.MP4", "Film.mkv", "trailer.mp4", "skip.avi", "notes.txt", "Excluded/hidden.mp4", "Series/episode.mkv"} {
 		writeTest(t, filepath.Join(s.Config["root"], filepath.FromSlash(name)), "media")
 	}
-	task := Task{Kind: "strm", StorageID: s.ID, Source: "/", Target: "movies", Mode: "full", ExcludeDirs: "excluded", ExcludeFiles: "TRAILER", ExcludeTypes: "AVI"}
+	retained := "mp4;mkv"
+	task := Task{Kind: "strm", StorageID: s.ID, Source: "/", Target: "movies", Mode: "full", ExcludeDirs: "excluded", ExcludeFiles: "TRAILER", ExcludeTypes: "AVI", RetainedExtensions: &retained}
 	count, err := a.executeTask(context.Background(), task, s)
 	if err != nil || count != 3 {
 		t.Fatalf("expected 3, got %d: %v", count, err)
@@ -468,7 +469,7 @@ func TestDefaultSTRMTarget(t *testing.T) {
 	if err != nil || count != 1 {
 		t.Fatalf("default output: %d %v", count, err)
 	}
-	if _, err := os.Stat(filepath.Join(a.outputDir, "default.mp4.strm")); err != nil {
+	if _, err := os.Stat(filepath.Join(a.outputDir, "default.strm")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -614,7 +615,7 @@ func TestSTRMDirectoryCreatedOnlyOnWrite(t *testing.T) {
 	if count, err := a.executeTask(context.Background(), task, s); err != nil || count != 1 {
 		t.Fatalf("write scan: %d %v", count, err)
 	}
-	if _, err := os.Stat(filepath.Join(a.outputDir, "sample.mp4.strm")); err != nil {
+	if _, err := os.Stat(filepath.Join(a.outputDir, "sample.strm")); err != nil {
 		t.Fatal(err)
 	}
 }

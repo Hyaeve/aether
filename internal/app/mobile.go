@@ -216,16 +216,17 @@ func (a *App) mobileListAt(ctx context.Context, s Storage, host, dir string) ([]
 
 func (a *App) mobileLinkAt(ctx context.Context, s Storage, host, fid string) (Download, error) {
 	var data struct {
-		URL string `json:"url"`
-		CDN string `json:"cdnUrl"`
+		URL       string `json:"url"`
+		CDN       string `json:"cdnUrl"`
+		CDNSwitch bool   `json:"cdnSwitch"`
 	}
 	err := a.mobilePost(ctx, s, host+"/file/getDownloadUrl", map[string]string{"fileId": fid}, false, &data)
 	if err != nil {
 		return Download{}, err
 	}
-	address := data.CDN
-	if address == "" {
-		address = data.URL
+	address := data.URL
+	if data.CDNSwitch && data.CDN != "" {
+		address = data.CDN
 	}
 	u, err := url.Parse(address)
 	if err != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") {

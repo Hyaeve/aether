@@ -42,7 +42,7 @@ func TestFeatureTaskOutputPreservesFullMediaName(t *testing.T) {
 		provider, name, want string
 		retained             *string
 	}{
-		{"local", "film.mkv", "film.mkv.strm", nil},
+		{"local", "film.mkv", "film.strm", nil},
 		{"openlist", "film.mkv", "film.strm", nil},
 		{"local", "film.mkv", "film.strm", &empty},
 		{"local", "film.mkv", "film.strm", &iso},

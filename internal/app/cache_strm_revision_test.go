@@ -111,7 +111,7 @@ func TestSTRMRetainsChosenDirectory(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
-	if _, err = os.Stat(filepath.Join(a.outputDir, "C", "B", "sub", "movie.mp4.strm")); err != nil {
+	if _, err = os.Stat(filepath.Join(a.outputDir, "C", "B", "sub", "movie.strm")); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -101,7 +101,7 @@ test('old persisted log filters are ignored on refresh and navigation',async({pa
   await expect(page.getByRole('button',{name:'日志模块',exact:true})).toHaveText('全部模块')
   await page.getByLabel('搜索日志').fill('临时筛选')
   await page.getByRole('link',{name:'文件服务',exact:true}).click()
-  await page.getByRole('link',{name:'系统日志',exact:true}).click()
+  await page.getByRole('link',{name:'运行日志',exact:true}).click()
   await expect(page.getByLabel('搜索日志')).toHaveValue('')
   await expect(page.locator('.log-entry')).toHaveCount(1)
 })

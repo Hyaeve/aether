@@ -85,7 +85,7 @@ func TestCASPlaybackProviderFallback(t *testing.T) {
 						status = 503
 					}
 					if tc.mobileFailure != "empty" {
-						data = map[string]string{"cdnUrl": "https://media.example/mobile"}
+						data = map[string]any{"cdnUrl": "https://media.example/mobile", "cdnSwitch": true}
 					}
 				case "/listFiles.action":
 					raw = `{"fileListAO":{"folderList":[{"id":20,"name":"Aether"}],"fileList":[]}}`

@@ -1,5 +1,20 @@
 # Protocol References
 
+## WeCom Application Messages and Encrypted Callbacks
+
+The application token/message endpoints and callback envelope were checked
+against the Tencent-authored examples at
+`https://github.com/sbzhu/weworkapi_python` (`api/src/CorpApi.py`) and
+`https://github.com/sbzhu/weworkapi_golang`
+(`wxbizmsgcrypt/wxbizmsgcrypt.go`) on 2026-10-25.
+Aether independently implements bounded HTTPS, authenticated configuration,
+SHA-1 protocol signatures, AES-CBC with 32-byte PKCS padding, receiver checks,
+and read-only encrypted replies using Go's standard library. No example source
+or third-party callback runtime is copied or bundled. The protocol signature
+and CBC parameters are required for interoperability; they do not replace
+Aether's AES-GCM configuration protection. Real tenant delivery, app scopes,
+trusted IPs and callback reachability require separate deployment verification.
+
 ## Plugin Repository Catalog
 
 The static plugin-ID-to-metadata index convention was checked against MoviePilot

@@ -29,6 +29,7 @@ import (
 )
 
 type App struct {
+	wecom               wecomService
 	quarkLibraryMu      sync.Mutex
 	quarkTemporaryMu    sync.Mutex
 	quarkPlaybackActive map[string]int
@@ -42,6 +43,7 @@ type App struct {
 	rapid115Mu          sync.Mutex
 	rapid115Running     bool
 	rapid115Upload      func(context.Context, Storage, string, string, *os.File, int64, bool) (bool, string, error)
+	rapid115Now         func() time.Time
 	taskHealthCancels   map[string]func()
 	backupHealthCancels map[string]func()
 	generationMu        sync.Mutex
@@ -327,6 +329,10 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("PUT /api/notification-service/{section}", a.protected(http.HandlerFunc(a.notificationSettings)))
 	mux.Handle("POST /api/notification-service/test", a.protected(http.HandlerFunc(a.telegramTest)))
 	mux.Handle("POST /api/notification-service/secret", a.protected(http.HandlerFunc(a.telegramSecret)))
+	mux.Handle("POST /api/notification-service/wecom/secret", a.protected(http.HandlerFunc(a.wecomSecret)))
+	mux.Handle("POST /api/notification-service/wecom/test", a.protected(http.HandlerFunc(a.wecomTest)))
+	mux.HandleFunc("GET /notify/wecom", a.wecomCallback)
+	mux.HandleFunc("POST /notify/wecom", a.wecomCallback)
 	mux.Handle("/api/plugin-market/repositories", a.protected(http.HandlerFunc(a.pluginRepositories)))
 	mux.Handle("GET /api/plugin-market", a.protected(http.HandlerFunc(a.pluginMarketCatalog)))
 	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))
@@ -1066,6 +1072,10 @@ func (a *App) validateTask(t *Task) error {
 	}
 	if t.Kind == "cas" || t.Kind == "ed2k" {
 		t.RetainedExtensions = nil
+	}
+	if t.Kind == "strm" && t.RetainedExtensions == nil {
+		value := "iso"
+		t.RetainedExtensions = &value
 	}
 	if t.RetainedExtensions != nil {
 		value, err := normalizeExtensions(*t.RetainedExtensions)

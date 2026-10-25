@@ -334,100 +334,46 @@ func (a *App) handleTelegramUpdate(ctx context.Context, cfg telegramConfig, upda
 	if text == "" {
 		text = m.Caption
 	}
-	links, err := telegramLinks(text)
+	library, content, supported := telegramCommand(text)
+	if !supported {
+		return nil
+	}
+	links, err := telegramLinks(content)
 	if err != nil {
 		_, e := a.telegramSend(ctx, cfg, m.Chat.ID, err.Error(), nil)
 		return e
 	}
 	if len(links) == 0 {
+		if library {
+			_, err = a.telegramSend(ctx, cfg, m.Chat.ID, "请在 /share 或“虚拟链库”后填写分享链接。", nil)
+			return err
+		}
 		if strings.HasPrefix(text, "/start") {
 			_, err = a.telegramSend(ctx, cfg, m.Chat.ID, "Aether 已连接。", nil)
 		}
 		return err
 	}
-	for _, link := range links {
-		st := a.store.snapshotWithLogLimit(0)
-		targets := []telegramTarget{}
-		for _, target := range st.Notifications.Targets {
-			if target.Provider == link.Provider && target.accepts(link.Kind) {
-				targets = append(targets, target)
-			}
-		}
-		if len(targets) == 0 {
-			_, err = a.telegramSend(ctx, cfg, m.Chat.ID, "该类型未配置已启用的"+telegramAction(link.Kind)+"目录，未执行操作。", nil)
-			continue
-		}
-		job := telegramTransfer{ID: id(), ChatID: m.Chat.ID, UserID: m.From.ID, Link: link.Link, Provider: link.Provider, Targets: targets, Selected: -1, Auth: telegramDigest(cfg), Status: "choosing", Created: time.Now()}
-		job.Kind = link.Kind
-		job.LastActivity, job.Bot = job.Created, telegramDigest(cfg.Token)
-		if len(targets) == 1 {
-			job.Status, job.Selected = "queued", 0
-		}
-		err = a.store.update(func(st *State) error {
-			if telegramDigest(st.Notifications.Telegram) != job.Auth {
-				return errors.New("TG 配置已变化")
-			}
-			for _, target := range job.Targets {
-				if !telegramTargetCurrent(*st, job, target) {
-					return errors.New("TG 目录配置已变化")
-				}
-			}
-			active, pending := 0, 0
-			kept := []telegramTransfer{}
-			for index, item := range st.TelegramRuntime.Jobs {
-				if telegramActive(item.Status) {
-					active++
-				}
-				if item.CleanupPending {
-					pending++
-				}
-				if telegramActive(item.Status) || item.CleanupPending || index >= len(st.TelegramRuntime.Jobs)-200 {
-					kept = append(kept, item)
-				}
-			}
-			if active >= 32 {
-				return errors.New("TG 待处理转存过多，请等待已有任务结束")
-			}
-			if job.Status == "choosing" && pending >= 200 {
-				return errors.New("TG 待清理交互消息过多，请检查机器人网络和删除权限")
-			}
-			st.TelegramRuntime.Jobs = append(kept, job)
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		if job.Status == "queued" {
-			continue
-		}
-		text, keyboard := telegramDirectoryPage(st, job)
-		message, e := a.telegramSend(ctx, cfg, m.Chat.ID, text, keyboard)
-		if e != nil {
-			a.finishTelegram(job.ID, "failed", "TG 目录选择消息未确认，请重新发送链接", 0)
-			return e
-		}
-		err = a.store.update(func(st *State) error {
-			for i := range st.TelegramRuntime.Jobs {
-				if st.TelegramRuntime.Jobs[i].ID == job.ID {
-					st.TelegramRuntime.Jobs[i].MessageID = message
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return err
+	return a.queueTelegramLinks(ctx, cfg, *m, links, library)
 }
 
 func telegramActive(status string) bool {
-	return status == "queued" || status == "running" || status == "choosing" || status == "confirming"
+	return status == "waiting" || status == "queued" || status == "running" || status == "choosing" || status == "confirming"
 }
 
 func telegramTargetCurrent(st State, job telegramTransfer, target telegramTarget) bool {
 	if telegramDigest(st.Notifications.Telegram) != job.Auth || !telegramAllowed(st.Notifications.Telegram, job.ChatID, job.UserID) || !target.accepts(job.Kind) {
 		return false
+	}
+	if stamp := job.TargetStamps[target.StorageID]; stamp != "" {
+		found := false
+		for _, storage := range st.Storages {
+			if storage.ID == target.StorageID && storage.Enabled && storage.Type == target.Provider && storageRevision(storage) == stamp {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
 	}
 	for _, current := range st.Notifications.Targets {
 		if sameTelegramTarget(current, target) {
@@ -478,6 +424,11 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 				}
 				job.Selected, job.Status = index, "confirming"
 			} else if parts[0] == "c" && job.Status == "confirming" && job.Selected == index {
+				for _, member := range st.TelegramRuntime.Jobs {
+					if telegramSameGroup(*job, member) && member.ID != job.ID && (member.Status != "waiting" || !telegramTargetCurrent(*st, member, job.Targets[index])) {
+						return errors.New("批次或目录配置已变化")
+					}
+				}
 				job.Status = "queued"
 			} else if parts[0] == "b" && job.Status == "confirming" && job.Selected == index {
 				job.Status, job.Selected = "choosing", -1
@@ -487,6 +438,17 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 				return errors.New("操作已处理")
 			}
 			job.LastActivity = time.Now()
+			if job.Status == "queued" || job.Status == "cancelled" {
+				for j := range st.TelegramRuntime.Jobs {
+					member := &st.TelegramRuntime.Jobs[j]
+					if member.ID != job.ID && telegramSameGroup(*job, *member) && member.Status == "waiting" {
+						member.Status, member.Selected = job.Status, job.Selected
+						if job.Status == "cancelled" {
+							member.Link = ""
+						}
+					}
+				}
+			}
 			selected = *job
 			return nil
 		}
@@ -525,14 +487,7 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 				}
 			}
 		}
-		text = "确认" + action + "到：" + target.Path
-		if s, e := a.store.storage(target.StorageID); e == nil {
-			text = "确认" + action + "到：" + s.Name + " · " + target.Path
-		}
-		if selected.Name != "" {
-			text = "分享内容：" + selected.Name + "\n" + text
-		}
-		keyboard = [][]map[string]string{{{"text": "返回", "callback_data": fmt.Sprintf("b:%s:%d", selected.ID, index)}, {"text": "确认" + action, "callback_data": fmt.Sprintf("c:%s:%d", selected.ID, index)}}}
+		text, keyboard = telegramConfirmation(a.store.snapshotWithLogLimit(0), selected)
 	}
 	for _, current := range a.store.snapshotWithLogLimit(0).TelegramRuntime.Jobs {
 		if current.ID == selected.ID {

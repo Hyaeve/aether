@@ -53,7 +53,7 @@ func (a *App) quarkLibraryRead(ctx context.Context, session *Storage, secret str
 		title = items[0].Name
 	}
 	if title == "" {
-		title = "夸克分享-" + code
+		title = "夸克分享-" + quarkLibraryStamp(code)[:8]
 	}
 	if !recursive {
 		if err := a.persistQuarkCookies(original, *session); err != nil {
@@ -135,6 +135,14 @@ func quarkLibraryDigest(root *os.Root, name string) (string, error) {
 
 func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibraryCard, st State) (func(bool), error) {
 	nop := func(bool) {}
+	if next.Directory == "" {
+		for _, f := range st.QuarkLibraryRuntime.Files {
+			if f.CardID == old.ID {
+				return nop, errors.New("已有生成文件的卡片不能清空生成位置")
+			}
+		}
+		return nop, nil
+	}
 	target, err := openStrmReplaceRoot(next.Directory)
 	if err != nil {
 		return nop, errors.New("生成位置不存在、无权访问或包含符号链接")
@@ -239,6 +247,9 @@ func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibrar
 }
 
 func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (result quarkLibraryResult, resultErr error) {
+	if !card.Enabled || card.Directory == "" {
+		return result, errors.New("请设置生成位置并启用链接")
+	}
 	now := time.Now()
 	st := a.store.snapshotWithLogLimit(0)
 	cfg := effectiveQuarkLibrary(st)
@@ -301,7 +312,7 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 	}
 	// A successful read clears invalidity even if the local disk subsequently fails.
 	result.InvalidSince = time.Time{}
-	if err := a.quarkLibraryCheckCard(card); err != nil {
+	if err := a.quarkLibraryCheckExecution(ctx, card); err != nil {
 		return result, err
 	}
 	parent, err := openStrmReplaceRoot(card.Directory)
@@ -329,7 +340,7 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 	}
 	for _, batch := range batches {
 		for _, item := range batch.Items {
-			if err := a.quarkLibraryCheckCard(card); err != nil {
+			if err := a.quarkLibraryCheckExecution(ctx, card); err != nil {
 				return result, err
 			}
 			if err := ctx.Err(); err != nil {
@@ -404,6 +415,9 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 				}
 			}
 			sum := sha256.Sum256(content)
+			if err := a.quarkLibraryCheckExecution(ctx, card); err != nil {
+				return result, err
+			}
 			manifest.Digest = hex.EncodeToString(sum[:])
 			manifest.Stage = "publish"
 			if err := a.quarkLibraryCheckStorage(s); err != nil {
@@ -427,7 +441,10 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 			tmp := ".aether-quark-" + id()
 			out, e := child.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 			if e == nil {
-				_, e = io.Copy(out, bytes.NewReader(content))
+				e = a.quarkLibraryCheckExecution(ctx, card)
+				if e == nil {
+					_, e = io.Copy(out, bytes.NewReader(content))
+				}
 				if e == nil {
 					e = out.Sync()
 				}
@@ -435,6 +452,9 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 				if e == nil {
 					e = closeErr
 				}
+			}
+			if e == nil {
+				e = a.quarkLibraryCheckExecution(ctx, card)
 			}
 			if e == nil {
 				// Only a registered, unchanged previous file may be replaced.

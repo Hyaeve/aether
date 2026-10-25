@@ -1,3 +1,5 @@
+import { compactDate } from './date-time.mjs'
+
 export function episodeRanges(values = []) {
   const numbers = [...new Set(values.filter(n => Number.isInteger(n) && n >= 0))].sort((a, b) => a - b)
   const ranges = []
@@ -33,8 +35,5 @@ export function embyNoticeDisplay(notice) {
 }
 
 export function noticeTime(value) {
-  const time = new Date(value)
-  if (!value || !Number.isFinite(time.getTime())) return ''
-  const pad = n => String(n).padStart(2, '0')
-  return `${pad(time.getMonth() + 1)}-${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}`
+  return compactDate(value, '')
 }

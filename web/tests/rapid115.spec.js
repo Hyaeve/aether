@@ -105,6 +105,34 @@ test('115 rapid monitor edits use standard modal and monitor inner scroll chains
   for(const [width,theme] of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark']]){await page.setViewportSize({width,height:900});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);await expect(page.getByRole('button',{name:'添加监控',exact:true})).toBeEnabled();await outer.evaluate(el=>el.scrollTop=0);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath(`rapid115-${theme}-${width}.png`),fullPage:true})}
 })
 
+test('LAN without randomUUID can add a monitor and failed saving releases busy state',async({page})=>{
+ const f=await fixture(page)
+ await page.addInitScript(()=>Object.defineProperty(globalThis.crypto,'randomUUID',{value:undefined,configurable:true}))
+ let rejected=true
+ await page.route('**/api/115-rapid',async route=>{
+  if(route.request().method()==='PUT'&&rejected)return route.fulfill({status:400,json:{error:'待传目录不存在'}})
+  return route.fallback()
+ })
+ await page.goto('/tools/115-rapid')
+ await page.getByRole('button',{name:'添加监控',exact:true}).click()
+ const modal=page.getByRole('dialog',{name:'添加监控',exact:true})
+ await modal.getByLabel('监控名称',{exact:true}).fill('LAN监控')
+ await modal.getByRole('textbox',{name:'待传目录',exact:true}).fill('/media/incoming')
+ await modal.getByRole('textbox',{name:'目标目录',exact:true}).fill('/')
+ await modal.getByRole('textbox',{name:'目标目录',exact:true}).press('Tab')
+ const add=modal.getByRole('button',{name:'添加',exact:true})
+ await expect(add).toBeEnabled()
+ await add.click()
+ await expect(page.locator('.toast.error')).toContainText('待传目录不存在')
+ await expect(add).toBeEnabled()
+ await expect(modal.locator('.error-message')).toHaveCount(0)
+ rejected=false
+ await add.click()
+ await expect(modal).toHaveCount(0)
+ expect(f.config.watches[0]).toMatchObject({name:'LAN监控',source:'/media/incoming',target:'/'})
+ expect(f.config.watches[0].id).toMatch(/^watch-/)
+})
+
 test('STRM mode closes selection without a check and simulcast retention defaults to 12 hours',async({page},info)=>{
   await fixture(page)
   await page.route('**/api/strm-replace',r=>r.fulfill({json:{tasks:[]}}))

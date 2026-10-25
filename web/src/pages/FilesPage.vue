@@ -316,7 +316,7 @@ function confirmFolderDownload() {
 async function copyCID() {
   try { await copyText(String(detailCID.value)); notify('CID 已复制') } catch { notify('复制失败', true) }
 }
-const targetPools = computed(() => state.storages.filter(s => s.enabled && s.type === state.storages.find(s => s.id === selected.value)?.type))
+const targetPools = computed(() => state.storages.filter(s => s.enabled))
 function sort(key) { ascending.value = key === sortKey.value ? !ascending.value : true; sortKey.value = key }
 function select(event, f) {
   if (renameID.value || f.id === '__new__' || event.target.closest('input')) return

@@ -44,6 +44,7 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   const url=dialog.getByRole('textbox',{name:'分享链接',exact:true})
   await url.fill('https://pan.quark.cn/s/new?pwd=abc1')
   await dialog.getByRole('textbox',{name:'生成位置',exact:true}).fill('/media')
+  await dialog.getByRole('switch',{name:'启用链接',exact:true}).check()
   await dialog.getByRole('textbox',{name:'媒体扩展名',exact:true}).fill('mkv;不规范')
   await dialog.getByRole('button',{name:'保存链接',exact:true}).click()
   await expect(page.locator('.toast').last()).toContainText('媒体扩展名不合规范')

@@ -63,6 +63,7 @@ func (a *App) persistQuarkCookies(s, updated Storage) error {
 		for i := range st.Storages {
 			current := &st.Storages[i]
 			if current.ID == s.ID && current.Type == "quark" && storageRevision(*current) == storageRevision(s) {
+				libraryStamp := telegramLibraryStamp(*st)
 				for key, record := range st.QuarkLibraryRuntime.Temporary {
 					if record.StorageID == current.ID && record.Revision == storageRevision(*current) {
 						record.Revision = storageRevision(updated)
@@ -76,6 +77,8 @@ func (a *App) persistQuarkCookies(s, updated Storage) error {
 					st.QuarkTV[s.ID] = binding
 				}
 				current.Config["cookie"] = updated.Config["cookie"]
+				// Only this verified automatic rotation can carry active TG jobs forward.
+				refreshTelegramLibraryStamp(st, libraryStamp)
 				break
 			}
 		}

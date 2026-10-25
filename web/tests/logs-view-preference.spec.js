@@ -42,7 +42,7 @@ test('only the log view survives reload and navigation for the browser account',
   await expect(page.getByRole('button', { name: rawLabel })).toBeVisible()
   await expectNoFilters(page)
   await page.getByRole('link', { name: '存储管理', exact: true }).click()
-  await page.getByRole('link', { name: '系统日志', exact: true }).click()
+  await page.getByRole('link', { name: '运行日志', exact: true }).click()
   await expect(page.getByRole('button', { name: rawLabel })).toBeVisible()
   await expectNoFilters(page)
   await page.getByRole('button', { name: rawLabel }).click()

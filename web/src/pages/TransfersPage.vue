@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { api, bytes, date, notify } from '../lib'
+import { api, bytes, notify } from '../lib'
+import { compactDate } from '../date-time.mjs'
 import Icon from '../components/Icon.vue'
 import ThinScroll from '../components/ThinScroll.vue'
 import BackupRules from '../components/BackupRules.vue'
@@ -79,7 +80,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); document.removeEventList
           <td class="transfer-size" data-label="大小">{{ item.total > 0 ? bytes(item.total) : '—' }}</td>
           <td class="transfer-speed" data-label="速度">{{ item.status === 'running' ? bytes(item.speed || 0)+'/s' : '—' }}</td>
           <td class="transfer-state"><span class="transfer-status" :class="item.status" :title="item.message">{{ status(item) }}</span></td>
-          <td class="transfer-started">{{ date(item.started) }}</td>
+          <td class="transfer-started">{{ compactDate(item.started) }}</td>
         </tr>
         <tr v-if="bottom" class="transfer-spacer" :style="{height:bottom+'px'}" aria-hidden="true"><td colspan="8" /></tr>
       </tbody></table><p v-if="!filtered.length" class="small-empty">暂无传输任务</p></div><ScrollRail :element="viewport" :thickness="3" />

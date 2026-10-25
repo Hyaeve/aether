@@ -270,7 +270,7 @@ func (a *App) executeMobileGeneration(ctx context.Context, job GenerationJob, m 
 		s, _ := a.store.storage(m.Mobile.StorageID)
 		a.casFailureLog(s, "/Aether/"+m.Mobile.Directory, "分享解析生成（任务 "+job.ID+"）", err)
 		// Never include upstream bodies, links or credentials in job responses/logs.
-		message = "生成或临时清理未完成，请核对系统日志及网盘临时目录；勿直接重复提交"
+		message = "生成或临时清理未完成，请核对运行日志及网盘临时目录；勿直接重复提交"
 		if errors.Is(err, context.Canceled) {
 			status = "interrupted"
 		}

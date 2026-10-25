@@ -47,31 +47,38 @@ func sameTelegramTarget(a, b telegramTarget) bool {
 
 type notificationConfig struct {
 	Telegram telegramConfig   `json:"telegram"`
+	WeCom    wecomConfig      `json:"wecom"`
 	Targets  []telegramTarget `json:"targets"`
 }
 
 type telegramTransfer struct {
-	ID             string           `json:"id"`
-	ChatID         int64            `json:"chatId"`
-	UserID         int64            `json:"userId"`
-	MessageID      int64            `json:"messageId"`
-	Link           string           `json:"secret"`
-	Provider       string           `json:"provider"`
-	Kind           string           `json:"kind,omitempty"`
-	Page           int              `json:"page,omitempty"`
-	Targets        []telegramTarget `json:"targets"`
-	Selected       int              `json:"selected"`
-	Auth           string           `json:"auth"`
-	StorageStamp   string           `json:"storageStamp,omitempty"`
-	Status         string           `json:"status"`
-	Name           string           `json:"name,omitempty"`
-	Processed      int              `json:"processed"`
-	Batches        int              `json:"batches"`
-	Created        time.Time        `json:"created"`
-	LastActivity   time.Time        `json:"lastActivity,omitempty"`
-	Bot            string           `json:"bot,omitempty"`
-	CleanupPending bool             `json:"cleanupPending,omitempty"`
-	CleanupAttempt time.Time        `json:"cleanupAttempt,omitempty"`
+	ID             string            `json:"id"`
+	ChatID         int64             `json:"chatId"`
+	UserID         int64             `json:"userId"`
+	MessageID      int64             `json:"messageId"`
+	Link           string            `json:"secret"`
+	Provider       string            `json:"provider"`
+	Kind           string            `json:"kind,omitempty"`
+	BatchID        string            `json:"batchId,omitempty"`
+	GroupID        string            `json:"groupId,omitempty"`
+	GroupSize      int               `json:"groupSize,omitempty"`
+	RequireConfirm bool              `json:"requireConfirm,omitempty"`
+	LibraryStamp   string            `json:"libraryStamp,omitempty"`
+	TargetStamps   map[string]string `json:"targetStamps,omitempty"`
+	Page           int               `json:"page,omitempty"`
+	Targets        []telegramTarget  `json:"targets"`
+	Selected       int               `json:"selected"`
+	Auth           string            `json:"auth"`
+	StorageStamp   string            `json:"storageStamp,omitempty"`
+	Status         string            `json:"status"`
+	Name           string            `json:"name,omitempty"`
+	Processed      int               `json:"processed"`
+	Batches        int               `json:"batches"`
+	Created        time.Time         `json:"created"`
+	LastActivity   time.Time         `json:"lastActivity,omitempty"`
+	Bot            string            `json:"bot,omitempty"`
+	CleanupPending bool              `json:"cleanupPending,omitempty"`
+	CleanupAttempt time.Time         `json:"cleanupAttempt,omitempty"`
 }
 
 type telegramRuntime struct {
@@ -88,6 +95,9 @@ func telegramIdentity(value string, signed bool) bool {
 }
 
 func validateNotifications(value notificationConfig, st State) error {
+	if err := validateWeCom(value.WeCom); err != nil {
+		return err
+	}
 	tg := value.Telegram
 	if tg.Token != "" && !telegramTokenPattern.MatchString(tg.Token) {
 		return errors.New("Bot Token 格式无效")
@@ -104,7 +114,7 @@ func validateNotifications(value notificationConfig, st State) error {
 		}
 	}
 	if tg.Enabled && (tg.Token == "" || tg.ChatID == "" || len(tg.UserIDs) == 0) {
-		return errors.New("启用 TG 通知须填写 Bot Token、Chat ID 和授权用户 ID")
+		return errors.New("启用 TG Bot 须填写 Bot Token、Chat ID 和授权用户 ID")
 	}
 	if len(value.Targets) > 60 {
 		return errors.New("转存目录最多60项")
@@ -138,6 +148,7 @@ func telegramDigest(value any) string {
 }
 
 func visibleNotifications(value notificationConfig) notificationConfig {
+	value.WeCom = visibleWeCom(value.WeCom)
 	value.Telegram.HasToken = value.Telegram.Token != ""
 	value.Telegram.Token = ""
 	if value.Targets == nil {
@@ -156,7 +167,7 @@ func (a *App) notificationSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input notificationConfig
-	if section := r.PathValue("section"); section != "" && section != "targets" {
+	if section := r.PathValue("section"); section != "" && section != "targets" && section != "wecom" {
 		fail(w, 400, errors.New("无效的通知服务栏目"))
 		return
 	}
@@ -171,6 +182,12 @@ func (a *App) notificationSettings(w http.ResponseWriter, r *http.Request) {
 				if value.Targets[i].ID == "" {
 					value.Targets[i].ID = id()
 				}
+			}
+		} else if r.PathValue("section") == "wecom" {
+			var err error
+			value.WeCom, err = mergeWeCom(input.WeCom, st.Notifications.WeCom)
+			if err != nil {
+				return err
 			}
 		} else {
 			value.Telegram = input.Telegram

@@ -349,7 +349,7 @@ func TestED2KBoundGenerationAndNaming(t *testing.T) {
 		kind, provider, name, suffix, want string
 		retained                           *string
 	}{
-		{"strm", "local", "a.mkv", ".strm", "a.mkv.strm", nil},
+		{"strm", "local", "a.mkv", ".strm", "a.strm", nil},
 		{"strm", "openlist", "a.mkv", ".strm", "a.strm", nil},
 		{"cas", "local", "a.mkv", ".cas", "a.mkv.cas", nil},
 		{"cas", "local", "a.mkv", ".cas", "a.mkv.cas", task.RetainedExtensions},

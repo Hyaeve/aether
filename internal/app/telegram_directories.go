@@ -44,5 +44,6 @@ func telegramDirectoryPage(st State, job telegramTransfer) (string, [][]map[stri
 	if job.Name != "" {
 		text = "分享内容：" + job.Name + "\n" + text
 	}
+	text = telegramGroupLabel(job) + text
 	return text, rows
 }
