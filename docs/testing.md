@@ -1,0 +1,41 @@
+# 测试与 CI 诊断
+
+## Go 测试分片
+
+`go test` 默认的10分钟超时针对整个包测试进程，不是单个测试。报错中的 `running tests` 列出超时瞬间仍在运行的测试；例如 `TestTransferLogBound (8s)` 不能单独证明这个测试卡住了10分钟。
+
+CI 将完整 Go 测试分成8片。每片先在当前平台以相同竞态构建模式执行测试发现，再按顶层名称确定性分配；跨包同名测试进入同片，避免全包 `-run` 过滤引起重复或遗漏。普通测试、可执行示例和 Fuzz 种子均参加，子测试不单独过滤。只执行 benchmark 的负载与原 `go test -race ./...` 一样不默认运行。
+
+每片保留 `-race`、`-count=1` 和默认包级超时，不添加 `-short`、`-skip` 或更长超时。Go 返回非零立即失败；即使退出码是0，仍检查发现清单与实际顶层成功/既有跳过结果是否一致，缺少、重复或意外多跑均失败。原测试主动按平台跳过的规则不改变。
+
+8片全部完成且成功，以及前端验证成功后，才能构建发布镜像。关闭 matrix 的 fail-fast，某片失败不会取消其他片的诊断。
+
+Linux 开发环境安装 Go 对应的 C 编译器和 FFmpeg 后，从仓库根目录运行同一分片：
+
+```bash
+node --test scripts/*.test.mjs
+node scripts/go-test-shards.mjs --index 0 --count 8
+```
+
+`--index` 为0至7。可依次运行全部8片：
+
+```bash
+for shard in 0 1 2 3 4 5 6 7; do
+  node scripts/go-test-shards.mjs --index "$shard" --count 8 || exit "$?"
+done
+```
+
+`--plan` 仅生成发现清单和分配，不执行用例，不算测试通过。缺少 CGO/C 编译器的本地环境可显式加 `--no-race` 验证分片和普通测试，但不能据此宣称竞态测试通过；CI 不使用该参数。Windows 发现清单不包括 Linux 专属构建文件，不能代替 Linux 验收。
+
+## 失败产物
+
+每片始终上传 `go-test-results-片号`，内容来自 `test-results/go-shard-片号/`：
+
+- `discovery.jsonl` 与 `discovery-stderr.txt`：发现阶段输出；编译或环境失败也保留。
+- `manifest.json`：完整测试数量、各片数量、本片包名和测试名、实际运行参数。
+- `tests.jsonl` 与 `stderr.txt`：实际 Go 测试的完整输出，保留超时堆栈、断言失败或竞态报告。
+- `result.json`：仅在 Go 成功且清单核验通过后生成，记录数量和实际耗时。
+
+先查看失败步骤，再区分 `panic: test timed out`、`WARNING: DATA RACE`、`--- FAIL` 或编译错误。进程退出码1本身不能定位原因；无浏览器产物可能只是尚未执行浏览器步骤，并非浏览器测试故障。
+
+普通测试和性能诊断都使用临时配置与数据，不读取真实部署凭据。源码已推送、CI通过、GHCR镜像发布与用户部署验收是不同状态，须分别确认。

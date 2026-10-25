@@ -15,6 +15,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  go-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Run complete Go race suite in bounded shards
+        run: node scripts/go-test-shards.mjs --index ${{ matrix.shard }} --count 8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go-test-results-${{ matrix.shard }}
+          path: test-results/go-shard-${{ matrix.shard }}
+
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -29,10 +53,9 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Verify version numbering and metadata
-        run: node --test scripts/version.test.mjs && node scripts/version.mjs --check
+        run: node --test scripts/*.test.mjs && node scripts/version.mjs --check
       - run: go vet ./...
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: go test -race ./...
       - run: npm ci && npm run build
         working-directory: web
       - run: npx playwright install --with-deps chromium webkit
@@ -46,7 +69,7 @@ jobs:
           path: web/test-results
 
   image:
-    needs: verify
+    needs: [verify, go-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read

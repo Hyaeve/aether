@@ -4,7 +4,7 @@
 
 自托管的云盘与本地存储工作空间，使用 Go + Vue 构建。
 
-当前版本：**v0.6.7** · [版本说明](docs/releases/v0.6.7.md)
+当前版本：**v0.6.8** · [版本说明](docs/releases/v0.6.8.md)
 
 版本编号采用末位满10、中位满100进位，不按标准SemVer的无限补丁位递增。发布前运行 `node scripts/version.mjs --next` 计算下一个编号，运行 `node scripts/version.mjs --check` 校验各处版本一致。
 
@@ -81,5 +81,7 @@ npm ci
 npm run build
 npm run test:e2e
 ```
+
+CI 的完整 Go 竞态测试采用8片执行，保留原超时及全部用例，并逐片核对发现清单。运行方法和失败日志产物见[测试与 CI 诊断](docs/testing.md)；普通本地测试通过不等于 Linux 竞态或镜像构建通过。
 
 第三方组件及参考项目见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
