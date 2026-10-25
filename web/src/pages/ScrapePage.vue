@@ -74,8 +74,21 @@ const filtered = computed(() => items.value.filter(i => (i.directories || [i.pat
 const viewport = ref(null)
 // Include the wall padding, column gaps and card borders in the virtual row pitch.
 const posterHeight = computed(() => Math.max(0, (width.value - 24 - (columns.value - 1) * 12) / columns.value - 2) * 1.5)
-const rowHeight = computed(() => posterHeight.value + 76)
+const measuredRowHeight = ref(0)
+const rowHeight = computed(() => measuredRowHeight.value || posterHeight.value + 76)
 const { shown, top, bottom, columns, width, reset } = useVirtualList(filtered, viewport, { rowHeight, columnWidth: 155, maxColumns: 7, grid: ref(true), window: true, resetToTop: true })
+let rowObserver
+watch([viewport, width, columns, () => shown.value[0]?.path], () => {
+  rowObserver?.disconnect()
+  const cards = [...(viewport.value?.querySelectorAll('.scrape-card') || [])].slice(0, columns.value)
+  if (!cards.length) { measuredRowHeight.value = 0; return }
+  // Border-box layout heights include grid rounding, but not selection hover scaling.
+  const measure = () => { measuredRowHeight.value = Math.max(...cards.map(card => parseFloat(getComputedStyle(card).height))) + 12 }
+  rowObserver = new ResizeObserver(measure)
+  cards.forEach(card => rowObserver.observe(card))
+  measure()
+}, { flush: 'post' })
+onUnmounted(() => rowObserver?.disconnect())
 watch([query, status, task, excludedScopes], reset)
 const candidateQuery = ref(''), candidateBusy = ref(false), candidateError = ref('')
 let alive = true, timer, request = 0, candidateRequest = 0

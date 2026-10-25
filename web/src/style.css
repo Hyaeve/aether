@@ -1459,6 +1459,6 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .sidebar .nav-group{flex:none;min-height:0;align-self:flex-start}
 .main-shell{margin-left:var(--workspace-sidebar-offset)}
 .topbar,.page-tabs{left:var(--workspace-sidebar-offset)}
-@media(max-width:800px),(pointer:coarse) and (max-height:480px){
+@media(max-width:760px),(hover:none) and (pointer:coarse) and (max-height:500px){
   :root{--workspace-sidebar-offset:0px}
 }

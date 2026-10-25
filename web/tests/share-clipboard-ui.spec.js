@@ -318,7 +318,7 @@ test('notice time, log colors, transfer icon and favorites alignment are consist
   }).toBeLessThan(2)
   await expect(page.locator('.file-toolbar > .rounded-select')).toHaveCSS('width','128px')
   await page.getByRole('button',{name:'任务通知',exact:true}).click()
-  await expect(page.locator('.notification-list time').first()).toHaveText(/^\d{2}-\d{2} \d{2}:\d{2}$/)
+  await expect(page.locator('.notification-list time').first()).toHaveText(/^\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}$/)
   await expect.poll(()=>page.locator('.notice-scroll .thin-scroll-thumb').evaluate(el=>parseFloat(getComputedStyle(el,'::after').width)*devicePixelRatio)).toBeGreaterThan(1.8)
   await page.screenshot({path:info.outputPath('notice-files.png')})
   await page.goto('/transfer')

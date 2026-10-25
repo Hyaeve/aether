@@ -64,3 +64,19 @@ for (const viewport of [
     await expect(cards.first()).toContainText('影片 0 ')
   } finally { await context.close() }
 })
+
+test('poster virtual row pitch ignores selection hover transforms during resize', async ({ page }) => {
+  await openWall(page)
+  const wall = page.locator('.scrape-wall'), first = wall.locator('.scrape-card').first()
+  await first.click({ button: 'right' })
+  await first.hover()
+  await expect(page.locator('.scrape-panel')).toHaveClass(/selecting/)
+  await expect(first).toHaveCSS('transform', 'matrix(1.025, 0, 0, 1.025, 0, 0)')
+  await page.setViewportSize({ width: 1439, height: 1000 })
+  await expect.poll(() => wall.evaluate(el => {
+    const card = el.querySelector('.scrape-card')
+    const columns = getComputedStyle(el).gridTemplateColumns.split(' ').length
+    const pitch = parseFloat(getComputedStyle(card).height) + 12
+    return Math.abs(el.getBoundingClientRect().height - Math.ceil(1000 / columns) * pitch)
+  })).toBeLessThan(2)
+})

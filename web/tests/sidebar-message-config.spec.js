@@ -26,6 +26,40 @@ async function fixture(page){
  return {config:()=>config,tests:()=>tests}
 }
 
+for(const size of [
+ {width:760,height:1024},{width:761,height:1024},{width:768,height:1024},
+ {width:800,height:1024},{width:801,height:1024},{width:1440,height:1000},
+ {width:844,height:390,touch:true},{width:844,height:490,touch:true},
+ {width:844,height:500,touch:true},{width:844,height:501,touch:true}
+])test.describe(`sidebar breakpoint ${size.width}x${size.height}${size.touch?' touch':''}`,()=>{
+ test.use({viewport:{width:size.width,height:size.height},hasTouch:!!size.touch,isMobile:!!size.touch,deviceScaleFactor:2})
+ test('sidebar offset matches the visible navigation',async({page},info)=>{
+  await fixture(page);await page.goto('/dashboard')
+  const sidebar=page.locator('.sidebar'),menu=page.getByRole('button',{name:'打开导航',exact:true})
+  const collapsed=size.width<=760||size.touch&&size.height<=500,offset=collapsed?0:220
+  for(const theme of ['light','dark']){
+   await page.evaluate(value=>document.documentElement.dataset.theme=value,theme)
+   await expect.poll(()=>page.locator('.main-shell').evaluate(el=>el.getBoundingClientRect().left)).toBe(offset)
+   await expect.poll(()=>page.locator('.topbar').evaluate(el=>el.getBoundingClientRect().left)).toBe(offset)
+   if(collapsed){
+    await expect(menu).toBeVisible()
+    await expect.poll(()=>sidebar.evaluate(el=>el.getBoundingClientRect().right)).toBeLessThanOrEqual(0)
+    await menu.click()
+    await expect.poll(()=>sidebar.evaluate(el=>el.getBoundingClientRect().left)).toBe(0)
+    await expect(page.locator('.nav-overlay')).toBeVisible()
+    await page.locator('.nav-overlay').click({position:{x:size.width-10,y:size.height-10}})
+    await expect.poll(()=>sidebar.evaluate(el=>el.getBoundingClientRect().right)).toBeLessThanOrEqual(0)
+   }else{
+    await expect(menu).toBeHidden()
+    await expect(sidebar).toBeVisible()
+    expect((await sidebar.boundingBox()).width).toBe(offset)
+   }
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+   if(size.width===768||size.height===490)await captureScreenshot(page,{path:info.outputPath(`navigation-${theme}.png`)})
+  }
+ })
+})
+
 for(const width of [1440,390])for(const theme of ['light','dark'])test(`sidebar is continuous, compact and scrolls without a track ${width} ${theme}`,async({page},info)=>{
  await fixture(page);await page.setViewportSize({width,height:900});await page.goto('/dashboard')
  await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)

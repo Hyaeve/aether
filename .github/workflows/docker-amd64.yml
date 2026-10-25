@@ -58,6 +58,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm ci && npm run build
         working-directory: web
+      - name: Run frontend unit tests
+        run: node --test web/tests/*.unit.mjs
       - run: npx playwright install --with-deps chromium webkit
         working-directory: web
       - run: npm run test:e2e
