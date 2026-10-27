@@ -1279,7 +1279,10 @@ details > summary:hover, details > summary:focus-visible { color: var(--primary)
 .notice-provider > svg { position:absolute; right:-2px; bottom:-2px; width:17px; height:17px; padding:2px; border-radius:5px; background:var(--surface); color:var(--primary); }
 .notification-list > button > span:not(.notice-provider):not(.emby-notice-icon) { min-width:0; flex:1; }
 .notification-list > button > .emby-notice-icon { flex:0 0 36px; width:36px; height:36px; }
-.notification-list strong, .notification-list small { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.notification-list small { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.notification-list .notice-heading { display:flex; align-items:center; gap:8px; min-width:0; }
+.notification-list .notice-heading strong { display:block; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; overflow-wrap:normal; }
+.notification-list .notice-heading time { flex:none; font-size:13px; line-height:1.35; white-space:nowrap; color:var(--muted); font-variant-numeric:tabular-nums; }
 @supports selector(::-webkit-scrollbar) {
   .notification-list { scrollbar-width:auto !important; }
   .notification-list::-webkit-scrollbar { width:2px !important; height:2px !important; }

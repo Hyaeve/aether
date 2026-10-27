@@ -198,6 +198,7 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 			a.logger.Printf("persist task: %v", persistErr)
 		}
 		a.store.event(status, "tasks", task.Name+"："+message)
+		a.queueResultNotification("任务", task.Name, status, count)
 		a.runMu.Lock()
 		delete(a.running, taskID)
 		delete(a.runningStorage, taskID)
@@ -231,6 +232,10 @@ func (a *App) outputLocation(target string) (string, string, error) {
 }
 
 func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
+	skipOutput := t.Mode == "incremental"
+	if t.Kind == "strm" {
+		skipOutput = a.currentSTRMSettings().OverwriteMode != "overwrite"
+	}
 	cleanup, err := a.newFeatureCleanup(t, s)
 	if err != nil {
 		return 0, err
@@ -430,7 +435,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				return fmt.Errorf("输出文件名冲突：%s", filename)
 			}
 			outputs[strings.ToLower(filename)] = true
-			if t.Mode == "incremental" {
+			if skipOutput {
 				if _, err := root.Stat(filename); err == nil {
 					continue
 				}
@@ -554,7 +559,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return err
 				}
 			}
-			if err := writeCASOutput(root, filename, []byte(link+"\n"), t.Mode == "incremental"); err != nil {
+			if err := writeCASOutput(root, filename, []byte(link+"\n"), skipOutput); err != nil {
 				return err
 			}
 			count++

@@ -102,14 +102,14 @@ func (a *App) mobilePost(ctx context.Context, s Storage, address string, payload
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return errors.New("移动云盘连接失败")
+		return &storageRequestError{message: "移动云盘连接失败", cause: err}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
 		if response.StatusCode == 401 || response.StatusCode == 403 {
 			return authStorageError(errors.New("移动Authorization失效或访问被拒绝"), false)
 		}
-		return fmt.Errorf("移动云盘 HTTP %d，请检查授权或网络", response.StatusCode)
+		return &storageRequestError{message: fmt.Sprintf("移动云盘 HTTP %d，请检查授权或网络", response.StatusCode)}
 	}
 	var result struct {
 		Code    json.RawMessage `json:"code"`
@@ -117,14 +117,14 @@ func (a *App) mobilePost(ctx context.Context, s Storage, address string, payload
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&result); err != nil {
-		return errors.New("移动云盘响应格式异常")
+		return &storageRequestError{message: "移动云盘响应格式异常", cause: err}
 	}
 	if !result.Success {
 		code := mobileQRString(result.Code)
 		if code == "401" || code == "403" || code == "10010001" {
 			return authStorageError(errors.New("移动Authorization已失效，请重新扫码"), true)
 		}
-		return errors.New("移动云盘拒绝请求，请检查授权有效期、账号权益或目录权限")
+		return &storageRequestError{message: "移动云盘拒绝请求，请检查授权有效期、账号权益或目录权限"}
 	}
 	if out == nil {
 		return nil

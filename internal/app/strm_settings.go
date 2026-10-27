@@ -8,8 +8,13 @@ import (
 )
 
 type strmSettings struct {
-	Address string `json:"address"`
-	Format  string `json:"format"`
+	Address       string `json:"address"`
+	Format        string `json:"format"`
+	OverwriteMode string `json:"overwriteMode"`
+}
+
+func validSTRMOverwriteMode(mode string) bool {
+	return mode == "" || mode == "skip" || mode == "overwrite"
 }
 
 func validSTRMSettings(in strmSettings) error {
@@ -20,17 +25,23 @@ func validSTRMSettings(in strmSettings) error {
 	if in.Format != "pickcode_name" && in.Format != "pickcode" {
 		return errors.New("115 STRM 格式无效")
 	}
+	if !validSTRMOverwriteMode(in.OverwriteMode) {
+		return errors.New("STRM覆盖模式无效")
+	}
 	return nil
 }
 
 func (a *App) currentSTRMSettings() strmSettings {
 	s := a.store.snapshotWithLogLimit(0).Settings
-	in := strmSettings{Address: s.STRMURL, Format: s.STRM115Format}
+	in := strmSettings{Address: s.STRMURL, Format: s.STRM115Format, OverwriteMode: s.STRMOverwriteMode}
 	if in.Address == "" {
 		in.Address = s.PublicURL
 	}
 	if in.Format == "" {
 		in.Format = "pickcode_name"
+	}
+	if in.OverwriteMode == "" {
+		in.OverwriteMode = "skip"
 	}
 	return in
 }
@@ -81,7 +92,14 @@ func (a *App) strmSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.store.update(func(st *State) error {
+		if in.OverwriteMode == "" {
+			in.OverwriteMode = st.Settings.STRMOverwriteMode
+			if in.OverwriteMode == "" {
+				in.OverwriteMode = "skip"
+			}
+		}
 		st.Settings.STRMURL, st.Settings.STRM115Format = in.Address, in.Format
+		st.Settings.STRMOverwriteMode = in.OverwriteMode
 		return nil
 	}); err != nil {
 		fail(w, 500, err)

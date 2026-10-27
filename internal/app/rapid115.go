@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,9 @@ type Rapid115Record struct {
 	Message   string    `json:"message,omitempty"`
 	Retries   int       `json:"retries,omitempty"`
 	NextRetry time.Time `json:"nextRetry,omitempty"`
+	Done      int64     `json:"done,omitempty"`
+	Total     int64     `json:"total,omitempty"`
+	Phase     string    `json:"phase,omitempty"`
 }
 
 type rapid115Retry struct {
@@ -62,6 +66,7 @@ type rapid115Retry struct {
 	RecordID string    `json:"recordId"`
 	Count    int       `json:"count"`
 	Next     time.Time `json:"next"`
+	Digest   string    `json:"digest,omitempty"`
 }
 
 type rapid115KnownFailure struct{ error }
@@ -120,7 +125,7 @@ func validateRapid115Job(j Rapid115Job, st State, complete bool, verifyFiles ...
 		return err
 	}
 	verify := len(verifyFiles) == 0 || verifyFiles[0]
-	if j.SuccessAction != "delete" && j.SuccessAction != "keep" || j.FailureAction != "skip" && j.FailureAction != "upload" {
+	if j.SuccessAction != "delete" && j.SuccessAction != "keep" || j.FailureAction != "skip" && j.FailureAction != "upload" && j.FailureAction != "delete" {
 		return errors.New("秒传处理方式无效")
 	}
 	if len(j.Extensions) > 4096 || len(j.TargetLabel) > 2048 {
@@ -166,6 +171,9 @@ func validateRapid115Job(j Rapid115Job, st State, complete bool, verifyFiles ...
 	return nil
 }
 func validateRapid115(s Rapid115Settings, st State, verifyFiles ...bool) error {
+	if s.Manual.FailureAction == "delete" {
+		return errors.New("重试后删除仅适用于监控秒传")
+	}
 	if err := validateRapid115Job(s.Manual, st, false, verifyFiles...); err != nil {
 		return err
 	}
@@ -187,6 +195,12 @@ func validateRapid115(s Rapid115Settings, st State, verifyFiles ...bool) error {
 			}
 			if _, err := cronParser.Parse(w.Cron); err != nil {
 				return errors.New("Cron表达式无效")
+			}
+			legacySchedule := len(verifyFiles) > 1 && verifyFiles[1]
+			if !legacySchedule && (w.FailureAction == "upload" || w.FailureAction == "delete") {
+				if err := validateRapid115RetryCron(w.Cron); err != nil {
+					return err
+				}
 			}
 		} else if w.Mode != "watch" {
 			return errors.New("监控模式无效")
@@ -263,11 +277,26 @@ func rapid115WatchJobs(watches []Rapid115Watch) []Rapid115Job {
 	return jobs
 }
 func (a *App) rapid115Records(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	a.rapid115Mu.Lock()
-	running := a.rapid115Running
+	manualRunning, monitorRunning := a.rapid115Runs["manual"], a.rapid115Runs["monitor"]
 	a.rapid115Mu.Unlock()
-	st := a.store.snapshotWithLogLimit(0)
-	jsonResponse(w, 200, map[string]any{"items": st.Rapid115Records, "running": running})
+	const pageSize = 30
+	a.store.mu.RLock()
+	total := len(a.store.state.Rapid115Records)
+	pages := max(1, (total+pageSize-1)/pageSize)
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		page = 1
+	}
+	page = max(1, min(page, pages))
+	start := min((page-1)*pageSize, total)
+	items := append([]Rapid115Record{}, a.store.state.Rapid115Records[start:min(start+pageSize, total)]...)
+	a.store.mu.RUnlock()
+	for i := range items {
+		items[i] = a.rapid115RecordProgress(items[i])
+	}
+	jsonResponse(w, 200, map[string]any{"items": items, "running": manualRunning || monitorRunning, "manualRunning": manualRunning, "monitorRunning": monitorRunning, "page": page, "pages": pages, "total": total, "pageSize": pageSize})
 }
 func (a *App) rapid115Start(w http.ResponseWriter, r *http.Request) {
 	var value struct {
@@ -295,14 +324,21 @@ func (a *App) rapid115Start(w http.ResponseWriter, r *http.Request) {
 func (a *App) startRapid115(job Rapid115Job, key, label, revision string) bool {
 	a.rapid115Mu.Lock()
 	defer a.rapid115Mu.Unlock()
-	if a.rapid115Running || a.ctx.Err() != nil {
+	channel := "monitor"
+	if key == "manual" {
+		channel = "manual"
+	}
+	if a.rapid115Runs[channel] || a.ctx.Err() != nil {
 		return false
 	}
-	a.rapid115Running = true
+	if a.rapid115Runs == nil {
+		a.rapid115Runs = map[string]bool{}
+	}
+	a.rapid115Runs[channel] = true
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		defer func() { a.rapid115Mu.Lock(); a.rapid115Running = false; a.rapid115Mu.Unlock() }()
+		defer func() { a.rapid115Mu.Lock(); delete(a.rapid115Runs, channel); a.rapid115Mu.Unlock() }()
 		if err := a.runRapid115(a.ctx, job, key, label, revision); err != nil && a.ctx.Err() == nil {
 			a.store.event("error", "tasks", "115秒传："+err.Error())
 		}
@@ -326,7 +362,11 @@ func rapid115Digest(ctx context.Context, f *os.File) (string, error) {
 		return "", err
 	}
 	h := sha1.New()
-	if _, err := io.Copy(h, upload115Reader{ctx, f}); err != nil {
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(h, rapid115ReadProgress(ctx, upload115Reader{ctx, f}, "计算文件摘要", 0, info.Size())); err != nil {
 		return "", err
 	}
 	return strings.ToUpper(hex.EncodeToString(h.Sum(nil))), nil
@@ -371,6 +411,7 @@ func (a *App) rapid115Intent(key string, record Rapid115Record) (bool, error) {
 	return fresh, err
 }
 func (a *App) rapid115Finish(record Rapid115Record) error {
+	record = a.rapid115RecordProgress(record)
 	return a.store.update(func(st *State) error {
 		for i := range st.Rapid115Records {
 			if st.Rapid115Records[i].ID == record.ID {
@@ -428,6 +469,9 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 			monitor, cron = true, watch.Mode == "cron"
 		}
 	}
+	if !monitor && job.FailureAction == "delete" {
+		return errors.New("重试后删除仅适用于监控秒传")
+	}
 	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -481,8 +525,22 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 		if !a.rapid115Current(job, storage, revision) {
 			return errors.New("秒传设置或存储状态已变化，已停止")
 		}
+		localFile := filepath.Join(job.Source, name)
+		a.rapid115Mu.Lock()
+		if a.rapid115Files[localFile] {
+			a.rapid115Mu.Unlock()
+			a.store.event("warn", "tasks", fmt.Sprintf("115秒传：%s；%s；另一秒传任务正在处理此文件，未重复提交", label, filepath.Base(name)))
+			return nil
+		}
+		if a.rapid115Files == nil {
+			a.rapid115Files = map[string]bool{}
+		}
+		a.rapid115Files[localFile] = true
+		a.rapid115Mu.Unlock()
+		defer func() { a.rapid115Mu.Lock(); delete(a.rapid115Files, localFile); a.rapid115Mu.Unlock() }()
 		record := Rapid115Record{ID: id(), Time: time.Now(), Name: filepath.Base(name), Size: fi.Size(), Status: "running", Source: label}
 		attempt := rapid115Stamp([]any{key, job, storage.Config, name, fi.Size(), fi.ModTime().UnixNano()})
+		expectedDigest := ""
 		if retry, ok := a.store.snapshotWithLogLimit(0).Rapid115Retries[attempt]; ok {
 			if retry.Count < 1 || retry.Count > 3 {
 				return errors.New("重试记录无效，未执行")
@@ -491,6 +549,7 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 				return nil
 			}
 			record.Retries = retry.Count
+			expectedDigest = retry.Digest
 		}
 		fresh, err := a.rapid115Intent(attempt, record)
 		if err != nil {
@@ -499,10 +558,30 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 		if !fresh {
 			return nil
 		}
+		recordID, reporting := record.ID, true
+		progressCtx := context.WithValue(ctx, rapid115ReportKey{}, func(phase string, done, total int64) {
+			a.rapid115Mu.Lock()
+			defer a.rapid115Mu.Unlock()
+			if !reporting {
+				return
+			}
+			if a.rapid115Progress == nil {
+				a.rapid115Progress = map[string]rapid115Live{}
+			}
+			a.rapid115Progress[recordID] = rapid115Live{Phase: phase, Done: done, Total: total}
+		})
+		defer func() {
+			a.rapid115Mu.Lock()
+			reporting = false
+			delete(a.rapid115Progress, recordID)
+			a.rapid115Mu.Unlock()
+		}()
+		rapid115Report(progressCtx, "等待传输资源", 0, 0)
 		record.Status = "failed"
 		missed := false
+		sourceDigest := ""
 		uploadErr := func() error {
-			ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+			ctx, cancel := context.WithTimeout(progressCtx, 30*time.Minute)
 			defer cancel()
 			ctx, releaseUpload, err := a.controlCloudUpload(ctx, name, filepath.Join(job.Source, name))
 			if err != nil {
@@ -530,6 +609,10 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 			if !rapid115Unchanged(root, name, fi) {
 				return errors.New("计算期间源文件已变化")
 			}
+			sourceDigest = sha
+			if expectedDigest != "" && sourceDigest != expectedDigest {
+				return errors.New("等待重试期间源文件内容已变化，已停止并保留源文件")
+			}
 			parent, base, err := a.uploadParent(ctx, storage, job.Target, filepath.ToSlash(name))
 			if err != nil {
 				return err
@@ -555,6 +638,7 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 				call = a.upload115RapidOnly
 			}
 			allowUpload := job.FailureAction == "upload" && (!monitor || record.Retries == 3)
+			rapid115Report(ctx, "提交秒传", 0, 0)
 			rapid, pick, err := call(ctx, storage, parent, base, f, fi.Size(), allowUpload)
 			if err != nil {
 				var known *rapid115KnownFailure
@@ -563,6 +647,13 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 			}
 			if !rapid && pick == "" {
 				missed = true
+				if monitor && job.FailureAction == "delete" && record.Retries == 3 {
+					if err := a.rapid115RemoveSource(ctx, job, storage, revision, root, scope, ancestors, name, fi, f, sha); err != nil {
+						return err
+					}
+					record.Status, record.Message = "deleted", "重试3次秒传仍未命中，已删除源文件"
+					return nil
+				}
 				return errors.New("未命中秒传，已跳过并保留源文件")
 			}
 			if pick == "" {
@@ -582,34 +673,13 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 				return err
 			}
 			if job.SuccessAction == "delete" {
-				latest, err := os.Stat(job.Source)
-				if err != nil || !os.SameFile(scope, latest) || !a.rapid115Current(job, storage, revision) || !rapid115Unchanged(root, name, fi) {
-					return errors.New("源文件或目录已变化，已保留源文件")
-				}
-				nowSHA, err := rapid115Digest(ctx, f)
-				if err != nil || nowSHA != sha || !rapid115Unchanged(root, name, fi) {
-					return errors.New("源文件内容已变化，已保留")
-				}
-				// Check every ancestor before cleanup, rejecting substituted paths.
-				if resolved, err := filepath.EvalSymlinks(filepath.Join(job.Source, name)); err != nil || resolved != filepath.Join(job.Source, name) {
-					return errors.New("源路径已变化，已保留")
-				}
-				for parent := filepath.Dir(name); ; parent = filepath.Dir(parent) {
-					current, err := root.Lstat(parent)
-					old := ancestors[parent]
-					if err != nil || old == nil || !os.SameFile(current, old) || current.Mode()&os.ModeSymlink != 0 {
-						return errors.New("源父目录已变化，已保留")
-					}
-					if parent == "." {
-						break
-					}
-				}
-				if err := root.Remove(name); err != nil {
-					return errors.New("目标已生成，源文件清理失败")
+				if err := a.rapid115RemoveSource(ctx, job, storage, revision, root, scope, ancestors, name, fi, f, sha); err != nil {
+					return err
 				}
 			}
 			return nil
 		}()
+		record = a.rapid115RecordProgress(record)
 		if uploadErr != nil {
 			record.Message = "处理失败；源文件保留，请检查目标后再手动处理"
 			if record.Status == "failed" {
@@ -619,17 +689,18 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 		if err := a.store.update(func(st *State) error {
 			delete(st.Rapid115Retries, attempt)
 			if missed && monitor && a.rapid115CurrentSnapshot(*st, job, storage, revision) {
-				if job.FailureAction == "upload" && record.Retries < 3 && len(st.Rapid115Retries) < 100000 {
+				retries := job.FailureAction == "upload" || job.FailureAction == "delete"
+				if retries && record.Retries < 3 && len(st.Rapid115Retries) < 100000 {
 					if st.Rapid115Retries == nil {
 						st.Rapid115Retries = map[string]rapid115Retry{}
 					}
 					delay := []time.Duration{10 * time.Minute, 30 * time.Minute, 60 * time.Minute}[record.Retries]
 					record.NextRetry = a.rapid115Time().Add(delay)
-					st.Rapid115Retries[attempt] = rapid115Retry{WatchID: key, Revision: revision, RecordID: record.ID, Count: record.Retries + 1, Next: record.NextRetry}
+					st.Rapid115Retries[attempt] = rapid115Retry{WatchID: key, Revision: revision, RecordID: record.ID, Count: record.Retries + 1, Next: record.NextRetry, Digest: sourceDigest}
 					record.Status = "retrying"
 					record.Message = fmt.Sprintf("秒传未成功，%d分钟后进行第%d次重试", int(delay/time.Minute), record.Retries+1)
 					delete(st.Rapid115Attempts, attempt)
-				} else if job.FailureAction == "upload" && record.Retries < 3 {
+				} else if retries && record.Retries < 3 {
 					record.Message = "待重试记录已达100000项上限，源文件保留，请核对后处理"
 				} else if cron && job.FailureAction == "skip" {
 					delete(st.Rapid115Attempts, attempt)
@@ -646,7 +717,7 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 			return err
 		}
 		level := "info"
-		if record.Status == "failed" {
+		if record.Status == "failed" || record.Status == "deleted" {
 			level = "error"
 		} else if record.Status == "retrying" {
 			level = "warn"
@@ -657,6 +728,37 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 		}
 		return nil
 	})
+}
+
+func (a *App) rapid115RemoveSource(ctx context.Context, job Rapid115Job, storage Storage, revision string, root *os.Root, scope os.FileInfo, ancestors map[string]os.FileInfo, name string, identity os.FileInfo, file *os.File, sha string) error {
+	latest, err := os.Stat(job.Source)
+	if err != nil || !os.SameFile(scope, latest) || !a.rapid115Current(job, storage, revision) || !rapid115Unchanged(root, name, identity) {
+		return errors.New("源文件或目录已变化，已保留源文件")
+	}
+	nowSHA, err := rapid115Digest(ctx, file)
+	if err != nil || nowSHA != sha || !rapid115Unchanged(root, name, identity) {
+		return errors.New("源文件内容已变化，已保留")
+	}
+	if resolved, err := filepath.EvalSymlinks(filepath.Join(job.Source, name)); err != nil || resolved != filepath.Join(job.Source, name) {
+		return errors.New("源路径已变化，已保留")
+	}
+	for parent := filepath.Dir(name); ; parent = filepath.Dir(parent) {
+		current, err := root.Lstat(parent)
+		old := ancestors[parent]
+		if err != nil || old == nil || !os.SameFile(current, old) || current.Mode()&os.ModeSymlink != 0 {
+			return errors.New("源父目录已变化，已保留")
+		}
+		if parent == "." {
+			break
+		}
+	}
+	if ctx.Err() != nil || !a.rapid115Current(job, storage, revision) {
+		return errors.New("秒传已取消或配置已变化，源文件保留")
+	}
+	if err := root.Remove(name); err != nil {
+		return errors.New("源文件清理失败，未继续删除")
+	}
+	return nil
 }
 
 func (a *App) rapid115CurrentSnapshot(st State, job Rapid115Job, storage Storage, revision string) bool {
@@ -685,13 +787,15 @@ func (a *App) upload115RapidOnly(ctx context.Context, s Storage, parent, name st
 	if _, err = f.Seek(0, io.SeekStart); err != nil {
 		return false, "", err
 	}
-	digest, err := c.GetDigestResult(upload115Reader{ctx, f})
+	hashCtx := context.WithValue(ctx, rapid115ReadStageKey{}, rapid115ReadStage{"计算秒传摘要", size})
+	digest, err := c.GetDigestResult(upload115Reader{hashCtx, f})
 	if err != nil {
 		return false, "", err
 	}
 	if err = a.waitAPI(ctx, s.ID); err != nil {
 		return false, "", &rapid115KnownFailure{err}
 	}
+	rapid115Report(ctx, "提交秒传", 0, 0)
 	init, err := c.RapidUpload(size, name, parent, digest.PreID, digest.QuickID, upload115Reader{ctx, f})
 	if err != nil {
 		return false, "", errors.New("115秒传提交未确认，未自动重试")
@@ -716,6 +820,7 @@ func (a *App) upload115RapidOnly(ctx context.Context, s Storage, parent, name st
 		}
 	}
 	defer a.cache.clear()
+	rapid115Report(ctx, "校验云端结果", 0, 0)
 	for i := 0; i < 5; i++ {
 		files, err := a.simulcast.list(ctx, s, c, parent)
 		if err != nil {
@@ -854,6 +959,12 @@ func (a *App) rapid115Monitor() {
 					if !w.Enabled {
 						continue
 					}
+					if w.Mode == "cron" && (w.FailureAction == "upload" || w.FailureAction == "delete") {
+						if err := validateRapid115RetryCron(w.Cron); err != nil {
+							a.store.event("warn", "tasks", "115监控 "+w.Name+" 已暂停："+err.Error())
+							continue
+						}
+					}
 					if w.Mode == "watch" {
 						pending[w.ID] = now.Add(2 * time.Second)
 					} else if schedule, e := cronParser.Parse(w.Cron); e == nil {
@@ -886,6 +997,9 @@ func (a *App) rapid115Monitor() {
 			sort.SliceStable(ordered, func(i, j int) bool { return pending[ordered[i].ID].Before(pending[ordered[j].ID]) })
 			for _, w := range ordered {
 				if !w.Enabled {
+					continue
+				}
+				if w.Mode == "cron" && (w.FailureAction == "upload" || w.FailureAction == "delete") && validateRapid115RetryCron(w.Cron) != nil {
 					continue
 				}
 				due := pending[w.ID]

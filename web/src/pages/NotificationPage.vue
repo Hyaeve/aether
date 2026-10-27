@@ -7,11 +7,13 @@ import ProviderIcon from '../components/ProviderIcon.vue'
 import TaskSourcePicker from '../components/TaskSourcePicker.vue'
 import SecretInput from '../components/SecretInput.vue'
 import WeComSettings from '../components/WeComSettings.vue'
+import NotificationChannelSettings from '../components/NotificationChannelSettings.vue'
 import { useCardDrag } from '../useCardDrag'
 
 const props = defineProps({ section: { default: 'telegram' } })
 const form = ref({ enabled: false, token: '', chatId: '', userIds: [] }), users = ref(''), targets = ref([])
 const wecom = ref(null)
+const qqBot = ref(null), feishu = ref(null)
 const loaded = ref(false), busy = ref(false), testing = ref(false), editing = ref(null), deleting = ref(null), picker = ref(false)
 const resolving = ref(false), pickerTrail = ref([]), pickerInitial = ref('/'), pickerLabel = ref('根目录')
 const maskedTelegram = value => ({ ...value, token: value.hasToken ? '********' : '' })
@@ -30,6 +32,8 @@ onMounted(async () => {
     users.value = (value.telegram.userIds || []).join(';')
     targets.value = value.targets || []
     wecom.value = value.wecom || null
+    qqBot.value = value.qqBot || null
+    feishu.value = value.feishu || null
     loaded.value = true
   } catch (e) { if (alive) notify(e.message, true) }
 })
@@ -116,10 +120,12 @@ const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCar
 <template>
   <div class="notification-page">
     <nav v-tab-scroll class="content-tabs" aria-label="通知服务栏目">
-      <RouterLink to="/notifications/telegram" :class="{ active: section === 'telegram' }"><Icon name="SlidersHorizontal" />消息配置</RouterLink>
+      <RouterLink to="/notifications/telegram" :class="{ active: section === 'telegram' }"><Icon name="MessageSquareText" />消息配置</RouterLink>
       <RouterLink to="/notifications/transfers" :class="{ active: section === 'transfers' }"><Icon name="FolderInput" />链接转存</RouterLink>
     </nav>
     <div v-if="section === 'telegram'" class="notification-config-panels">
+    <NotificationChannelSettings v-if="loaded" kind="qqBot" :initial="qqBot" @saved="qqBot = $event" />
+    <NotificationChannelSettings v-if="loaded" kind="feishu" :initial="feishu" @saved="feishu = $event" />
     <form class="notification-form telegram-form" aria-label="TG Bot" @submit.prevent="save">
       <header><h2><Icon name="Send" />TG Bot</h2><input v-model="form.enabled" type="checkbox" role="switch" class="switch" aria-label="启用 TG Bot" :disabled="!loaded || busy" /></header>
       <label>Bot Token<SecretInput v-model="form.token" secret-path="/notification-service/secret" secret-field="token" aria-label="Bot Token" autocomplete="new-password" :disabled="!loaded || busy" /></label>
@@ -151,7 +157,11 @@ const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCar
 
 <style scoped>
 .notification-page{min-width:0}.notification-page>.content-tabs{margin-bottom:24px}.notification-form{width:min(100%,380px);padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:grid;gap:18px}.notification-form header,.notification-form h2,.telegram-pool>header,.telegram-pool h2{display:flex;align-items:center;gap:10px}.notification-form header,.telegram-pool>header{justify-content:space-between}.notification-form h2,.telegram-pool h2{font-size:15px;margin:0}.notification-form label{gap:8px}.notification-form label small{color:var(--muted);font-weight:400}.notification-form :deep(.secret-input),.notification-form :deep(input:not([type=checkbox])){width:100%;height:var(--control-height);min-height:var(--control-height)}.notification-form footer{display:flex;gap:10px}.notification-form footer .btn{flex:1;height:var(--toolbar-height);min-height:var(--toolbar-height);padding-block:0}
-.notification-config-panels{display:grid;gap:24px;align-content:start;flex:none;min-width:0;width:min(100%,380px)}
+.notification-config-panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;align-content:start;align-items:stretch;flex:none;min-width:0;width:100%}
+.notification-config-panels>.notification-form{width:100%;display:flex;flex-direction:column}.notification-config-panels>.telegram-form footer{margin-top:auto}
+.notification-config-panels>:deep(.wecom-form){grid-column:span 2}
+@media(max-width:1200px){.notification-config-panels{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.notification-config-panels{grid-template-columns:minmax(0,1fr)}.notification-config-panels>:deep(.wecom-form){grid-column:auto}}
 .telegram-pools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}.telegram-pool{min-width:0}.telegram-pool>header{padding-bottom:14px;border-bottom:1px solid var(--border);margin-bottom:14px}.telegram-pool h2 :deep(.provider-icon){width:24px;height:24px}.telegram-target-list{display:grid;gap:10px}.telegram-target-card{display:flex;align-items:center;gap:8px;min-width:0;padding:12px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-height:72px;cursor:grab}.telegram-target-card>div{display:grid;gap:5px;flex:1;min-width:0}.telegram-target-card strong{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.telegram-target-card>div>span{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.telegram-target-card>.icon-btn{width:26px;height:30px;flex:none}.telegram-order{color:var(--muted);font-size:12px;min-width:12px}.telegram-add{height:72px;min-height:72px;display:flex;flex-direction:row;justify-content:center;align-items:center;gap:8px;font-size:13px}.telegram-add:disabled{cursor:default}.notification-form .switch{flex:none}
 .telegram-pool{padding:16px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.telegram-pool h2{font-size:17px;gap:10px}.telegram-pool h2 :deep(.provider-icon){width:30px;height:30px}.telegram-pool h2 :deep(.provider-logo){width:28px;height:28px}.telegram-pool h2 :deep([data-provider="115"] .provider-logo){width:24px;height:24px}.telegram-pool h2 :deep([data-provider=mobile] .provider-logo){width:30px;height:30px}.telegram-target-card,.telegram-add{background:var(--input)}.telegram-target-card>:deep(.provider-icon){width:28px;height:28px;flex:none;padding:0;border:0;border-radius:0;background:transparent}.telegram-target-card>:deep(.provider-icon .provider-logo){width:100%;height:100%}.telegram-target-card>:deep([data-provider="115"] .provider-logo){width:22px;height:22px}
 @media(max-width:1100px){.telegram-pools{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:680px){.telegram-pools{grid-template-columns:minmax(0,1fr);gap:24px}}

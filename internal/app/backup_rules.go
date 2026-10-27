@@ -462,6 +462,7 @@ func (a *App) startBackupWithApproval(id string, approve, full bool) error {
 		delete(a.backupRuns, id)
 		delete(a.backupHealthCancels, id)
 		a.store.event(level, "files", rule.Name+"："+message)
+		a.queueResultNotification("备份", rule.Name, status, rule.Copied)
 	}()
 	return nil
 }
@@ -494,21 +495,26 @@ func sameBackupStorage(a, b Storage) bool {
 }
 
 func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File, parent, name, replace string, digest ...*string) (resultErr error) {
+	phase := "核对传输条件"
+	defer func() { resultErr = diagnoseFileTransfer(ctx, phase, resultErr) }()
 	if ctx.Value(transferSourceKey{}) == nil {
 		ctx = context.WithValue(ctx, transferSourceKey{}, "备份")
 	}
 	if err := a.checkBackupMutation(ctx); err != nil {
 		return err
 	}
+	phase = "等待预处理资源"
 	release, err := a.acquireTransferResource(ctx, "preprocess")
 	if err != nil {
 		return err
 	}
 	defer release()
 	const limit = int64(100 << 30)
+	phase = "核对单文件大小"
 	if f.Size < 0 || f.Size > limit {
-		return errors.New("备份单文件上限100GiB")
+		return rejectFileTransfer(ctx, phase, "备份单文件上限100GiB")
 	}
+	phase = "准备本机暂存目录"
 	rootDir := a.transferTempDirectory()
 	if err := os.MkdirAll(rootDir, 0700); err != nil {
 		return err
@@ -536,7 +542,8 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	release()
 	progress := a.beginTransfer(ctx, "upload", target, name, n,
 		transferLocations{From: a.transferFileLocation(source, f.ID), To: a.transferDirectory(target, parent)})
-	defer func() { progress.finish(resultErr) }()
+	defer func() { progress.finish(diagnoseFileTransfer(ctx, phase, resultErr)) }()
+	phase = "等待目标写入资源"
 	if err := progress.wait(); err != nil {
 		return err
 	}
@@ -545,10 +552,11 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	}
 	ctx = context.WithValue(ctx, transferUploadResourceKey{}, true)
 	ctx = context.WithValue(ctx, transferAppResourceKey{}, a)
+	phase = "核对发布条件"
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	if len(a.running) != 0 {
-		return errors.New("有任务正在执行，请稍后备份")
+		return rejectFileTransfer(ctx, phase, "有任务正在执行，请稍后备份")
 	}
 	for _, original := range []Storage{source, target} {
 		current, err := a.store.storage(original.ID)
@@ -556,51 +564,60 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 			return err
 		}
 		if !sameBackupStorage(original, current) {
-			return errors.New("备份存储配置已变更，停止发布")
+			return rejectFileTransfer(ctx, phase, "备份存储配置已变更，停止发布")
 		}
 	}
 	if err := a.checkBackupMutation(ctx); err != nil {
 		return err
 	}
 	if target.Type != "local" {
+		phase = "核对目标同名文件"
 		old, err := a.cloudByName(ctx, target, parent, name)
 		if err != nil {
 			return err
 		}
 		if old != nil && replace == "skip" {
-			return errors.New("目标文件在备份期间出现，请重新扫描")
+			return rejectFileTransfer(ctx, phase, "目标文件在备份期间出现，请重新扫描")
 		}
+		phase = "上传目标文件"
 		if err := a.publishCloudFile(ctx, target, parent, name, stage.name); err != nil {
 			return err
 		}
 	} else {
+		phase = "打开本地目标目录"
 		root, err := os.OpenRoot(target.Config["root"])
 		if err != nil {
 			return err
 		}
 		defer root.Close()
+		phase = "解析本地目标路径"
 		rel, err := relative(parent)
 		if err != nil {
 			return err
 		}
 		temp := path.Join(rel, ".aether-backup-"+id())
+		phase = "创建本地目标临时文件"
 		out, err := root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err != nil {
 			return err
 		}
 		defer root.Remove(temp)
+		phase = "打开本机暂存文件"
 		in, err := os.Open(stage.name)
 		if err != nil {
 			out.Close()
 			return err
 		}
+		phase = "写入本地目标文件"
 		_, err = io.Copy(out, transferReader{&cancelReader{ctx, in}, progress})
 		in.Close()
 		if err == nil {
+			phase = "同步本地目标文件"
 			err = out.Sync()
 		}
 		closeErr := out.Close()
 		if err == nil {
+			phase = "关闭本地目标文件"
 			err = closeErr
 		}
 		if err != nil {
@@ -609,6 +626,7 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		phase = "发布本地目标文件"
 		if replace == "skip" {
 			if err := a.checkBackupMutation(ctx); err != nil {
 				return err

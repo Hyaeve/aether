@@ -83,16 +83,33 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`sidebar 
  await expect(page.getByRole('region',{name:'运行日志',exact:true})).toBeVisible()
 })
 
-for(const width of [1440,375])for(const theme of ['light','dark'])test(`message configuration has stacked TG Bot and WeCom panels ${width} ${theme}`,async({page},info)=>{
+for(const width of [1440,375])for(const theme of ['light','dark'])test(`message configuration orders channels above a wider WeCom panel ${width} ${theme}`,async({page},info)=>{
  const f=await fixture(page)
  await page.setViewportSize({width,height:1000});await page.goto('/notifications')
  await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
- await expect(page.getByRole('navigation',{name:'通知服务栏目'}).getByRole('link',{name:'消息配置',exact:true})).toBeVisible()
+ const tabs=page.getByRole('navigation',{name:'通知服务栏目'}),messageTab=tabs.getByRole('link',{name:'消息配置',exact:true})
+ await expect(messageTab).toBeVisible()
+ const messageIcon=messageTab.locator('svg')
+ await expect(messageIcon).toHaveClass(/lucide-message-square-text/)
+ await expect(messageIcon).toHaveAttribute('aria-hidden','true')
+ await expect(messageIcon).toHaveAttribute('stroke-width','1.7')
+ await expect(messageIcon).toHaveAttribute('fill','none')
+ await expect(tabs.getByRole('link',{name:'链接转存',exact:true}).locator('svg')).toHaveClass(/lucide-folder-input/)
+ const iconLayout=await tabs.evaluate(el=>{
+  const links=[...el.querySelectorAll('a')],icons=links.map(link=>link.querySelector('svg').getBoundingClientRect())
+  return {widths:icons.map(r=>r.width),heights:icons.map(r=>r.height),centerDifference:Math.abs(icons[0].y+icons[0].height/2-icons[1].y-icons[1].height/2),inherits:links.every(link=>getComputedStyle(link.querySelector('svg')).color===getComputedStyle(link).color)}
+ })
+ expect(iconLayout.widths[0]).toBe(iconLayout.widths[1]);expect(iconLayout.heights[0]).toBe(iconLayout.heights[1])
+ expect(iconLayout.centerDifference).toBeLessThan(1);expect(iconLayout.inherits).toBe(true)
+ await captureScreenshot(page,{path:info.outputPath(`message-tabs-${width}-${theme}.png`)})
  await expect(page.locator('.breadcrumbs [aria-current=page]')).toHaveText('消息配置')
  const tg=page.getByRole('form',{name:'TG Bot',exact:true}),wecom=page.getByRole('form',{name:'企业微信',exact:true})
  await expect(tg).toBeVisible();await expect(wecom).toBeVisible()
  const a=await tg.boundingBox(),b=await wecom.boundingBox()
- expect(a.width).toBe(b.width);expect(b.y).toBeGreaterThanOrEqual(a.y+a.height+20)
+ if(width===1440)expect(b.width).toBeCloseTo(2*a.width+24,0)
+ else expect(a.width).toBe(b.width)
+ expect(b.y).toBeGreaterThanOrEqual(a.y+a.height+20)
+ await expect(wecom.locator('.lucide-circle-help-icon')).toHaveCount(0)
  for(const field of ['企业 ID','应用 Secret','Agent ID','API 地址','Token','EncodingAESKey','接收成员']){
   await expect(wecom.getByLabel(field,{exact:true})).toHaveCSS('height','40px')
  }

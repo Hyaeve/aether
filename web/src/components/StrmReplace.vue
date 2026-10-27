@@ -89,7 +89,7 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
         <label>替换字段<input v-model="form.replace" maxlength="16384" :disabled="busy || running" /></label>
         <section v-if="task" class="strm-replace-status" role="status" aria-live="polite" aria-atomic="true" :aria-busy="running">
           <strong>{{ labels[task.status] || task.status }}</strong>
-          <progress v-if="running" aria-label="STRM 替换进度" />
+          <progress v-if="running" aria-label="STRM 替换进度" :value="task.total>0?task.processed||0:0" :max="task.total||1" :aria-valuetext="`已扫描 ${task.scanned||0}，已处理 ${task.processed||0}`" />
           <dl><div><dt>已扫描</dt><dd>{{ task.scanned }}</dd></div><div><dt>已处理</dt><dd>{{ task.processed }}</dd></div><div><dt>已修改</dt><dd>{{ task.changed }}</dd></div><div><dt>已跳过</dt><dd>{{ task.skipped }}</dd></div></dl>
           <p v-if="task.error" class="error-message">{{ task.error }}</p>
         </section>

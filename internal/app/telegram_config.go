@@ -48,6 +48,8 @@ func sameTelegramTarget(a, b telegramTarget) bool {
 type notificationConfig struct {
 	Telegram telegramConfig   `json:"telegram"`
 	WeCom    wecomConfig      `json:"wecom"`
+	QQBot    qqBotConfig      `json:"qqBot"`
+	Feishu   feishuConfig     `json:"feishu"`
 	Targets  []telegramTarget `json:"targets"`
 }
 
@@ -95,6 +97,12 @@ func telegramIdentity(value string, signed bool) bool {
 }
 
 func validateNotifications(value notificationConfig, st State) error {
+	if err := validateQQBot(value.QQBot); err != nil {
+		return err
+	}
+	if err := validateFeishu(value.Feishu); err != nil {
+		return err
+	}
 	if err := validateWeCom(value.WeCom); err != nil {
 		return err
 	}
@@ -149,6 +157,8 @@ func telegramDigest(value any) string {
 
 func visibleNotifications(value notificationConfig) notificationConfig {
 	value.WeCom = visibleWeCom(value.WeCom)
+	value.QQBot = visibleQQBot(value.QQBot)
+	value.Feishu = visibleFeishu(value.Feishu)
 	value.Telegram.HasToken = value.Telegram.Token != ""
 	value.Telegram.Token = ""
 	if value.Targets == nil {
@@ -158,6 +168,7 @@ func visibleNotifications(value notificationConfig) notificationConfig {
 }
 
 func (a *App) notificationSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if r.Method == http.MethodGet {
 		jsonResponse(w, 200, visibleNotifications(a.store.snapshotWithLogLimit(0).Notifications))
 		return
@@ -167,7 +178,7 @@ func (a *App) notificationSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input notificationConfig
-	if section := r.PathValue("section"); section != "" && section != "targets" && section != "wecom" {
+	if section := r.PathValue("section"); section != "" && section != "targets" && section != "wecom" && section != "qqBot" && section != "feishu" {
 		fail(w, 400, errors.New("无效的通知服务栏目"))
 		return
 	}
@@ -182,6 +193,18 @@ func (a *App) notificationSettings(w http.ResponseWriter, r *http.Request) {
 				if value.Targets[i].ID == "" {
 					value.Targets[i].ID = id()
 				}
+			}
+		} else if r.PathValue("section") == "qqBot" {
+			var err error
+			value.QQBot, err = mergeQQBot(input.QQBot, st.Notifications.QQBot)
+			if err != nil {
+				return err
+			}
+		} else if r.PathValue("section") == "feishu" {
+			var err error
+			value.Feishu, err = mergeFeishu(input.Feishu, st.Notifications.Feishu)
+			if err != nil {
+				return err
 			}
 		} else if r.PathValue("section") == "wecom" {
 			var err error

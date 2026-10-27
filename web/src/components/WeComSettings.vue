@@ -51,20 +51,25 @@ async function test(){
 <template>
  <form class="wecom-form" aria-label="企业微信" novalidate @submit.prevent="save">
   <header><h2><Icon name="Building2" />企业微信</h2><input v-model="form.enabled" type="checkbox" role="switch" class="switch" aria-label="启用企业微信" :disabled="busy||testing" /></header>
+  <div class="wecom-fields">
   <div v-for="field in fields" :key="field.key" class="field">
-   <div class="wecom-label"><label :for="`wecom-${field.key}`">{{field.label}}</label><button type="button" class="icon-btn" :aria-label="`${field.label}说明`" :data-tooltip="field.tip"><Icon name="CircleHelp" :size="14" /></button></div>
+   <div class="wecom-label"><label :for="`wecom-${field.key}`" :data-tooltip="field.tip">{{field.label}}</label></div>
    <SecretInput v-if="field.secret" :id="`wecom-${field.key}`" v-model="form[field.key]" secret-path="/notification-service/wecom/secret" :secret-field="field.key" :aria-label="field.label" autocomplete="new-password" :disabled="busy||testing" />
    <input v-else :id="`wecom-${field.key}`" v-model.trim="form[field.key]" :aria-label="field.label" :inputmode="field.key==='agentId'?'numeric':undefined" autocomplete="off" :disabled="busy||testing" />
   </div>
-  <div class="field"><div class="wecom-label"><label for="wecom-members">接收成员</label><button type="button" class="icon-btn" aria-label="接收成员说明" data-tooltip="成员 UserID，用分号分隔；仅这些成员可查询状态。@all 为向应用可见范围全员发送，须明确填写。"><Icon name="CircleHelp" :size="14" /></button></div><input id="wecom-members" v-model="members" aria-label="接收成员" autocomplete="off" :disabled="busy||testing" /></div>
+  <div class="field"><div class="wecom-label"><label for="wecom-members">接收成员</label></div><input id="wecom-members" v-model="members" aria-label="接收成员" autocomplete="off" :disabled="busy||testing" /></div>
   <label class="wecom-callback">回调地址<input :value="callbackURL" aria-label="企业微信回调地址" readonly /></label>
+  </div>
   <footer><button type="button" class="btn" :disabled="busy||testing||!form.hasSecret" @click="test"><Icon :name="testing?'LoaderCircle':'Send'" :class="{spin:testing}" />测试通知</button><button class="btn primary" :disabled="busy||testing"><Icon :name="busy?'LoaderCircle':'Save'" :class="{spin:busy}" />保存设置</button></footer>
  </form>
 </template>
 <style scoped>
-.wecom-form{display:grid;gap:18px;width:100%;min-width:0;padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.wecom-form{display:grid;gap:22px;width:100%;min-width:0;padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.wecom-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px 24px;min-width:0}
 header,h2,.wecom-label{display:flex;align-items:center;gap:10px}header{justify-content:space-between}h2{margin:0;font-size:15px}
 .wecom-label{gap:5px;min-height:20px}.wecom-label label{margin:0;font-size:13px}.wecom-label .icon-btn{width:24px;height:24px;flex:none;color:var(--muted)}
 .field{display:grid;gap:8px;min-width:0}.wecom-callback{gap:8px}.wecom-form :deep(.secret-input),.wecom-form :deep(input:not([type=checkbox])){width:100%;min-width:0;height:var(--control-height);min-height:var(--control-height)}
-footer{display:flex;gap:10px}footer .btn{flex:1;height:var(--toolbar-height);min-height:var(--toolbar-height);padding-block:0}
+footer{display:flex;justify-content:flex-end;gap:10px}footer .btn{min-width:130px;height:var(--toolbar-height);min-height:var(--toolbar-height);padding-block:0}
+@media(min-width:1600px){.wecom-fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.wecom-fields{grid-template-columns:minmax(0,1fr)}footer .btn{flex:1;min-width:0}}
 </style>

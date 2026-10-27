@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -22,14 +23,14 @@ func TestReadableSTRMLinksAndDownloadRouting(t *testing.T) {
 	}
 	file := File{ID: "123", PickCode: "cq391yoe47hu5dd6u", Name: "爱的迫降.S01E01.ts"}
 	link, err := a.publicSTRMURL(pan, file)
-	if err != nil || link != "http://10.0.0.31:15151/d/123/cq391yoe47hu5dd6u.ts?/爱的迫降.S01E01.ts" {
+	if err != nil || link != "http://10.0.0.31:15151/d/123/cq391yoe47hu5dd6u/"+url.PathEscape(file.Name) {
 		t.Fatal(link, err)
 	}
-	raw, err := os.ReadFile(a.referencePath("123/" + file.PickCode + ".ts"))
+	raw, err := os.ReadFile(a.referencePath("123/" + file.PickCode))
 	if err != nil || strings.Contains(string(raw), file.Name) {
 		t.Fatal("index not encrypted", err)
 	}
-	ref, err := a.readSTRMReference("123/" + file.PickCode + ".ts")
+	ref, err := a.readSTRMReference("123/" + file.PickCode)
 	if err != nil || ref.File != file.ID || ref.Storage != pan.ID {
 		t.Fatal(ref, err)
 	}
@@ -59,7 +60,7 @@ func TestReadableSTRMLinksAndDownloadRouting(t *testing.T) {
 	if w := request(t, h, "GET", "/d/notregistered123.ts?/movie.ts", nil, nil); w.Code != 404 || calls != 1 {
 		t.Fatal("unregistered pickcode exposed")
 	}
-	if w := request(t, h, "POST", "/d/123/"+file.PickCode+".ts", nil, nil); w.Code != 405 {
+	if w := request(t, h, "POST", link, nil, nil); w.Code != 405 {
 		t.Fatal(w.Code)
 	}
 	qLink, err := a.publicSTRMURL(quark, File{ID: "cloud/file", Name: "电影 & #1.mkv"})
@@ -75,7 +76,7 @@ func TestReadableSTRMLinksAndDownloadRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.store = reopened
-	if got, err := a.readSTRMReference("123/" + file.PickCode + ".ts"); err != nil || got != ref {
+	if got, err := a.readSTRMReference("123/" + file.PickCode); err != nil || got != ref {
 		t.Fatal("reference did not survive reopen", err)
 	}
 	if err := a.store.update(func(st *State) error { st.Storages[0].Enabled = false; return nil }); err != nil {

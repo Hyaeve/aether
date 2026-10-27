@@ -364,7 +364,10 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 		return errors.New("115秒传配置版本无效")
 	}
 	st.Rapid115 = normalizedRapid115(st.Rapid115)
-	if err := validateRapid115(st.Rapid115, *st, false); err != nil {
+	// Preserve readable legacy schedules at startup; the monitor pauses unsafe
+	// intervals. New edits and imported configurations still enforce the limit.
+	legacySchedule := len(allowLegacyPIN) > 0 && allowLegacyPIN[0]
+	if err := validateRapid115(st.Rapid115, *st, false, legacySchedule); err != nil {
 		return err
 	}
 	if st.ED2KPoolVersion > 1 {
@@ -380,11 +383,14 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 		if format == "" {
 			format = "pickcode_name"
 		}
-		if err := validSTRMSettings(strmSettings{st.Settings.STRMURL, format}); err != nil {
+		if err := validSTRMSettings(strmSettings{Address: st.Settings.STRMURL, Format: format, OverwriteMode: st.Settings.STRMOverwriteMode}); err != nil {
 			return err
 		}
 	} else if st.Settings.STRM115Format != "" && st.Settings.STRM115Format != "pickcode_name" && st.Settings.STRM115Format != "pickcode" {
 		return errors.New("115 STRM 格式无效")
+	}
+	if !validSTRMOverwriteMode(st.Settings.STRMOverwriteMode) {
+		return errors.New("STRM覆盖模式无效")
 	}
 	if st.TransferVersion != 0 && (st.TransferVersion != 1 || st.TransferSettings.Version != 1 || st.BackupResources.Version != 1) {
 		return errors.New("传输资源配置版本无效")
@@ -416,6 +422,8 @@ func (s *backupStageResource) clear() {
 }
 
 func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir string) (stage backupStageResource, resultErr error) {
+	phase := "创建本机暂存文件"
+	defer func() { resultErr = diagnoseFileTransfer(ctx, phase, resultErr) }()
 	out, err := os.CreateTemp(dir, "backup-*")
 	if err != nil {
 		return stage, err
@@ -429,6 +437,7 @@ func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir
 	var input io.ReadCloser
 	var progress *transferProgress
 	if source.Type == "local" {
+		phase = "打开本地来源文件"
 		root, e := os.OpenRoot(source.Config["root"])
 		if e != nil {
 			return stage, e
@@ -442,6 +451,7 @@ func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir
 			return stage, e
 		}
 	} else {
+		phase = "获取来源下载链接"
 		d, e := a.download(ctx, source, f.ID, f.PickCode)
 		if e != nil {
 			return stage, e
@@ -464,15 +474,22 @@ func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir
 		input = reader
 	}
 	defer input.Close()
-	defer func() { progress.finish(resultErr) }()
+	defer func() { progress.finish(diagnoseFileTransfer(ctx, phase, resultErr)) }()
 	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(out, h), io.LimitReader(&cancelReader{ctx, input}, (100<<30)+1))
+	phase = "下载来源文件到本机暂存"
+	writers := []io.Writer{out, h}
+	if progress, ok := ctx.Value(fileTransferProgressKey{}).(*transferProgress); ok {
+		writers = append(writers, fileTransferCountWriter{progress})
+	}
+	n, err := io.Copy(io.MultiWriter(writers...), io.LimitReader(&cancelReader{ctx, input}, (100<<30)+1))
 	if err != nil {
 		return stage, err
 	}
+	phase = "核对来源文件完整性"
 	if n != f.Size || n > 100<<30 {
-		return stage, errors.New("源文件内容不完整或读取期间大小变化")
+		return stage, rejectFileTransfer(ctx, phase, "源文件内容不完整或读取期间大小变化")
 	}
+	phase = "关闭本机暂存文件"
 	if err = out.Close(); err != nil {
 		return stage, err
 	}

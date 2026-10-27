@@ -32,8 +32,6 @@ async function fixture(page) {
 for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`notification configuration and directory pools persist ${width} ${theme}`, async ({ page }, info) => {
   const f = await fixture(page)
   await page.setViewportSize({ width, height: 1000 })
-  await page.goto('/settings/account')
-  const standard = (await page.locator('.account-settings').boundingBox()).width
   await page.goto('/notifications')
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
   await expect(page).toHaveURL(/\/notifications\/telegram$/)
@@ -42,7 +40,12 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`no
   expect(nav.indexOf('通知服务')).toBe(nav.indexOf('辅助工具') + 1)
   if (width < 700) await page.locator('.nav-overlay').click({ position: { x: width - 8, y: 50 } })
   const tg = page.getByRole('form', { name: 'TG Bot', exact: true })
-  expect((await page.locator('.notification-form').boundingBox()).width).toBe(standard)
+  const qq = page.getByRole('form', { name: 'QQ Bot', exact: true })
+  const feishu = page.getByRole('form', { name: '飞书通知', exact: true })
+  await expect(qq).toBeVisible();await expect(feishu).toBeVisible()
+  const bounds=await Promise.all([qq,feishu,tg].map(form=>form.boundingBox()))
+  expect(Math.max(...bounds.map(box=>box.width))-Math.min(...bounds.map(box=>box.width))).toBeLessThan(1)
+  if(width===1440)expect(Math.max(...bounds.map(box=>box.y))-Math.min(...bounds.map(box=>box.y))).toBeLessThan(1)
   await page.getByLabel('Bot Token', { exact: true }).fill('123456789:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
   await page.getByRole('textbox', { name: 'Chat ID', exact: true }).fill('123')
   await page.getByRole('textbox', { name: '授权用户 ID', exact: true }).fill('123;456')

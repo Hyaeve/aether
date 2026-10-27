@@ -22,7 +22,13 @@ func (r upload115Reader) Read(p []byte) (int, error) {
 	if err := r.ctx.Err(); err != nil {
 		return 0, err
 	}
-	return r.ReadSeeker.Read(p)
+	n, err := r.ReadSeeker.Read(p)
+	if stage, ok := r.ctx.Value(rapid115ReadStageKey{}).(rapid115ReadStage); ok {
+		if offset, seekErr := r.ReadSeeker.Seek(0, io.SeekCurrent); seekErr == nil {
+			rapid115Report(r.ctx, stage.phase, min(offset, stage.total), stage.total)
+		}
+	}
+	return n, err
 }
 
 func (a *App) upload115(ctx context.Context, s Storage, parent, name string, f *os.File, size int64) error {
@@ -77,7 +83,7 @@ func upload115OSS(ctx context.Context, f *os.File, size int64, params *driver.Up
 	var callback []byte
 	opts := append(driver.OssOption(params, token), oss.WithContext(ctx), oss.CallbackResult(&callback))
 	if size <= 16<<20 {
-		err = bucket.PutObject(params.Object, controlledUploadReader(ctx, upload115Reader{ctx, f}), opts...)
+		err = bucket.PutObject(params.Object, controlledUploadReader(ctx, rapid115ReadProgress(ctx, upload115Reader{ctx, f}, "本地传输", 0, size)), opts...)
 	} else {
 		partOpts := []oss.Option{oss.WithContext(ctx), oss.SetHeader(driver.OssSecurityTokenHeaderName, token.SecurityToken)}
 		upload, startErr := bucket.InitiateMultipartUpload(params.Object, partOpts...)
@@ -96,7 +102,7 @@ func upload115OSS(ctx context.Context, f *os.File, size int64, params *driver.Up
 		partSize := max(int64(16<<20), (size+9998)/9999)
 		for offset := int64(0); offset < size; offset += partSize {
 			length := min(partSize, size-offset)
-			part, err := bucket.UploadPart(upload, controlledUploadReader(ctx, uploadReader{ctx, io.NewSectionReader(f, offset, length)}), length, len(parts)+1, partOpts...)
+			part, err := bucket.UploadPart(upload, controlledUploadReader(ctx, rapid115ReadProgress(ctx, uploadReader{ctx, io.NewSectionReader(f, offset, length)}, "本地传输", offset, size)), length, len(parts)+1, partOpts...)
 			if err != nil {
 				return err
 			}

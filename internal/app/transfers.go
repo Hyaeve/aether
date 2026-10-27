@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/webdav"
@@ -119,19 +121,47 @@ func (a *App) transferEvent(level string, entry transferEntry, result string) {
 
 // Error text can contain signed URLs, credentials and upstream response bodies.
 func transferFailureReason(err error) string {
+	var diagnosed *fileTransferError
+	if errors.As(err, &diagnosed) {
+		return diagnosed.Error()
+	}
+	var auth *storageAuthError
+	var request *storageRequestError
+	var dns *net.DNSError
+	var network net.Error
 	switch {
 	case errors.Is(err, context.Canceled):
 		return "已取消或连接中断"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "读取或传输超时"
+	case errors.As(err, &network) && network.Timeout():
+		return "读取或传输超时"
+	case errors.As(err, &dns):
+		return "上游域名解析失败"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "上游拒绝连接"
+	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE):
+		return "上游连接中断"
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return "上游响应提前结束，读取内容不完整"
 	case errors.Is(err, io.ErrShortWrite):
 		return "写入内容不完整"
+	case errors.Is(err, syscall.ENOSPC):
+		return "本机暂存或目标磁盘空间不足"
+	case errors.Is(err, syscall.EROFS):
+		return "目标文件系统只读"
+	case errors.Is(err, os.ErrExist):
+		return "目标文件或目录已存在，未覆盖"
+	case errors.Is(err, syscall.ENOTDIR):
+		return "路径中的某一项不是目录"
+	case errors.As(err, &auth):
+		return "存储授权失效或访问被拒绝"
 	case errors.Is(err, os.ErrPermission):
 		return "存储权限不足"
 	case errors.Is(err, os.ErrNotExist):
 		return "源文件或目标目录不存在"
+	case errors.As(err, &request):
+		return request.message
 	default:
 		return "操作失败，请检查存储状态、网络及对应模块日志"
 	}
@@ -396,6 +426,10 @@ func (p *transferProgress) finish(err error) {
 		if err != nil {
 			entry.Status = "failed"
 			entry.Message = "操作失败，请检查服务日志及存储权限"
+			var diagnosed *fileTransferError
+			if errors.As(err, &diagnosed) {
+				entry.Message = transferFailureReason(err)
+			}
 		}
 		p.log.items[p.id] = entry
 		if err != nil {

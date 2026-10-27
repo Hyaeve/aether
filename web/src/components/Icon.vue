@@ -1,9 +1,9 @@
 <script setup>
 import {
-  Building2, CircleHelp, Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
+  Building2, Bot, Feather, CircleHelp, MessageSquareText, Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,
   ListOrdered, ListMusic, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
-  ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
+  ChevronLeft, ChevronsLeft, ChevronsRight, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
   FilePenLine, FileJson, FileAudio2, FileVideo2, FileText, BookOpen, RadioTower, Send,
   RotateCcw, Music, Image, Tv, BriefcaseBusiness, Globe, House, ExternalLink, CornerDownLeft,
   History, FileClock, ListVideo, FileArchive, Files, EllipsisVertical, Copy, FolderInput, GripVertical, Power,
@@ -21,11 +21,11 @@ import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 import RefreshIcon from './RefreshIcon.vue'
 const icons = {
-  Building2, CircleHelp,
+  Building2, Bot, Feather, CircleHelp, MessageSquareText,
   Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,
   ListOrdered, ListMusic, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
-  ChevronLeft, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
+  ChevronLeft, ChevronsLeft, ChevronsRight, ZoomIn, ZoomOut, Maximize, Minimize, RotateCw,
   FilePenLine, FileJson, FileAudio2, FileVideo2, FileText, BookOpen, RadioTower, Send,
   EmbyNotice: EmbyNoticeIcon,
   RefreshCw: RefreshIcon,

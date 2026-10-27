@@ -1,5 +1,24 @@
 # Protocol References
 
+## QQ Official Bot and Feishu Custom Bot
+
+The notification channel selection and configuration fields were compared with
+`https://github.com/pancras-loe/115-station` at commit
+`9f2242e4029ee9aba0c4d3e73002c189ed63ec87` (`internal/api/notify.go`,
+`internal/api/notify_extra.go`) on 2026-10-27. Aether independently implements
+its own bounded transport, encrypted configuration, response checks and
+asynchronous task/backup result queue; no reference server code is bundled.
+QQ authentication and the `/v2/groups/{group_openid}/messages` route were
+verified against Tencent's `https://github.com/tencent-connect/bot-docs`,
+commit `645787a45937e5d9c4f0f61afefdffde0f38696e`, especially
+`docs/develop/api-v2/dev-prepare/interface-framework/api-use.md` and
+`docs/develop/api-v2/server-inter/message/send-receive/send.md`.
+Feishu custom-bot signing uses the required timestamp/newline/secret HMAC-SHA256
+protocol described at
+`https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot`.
+Platform permissions, group identities, message quotas and actual delivery
+must be verified separately; no QQ or Feishu command runtime is added.
+
 ## WeCom Application Messages and Encrypted Callbacks
 
 The application token/message endpoints and callback envelope were checked

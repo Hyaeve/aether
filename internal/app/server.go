@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	channels            notificationChannels
+	notificationQueue   chan channelNotice
 	wecom               wecomService
 	quarkLibraryMu      sync.Mutex
 	quarkTemporaryMu    sync.Mutex
@@ -41,7 +43,9 @@ type App struct {
 	casExportJobs       map[string]*casExportJob
 	casExportRunning    bool
 	rapid115Mu          sync.Mutex
-	rapid115Running     bool
+	rapid115Runs        map[string]bool
+	rapid115Files       map[string]bool
+	rapid115Progress    map[string]rapid115Live
 	rapid115Upload      func(context.Context, Storage, string, string, *os.File, int64, bool) (bool, string, error)
 	rapid115Now         func() time.Time
 	taskHealthCancels   map[string]func()
@@ -161,6 +165,7 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
 		gates: map[string]time.Time{}, intervals: map[string]int{}, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, started: time.Now()}
 	a.casGate = make(chan struct{}, 1)
+	a.notificationQueue = make(chan channelNotice, 64)
 	a.transfers.restore(filepath.Join(dataDir, "cache", "transfers.json"))
 	a.simulcast = newPan115Simulcast(a, linkTrustedProxies())
 	if err := a.restoreSessions(); err != nil {
@@ -218,6 +223,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.telegramPoll()
 	go a.telegramWorker()
 	go a.telegramInteractionCleaner()
+	a.wg.Add(1)
+	go a.channelNotificationWorker()
 	a.wg.Add(1)
 	go a.quarkLibraryMonitor()
 	go a.casExportResultMonitor()
@@ -331,6 +338,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/notification-service/secret", a.protected(http.HandlerFunc(a.telegramSecret)))
 	mux.Handle("POST /api/notification-service/wecom/secret", a.protected(http.HandlerFunc(a.wecomSecret)))
 	mux.Handle("POST /api/notification-service/wecom/test", a.protected(http.HandlerFunc(a.wecomTest)))
+	mux.Handle("POST /api/notification-service/{channel}/secret", a.protected(http.HandlerFunc(a.notificationChannelSecret)))
+	mux.Handle("POST /api/notification-service/{channel}/test", a.protected(http.HandlerFunc(a.notificationChannelTest)))
 	mux.HandleFunc("GET /notify/wecom", a.wecomCallback)
 	mux.HandleFunc("POST /notify/wecom", a.wecomCallback)
 	mux.Handle("/api/plugin-market/repositories", a.protected(http.HandlerFunc(a.pluginRepositories)))
@@ -435,7 +444,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	})))
 	mux.HandleFunc("/stream/{token}", a.stream)
 	mux.HandleFunc("/d/{account}/{key}", a.playSTRMReference)
+	mux.HandleFunc("/d/{account}/{key}/{name}", a.playSTRMReference)
 	mux.HandleFunc("/d/{key}", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	mux.HandleFunc("/d/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("/api/strm/play/{storage}/{file}/t/{signature}/n/{name}", a.playSTRMReference)
 	mux.HandleFunc("/dav", a.serveDAV)
 	mux.HandleFunc("/dav/", a.serveDAV)
@@ -1288,6 +1299,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Session policy changes go through the account endpoint and rotate sessions.
 	s.STRMURL, s.STRM115Format = a.store.snapshotWithLogLimit(0).Settings.STRMURL, a.store.snapshotWithLogLimit(0).Settings.STRM115Format
+	s.STRMOverwriteMode = a.store.snapshotWithLogLimit(0).Settings.STRMOverwriteMode
 	s.SessionDays = a.store.snapshot().Settings.SessionDays
 	if s.LogDays == 0 {
 		s.LogDays = 15
@@ -1310,6 +1322,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.store.update(func(st *State) error {
 		s.STRMURL, s.STRM115Format = st.Settings.STRMURL, st.Settings.STRM115Format
+		s.STRMOverwriteMode = st.Settings.STRMOverwriteMode
 		st.Settings = s
 		return nil
 	}); err != nil {

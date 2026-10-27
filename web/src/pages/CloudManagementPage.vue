@@ -121,7 +121,9 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
 .cloud-row-name{grid-column:1;grid-row:1;display:flex;gap:8px;align-items:center;min-width:0}
 .cloud-row-name svg{flex:none}.cloud-row-name>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cloud-size{grid-column:2;grid-row:1}.cloud-path,.cloud-link{grid-column:3;grid-row:1;min-width:0}
-.cloud-execution{grid-column:4;grid-row:1;display:grid;gap:7px;min-width:0;font-variant-numeric:tabular-nums}
+.cloud-execution{grid-column:4;grid-row:1;display:block;width:max-content;max-width:100%;min-width:0;font-variant-numeric:tabular-nums}
+.downloads .cloud-execution{position:relative;padding-bottom:14px}
+.downloads .cloud-execution progress{position:absolute;bottom:0;left:0;display:block;width:100%;margin:0}
 .downloads:not(.cas) .cloud-path{grid-column:4}.downloads:not(.cas) .cloud-execution{grid-column:5}
 .cloud-status{grid-column:5;grid-row:1;min-width:0}.cloud-row-actions{grid-column:-2;grid-row:1;display:flex;gap:4px;flex-wrap:nowrap}
 .cloud-management-row>span,.cloud-management-row>.cloud-copy{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -154,7 +156,9 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
  .cloud-management-panel .cloud-link{grid-column:1/3;grid-row:2;font-size:13px}
  .cloud-management-panel .cloud-path,.cloud-management-panel.downloads .cloud-path{grid-column:1/4;grid-row:3}
  .cloud-management-panel .cloud-execution,.cloud-management-panel.downloads .cloud-execution{grid-column:1/4;grid-row:4;display:flex;align-items:center;gap:10px}
- .cloud-execution time{flex:none}.cloud-execution progress{min-width:20px;flex:1;width:auto}
+ .cloud-execution time{flex:none}.cloud-execution progress{min-width:0;flex:none;width:100%}
+ .cloud-management-panel.downloads .cloud-execution{display:block;width:max-content;height:21px;line-height:15px;padding-bottom:6px}
+ .downloads .cloud-execution progress{top:auto;bottom:0;height:5px}
  .cloud-status{grid-column:1/4;grid-row:3;display:flex;gap:8px}
  .cloud-row-name{gap:4px}.cloud-management-row small{font-size:12px;flex:none}
  .cloud-management-dock{gap:3px;padding:6px}.cloud-management-dock strong{font-size:11px}.cloud-management-dock .btn{padding:3px 5px;font-size:12px}

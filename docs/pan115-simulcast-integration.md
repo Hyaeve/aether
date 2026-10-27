@@ -45,7 +45,7 @@ d, err = a.downloadWithUA(r.Context(), s, file.ID, file.PickCode, r.UserAgent())
 ## AetherLink 范围
 
 - AetherLink 原生反代监听器是独立的 `linkcore/proxy` HTTP 服务，不经过 `internal/app/stream`，因此其自身生成或解析的上游直链不会触发 115 同播复制；这是有意的边界，不将同播 hook 植入 AetherLink resolver/proxy。
-- Aether 生成的 115 STRM 链接（`/d/<pickcode>.<ext>?/<name>`）由 `playSTRMReference` 转入 Aether `/stream`，因此会触发同播 hook。浏览器文件下载使用带 `download=1` 的签名 `/stream` URL，不是给 `/d/...` 追加下载参数（该转入过程重新构造 URL，不保留这个参数）。
+- Aether 生成的 115 STRM 链接（`/d/<account>/<pickcode>/<name>`，或不带名称的纯pickcode模式）由 `playSTRMReference` 转入 Aether `/stream`，因此会触发同播 hook。pickcode不带媒体扩展名，旧 `?/文件名` 格式不兼容。浏览器文件下载使用带 `download=1` 的签名 `/stream` URL；可读入口也沿用显式 `download=1` 下载绕过，不在通用下载函数重复挂载hook。
 - AetherLink 若读取包含 Aether URL 的 STRM，首次解析可通过 HEAD/Range GET 跟随跳转而间接访问 Aether；但探测只传 UA，不传原始客户端 IP。解析器缓存最终直链后，后续命中不再访问 Aether `/stream`。因此即使 STRM 最初由 Aether 生成，也不保证经 AetherLink 二次解析/缓存时按真实客户端触发同播。
 - 本插件承诺范围仅为 Aether 生成 STRM 链接及直接请求 Aether `/stream` 的播放入口，不覆盖 AetherLink 自己的直链、媒体服务器直接访问、WebDAV、FUSE、文件下载接口或外部生成的 STRM。
 - `server.go` 使用 `linkTrustedProxies()` 初始化，共用已存在的可信代理逻辑：信任回环及本机接口地址，额外代理须在 `AETHER_TRUSTED_PROXIES` 明确配置CIDR，不信任整段局域网。未受信任代理之后同UA客户端可能合并为同一身份，不无条件信任XFF。

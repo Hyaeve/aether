@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, state, reload, notify, notices, bytes } from './lib'
 import Icon from './components/Icon.vue'
 import ThinScroll from './components/ThinScroll.vue'
-import { modulePath, rememberedRoute, writeSession } from './session-navigation'
+import { rememberRoute, rememberedRoute, writeSession } from './session-navigation'
 import AudioPlayer from './components/AudioPlayer.vue'
 import { audioSession, closeAudio, removeAudio } from './audio-session'
 import { embyNoticeDisplay, noticeTime } from './library-notices'
@@ -160,8 +160,8 @@ async function logout() {
 }
 function closeMenus() { accountMenu.value = false; notificationMenu.value = false }
 function escapeMenus(event) { if (event.key === 'Escape') closeMenus() }
-watch(() => route.fullPath, () => { mobileNav.value = false; closeMenus(); if (state.authenticated) writeSession(state.username, `route:${modulePath(currentPath.value)}`, currentPath.value) }, { immediate: true })
-watch(() => [state.authenticated, state.username], () => { if (state.authenticated) writeSession(state.username, `route:${modulePath(currentPath.value)}`, currentPath.value) })
+watch(() => route.fullPath, () => { mobileNav.value = false; closeMenus(); if (state.authenticated) rememberRoute(state.username, currentPath.value) }, { immediate: true })
+watch(() => [state.authenticated, state.username], () => { if (state.authenticated) rememberRoute(state.username, currentPath.value) })
 onMounted(() => {
   bootstrap(); media.addEventListener('change', applyTheme)
   trafficTimer = setInterval(refreshTraffic, 1000)
@@ -190,7 +190,20 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
           <button class="icon-btn theme-toggle" :aria-label="`主题：${activeTheme.label}`" @click="cycleTheme"><Icon :name="activeTheme.icon" :size="22" /></button>
           <div class="notification-control" @click.stop>
             <button class="icon-btn notification-button" aria-label="任务通知" :aria-expanded="notificationMenu" @click="openNotifications"><Icon name="Bell" :size="22" /><span v-if="unread" class="notification-badge">{{ unread > 99 ? '99+' : unread }}</span></button>
-            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表"><header><h2>最近通知</h2><button class="icon-btn notice-clear" aria-label="清除通知" :disabled="!taskNotices.length" @click="clearNotifications"><Icon name="Trash2" :size="15" /></button></header><p v-if="!taskNotices.length" class="small-empty">暂无通知</p><ThinScroll v-else class="notice-scroll" content-class="notification-list" :thickness="3"><button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)"><span v-if="t.taskIcon" class="notice-provider"><ProviderIcon :type="t.provider" /><Icon :name="t.taskIcon" /></span><Icon v-else :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'running' ? 'LoaderCircle' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : t.status === 'running' ? 'spin' : 'danger-text'" /><span><strong>{{ t.name }}</strong><small>{{ t.message || (t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断') }} · <time :datetime="t.lastRun">{{ noticeTime(t.lastRun) }}</time></small></span></button></ThinScroll></section>
+            <section v-if="notificationMenu" class="notification-dropdown" aria-label="任务通知列表">
+              <header><h2>最近通知</h2><button class="icon-btn notice-clear" aria-label="清除通知" :disabled="!taskNotices.length" @click="clearNotifications"><Icon name="Trash2" :size="15" /></button></header>
+              <p v-if="!taskNotices.length" class="small-empty">暂无通知</p>
+              <ThinScroll v-else class="notice-scroll" content-class="notification-list" :thickness="3">
+                <button v-for="t in taskNotices" :key="t.key" @click="openNotice(t)">
+                  <span v-if="t.taskIcon" class="notice-provider"><ProviderIcon :type="t.provider" /><Icon :name="t.taskIcon" /></span>
+                  <Icon v-else :name="t.kind === 'emby' ? 'EmbyNotice' : t.status === 'running' ? 'LoaderCircle' : t.status === 'success' ? 'CircleCheck' : 'CircleAlert'" :class="t.status === 'success' ? 'success-text' : t.status === 'running' ? 'spin' : 'danger-text'" />
+                  <span class="notice-content">
+                    <span class="notice-heading"><strong :data-tooltip="t.name">{{ t.name }}</strong><time :datetime="t.lastRun">{{ noticeTime(t.lastRun) }}</time></span>
+                    <small>{{ t.message || (t.status === 'success' ? '已完成' : t.status === 'error' ? '执行失败' : '已停止或中断') }}</small>
+                  </span>
+                </button>
+              </ThinScroll>
+            </section>
           </div>
           <div class="account-control" @click.stop>
             <button class="account-button" aria-label="账号菜单" :aria-expanded="accountMenu" @click="accountMenu = !accountMenu; notificationMenu = false"><Icon name="UserRound" :size="22" /></button>

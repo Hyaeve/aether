@@ -27,7 +27,7 @@ const metrics = computed(() => [
       <div v-for="task in active" :key="task.id" class="cache-progress-item">
         <div class="cache-progress-heading"><span class="cache-progress-name">{{ task.name }}</span><span class="cache-progress-status">扫描中</span></div>
         <small class="cache-progress-count" role="status">已缓存 {{ task.processed || 0 }} 个目录</small>
-        <div class="cache-progress-track running" role="progressbar" :aria-label="`${task.name}：扫描中，已缓存 ${task.processed || 0} 个目录`" :aria-valuetext="`扫描中，已缓存 ${task.processed || 0} 个目录`"><span class="cache-progress-motion" /></div>
+        <div class="cache-progress-track running" role="progressbar" :aria-label="`${task.name}：扫描中，已缓存 ${task.processed || 0} 个目录`" :aria-valuetext="`扫描中，已缓存 ${task.processed || 0} 个目录`"><progress v-if="task.total>0" :value="task.processed||0" :max="task.total" :aria-label="`${task.name}缓存进度`" /></div>
         <small v-if="scanDetail(task)" class="cache-progress-detail">{{ scanDetail(task) }}</small>
       </div>
     </div>
@@ -64,9 +64,6 @@ dd { margin: 3px 0 0; font-size: 15px; overflow-wrap: anywhere; }
 .cache-progress-track.running { background: color-mix(in srgb,var(--primary) 18%,var(--surface)); }
 .cache-progress-status { flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .cache-progress-item:has(.running) .cache-progress-status { color: var(--primary); }
-.cache-progress-motion { position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: inherit; background: var(--primary); animation: cache-scan 1.8s ease-in-out infinite; }
-@keyframes cache-scan { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
-@media(prefers-reduced-motion: reduce) { .cache-progress-motion { animation: none; left: 32.5%; } }
 @media(max-width: 1050px) { .cache-overview { grid-template-columns: 104px minmax(0,1fr) 44px; gap: 12px; } .cache-metrics { grid-column: 1 / 3; } .cache-settings-trigger { grid-column:3; grid-row:1 / 3; } }
 @media(max-width: 480px) { .cache-overview { padding: 12px 12px 12px 16px; } .cache-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 </style>

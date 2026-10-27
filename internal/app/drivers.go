@@ -375,11 +375,11 @@ func davList(ctx context.Context, s Storage, dir string) ([]File, error) {
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, errors.New("WebDAV 连接失败")
+		return nil, &storageRequestError{message: "WebDAV 连接失败", cause: err}
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 207 {
-		return nil, fmt.Errorf("WebDAV HTTP %d", res.StatusCode)
+		return nil, &storageRequestError{message: fmt.Sprintf("WebDAV HTTP %d", res.StatusCode)}
 	}
 	var doc struct {
 		Responses []struct {

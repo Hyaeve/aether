@@ -31,7 +31,7 @@ const failed = computed(() => casTasks.value.reduce((sum, t) => sum + count(t.ca
         <div v-for="task in active" :key="task.id" class="cas-progress-item">
           <div class="cas-progress-heading"><span class="cas-progress-name" :title="task.name">{{ task.name }}</span><span class="cas-progress-status">扫描中</span></div>
           <small class="cas-progress-count" role="status">已处理 {{ count(task.processed) }} 项 · 已生成 {{ count(task.casGenerated) }} · 异常 {{ count(task.casFailed) }}</small>
-          <div v-if="task.total" class="cas-progress-track running"><progress :value="task.processed" :max="task.total" :aria-label="`${task.name}生成进度`" /></div><div v-else class="cas-progress-track running" role="progressbar" :aria-label="`${task.name}：扫描中，已处理 ${count(task.processed)} 项`" :aria-valuetext="`扫描中，已处理 ${count(task.processed)} 项`"><span class="cas-progress-motion" /></div>
+          <div v-if="task.total" class="cas-progress-track running"><progress :value="task.processed||0" :max="task.total" :aria-label="`${task.name}生成进度`" /></div><div v-else class="cas-progress-track running" role="progressbar" :aria-label="`${task.name}：扫描中，已处理 ${count(task.processed)} 项`" :aria-valuetext="`扫描中，已处理 ${count(task.processed)} 项`" />
           <small v-if="task.message" class="cas-progress-detail" :title="task.message">{{ task.message }}</small>
         </div>
       </div>
@@ -62,14 +62,11 @@ const failed = computed(() => casTasks.value.reduce((sum, t) => sum + count(t.ca
 .cas-progress progress::-webkit-progress-value, .cas-progress progress::-moz-progress-bar { background: var(--primary); }
 .cas-progress-track.running { background: color-mix(in srgb,var(--primary) 18%,var(--surface)); }
 .cas-progress-item:has(.running) .cas-progress-status { color: var(--primary); }
-.cas-progress-motion { position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: inherit; background: var(--primary); animation: cas-scan 1.8s ease-in-out infinite; }
-.cas-metrics { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; margin: 0; min-width: 0; }
+.cas-metrics { display: grid; grid-template-columns: minmax(0,1fr); gap: 20px; margin: 0; min-width: 0; }
 .cas-metrics > div { min-width: 0; display:flex;align-items:center;gap:12px; }
 .cas-metrics dt { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 .cas-metrics > div:first-child svg { color: var(--green); }.cas-metrics > div:last-child svg { color: var(--red); }
 .cas-metrics dd { margin: 0; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-@keyframes cas-scan { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
 @media(max-width:1050px) { .cas-overview { grid-template-columns: 104px minmax(0,1fr) 44px; gap: 12px; }.cas-metrics { grid-column: 1 / 3; grid-row: 2; }.cas-pool-trigger { grid-column: 3; grid-row: 1 / 3; } }
-@media(max-width:480px) { .cas-overview { grid-template-columns: 92px minmax(0,1fr) 44px; padding: 12px; gap: 12px 8px; --cache-chart-size:92px; }.cas-metrics { gap: 12px; } }
-@media(prefers-reduced-motion:reduce) { .cas-progress-motion { animation: none; left: 32.5%; } }
+@media(max-width:480px) { .cas-overview { grid-template-columns: 92px minmax(0,1fr) 44px; padding: 12px; gap: 12px 8px; --cache-chart-size:92px; } }
 </style>

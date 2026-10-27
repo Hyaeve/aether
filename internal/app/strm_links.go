@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-var pickcodePath = regexp.MustCompile(`^[a-zA-Z0-9]{10,32}(?:\.[a-zA-Z0-9]{1,12})?$`)
+var pickcodePath = regexp.MustCompile(`^[a-zA-Z0-9]{10,32}$`)
 
 type strmReference struct {
 	Storage string `json:"storage"`
@@ -63,12 +63,9 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		key := f.PickCode + strings.ToLower(path.Ext(f.Name))
-		if config.Format == "pickcode" {
-			key = f.PickCode
-		}
+		key := f.PickCode
 		if !pickcodePath.MatchString(key) {
-			return "", errors.New("115 文件缺少有效 pickcode 或扩展名")
+			return "", errors.New("115 文件缺少有效 pickcode")
 		}
 		key = account + "/" + key
 		// Only generated references are public, never arbitrary cloud lookups.
@@ -96,11 +93,10 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 				return "", err
 			}
 		}
-		name := strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F", "\r", "%0D", "\n", "%0A").Replace(f.Name)
 		if config.Format == "pickcode" {
 			return base + "/d/" + key, nil
 		}
-		return base + "/d/" + key + "?/" + name, nil
+		return base + "/d/" + key + "/" + url.PathEscape(f.Name), nil
 	}
 	if s.Type == "quark" {
 		file := base64.RawURLEncoding.EncodeToString([]byte(f.ID))
@@ -124,11 +120,11 @@ func (a *App) playSTRMReference(w http.ResponseWriter, r *http.Request) {
 	}
 	var ref strmReference
 	if key := r.PathValue("key"); key != "" {
-		if !pickcodePath.MatchString(key) {
+		query, err := url.QueryUnescape(r.URL.RawQuery)
+		if !pickcodePath.MatchString(key) || err != nil || strings.HasPrefix(query, "/") {
 			http.NotFound(w, r)
 			return
 		}
-		var err error
 		account := r.PathValue("account")
 		if account == "" || len(account) > 20 {
 			http.NotFound(w, r)
@@ -142,6 +138,10 @@ func (a *App) playSTRMReference(w http.ResponseWriter, r *http.Request) {
 		}
 		ref, err = a.readSTRMReference(account + "/" + key)
 		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if name := r.PathValue("name"); name != "" && (!safeName(name) || name != ref.Name) {
 			http.NotFound(w, r)
 			return
 		}

@@ -513,7 +513,7 @@ func (f *davFile) Read(b []byte) (int, error) {
 			if f.ctx.Err() != nil {
 				err = f.ctx.Err()
 			} else {
-				err = fmt.Errorf("上游读取请求失败（偏移 %d，网络或重定向错误）", f.offset)
+				err = &storageRequestError{message: fmt.Sprintf("上游读取请求失败（偏移 %d，网络或重定向错误）", f.offset), cause: err}
 			}
 			if f.ctx.Err() == nil {
 				f.logReadFailure(fmt.Sprintf("偏移 %d，网络或重定向错误", f.offset))
@@ -536,10 +536,11 @@ func (f *davFile) Read(b []byte) (int, error) {
 				f.download = download
 				continue
 			}
-			err := fmt.Errorf("上游读取返回 HTTP %d（偏移 %d）", res.StatusCode, f.offset)
+			message := fmt.Sprintf("上游读取返回 HTTP %d（偏移 %d）", res.StatusCode, f.offset)
 			if f.refreshed && (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) {
-				err = fmt.Errorf("115 上游拒绝读取 HTTP %d（偏移 %d，已重新获取下载票据；非本地权限错误）", res.StatusCode, f.offset)
+				message = fmt.Sprintf("115 上游拒绝读取 HTTP %d（偏移 %d，已重新获取下载票据；非本地权限错误）", res.StatusCode, f.offset)
 			}
+			err := &storageRequestError{message: message}
 			f.logReadFailure(fmt.Sprintf("HTTP %d，偏移 %d", res.StatusCode, f.offset))
 			f.progress.finish(err)
 			return 0, err

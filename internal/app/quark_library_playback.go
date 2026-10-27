@@ -26,12 +26,83 @@ func (a *App) quarkLibraryCheckStorage(s Storage) error {
 	return errors.New("夸克存储已从链库绑定中移除")
 }
 
-func (a *App) quarkLibraryFolder(ctx context.Context, session Storage, check func() error, parent, name string) (string, error) {
+func (a *App) quarkLibraryConfirmFolder(ctx context.Context, session *Storage, check func() error, parent, name, expected string) (string, error) {
+	// Folder listings can lag a successful create. Retry reads, never the write.
+	for attempt := 0; attempt < 6; attempt++ {
+		if err := check(); err != nil {
+			return "", err
+		}
+		f, err := a.cloudByName(ctx, *session, parent, name)
+		if err != nil {
+			return "", err
+		}
+		if err := check(); err != nil {
+			return "", err
+		}
+		if f != nil {
+			if !f.IsDir || f.ID == "" || f.ID == parent || f.ID == "0" || expected != "" && f.ID != expected {
+				return "", errors.New("夸克链库临时目录类型或身份不符，未覆盖或继续转存")
+			}
+			return f.ID, nil
+		}
+		if attempt < 5 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+	}
+	return "", fmt.Errorf("未确认夸克链库临时目录：存储池 %q，固定云端路径 /Aether/Share；创建后尚未出现在目录列表，未重复创建或转存，请核对网盘后重试", session.Name)
+}
+
+func (a *App) quarkLibraryCreateFolder(ctx context.Context, session *Storage, check func() error, parent, name string) (string, error) {
 	if err := check(); err != nil {
 		return "", err
 	}
-	f, err := a.cloudByName(ctx, session, parent, name)
+	if !safeName(name) {
+		return "", errors.New("夸克链库临时目录名称无效")
+	}
+	if f, err := a.cloudByName(ctx, *session, parent, name); err != nil {
+		return "", err
+	} else if f != nil {
+		return "", errors.New("夸克链库临时目录已存在，未重复创建")
+	}
+	if err := a.waitAPI(ctx, session.ID); err != nil {
+		return "", err
+	}
+	if err := check(); err != nil {
+		return "", err
+	}
+	var result struct {
+		Status int `json:"status"`
+		Data   struct {
+			ID string `json:"fid"`
+		} `json:"data"`
+	}
+	err := shareSessionRequest(ctx, session, http.MethodPost, "https://drive.quark.cn/1/clouddrive/file?pr=ucpro&fr=pc",
+		map[string]any{"pdir_fid": parent, "file_name": name, "dir_path": "", "dir_init_lock": false}, &result)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", errors.New("创建夸克链库固定临时目录 /Aether/Share 的结果未确认，未重复创建，请核对网盘")
+	}
+	if result.Status >= 400 || result.Data.ID == parent || result.Data.ID == "0" {
+		return "", errors.New("夸克链库临时目录创建回执异常，未继续转存")
+	}
+	return a.quarkLibraryConfirmFolder(ctx, session, check, parent, name, result.Data.ID)
+}
+
+func (a *App) quarkLibraryFolder(ctx context.Context, session *Storage, check func() error, parent, name string) (string, error) {
+	if err := check(); err != nil {
+		return "", err
+	}
+	f, err := a.cloudByName(ctx, *session, parent, name)
+	if err != nil {
+		return "", err
+	}
+	if err := check(); err != nil {
 		return "", err
 	}
 	if f != nil {
@@ -40,17 +111,7 @@ func (a *App) quarkLibraryFolder(ctx context.Context, session Storage, check fun
 		}
 		return f.ID, nil
 	}
-	if err = check(); err != nil {
-		return "", err
-	}
-	if err = a.cloudMkdir(ctx, session, parent, name); err != nil {
-		return "", errors.New("创建夸克链库临时目录未确认，请核对网盘")
-	}
-	f, err = a.cloudByName(ctx, session, parent, name)
-	if err != nil || f == nil || !f.IsDir || f.ID == "" || f.ID == parent || f.ID == "0" {
-		return "", errors.New("未确认夸克链库临时目录")
-	}
-	return f.ID, nil
+	return a.quarkLibraryCreateFolder(ctx, session, check, parent, name)
 }
 
 func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, grant quarkLibraryFile, session *Storage, token string, item shareEntry) (quarkLibraryTemporary, Storage, error) {
@@ -92,11 +153,11 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 		return record, storage, err
 	}
 	if !exists {
-		base, err := a.quarkLibraryFolder(ctx, *session, check, "0", "Aether")
+		base, err := a.quarkLibraryFolder(ctx, session, check, "0", "Aether")
 		if err != nil {
 			return empty, storage, err
 		}
-		base, err = a.quarkLibraryFolder(ctx, *session, check, base, "Share")
+		base, err = a.quarkLibraryFolder(ctx, session, check, base, "Share")
 		if err != nil {
 			return empty, storage, err
 		}
@@ -110,14 +171,11 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 		if err = check(); err != nil {
 			return record, storage, err
 		}
-		if err = a.cloudMkdir(ctx, *session, base, folderName); err != nil {
-			return record, storage, errors.New("专用临时目录创建结果未确认，不自动重建")
+		folder, err := a.quarkLibraryCreateFolder(ctx, session, check, base, folderName)
+		if err != nil {
+			return record, storage, fmt.Errorf("专用临时目录创建结果未确认，不自动重建：%w", err)
 		}
-		folder, err := a.cloudByName(ctx, *session, base, folderName)
-		if err != nil || folder == nil || !folder.IsDir || folder.ID == "" || folder.ID == base || folder.ID == "0" {
-			return record, storage, errors.New("未确认专用临时目录，不自动重建")
-		}
-		record.Folder = folder.ID
+		record.Folder = folder
 		if err = save(); err != nil {
 			return record, storage, err
 		}

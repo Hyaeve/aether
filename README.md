@@ -4,7 +4,7 @@
 
 自托管的云盘与本地存储工作空间，使用 Go + Vue 构建。
 
-当前版本：**v0.6.9** · [版本说明](docs/releases/v0.6.9.md)
+当前版本：**v0.7.0** · [版本说明](docs/releases/v0.7.0.md)
 
 版本编号采用末位满10、中位满100进位，不按标准SemVer的无限补丁位递增。发布前运行 `node scripts/version.mjs --next` 计算下一个编号，运行 `node scripts/version.mjs --check` 校验各处版本一致。
 
@@ -22,7 +22,7 @@
 | 以太链接 | AudioBookShelf、Emby、飞牛影视反代、302 直链、中继、播放流水和直链缓存 |
 | 传输中心 | 查看传输进度，管理目录备份规则、文件筛选和备份计划 |
 | 辅助工具 | [115 秒传中心](docs/115-rapid.md)、TMDB、AI 接口、代理、Emby 通知、夸克 STRM 接管、115 同播复制、STRM 内容替换、加密配置备份与[只读插件市场](docs/plugin-market.md) |
-| 通知服务 | [消息配置](docs/notification-service.md)（TG Bot、企业微信应用测试与安全回调）、TG 分享交互转存及云盘目录池 |
+| 通知服务 | [消息配置](docs/notification-service.md)（QQ 官方机器人、飞书通知、TG Bot、企业微信应用测试与安全回调）、TG 分享交互转存及云盘目录池 |
 | 系统设置 | 账号安全、全局传输限制、主题、日志保留及运行日志查询 |
 
 不同存储支持的操作有所区别；云盘权限和风控、浏览器媒体格式支持以实际服务为准。AI 插件提供配置及识别接口，尚未接入自动刮削流程。

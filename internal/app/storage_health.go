@@ -21,6 +21,15 @@ type storageAuthError struct {
 	fatal bool
 }
 
+// Only locally constructed messages may be exposed; causes can contain signed URLs.
+type storageRequestError struct {
+	message string
+	cause   error
+}
+
+func (e *storageRequestError) Error() string { return e.message }
+func (e *storageRequestError) Unwrap() error { return e.cause }
+
 type forceTianyiRefreshKey struct{}
 
 type storageHealthCheck struct {

@@ -42,7 +42,7 @@ async function openPool(page) {
 }
 async function advanced(pool) { await expect(pool.getByRole('region', { name: '高级设置', exact: true })).toBeVisible() }
 
-test('CAS success rate uses executed terminal tasks, true generation counters and live indeterminate progress', async ({ page }) => {
+test('CAS success rate uses executed terminal tasks, true generation counters and static unknown-total progress', async ({ page }) => {
   const lastRun = '2026-10-11T08:00:00Z'
   const tasks = [
     { id: 's1', status: 'success', casGenerated: 8 }, { id: 's2', status: 'success', casGenerated: 2 },
@@ -59,13 +59,18 @@ test('CAS success rate uses executed terminal tasks, true generation counters an
   const overview = page.getByRole('region', { name: 'CAS 生成统计', exact: true })
   await expect(overview.getByRole('img', { name: '成功率 40%', exact: true })).toBeVisible()
   await expect(overview.locator('.cas-metrics dd')).toHaveText(['17', '6'])
+  const metricRows = await overview.locator('.cas-metrics > div').evaluateAll(els => els.map(el => {
+    const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }
+  }))
+  expect(metricRows[1].top-metricRows[0].bottom).toBeGreaterThanOrEqual(20)
   await expect(overview.locator('.cas-progress-count')).toHaveText('已处理 3 项 · 已生成 4 · 异常 1')
   const progress = overview.getByRole('progressbar', { name: '实时 CAS 扫描：扫描中，已处理 3 项', exact: true })
   await expect(progress).toHaveCSS('height', '6px')
   await expect(progress).not.toHaveAttribute('aria-valuenow')
   await expect(progress).toHaveAttribute('aria-valuetext', '扫描中，已处理 3 项')
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(overview.locator('.cas-progress-motion')).toHaveCSS('animation-name', 'none')
+  await expect(overview.locator('.cas-progress-motion')).toHaveCount(0)
+  await expect(overview.locator('progress:indeterminate')).toHaveCount(0)
   snapshot.tasks.find(t => t.id === 'r').casGenerated = 6
   snapshot.tasks.find(t => t.id === 'r').processed = 7
   await expect(overview.locator('.cas-progress-count')).toHaveText('已处理 7 项 · 已生成 6 · 异常 1', { timeout: 10000 })

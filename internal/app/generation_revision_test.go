@@ -220,7 +220,7 @@ func TestSTRMConfigScopeAndPickOnly(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, address := range []string{"http://x/path", "http://x?foo=1", "file:///tmp", "http://u:p@x"} {
-		if validSTRMSettings(strmSettings{address, "pickcode"}) == nil {
+		if validSTRMSettings(strmSettings{Address: address, Format: "pickcode"}) == nil {
 			t.Fatal(address)
 		}
 	}

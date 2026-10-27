@@ -92,20 +92,21 @@ type DirectoryCrumb struct {
 }
 
 type Settings struct {
-	STRMURL          string `json:"strmURL,omitempty"`
-	STRM115Format    string `json:"strm115Format,omitempty"`
-	LogDays          int    `json:"logDays"`
-	LogMaxEntries    int    `json:"logMaxEntries"`
-	SessionDays      int    `json:"sessionDays"`
-	CacheEnabled     bool   `json:"cacheEnabled"`
-	CacheTTL         int    `json:"cacheTTL"`
-	CacheMaxItems    int    `json:"cacheMaxItems"`
-	CacheMemoryMB    int    `json:"cacheMemoryMB"`
-	CachePersist     bool   `json:"cachePersist"`
-	SnapshotInterval int    `json:"snapshotInterval"`
-	WebDAVCache      bool   `json:"webdavCache"`
-	WebDAVEnabled    bool   `json:"webdavEnabled"`
-	PublicURL        string `json:"publicURL"`
+	STRMURL           string `json:"strmURL,omitempty"`
+	STRM115Format     string `json:"strm115Format,omitempty"`
+	STRMOverwriteMode string `json:"strmOverwriteMode,omitempty"`
+	LogDays           int    `json:"logDays"`
+	LogMaxEntries     int    `json:"logMaxEntries"`
+	SessionDays       int    `json:"sessionDays"`
+	CacheEnabled      bool   `json:"cacheEnabled"`
+	CacheTTL          int    `json:"cacheTTL"`
+	CacheMaxItems     int    `json:"cacheMaxItems"`
+	CacheMemoryMB     int    `json:"cacheMemoryMB"`
+	CachePersist      bool   `json:"cachePersist"`
+	SnapshotInterval  int    `json:"snapshotInterval"`
+	WebDAVCache       bool   `json:"webdavCache"`
+	WebDAVEnabled     bool   `json:"webdavEnabled"`
+	PublicURL         string `json:"publicURL"`
 }
 
 type LogEntry struct {
