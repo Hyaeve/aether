@@ -148,14 +148,27 @@ func (a *App) selectCASStorage(info CASInfo, now time.Time) (Storage, int, error
 }
 
 func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind string) (Storage, int, error) {
+	candidates, err := a.casStorageCandidates(info, now, excludedKind)
+	if err != nil {
+		return Storage{}, 0, err
+	}
+	return candidates[0].storage, candidates[0].hours, nil
+}
+
+type casStorageCandidate struct {
+	storage Storage
+	hours   int
+}
+
+func (a *App) casStorageCandidates(info CASInfo, now time.Time, excludedKind string) ([]casStorageCandidate, error) {
 	info = normalizeCASPlayback(info)
 	if err := validateCAS(info); err != nil {
-		return Storage{}, 0, err
+		return nil, err
 	}
 	st := a.store.snapshotWithLogLimit(0)
 	p := requiredCASPool(st.CASPool, st)
 	if p.RotationMinutes < 1 || p.RotationMinutes > 1440 || (p.Preferred != "mobile" && p.Preferred != "tianyi") {
-		return Storage{}, 0, errors.New("CAS 存储绑定池设置无效，请重新保存")
+		return nil, errors.New("CAS 存储绑定池设置无效，请重新保存")
 	}
 	kinds := []string{p.Preferred, "tianyi"}
 	if p.Preferred == "tianyi" {
@@ -180,6 +193,20 @@ func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind s
 		}
 		available[kind] = eligible
 	}
+	candidates := []casStorageCandidate{}
+	seen := map[string]bool{}
+	appendStorage := func(s Storage, hours int) {
+		key := s.ID
+		if s.Type == "mobile" {
+			if account, _, err := mobileAccount(s); err == nil {
+				key = "mobile:" + account
+			}
+		}
+		if !seen[key] {
+			seen[key] = true
+			candidates = append(candidates, casStorageCandidate{s, hours})
+		}
+	}
 	// Reuse a confirmed live fallback before creating another cloud copy.
 	// Provider priority applies when no reusable temporary file exists.
 	for _, kind := range kinds {
@@ -190,7 +217,7 @@ func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind s
 			}
 			for _, s := range eligible {
 				if s.ID == entry.StorageID {
-					return s, group.RetentionHours, nil
+					appendStorage(s, group.RetentionHours)
 				}
 			}
 		}
@@ -199,8 +226,16 @@ func (a *App) selectCASStorageExcept(info CASInfo, now time.Time, excludedKind s
 		group, eligible := groups[kind], available[kind]
 		if len(eligible) > 0 {
 			index := (now.Unix() / int64(p.RotationMinutes*60)) % int64(len(eligible))
-			return eligible[index], group.RetentionHours, nil
+			for i := range len(eligible) {
+				appendStorage(eligible[(int(index)+i)%len(eligible)], group.RetentionHours)
+				if kind != "mobile" {
+					break
+				}
+			}
 		}
 	}
-	return Storage{}, 0, errors.New("没有可用的CAS绑定存储：移动需SHA256，天翼需MD5、分片MD5和分片大小，请检查特征与绑定池")
+	if len(candidates) == 0 {
+		return nil, errors.New("没有可用的CAS绑定存储：移动需SHA256，天翼需MD5、分片MD5和分片大小，请检查特征与绑定池")
+	}
+	return candidates, nil
 }

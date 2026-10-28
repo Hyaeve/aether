@@ -68,6 +68,12 @@ func TestFolderCleanupAPITransportPersistenceAndUnknownReceipts(t *testing.T) {
 			if rule.Label != "/incoming" || len(rule.Trail) != 2 || rule.ID == "" {
 				t.Fatal("did not resolve cloud identity", rule)
 			}
+			if got := request(t, h, "POST", "/api/115-folder-cleanup/run", map[string]any{"id": rule.ID}, cookie); got.Code != 400 || writes != 0 {
+				t.Fatal("manual cleanup must require confirmation", got.Code, writes)
+			}
+			if got := request(t, h, "POST", "/api/115-folder-cleanup/run", map[string]any{"id": "missing", "confirmed": true}, cookie); got.Code != 404 || writes != 0 {
+				t.Fatal("manual cleanup accepted unknown rule", got.Code, writes)
+			}
 			// A stale or forged scheduler snapshot is not an executable rule.
 			changed := rule
 			changed.Days = 5
@@ -77,6 +83,9 @@ func TestFolderCleanupAPITransportPersistenceAndUnknownReceipts(t *testing.T) {
 			count, err := a.runFolderCleanup(context.Background(), rule)
 			if writes != 1 || unknown && (count != 0 || err == nil) || !unknown && (count != 1 || err != nil) {
 				t.Fatal("unexpected deletion outcome", count, err, writes)
+			}
+			if got := request(t, h, "POST", "/api/115-folder-cleanup/run", map[string]any{"id": rule.ID, "confirmed": true}, cookie); writes != 1 || unknown && got.Code != 502 || !unknown && got.Code != 200 {
+				t.Fatal("manual cleanup repeated unconfirmed deletion", got.Code, writes)
 			}
 			reopened, err := newWithDirectories(a.ctx, a.store.dir, a.dataDir, a.outputDir)
 			if err != nil {

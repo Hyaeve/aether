@@ -196,7 +196,7 @@ func TestTianyiNativeLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, _ := url.Parse(strings.TrimSpace(string(content)))
-	raw, _ := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+	raw, _ := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/cas/"))
 	var claim streamClaim
 	if err := json.Unmarshal(raw, &claim); err != nil || claim.CAS == nil || claim.CAS.MD5 != hash {
 		t.Fatal("missing MD5 claim", err)

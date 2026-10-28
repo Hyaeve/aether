@@ -27,6 +27,9 @@ type fileTransferProgressKey struct{}
 type fileTransferCountWriter struct{ progress *transferProgress }
 
 func (w fileTransferCountWriter) Write(p []byte) (int, error) {
+	if err := w.progress.wait(); err != nil {
+		return 0, err
+	}
 	w.progress.add(len(p))
 	return len(p), nil
 }
@@ -76,6 +79,8 @@ func (a *App) crossStorageFileAction(ctx context.Context, source, target Storage
 	if progress != nil {
 		ctx = progress.ctx
 	}
+	progress.controlCopy()
+	progress.stage("preparing")
 	ctx = context.WithValue(ctx, fileTransferProgressKey{}, progress)
 	files, err := a.rawList(ctx, source, req.Source)
 	if err != nil {
@@ -106,6 +111,7 @@ func (a *App) crossStorageFileAction(ctx context.Context, source, target Storage
 			return 0, reject("源目录已变化，请刷新后重试")
 		}
 	}
+	progress.setName(transferSelectionName(selection, req.IDs))
 	phase = "检查目标同名项目"
 	for _, f := range selection {
 		item = f.Name
@@ -121,7 +127,7 @@ func (a *App) crossStorageFileAction(ctx context.Context, source, target Storage
 	var walk func(File, string, string, int) error
 	walk = func(f File, parent, rel string, depth int) error {
 		item = rel
-		if err := ctx.Err(); err != nil {
+		if err := progress.wait(); err != nil {
 			return err
 		}
 		count++
@@ -176,6 +182,9 @@ func (a *App) crossStorageFileAction(ctx context.Context, source, target Storage
 	progress.setTotal(total)
 	cleanup := []backupCleanupEntry{}
 	for _, entry := range entries {
+		if err := progress.wait(); err != nil {
+			return done, err
+		}
 		item = entry.relative
 		phase = "核对存储配置"
 		for _, original := range []Storage{source, target} {

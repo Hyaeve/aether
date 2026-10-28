@@ -11,9 +11,10 @@ import (
 )
 
 type storageUsage struct {
-	Used     int64  `json:"used"`
-	Total    int64  `json:"total"`
-	Username string `json:"username,omitempty"`
+	Used       int64              `json:"used"`
+	Total      int64              `json:"total"`
+	Username   string             `json:"username,omitempty"`
+	Membership *storageMembership `json:"membership,omitempty"`
 }
 
 type storageUsageState struct {
@@ -25,7 +26,9 @@ type storageUsageState struct {
 
 func savedStorageUsage(s Storage) (storageUsage, bool) {
 	if s.Usage != nil && s.Usage.Stamp == storageRevision(s) {
-		return s.Usage.storageUsage, true
+		value := s.Usage.storageUsage
+		value.Membership = freshMembership(value.Membership)
+		return value, true
 	}
 	return storageUsage{}, false
 }
@@ -64,7 +67,7 @@ func (a *App) storageUsageAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	value, saved := savedStorageUsage(s)
-	if !saved && storageAuthBlocked(s, time.Now()) == nil {
+	if (!saved || s.Usage == nil || time.Since(s.Usage.AttemptedAt) > 5*time.Minute) && storageAuthBlocked(s, time.Now()) == nil {
 		value, err = a.cachedStorageUsage(r.Context(), s)
 	}
 	if err != nil {
@@ -117,6 +120,7 @@ func (a *App) cachedStorageUsage(ctx context.Context, s Storage) (storageUsage, 
 	a.usageMu.Unlock()
 	lookup, cancel := context.WithTimeout(ctx, 12*time.Second)
 	value := a.readStorageUsage(lookup, s)
+	value.Membership = a.readStorageMembership(lookup, s)
 	cancel()
 	if !usableStorageQuota(value) {
 		value.Used, value.Total = 0, 0
@@ -125,9 +129,12 @@ func (a *App) cachedStorageUsage(ctx context.Context, s Storage) (storageUsage, 
 	previous, hasPrevious := savedStorageUsage(s)
 	validQuota := usableStorageQuota(value)
 	if hasPrevious && !validQuota {
-		value = previous
+		value.Used, value.Total = previous.Used, previous.Total
+		if value.Username == "" {
+			value.Username = previous.Username
+		}
 	}
-	if ctx.Err() == nil && (usableStorageQuota(value) || value.Username != "") {
+	if ctx.Err() == nil && (usableStorageQuota(value) || value.Username != "" || value.Membership != nil) {
 		_ = a.store.update(func(st *State) error {
 			for i := range st.Storages {
 				current := &st.Storages[i]

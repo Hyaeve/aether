@@ -67,7 +67,7 @@ func TestCASFormatUserSampleAndPointerPreserveSlice(t *testing.T) {
 	}
 	raw, _ := base64.StdEncoding.DecodeString(sample)
 	pointerRaw := []byte(`{"s":"old-account","f":"old-source","cas":` + string(raw) + `}`)
-	pointer := "http://localhost/stream/" + base64.RawURLEncoding.EncodeToString(pointerRaw) + "?sign=old"
+	pointer := "http://localhost/cas/" + base64.RawURLEncoding.EncodeToString(pointerRaw) + "?sign=old"
 	got, err := decodeCAS([]byte(pointer), "sample.mkv.cas.strm")
 	if err != nil || got.SliceMD5 != info.SliceMD5 || got.SHA256 != info.SHA256 {
 		t.Fatal(got, err)
@@ -180,7 +180,7 @@ func TestCASFormatMobileTaskWritesAllHashPlaceholders(t *testing.T) {
 		t.Fatal(info)
 	}
 	link := strings.TrimSpace(string(raw))
-	token := strings.Split(strings.Split(link, "/stream/")[1], "?")[0]
+	token := strings.Split(strings.Split(link, "/cas/")[1], "?")[0]
 	claimRaw, _ := base64.RawURLEncoding.DecodeString(token)
 	var claim struct {
 		CAS map[string]json.RawMessage `json:"cas"`

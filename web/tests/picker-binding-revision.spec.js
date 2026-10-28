@@ -15,7 +15,7 @@ test('simulcast binding uses logo toggle and breadcrumb picker creates in a moda
   await page.goto('/tools')
   await page.getByRole('button',{name:'115 同播复制',exact:true}).click()
   await expect(page.getByText('存储设置',{exact:true})).toHaveCount(0)
-  await expect(page.getByRole('button',{name:'存储绑定',exact:true})).toBeVisible()
+  await expect(page.getByRole('button',{name:'添加同播',exact:true})).toBeVisible()
   await page.getByRole('button',{name:'编辑 115媒体',exact:true}).click()
   await expect(page.getByRole('switch')).toHaveCount(0)
   await page.getByRole('button',{name:'选择复制目录',exact:true}).click()

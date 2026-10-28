@@ -147,10 +147,10 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 	var err error
 	if pointer {
 		u, e := url.Parse(string(content))
-		if e != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.HasPrefix(u.Path, "/stream/") || strings.ContainsAny(string(content), "\r\n") {
+		if e != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.HasPrefix(u.Path, "/cas/") || strings.ContainsAny(string(content), "\r\n") {
 			return info, errors.New("CAS STRM 内容不是有效播放地址")
 		}
-		claimRaw, e := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+		claimRaw, e := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/cas/"))
 		var claim struct {
 			CAS json.RawMessage `json:"cas"`
 		}
@@ -395,49 +395,53 @@ func (a *App) casDownload(ctx context.Context, s Storage, claim streamClaim) (do
 		return Download{}, done, err
 	}
 	defer func() { <-a.casGate }()
+	candidates := []casStorageCandidate{{s, claim.RetentionHours}}
 	if claim.Storage == "" {
 		stage = "绑定池存储选择"
 		var err error
-		s, claim.RetentionHours, err = a.selectCASStorage(*claim.CAS, time.Now())
+		candidates, err = a.casStorageCandidates(*claim.CAS, time.Now(), "")
 		if err != nil {
 			return Download{}, done, err
 		}
 	}
-	stage = "存储与特征兼容性校验"
-	if !casStorage(s) {
-		return Download{}, done, errors.New("CAS 播放仅支持原生移动新版个人云或天翼个人云")
+	var failures []error
+	for i, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return Download{}, done, err
+		}
+		s, claim.RetentionHours = candidate.storage, candidate.hours
+		stage = "存储与特征兼容性校验"
+		if !casStorage(s) {
+			return Download{}, done, errors.New("CAS 播放仅支持原生移动新版个人云或天翼个人云")
+		}
+		if err := validateCASFor(s, *claim.CAS); err != nil {
+			return Download{}, done, err
+		}
+		if i > 0 {
+			reason := "转交其他移动绑定存储"
+			if candidates[i-1].storage.Type != s.Type {
+				reason = "转交另一类绑定存储"
+			}
+			a.casLog("warn", s, claim.CAS.Name, reason+"（前一账号未取得直链，不重复提交同一账号）")
+		}
+		attempt, stop := ctx, func() {}
+		if len(candidates) > 1 {
+			deadline, _ := ctx.Deadline()
+			budget := min(45*time.Second, time.Until(deadline)/time.Duration(len(candidates)-i))
+			attempt, stop = context.WithTimeout(ctx, budget)
+		}
+		attempted = true
+		d, release, err := a.casDownloadAttempt(attempt, s, claim)
+		stop()
+		if err == nil {
+			return d, release, nil
+		}
+		failures = append(failures, err)
 	}
-	if err := validateCASFor(s, *claim.CAS); err != nil {
-		return Download{}, done, err
-	}
-	dual := claim.Storage == "" && claim.CAS.SHA256 != "" && claim.CAS.MD5 != "" && claim.CAS.SliceMD5 != ""
-	attempt := ctx
-	stop := func() {}
-	if dual {
-		attempt, stop = context.WithTimeout(ctx, 45*time.Second)
-	}
-	attempted = true
-	d, release, err := a.casDownloadAttempt(attempt, s, claim)
-	stop()
-	if err == nil || !dual || ctx.Err() != nil {
-		return d, release, err
-	}
-	other, hours, selectErr := a.selectCASStorageExcept(*claim.CAS, time.Now(), s.Type)
-	if selectErr != nil {
-		a.casLog("warn", s, claim.CAS.Name, "回退终止：没有可用且兼容的另一类绑定存储（移动需SHA256，天翼需MD5、分片MD5和分片大小）")
-		return Download{}, done, err
-	}
-	// Switch providers once; never replay a possibly accepted write in the same account.
-	claim.RetentionHours = hours
-	a.casLog("warn", s, claim.CAS.Name, fmt.Sprintf("优先存储未取得直链，转交另一类绑定存储 %q（%q）", other.Name, other.ID))
-	d, release, fallbackErr := a.casDownloadAttempt(ctx, other, claim)
-	if fallbackErr != nil {
-		return Download{}, done, errors.Join(err, fallbackErr)
-	}
-	return d, release, nil
+	return Download{}, done, fmt.Errorf("CAS秒传失败：所有可用绑定账号均未取得直链：%w", errors.Join(failures...))
 }
 
-// The caller holds casGate across both attempts and pool configuration changes.
+// The caller holds casGate across candidate attempts and pool configuration changes.
 func (a *App) casDownloadAttempt(ctx context.Context, s Storage, claim streamClaim) (download Download, releaseResult func(), resultErr error) {
 	stage := "存储服务准备"
 	defer func() {
@@ -460,10 +464,6 @@ func (a *App) casDownloadAttempt(ctx context.Context, s Storage, claim streamCla
 	}
 	sum := sha256.Sum256([]byte(s.ID + "\x00" + account + "\x00" + claim.File + "\x00" + hash))
 	key := hex.EncodeToString(sum[:])
-	host, err := a.casHost(ctx, s)
-	if err != nil {
-		return Download{}, done, err
-	}
 	var entry CASTemporary
 	feature := casFeatureKey(*claim.CAS)
 	conflict := false
@@ -482,6 +482,31 @@ func (a *App) casDownloadAttempt(ctx context.Context, s Storage, claim streamCla
 		}
 	}
 	reused := entry.FileID != ""
+	if !reused && nativeMobile(s) {
+		stage = "会员单文件额度预检"
+		if err := a.checkMobileCASSize(ctx, s, claim.CAS.Size); err != nil {
+			a.casLog("warn", s, claim.CAS.Name, "会员额度预检跳过："+err.Error()+"（未提交秒传）")
+			return Download{}, done, err
+		}
+	}
+	if !reused && nativeTianyi(s) {
+		stage = "会员单文件额度预检"
+		if err := a.checkTianyiCASSize(ctx, s, claim.CAS.Size); err != nil {
+			a.casLog("warn", s, claim.CAS.Name, "会员额度预检跳过："+err.Error())
+			return Download{}, done, err
+		}
+	}
+	attemptKey := rapid115Stamp([]string{"mobile-playback", account, feature})
+	if !reused && nativeMobile(s) {
+		stage = "待确认秒传提交检查"
+		if a.store.snapshotWithLogLimit(0).CASPlaybackAttempts[attemptKey] {
+			return Download{}, done, errors.New("此移动账号存在未确认的CAS秒传提交，请核对临时目录；未重复提交")
+		}
+	}
+	host, err := a.casHost(ctx, s)
+	if err != nil {
+		return Download{}, done, err
+	}
 	if !reused {
 		rapidSuccess := false
 		defer func() {
@@ -525,6 +550,18 @@ func (a *App) casDownloadAttempt(ctx context.Context, s Storage, claim streamCla
 			data.ID, err = a.tianyiRestore(ctx, s, folder, name, *claim.CAS)
 			data.Rapid = err == nil
 		} else {
+			if err := a.store.update(func(st *State) error {
+				if st.CASPlaybackAttempts == nil {
+					st.CASPlaybackAttempts = map[string]bool{}
+				}
+				if len(st.CASPlaybackAttempts) >= 100000 {
+					return errors.New("CAS播放意图已达上限，请先核对未确认提交")
+				}
+				st.CASPlaybackAttempts[attemptKey] = true
+				return ctx.Err()
+			}); err != nil {
+				return Download{}, done, err
+			}
 			err = a.mobilePost(ctx, s, host+"/file/create", map[string]any{
 				"parentFileId": folder, "name": name, "type": "file", "fileRenameMode": "auto_rename",
 				"contentHash": claim.CAS.SHA256, "contentHashAlgorithm": "SHA256",
@@ -550,7 +587,13 @@ func (a *App) casDownloadAttempt(ctx context.Context, s Storage, claim streamCla
 		entry = CASTemporary{Key: recordKey, Feature: casFeatureKey(*claim.CAS), StorageID: s.ID, FileID: data.ID, Name: name, Size: claim.CAS.Size, LastUsed: time.Now(), Ready: ready, RetentionHours: retention}
 		// Persist every returned file ID, even failed uploads, so cleanup never needs a directory-wide delete.
 		stage = "秒传临时记录保存"
-		if err := a.store.update(func(st *State) error { st.CASTemporary = append(st.CASTemporary, entry); return nil }); err != nil {
+		if err := a.store.update(func(st *State) error {
+			st.CASTemporary = append(st.CASTemporary, entry)
+			if nativeMobile(s) {
+				delete(st.CASPlaybackAttempts, attemptKey)
+			}
+			return nil
+		}); err != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			_ = a.removeCASTemporary(cleanup, s, host, data.ID)

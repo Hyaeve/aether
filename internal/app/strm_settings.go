@@ -64,7 +64,7 @@ func (a *App) generatedStreamURL(claim streamClaim) string {
 			CAS      features `json:"cas"`
 		}{claim.Redirect, features{info.Name, info.Size, info.SHA256, info.MD5, info.SliceMD5, info.SliceSize}}
 	}
-	original := a.signedStreamPayload(payload)
+	original := a.signedStreamPayload(payload, claim.CAS != nil)
 	u, err := url.Parse(original)
 	if err != nil {
 		return original

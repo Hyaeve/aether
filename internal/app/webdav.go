@@ -311,12 +311,34 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 		return df, nil
 	}
 	df.open = func() error {
-		df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size,
-			transferLocations{From: d.a.transferFileLocation(s, f.ID), To: transferClientLocation(ctx)})
-		if df.progress != nil {
+		df.readSession = d.a.attachDAVRead(ctx, s, f)
+		if df.readSession != nil {
+			df.progress = df.readSession.progress
+			df.readSession.mu.Lock()
+			if df.readSession.finished && df.readSession.failure == nil {
+				df.progress = nil
+			}
+			df.readSession.mu.Unlock()
+		} else {
+			df.progress = d.a.beginTransfer(ctx, "download", s, f.Name, f.Size,
+				transferLocations{From: d.a.transferFileLocation(s, f.ID), To: transferClientLocation(ctx)})
+		}
+		if df.progress != nil && df.readSession == nil {
 			df.ctx = df.progress.ctx
 		}
-		download, err := d.a.download(df.ctx, s, f.ID, f.PickCode)
+		var download Download
+		var err error
+		if df.readSession != nil {
+			readCtx, cancel := context.WithCancel(ctx)
+			df.readCancel = cancel
+			if df.progress != nil {
+				df.readStop = context.AfterFunc(df.progress.ctx, cancel)
+			}
+			df.ctx = readCtx
+			download, err = df.readSession.link(df.ctx, d.a, s, f, false)
+		} else {
+			download, err = d.a.download(df.ctx, s, f.ID, f.PickCode)
+		}
 		if err != nil {
 			return fmt.Errorf("获取文件读取链接失败（存储类型 %s）：%w", s.Type, err)
 		}
@@ -338,6 +360,9 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 	}
 	if s.Type == "115" {
 		df.refreshDownload = func() (Download, error) {
+			if df.readSession != nil {
+				return df.readSession.link(df.ctx, d.a, s, f, true)
+			}
 			info, err := download115API(df.ctx, s, f.PickCode, pan115ReadUA, true)
 			if err != nil {
 				return Download{}, err
@@ -349,6 +374,9 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 }
 
 type davFile struct {
+	readSession     *davReadSession
+	readCancel      context.CancelFunc
+	readStop        func() bool
 	app             *App
 	storageID       string
 	storageName     string
@@ -395,7 +423,20 @@ func (f *davFile) Stat() (os.FileInfo, error) { return f.info, nil }
 func (f *davFile) Write([]byte) (int, error)  { return 0, os.ErrPermission }
 func (f *davFile) Close() (err error) {
 	f.stopMountStream()
-	defer func() { f.progress.finish(err) }()
+	defer func() {
+		if f.readStop != nil {
+			f.readStop()
+		}
+		if f.readCancel != nil {
+			f.readCancel()
+		}
+		if f.readSession != nil {
+			f.readSession.fail(err)
+			f.readSession.close()
+		} else {
+			f.progress.finish(err)
+		}
+	}()
 	if f.local != nil {
 		return f.local.Close()
 	}
@@ -403,6 +444,26 @@ func (f *davFile) Close() (err error) {
 		return f.body.Close()
 	}
 	return nil
+}
+func (f *davFile) finishRead(err error) {
+	if f.readSession != nil {
+		f.readSession.fail(err)
+	} else {
+		f.progress.finish(err)
+	}
+}
+func (f *davFile) addRead(n int) {
+	if f.readSession != nil {
+		f.readSession.add(f.offset, n)
+	} else {
+		f.progress.add(n)
+	}
+}
+func (f *davFile) limitRead(n int) error {
+	if f.readSession != nil {
+		return f.app.limitTransferBytes(f.ctx, "download", n)
+	}
+	return f.progress.limit(n)
 }
 func (f *davFile) Readdir(n int) ([]os.FileInfo, error) {
 	if !f.info.IsDir() {
@@ -427,7 +488,11 @@ func (f *davFile) Seek(offset int64, whence int) (int64, error) {
 		return 0, os.ErrInvalid
 	}
 	if f.local != nil {
-		return f.local.Seek(offset, whence)
+		position, err := f.local.Seek(offset, whence)
+		if err == nil {
+			f.offset = position
+		}
+		return position, err
 	}
 	switch whence {
 	case io.SeekStart:
@@ -452,7 +517,7 @@ func (f *davFile) Seek(offset int64, whence int) (int64, error) {
 	return offset, nil
 }
 func (f *davFile) Read(b []byte) (int, error) {
-	if err := f.progress.wait(); err != nil {
+	if err := f.progress.waitContext(f.ctx); err != nil {
 		return 0, err
 	}
 	if f.info.IsDir() {
@@ -462,20 +527,25 @@ func (f *davFile) Read(b []byte) (int, error) {
 		return 0, nil
 	}
 	if f.open != nil {
-		if err := f.open(); err != nil {
-			f.progress.finish(err)
+		open := f.open
+		f.open = nil
+		if err := open(); err != nil {
+			f.finishRead(err)
 			return 0, err
 		}
-		f.open = nil
+		if err := f.progress.waitContext(f.ctx); err != nil {
+			return 0, err
+		}
 	}
 	if f.local != nil {
 		n, err := f.local.Read(b)
-		if e := f.progress.limit(n); e != nil {
+		if e := f.limitRead(n); e != nil {
 			return 0, e
 		}
-		f.progress.add(n)
+		f.addRead(n)
+		f.offset += int64(n)
 		if err != nil && err != io.EOF {
-			f.progress.finish(err)
+			f.finishRead(err)
 		}
 		return n, err
 	}
@@ -500,10 +570,19 @@ func (f *davFile) Read(b []byte) (int, error) {
 			if via[len(via)-1].URL.Scheme == "https" && next.URL.Scheme != "https" {
 				return http.ErrUseLastResponse
 			}
-			if next.URL.Host != via[0].URL.Host || next.URL.Scheme != via[0].URL.Scheme {
+			untrusted115Hop := false
+			if official115DownloadURL(via[0].URL) {
+				for _, previous := range via {
+					if !official115DownloadURL(previous.URL) {
+						untrusted115Hop = true
+					}
+				}
+			}
+			if untrusted115Hop || next.URL.Host != via[0].URL.Host || next.URL.Scheme != via[0].URL.Scheme {
 				next.Header.Del("Authorization")
 				next.Header.Del("Cookie")
 				next.Header.Del("Proxy-Authorization")
+				redirect115ReadCookies(next, via)
 			}
 			return nil
 		}}
@@ -518,7 +597,7 @@ func (f *davFile) Read(b []byte) (int, error) {
 			if f.ctx.Err() == nil {
 				f.logReadFailure(fmt.Sprintf("偏移 %d，网络或重定向错误", f.offset))
 			}
-			f.progress.finish(err)
+			f.finishRead(err)
 			return 0, err
 		}
 		if (res.StatusCode != 200 && res.StatusCode != 206) || (f.offset > 0 && res.StatusCode != 206) || (f.bounded && res.StatusCode == 200 && f.rangeEnd+1 < f.info.Size()) {
@@ -530,7 +609,7 @@ func (f *davFile) Read(b []byte) (int, error) {
 				download, err := f.refreshDownload()
 				if err != nil {
 					err = fmt.Errorf("115 读取票据刷新失败（偏移 %d）：%w", f.offset, err)
-					f.progress.finish(err)
+					f.finishRead(err)
 					return 0, err
 				}
 				f.download = download
@@ -542,27 +621,36 @@ func (f *davFile) Read(b []byte) (int, error) {
 			}
 			err := &storageRequestError{message: message}
 			f.logReadFailure(fmt.Sprintf("HTTP %d，偏移 %d", res.StatusCode, f.offset))
-			f.progress.finish(err)
+			f.finishRead(err)
 			return 0, err
 		}
-		if f.bounded && res.StatusCode == http.StatusPartialContent {
+		if (f.bounded || f.readSession != nil) && res.StatusCode == http.StatusPartialContent {
 			var start, end, total int64
 			_, e := fmt.Sscanf(res.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total)
-			if e != nil || start != f.offset || end != f.rangeEnd || total != f.info.Size() {
+			if e != nil || start != f.offset || end < start || end >= total || total != f.info.Size() || f.bounded && end != f.rangeEnd {
 				res.Body.Close()
 				f.logReadFailure(fmt.Sprintf("Range 响应不匹配，偏移 %d", f.offset))
-				return 0, errors.New("上游未返回请求的文件分块范围")
+				err := errors.New("上游未返回请求的文件分块范围")
+				f.finishRead(err)
+				return 0, err
 			}
 		}
 		f.body = res.Body
 	}
 	n, err := f.body.Read(b)
-	if e := f.progress.limit(n); e != nil {
+	if e := f.limitRead(n); e != nil {
 		return 0, e
 	}
-	f.progress.add(n)
+	f.addRead(n)
+	expectedEnd := f.info.Size()
+	if f.bounded {
+		expectedEnd = f.rangeEnd + 1
+	}
+	if err == io.EOF && f.offset+int64(n) < expectedEnd {
+		err = io.ErrUnexpectedEOF
+	}
 	if err != nil && err != io.EOF {
-		f.progress.finish(err)
+		f.finishRead(err)
 	}
 	f.offset += int64(n)
 	return n, err

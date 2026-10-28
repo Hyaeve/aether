@@ -100,7 +100,7 @@ func hashFeatureFile(ctx context.Context, in io.Reader) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), err
 }
 
-func (c *featureCleanup) observe(ctx context.Context, a *App, parent string, f File) error {
+func (c *featureCleanup) observe(ctx context.Context, a *App, parent string, f File, skipDigest ...bool) error {
 	if len(c.items) >= 100000 {
 		return errors.New("源清理扫描超过十万项，未进行清理")
 	}
@@ -128,6 +128,11 @@ func (c *featureCleanup) observe(ctx context.Context, a *App, parent string, f F
 	}
 	feature := c.task.Kind == "cas" && (strings.EqualFold(path.Ext(f.Name), ".cas") || strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm"))
 	item.protected = taskMedia(c.task, f.Name) || excludedType(f.Name, c.task.MetadataExtensions) || feature || excluded(f.Name, c.task.ExcludeFiles) || excludedType(f.Name, c.task.ExcludeTypes)
+	if len(skipDigest) > 0 && skipDigest[0] {
+		item.protected = true
+		c.files = append(c.files, item)
+		return nil
+	}
 	var err error
 	item.digest, err = c.sourceDigest(ctx, a, item)
 	if err != nil {

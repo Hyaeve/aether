@@ -8,6 +8,7 @@ import StrmReplace from '../components/StrmReplace.vue'
 import Pan115Simulcast from '../components/Pan115Simulcast.vue'
 import RecycleCleanup from '../components/RecycleCleanup.vue'
 import FolderCleanup from '../components/FolderCleanup.vue'
+import Pan115Signin from '../components/Pan115Signin.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import Rapid115Icon from '../components/Rapid115Icon.vue'
 import { useRouter } from 'vue-router'
@@ -18,10 +19,27 @@ import { refreshReplacementNotices } from '../replacement-notices'
 import PluginMarket from '../components/PluginMarket.vue'
 import PluginSearch from '../components/PluginSearch.vue'
 import '../plugin-cards.css'
+import '../plugin-tasks.css'
 const props = defineProps({ section: { default: 'tools' } })
 const query = ref('')
 const busy = ref(false)
 const cleanup=ref({enabled:false,rules:[]}),simulcastOn=ref(true)
+const folderCleanup=ref({enabled:false,rules:[]}),signin=ref({enabled:false,rules:[]}),enableFolder=ref(false)
+onMounted(()=>Promise.all([['/115-folder-cleanup',folderCleanup],['/115-signin',signin]].map(async([path,target])=>{try{target.value=await api(path)}catch{}})))
+async function toggleExtra115(which,confirmed=false){
+ if(busy.value)return
+ const target=which==='folder'?folderCleanup:signin,path=which==='folder'?'/115-folder-cleanup':'/115-signin'
+ busy.value=true
+ try{
+  const saved=await api(path)
+  if(which==='folder'&&confirmed&&JSON.stringify(saved)!==JSON.stringify(folderCleanup.value)){folderCleanup.value=saved;notify('清理配置已变化，请重新确认',true);return}
+  target.value=saved
+  if(which==='folder'&&!saved.enabled&&!confirmed){enableFolder.value=true;return}
+  target.value=await api(path,'PUT',{...saved,enabled:confirmed?true:!saved.enabled,...(which==='folder'?{confirmed:true}:{})})
+  enableFolder.value=false
+  notify(`${target.value.enabled?'已启用':'已停用'}${which==='folder'?'115文件夹清理':'115签到'}`)
+ }catch(e){notify(e.message,true)}finally{busy.value=false}
+}
 onMounted(async()=>{try{cleanup.value=await api('/115-recycle-cleanup');simulcastOn.value=(await api('/115-simulcast/enabled')).enabled}catch{}})
 async function toggle115(which){if(busy.value)return;busy.value=true;try{if(which==='cleanup'){await api('/115-recycle-cleanup','PUT',{...cleanup.value,enabled:!cleanup.value.enabled});cleanup.value.enabled=!cleanup.value.enabled;notify(cleanup.value.enabled?'已启用115回收站清理':'已停用115回收站清理')}else{await api('/115-simulcast/enabled','PUT',{enabled:!simulcastOn.value});simulcastOn.value=!simulcastOn.value;notify(simulcastOn.value?'已启用115同播复制':'已停用115同播复制')}}catch(e){notify(e.message,true)}finally{busy.value=false}}
 const takeover = ref({ enabled: false, bindings: [] })
@@ -79,6 +97,7 @@ watch(() => props.section, () => { selected.value = null; flow.value = '' })
 const router=useRouter()
 function selectTool(tool){if(tool.name==='115 秒传')router.push('/tools/115-rapid');else selected.value=tool}
 const tools = [
+  {name:'115签到',icon:'CalendarCheck2',subtitle:'115 网盘 · 每日签到',detail:'按Cron计划为115账号签到，每个账号一条任务，每日回执防止重复提交'},
   {name:'115 秒传',icon:'Zap',subtitle:'115 网盘 · SHA1 秒传',detail:'通过 SHA1 哈希秒传本地文件到 115 网盘，无需实际上传文件数据'},
   { name: '115 同播复制', icon: 'Copy', subtitle: '115 网盘 · 多客户端播放', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
   { name:'115文件夹清理',icon:'FolderClock',subtitle:'115 网盘 · 文件夹清理',detail:'按Cron计划清理所选文件夹中超过阈值的文件及空子目录，保留所选文件夹' },
@@ -102,15 +121,16 @@ const results = computed(() => tools.filter(tool => `${tool.name} ${tool.subtitl
   <PluginMarket v-if="section === 'market'" />
   <div v-else class="plugin-grid">
     <article v-for="tool in tools" :key="tool.name" class="plugin-card" role="button" tabindex="0" :aria-label="tool.name" @click="selectTool(tool)" @keydown.enter.self="selectTool(tool)" @keydown.space.prevent.self="selectTool(tool)">
-      <Rapid115Icon v-if="tool.name==='115 秒传'" /><button v-else-if="['115 同播复制','115回收站清理'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 同播复制'?simulcastOn:cleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 同播复制'?simulcastOn:cleanup.enabled" :disabled="busy" @click.stop="toggle115(tool.name==='115 同播复制'?'simulcast':'cleanup')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span>
+      <Rapid115Icon v-if="tool.name==='115 秒传'" /><button v-else-if="['115签到','115文件夹清理'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115签到'?signin.enabled:folderCleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115签到'?signin.enabled:folderCleanup.enabled" :disabled="busy" @click.stop="toggleExtra115(tool.name==='115签到'?'signin':'folder')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="['115 同播复制','115回收站清理'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 同播复制'?simulcastOn:cleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 同播复制'?simulcastOn:cleanup.enabled" :disabled="busy" @click.stop="toggle115(tool.name==='115 同播复制'?'simulcast':'cleanup')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span>
       <div class="plugin-heading"><strong>{{ tool.name }}</strong><small class="plugin-subtitle">{{ tool.subtitle }}</small></div>
-      <small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115回收站清理', '115文件夹清理', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
+      <small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115回收站清理', '115文件夹清理', '115签到', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
     </article>
   </div>
   <PluginSearch v-if="section === 'tools'" :items="results" @search="query = $event" @select="selectTool" />
   <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" @changed="takeover = $event" />
   <Pan115Simulcast v-else-if="selected?.name === '115 同播复制'" @close="selected = null" />
-  <FolderCleanup v-else-if="selected?.name === '115文件夹清理'" @close="selected=null" />
+  <FolderCleanup v-else-if="selected?.name === '115文件夹清理'" @close="selected=null" @changed="folderCleanup=$event" />
+  <Pan115Signin v-else-if="selected?.name === '115签到'" @close="selected=null" @changed="signin=$event" />
       <RecycleCleanup v-else-if="selected?.name === '115回收站清理'" @close="selected=null" @changed="cleanup=$event" />
   <StrmReplace v-else-if="selected?.name === 'STRM 替换'" @close="selected = null" @started="refreshReplacementNotices" />
   <PluginSettings v-else-if="selected?.kind" :key="selected.kind" :kind="selected.kind" :title="selected.name" @close="selected = null" @changed="pluginStates[$event.kind] = $event.enabled" />
@@ -124,6 +144,7 @@ const results = computed(() => tools.filter(tool => `${tool.name} ${tool.subtitl
       <footer class="modal-footer"><button v-if="flow === 'import' && importStep === 2" type="button" class="btn" :disabled="busy" @click="importStep = 1">上一步</button><button class="btn primary" :disabled="busy">{{ flow === 'export' ? '确认导出' : importStep === 1 ? '下一步' : '确认导入' }}</button></footer>
     </form>
   </Modal>
+  <Modal v-if="enableFolder" compact confirmation title="启用文件夹清理计划" @close="!busy&&(enableFolder=false)"><div class="modal-body">启用已保存的 {{folderCleanup.rules?.length||0}} 条文件夹清理计划？阈值为0的规则将清理目录下全部文件及空子目录，文件移入回收站。</div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="enableFolder=false">取消</button><button class="btn danger" :disabled="busy" @click="toggleExtra115('folder',true)">确认启用</button></footer></Modal>
 </template>
 <style scoped>
 .quark-takeover-symbol { position: relative; background: transparent; padding: 0; border: 0; }
@@ -131,6 +152,7 @@ const results = computed(() => tools.filter(tool => `${tool.name} ${tool.subtitl
 .simulcast-symbol :deep(.provider-icon) { width:44px; height:44px; background:transparent; border-radius:50%; }
 .simulcast-symbol :deep(.provider-logo) { width:100%; height:100%; }
 .simulcast-symbol > svg { position:absolute; right:1px; bottom:1px; color:var(--primary); background:var(--surface); border-radius:4px; }
+.simulcast-symbol[aria-pressed=false]{opacity:.5}
 .plugin-toggle { border: 0; padding: 0; }
 .plugin-toggle[aria-pressed=false] { opacity: .5; }
 .quark-takeover-symbol :deep(.provider-icon), .quark-takeover-symbol :deep(.provider-logo) { width: 100%; height: 100%; padding: 0; border-radius: 0; background:transparent; border:0; }

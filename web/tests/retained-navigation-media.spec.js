@@ -56,7 +56,7 @@ for(const width of [1440,390,375])for(const theme of ['light','dark'])test(`STRM
 
 for(const width of [1440,390])for(const theme of ['light','dark'])test(`breadcrumbs show module and current tab ${width} ${theme}`,async({page},info)=>{
  await setup(page);await page.setViewportSize({width,height:900})
- for(const [path,module,tab] of [['/files','文件服务','文件管理'],['/storage','存储管理','存储池'],['/storage/shares','存储管理','分享栏'],['/transfer/backup','传输中心','备份规则'],['/tasks/strm','任务管理','STRM 任务'],['/virtual/mobile','虚拟链库','移动链库'],['/tools/market','辅助工具','插件市场'],['/settings/account','系统设置','账号与安全']]){
+ for(const [path,module,tab] of [['/files','文件服务','文件管理'],['/storage','存储管理','存储池'],['/storage/shares','存储管理','分享栏'],['/transfer/backup','传输中心','备份规则'],['/tasks/strm','任务中心','STRM 任务'],['/virtual/mobile','虚拟链库','移动链库'],['/tools/market','辅助工具','插件市场'],['/settings/account','系统设置','账号与安全']]){
   await page.goto(path);await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
   const crumbs=page.locator('.breadcrumbs')
   await expect(crumbs).toContainText(module);await expect(crumbs).toContainText(tab)

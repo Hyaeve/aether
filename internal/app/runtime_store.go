@@ -17,7 +17,7 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "folderCleanupReceipts"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -116,6 +116,8 @@ func (s *Store) initRuntime(dir string) error {
 			SimulcastTemporary    []SimulcastTemporary            `json:"simulcastTemporary"`
 			CloudCASRecords       []cloudCASRecord                `json:"cloudCASRecords"`
 			FolderCleanupReceipts map[string]folderCleanupReceipt `json:"folderCleanupReceipts"`
+			Pan115SigninReceipts  map[string]pan115SigninReceipt  `json:"pan115SigninReceipts"`
+			CASPlaybackAttempts   map[string]bool                 `json:"casPlaybackAttempts"`
 		}
 		if err := s.decodeJSONConfig("runtime/state", raw, &records); err != nil {
 			return err
@@ -130,6 +132,8 @@ func (s *Store) initRuntime(dir string) error {
 		s.state.Rapid115Retries = records.RapidRetries
 		s.state.CloudCASRecords = records.CloudCASRecords
 		s.state.FolderCleanupReceipts = records.FolderCleanupReceipts
+		s.state.Pan115SigninReceipts = records.Pan115SigninReceipts
+		s.state.CASPlaybackAttempts = records.CASPlaybackAttempts
 		s.state.TelegramRuntime = records.Telegram
 		s.state.QuarkLibraryRuntime = records.QuarkLibrary
 	}

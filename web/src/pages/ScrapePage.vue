@@ -1,4 +1,5 @@
 <script setup>
+import SelectionDock from '../components/SelectionDock.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, state, notify } from '../lib'
 import Icon from '../components/Icon.vue'
@@ -197,7 +198,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     </div>
     <footer>{{ viewMode === 'poster' ? `${filtered.length} 部作品` : `${fileCount} 项` }}</footer>
   </section>
-  <Teleport to="body"><div v-if="selectionMode" class="scrape-dock" role="toolbar" aria-label="所选作品操作"><strong>已选 {{ selection.length }} 项</strong><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" />全选</button><button class="btn" @click="exitSelection"><Icon name="X" />清空</button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" />重置</button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" />识别</button></div></Teleport>
+  <SelectionDock v-if="selectionMode" class="scrape-dock" :count="selection.length" label="所选作品操作"><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" /><span>全选</span></button><button class="btn" @click="exitSelection"><Icon name="X" /><span>清空</span></button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" /><span>重置</span></button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" /><span>识别</span></button></SelectionDock>
   <Modal v-if="confirmation" :title="confirmation.action === 'reset' ? '重置所选作品' : '确认识别刮削'" compact confirmation @close="!busy && (confirmation = null)"><div class="modal-body"><p v-if="confirmation.action === 'reset'">将删除所选 {{ confirmation.paths.length }} 部作品目录下的所有非 STRM 文件，包括封面、NFO 和其他文件，并清除匹配记录。STRM 与目录保留，此操作不可撤销。</p><p v-else>将按刮削设置重新识别并刮削{{ confirmation.paths?.length ? `所选 ${confirmation.paths.length} 部作品` : '当前范围内的 STRM 库' }}，确认继续？</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="confirmAction">{{ confirmation.action === 'reset' ? '确认重置' : '确认识别' }}</button><button class="btn" :disabled="busy" @click="confirmation = null">取消</button></footer></Modal>
   <Modal v-if="resetting" title="重置作品元数据" compact confirmation @close="!busy && (resetting = null)"><div class="modal-body"><p>重置「{{ resetting.title }}」的识别结果、匹配信息和刮削状态？磁盘上的 NFO、封面和 STRM 文件会保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="resetMetadata">确认重置</button><button class="btn" :disabled="busy" @click="resetting = null">取消</button></footer></Modal>
   <Modal v-if="settingsOpen" title="STRM 刮削设置" compact wide @close="settingsOpen = false"><form @submit.prevent="saveSettings"><div class="modal-body scrape-settings">
@@ -263,9 +264,6 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .selecting .scrape-card { transition:transform .2s ease, border-color .2s ease; overflow:visible; }
 .selecting .scrape-card:hover { transform:scale(1.025); z-index:2; }
 .scrape-poster { position:relative; border-radius:7px 7px 0 0; overflow:hidden; }.poster-selection { position:absolute; left:9px; top:9px; color:var(--primary); background:var(--surface); border-radius:50%; width:24px; height:24px; }
-.scrape-dock { position:fixed; z-index:140; bottom:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:6px; max-width:calc(100vw - 24px); padding:8px 16px; border:1px solid color-mix(in srgb,var(--primary) 18%,var(--border)); border-radius:999px; background:color-mix(in srgb,var(--primary) 12%,var(--surface)); box-shadow:var(--shadow); font-size:13px; }
-.scrape-dock strong { white-space:nowrap; font-size:13px; }.scrape-dock .btn { font-size:13px; border:0; background:transparent; color:var(--text); box-shadow:none; padding:8px; border-radius:0; }
-.scrape-dock .btn:hover:not(:disabled), .scrape-dock .btn:focus-visible { background:transparent; color:var(--primary); }
 .match-source-path { padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; font-size:14px; overflow-wrap:anywhere; }.match-source-path small { display:block; color:var(--muted); font-size:12px; margin-bottom:7px; }
 .scrape-poster-shell{flex:1}.scrape-body { padding-top:12px; overflow-anchor:none; }
 .scrape-panel > footer { padding: 8px 14px; color: var(--muted); font-size: 12px; }
@@ -281,8 +279,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 .candidate-search > .rounded-select, .candidate-search > input { min-width: 0; width: 100%; }
 .candidate-search :deep(.rounded-select-trigger) { min-width: 0; width: 100%; }
 @media(max-width:900px) { .candidate-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@media(max-width:600px) { .candidate-grid { grid-template-columns: minmax(0,1fr); }.scrape-dock { left:50%; flex-wrap:wrap; justify-content:center; width:calc(100% - 24px); bottom:10px; }.candidate-search { grid-template-columns:90px minmax(0,1fr); }.candidate-search > button { grid-column:2; justify-self:end; }.scrape-actions { gap:4px; left:4px; right:4px; } }
-@media(max-width:600px) { .scrape-dock { gap:2px; padding:8px; }.scrape-dock strong, .scrape-dock .btn { font-size:12px; }.scrape-dock .btn { padding:6px; gap:5px; } }
+@media(max-width:600px) { .candidate-grid { grid-template-columns: minmax(0,1fr); }.candidate-search { grid-template-columns:90px minmax(0,1fr); }.candidate-search > button { grid-column:2; justify-self:end; }.scrape-actions { gap:4px; left:4px; right:4px; } }
 @media(prefers-reduced-motion:reduce) { .scrape-actions, .scrape-actions :deep(button), .selecting .scrape-card { transition:none; } }
 @media(max-width:760px) { .scrape-toolbar { flex-wrap: wrap; }.scrape-toolbar .search-field { margin-left: 0; width: 160px; }.scrape-head,.scrape-row { grid-template-columns: minmax(0,1fr) 70px 80px; gap: 6px; }.scrape-head > :nth-child(2),.scrape-row > :nth-child(2) { display: none; } }
 </style>

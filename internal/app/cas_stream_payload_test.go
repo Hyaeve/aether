@@ -37,7 +37,7 @@ func TestGeneratedCASPayloadFeaturesOnly(t *testing.T) {
 			if err != nil || u.Host != "strm.example:15151" {
 				t.Fatal("custom STRM address lost", link, err)
 			}
-			token := strings.TrimPrefix(u.Path, "/stream/")
+			token := strings.TrimPrefix(u.Path, "/cas/")
 			mac := hmac.New(sha256.New, []byte(a.store.snapshot().SignKey))
 			mac.Write([]byte(token))
 			signature, err := base64.RawURLEncoding.DecodeString(u.Query().Get("sign"))

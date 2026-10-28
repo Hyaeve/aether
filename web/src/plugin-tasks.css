@@ -1,0 +1,14 @@
+.plugin-task-settings{min-width:0}
+.plugin-task-list{height:min(330px,calc(100dvh - 230px));min-height:120px;overflow:auto;scrollbar-width:none;overscroll-behavior:contain}
+.plugin-task-list::-webkit-scrollbar{display:none}
+.plugin-task-row{display:flex;align-items:center;gap:8px;min-height:74px;padding:12px 0;border-bottom:1px solid var(--border);min-width:0}
+.plugin-task-row>.provider-icon,.plugin-task-row>.plugin-task-avatar{width:40px;height:40px;flex:0 0 40px;background:transparent;border-radius:0}
+.plugin-task-row .provider-logo{width:100%;height:100%}
+.plugin-task-copy{flex:1;min-width:0;display:grid;gap:4px}
+.plugin-task-copy strong{font-size:16px;line-height:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plugin-task-copy span,.plugin-task-copy small{font-size:14px;line-height:20px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plugin-task-row .icon-btn{width:36px;height:36px;flex:none}
+.plugin-task-row .plugin-task-run{height:36px;min-height:36px;padding:0 8px;flex:none}
+.plugin-task-footer{justify-content:stretch}
+.plugin-task-footer .plugin-task-add{width:100%;height:44px;min-height:44px;justify-content:center;border-style:dashed;background:transparent}
+@media(max-width:480px){.plugin-task-row{gap:6px;flex-wrap:wrap}.plugin-task-copy{flex-basis:calc(100% - 48px)}.plugin-task-row .plugin-task-run{margin-left:auto}}

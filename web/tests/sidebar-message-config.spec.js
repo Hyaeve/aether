@@ -69,7 +69,7 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`sidebar 
  await expect(nav.getByRole('heading')).toHaveText(['以太视界','以太工坊','系统面板'])
  const sections=[
   ['以太视界',['信息总览','文件服务','存储管理']],
-  ['以太工坊',['传输中心','任务管理','虚拟链库','以太链接','辅助工具','档案中心']],
+  ['以太工坊',['传输中心','任务中心','虚拟链库','以太链接','辅助工具','档案中心']],
   ['系统面板',['通知服务','运行日志','系统设置']]
  ]
  await expect(links).toHaveText(sections.flatMap(([,items])=>items))
@@ -123,7 +123,7 @@ test('group headings are not links and keyboard navigation preserves archive mem
  await overview.focus();await page.keyboard.press('Enter')
  await expect(page).toHaveURL(/\/dashboard$/)
  await overview.focus()
- const sequence=['文件服务','存储管理','传输中心','任务管理','虚拟链库','以太链接','辅助工具','档案中心']
+ const sequence=['文件服务','存储管理','传输中心','任务中心','虚拟链库','以太链接','辅助工具','档案中心']
  for(const name of sequence){
   await page.keyboard.press('Tab')
   await expect(nav.getByRole('link',{name,exact:true})).toBeFocused()

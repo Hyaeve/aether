@@ -424,7 +424,10 @@ func TestQuarkLibraryRevisionNestedNamesAndAuthorization(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		u := httptest.NewRequest("HEAD", strings.TrimSpace(string(body)), nil).URL
+		u, err := url.Parse(strings.TrimSpace(string(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if u.Path != "/quark-share/sample-aB12/"+item.name {
 			t.Fatal("generated URL contains the local directory", u.Path)
 		}

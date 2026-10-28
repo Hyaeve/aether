@@ -120,7 +120,7 @@ func TestGenerationHTTPQueueAndPortableClaim(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	b, _ := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+	b, _ := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/cas/"))
 	var c streamClaim
 	json.Unmarshal(b, &c)
 	if c.CAS == nil || c.Storage != "" || c.CAS.Provider != "" || c.CAS.SHA256 == "" || c.CAS.MD5 != "" {

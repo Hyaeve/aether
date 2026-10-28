@@ -147,6 +147,9 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		return err
 	}
 	resetOutput := len(reset) > 0 && reset[0]
+	if resetOutput && task.Kind == "cas" {
+		return errors.New("CAS 任务仅增量生成，不支持清除生成库后全量重置")
+	}
 	if resetOutput {
 		if err := a.validateTask(&task); err != nil {
 			return err
@@ -265,6 +268,12 @@ func (a *App) outputLocation(target string) (string, string, error) {
 }
 
 func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
+	if t.Kind == "cas" && t.CASOperation != "restore" {
+		if !validCASInfoMode(t.CASInfoMode) {
+			return 0, errors.New("CAS 信息类型无效")
+		}
+		t.Mode = "incremental"
+	}
 	skipOutput := t.Mode == "incremental"
 	if t.Kind == "strm" {
 		skipOutput = a.currentSTRMSettings().OverwriteMode != "overwrite"
@@ -353,7 +362,13 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		if cleanup != nil {
 			for _, f := range files {
 				if safeName(f.Name) {
-					if err := cleanup.observe(ctx, a, dir, f); err != nil {
+					skipRead := false
+					if generateCAS && !f.IsDir && taskMedia(t, f.Name) && !strings.EqualFold(path.Ext(f.Name), ".cas") && !strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm") {
+						name := path.Join(target, taskOutputName(t, s, path.Join(rel, f.Name), ".cas.strm"))
+						existing, statErr := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(name)))
+						skipRead = statErr == nil && existing.Mode().IsRegular()
+					}
+					if err := cleanup.observe(ctx, a, dir, f, skipRead); err != nil {
 						return err
 					}
 				}
@@ -440,7 +455,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 				outputs[strings.ToLower(metadataPath)] = true
 				if t.Mode == "incremental" {
-					if _, err := root.Stat(metadataPath); err == nil {
+					if existing, err := root.Lstat(metadataPath); err == nil {
+						if !existing.Mode().IsRegular() {
+							return fmt.Errorf("元数据目标不是普通文件：%s", metadataPath)
+						}
 						continue
 					}
 				}
@@ -469,7 +487,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			outputs[strings.ToLower(filename)] = true
 			if skipOutput {
-				if _, err := root.Stat(filename); err == nil {
+				if existing, err := root.Lstat(filename); err == nil {
+					if !existing.Mode().IsRegular() {
+						return fmt.Errorf("生成目标不是普通文件：%s", filename)
+					}
 					continue
 				}
 			}
@@ -506,6 +527,10 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				feature := info
 				err = nil
 				if feature == nil {
+					if t.ID != "" && time.Since(lastProgress) >= time.Second {
+						lastProgress = time.Now()
+						a.taskUpdate(t.ID, func(task *Task) { task.Processed, task.Message = count, "正在计算CAS信息 · "+child })
+					}
 					key := f.ID + "\x00" + f.Name
 					result, ok := precomputed[key]
 					if !ok {
@@ -515,11 +540,15 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 						result, ok = precomputed[key]
 					}
 					if !ok {
-						result.info, result.err = a.generateCASInfo(ctx, s, f)
+						result.info, result.err = a.generateCASInfo(ctx, s, f, casTaskInfoMode(t, s))
 					}
 					parsed, e := result.info, result.err
 					feature, err = &parsed, e
 					delete(precomputed, key)
+				}
+				if err == nil {
+					parsed, e := selectCASInfo(*feature, casTaskInfoMode(t, s))
+					feature, err = &parsed, e
 				}
 				if errors.Is(err, errCASMissingHash) {
 					failed++
@@ -655,17 +684,21 @@ func (a *App) streamURL(sid, fid, pick string) string {
 }
 
 func (a *App) signedStreamURL(claim streamClaim) string {
-	return a.signedStreamPayload(claim)
+	return a.signedStreamPayload(claim, claim.CAS != nil)
 }
 
-func (a *App) signedStreamPayload(payload any) string {
+func (a *App) signedStreamPayload(payload any, cas bool) string {
 	st := a.store.snapshot()
 	b, _ := json.Marshal(payload)
 	token := base64.RawURLEncoding.EncodeToString(b)
 	mac := hmac.New(sha256.New, []byte(st.SignKey))
 	mac.Write([]byte(token))
 	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	return strings.TrimRight(st.Settings.PublicURL, "/") + "/stream/" + token + "?sign=" + url.QueryEscape(sig)
+	prefix := "/stream/"
+	if cas {
+		prefix = "/cas/"
+	}
+	return strings.TrimRight(st.Settings.PublicURL, "/") + prefix + token + "?sign=" + url.QueryEscape(sig)
 }
 
 func (a *App) scheduler() {

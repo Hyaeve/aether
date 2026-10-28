@@ -198,7 +198,7 @@ async function submit() {
 .share-link-editor pre, .share-link-editor textarea { box-sizing:border-box; width:100%; min-height:130px; margin:0; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font:inherit; line-height:1.5; letter-spacing:inherit; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2; scrollbar-gutter:stable; }
 .share-link-editor pre { position:absolute; inset:0; overflow:auto; pointer-events:none; color:var(--text); background:var(--input); }
 .share-link-editor pre::-webkit-scrollbar { visibility:hidden; }
-.share-link-editor mark { color:color-mix(in srgb,var(--primary) 70%,var(--text)); background:transparent; box-shadow:none; border-radius:0; }
+.share-link-editor mark { color:var(--share-password); background:transparent; box-shadow:none; border-radius:0; }
 .share-link-editor textarea { position:relative; display:block; resize:vertical; color:transparent; caret-color:var(--primary); background:transparent; }
 .share-link-editor textarea::placeholder { color:var(--muted); }
 .share-link-editor textarea::selection { color:transparent; background:color-mix(in srgb,var(--primary) 28%,transparent); }

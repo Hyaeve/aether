@@ -121,6 +121,8 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	b.State.Rapid115Records, b.State.Rapid115Attempts, b.State.SimulcastTemporary = nil, nil, nil
 	b.State.Rapid115Retries = nil
 	b.State.FolderCleanupReceipts = nil
+	b.State.Pan115SigninReceipts = nil
+	b.State.CASPlaybackAttempts = nil
 	b.State.CloudCASRecords = nil
 	b.State.CASStats = CASRestoreStats{}
 	b.State.ED2KStats, b.State.ED2KTemporary, b.State.GenerationJobs = CASRestoreStats{}, nil, nil
@@ -310,6 +312,8 @@ func applyPendingConfig(s *Store) error {
 	s.state.FileFavorites, s.state.FileVisits = before.FileFavorites, before.FileVisits
 	s.state.CloudCASRecords = before.CloudCASRecords
 	s.state.FolderCleanupReceipts = before.FolderCleanupReceipts
+	s.state.Pan115SigninReceipts = before.Pan115SigninReceipts
+	s.state.CASPlaybackAttempts = before.CASPlaybackAttempts
 	s.state.RenameHistory = nil
 	s.state.CASStats = CASRestoreStats{}
 	s.state.ED2KStats, s.state.ED2KTemporary, s.state.GenerationJobs = CASRestoreStats{}, nil, nil

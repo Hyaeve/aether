@@ -234,6 +234,7 @@ func TestStorageHealthMobileProbeAndQuotaTogether(t *testing.T) {
 	old := apiClient
 	defer func() { apiClient = old }()
 	var calls atomic.Int32
+	var membershipCalls atomic.Int32
 	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
 		calls.Add(1)
 		body := ""
@@ -252,6 +253,13 @@ func TestStorageHealthMobileProbeAndQuotaTogether(t *testing.T) {
 			body = `{"success":true,"data":{"items":[]}}`
 		case "/user/disk/quota/detail":
 			body = `{"success":true,"data":{"diskSize":1024,"freeDiskSize":256}}`
+		case "/orchestration/group-rebuild/member/v1.0/queryUserBenefits":
+			membershipCalls.Add(1)
+			var payload map[string]int
+			if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&payload) != nil || len(payload) != 1 || payload["isNeedBenefit"] != 0 {
+				t.Error("unexpected membership probe")
+			}
+			body = `{"success":true,"data":{"userSubMemberList":[]}}`
 		default:
 			t.Error(r.URL.Path)
 		}
@@ -261,8 +269,8 @@ func TestStorageHealthMobileProbeAndQuotaTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, _ := a.store.storage(s.ID)
-	if calls.Load() != 3 || current.Health.State != "active" || current.Usage.Total != 1024*(1<<20) || current.Usage.Used != 768*(1<<20) {
-		t.Fatal(current, calls.Load())
+	if calls.Load() != 4 || membershipCalls.Load() != 1 || current.Health.State != "active" || current.Usage.Total != 1024*(1<<20) || current.Usage.Used != 768*(1<<20) {
+		t.Fatal(current, calls.Load(), membershipCalls.Load())
 	}
 	if a.cache.stats()["entries"] != 0 {
 		t.Fatal("probe populated directory cache")
@@ -417,6 +425,8 @@ func TestTianyiHealthProactiveRenewal(t *testing.T) {
 			body = `{"fileListAO":{"fileList":[],"folderList":[]}}`
 		case "/portal/getUserSizeInfo.action":
 			body = `{"cloudCapacityInfo":{"totalSize":1000,"usedSize":100}}`
+		case "/order/queryUserLogo.action":
+			body = `{"data":{"vipInfoList":[]}}`
 		default:
 			t.Error(r.URL.Path)
 		}

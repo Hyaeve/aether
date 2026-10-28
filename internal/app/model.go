@@ -61,6 +61,7 @@ type Task struct {
 	SourceLabel        string           `json:"sourceLabel,omitempty"`
 	SourceTrail        []DirectoryCrumb `json:"sourceTrail,omitempty"`
 	CASOperation       string           `json:"casOperation,omitempty"`
+	CASInfoMode        string           `json:"casInfoMode,omitempty"`
 	ID                 string           `json:"id"`
 	Name               string           `json:"name"`
 	Kind               string           `json:"kind"`
@@ -130,6 +131,8 @@ type State struct {
 	RecycleCleanup        recycleCleanupSettings          `json:"recycleCleanup"`
 	FolderCleanup         folderCleanupSettings           `json:"folderCleanup"`
 	FolderCleanupReceipts map[string]folderCleanupReceipt `json:"folderCleanupReceipts,omitempty"`
+	Pan115Signin          pan115SigninSettings            `json:"pan115Signin"`
+	Pan115SigninReceipts  map[string]pan115SigninReceipt  `json:"pan115SigninReceipts,omitempty"`
 	SimulcastEnabled      *bool                           `json:"simulcastEnabled,omitempty"`
 	Rapid115Version       int                             `json:"rapid115Version,omitempty"`
 	CASExportDirectory    string                          `json:"casExportDirectory,omitempty"`
@@ -165,6 +168,7 @@ type State struct {
 	Links                 []MediaLink                     `json:"links,omitempty"`
 	DAVUsers              []DAVUser                       `json:"davUsers,omitempty"`
 	CASTemporary          []CASTemporary                  `json:"casTemporary,omitempty"`
+	CASPlaybackAttempts   map[string]bool                 `json:"casPlaybackAttempts,omitempty"`
 	CASStats              CASRestoreStats                 `json:"casStats"`
 	RenameHistory         []RenameDirectory               `json:"renameHistory,omitempty"`
 	FileFavorites         []FileFavorite                  `json:"fileFavorites,omitempty"`

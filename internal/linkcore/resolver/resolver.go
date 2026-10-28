@@ -34,6 +34,21 @@ var ErrNotStrm = errors.New("media is not a strm pointer")
 // so callers fall back to plain proxying instead of failing the playback.
 var ErrPointerUnavailable = errors.New("Aether 无法读取 STRM 指针文件，请检查媒体目录挂载、路径映射及读取权限")
 
+type requestMethodKey struct{}
+
+func WithRequestMethod(ctx context.Context, method string) context.Context {
+	return context.WithValue(ctx, requestMethodKey{}, method)
+}
+
+func sharePlaybackURL(raw string) bool {
+	u, err := urlx.Parse(raw)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return len(parts) == 3 && (parts[0] == "quark-share" || parts[0] == "115-share") && parts[1] != "" && parts[2] != ""
+}
+
 const (
 	audiobookshelfCacheTTL = 15 * time.Minute
 	embyFallbackCacheTTL   = 2 * time.Hour
@@ -157,6 +172,10 @@ func (r *Resolver) ResolveWithSource(ctx context.Context, provider upstream.Prov
 	// 移动云盘那类直链开放，见 lookup 与 putResolution。
 	sharedKey := ref.CacheKey(provider.Name()) + "\x00server=" + cacheNamespaceOf(provider)
 	key := sharedKey + "\x00ua=" + effectiveUserAgent + "\x00scope=" + upstream.PlaybackCacheScope(ctx)
+	flightKey := key
+	if ctx.Value(requestMethodKey{}) == http.MethodHead {
+		flightKey += "\x00method=HEAD"
+	}
 	if cached, source, remaining, ok := r.lookup(key, sharedKey); ok {
 		return cached, source, remaining, nil
 	}
@@ -169,7 +188,7 @@ func (r *Resolver) ResolveWithSource(ctx context.Context, provider upstream.Prov
 		r.inflightMu.Unlock()
 		return cached, source, remaining, nil
 	}
-	if call, ok := r.inflight[key]; ok {
+	if call, ok := r.inflight[flightKey]; ok {
 		r.inflightMu.Unlock()
 		select {
 		case <-call.done:
@@ -182,14 +201,14 @@ func (r *Resolver) ResolveWithSource(ctx context.Context, provider upstream.Prov
 		}
 	}
 	call := &inflightCall{done: make(chan struct{})}
-	r.inflight[key] = call
+	r.inflight[flightKey] = call
 	r.inflightMu.Unlock()
 
 	call.resolution, call.err = r.resolveUncached(ctx, provider, ref, userAgent)
 	resolvedTTL := time.Duration(0)
 	if call.err == nil {
 		resolvedTTL = r.cacheTTLFor(provider, call.resolution, ttl)
-		if !call.resolution.ProbeFailed {
+		if !call.resolution.ProbeFailed && !sharePlaybackURL(call.resolution.PlayURL()) {
 			r.putResolution(key, sharedKey, call.resolution, resolvedTTL)
 		} else {
 			resolvedTTL = 0
@@ -197,7 +216,7 @@ func (r *Resolver) ResolveWithSource(ctx context.Context, provider upstream.Prov
 	}
 	r.inflightMu.Lock()
 	close(call.done)
-	delete(r.inflight, key)
+	delete(r.inflight, flightKey)
 	r.inflightMu.Unlock()
 	return call.resolution, CacheSourceMiss, resolvedTTL, call.err
 }
@@ -208,12 +227,33 @@ func (r *Resolver) ResolveWithSource(ctx context.Context, provider upstream.Prov
 // 可能与 UA 绑定，跨 UA 复用会把一条只有某个播放器才播得动的地址发给别人。
 func (r *Resolver) lookup(scopedKey, sharedKey string) (*Resolution, CacheSource, time.Duration, bool) {
 	if cached, remaining, restored, ok := r.cache.getWithSource(scopedKey); ok {
-		return cached, cacheSourceFor(restored), remaining, true
+		if remaining = shareCacheRemaining(cached, remaining); remaining > 0 {
+			return cached, cacheSourceFor(restored), remaining, true
+		}
 	}
 	if cached, remaining, restored, ok := r.cache.getWithSource(sharedKey); ok && cmecloudDirectLink(cached) {
 		return cached, cacheSourceFor(restored), remaining, true
 	}
 	return nil, CacheSourceMiss, 0, false
+}
+
+func shareCacheRemaining(value *Resolution, remaining time.Duration) time.Duration {
+	if sharePlaybackURL(value.PlayURL()) {
+		return 0
+	}
+	if value.Target != nil && sharePlaybackURL(value.Target.URL) {
+		return min(remaining, 5*time.Minute-time.Since(value.ResolvedAt))
+	}
+	return remaining
+}
+
+// Invalidate only this playback's cached object. A late rejected read must not
+// remove a newer resolution produced by another request.
+func (r *Resolver) Invalidate(ctx context.Context, provider upstream.Provider, ref upstream.MediaRef, ua string, value *Resolution) {
+	shared := ref.CacheKey(provider.Name()) + "\x00server=" + cacheNamespaceOf(provider)
+	key := shared + "\x00ua=" + r.effectiveUserAgentFor(provider.Type(), provider.Name(), ua) + "\x00scope=" + upstream.PlaybackCacheScope(ctx)
+	r.cache.removeIf(key, value)
+	r.cache.removeIf(shared, value)
 }
 
 // putResolution 决定这条结果记在哪个键下：移动云盘的直链记共享键（同一个文件不同
@@ -247,6 +287,9 @@ func cacheNamespaceOf(provider upstream.Provider) string {
 func (r *Resolver) Close() { r.cache.close() }
 
 func (r *Resolver) cacheTTLFor(provider upstream.Provider, resolution *Resolution, fallback time.Duration) time.Duration {
+	if resolution != nil && sharePlaybackURL(resolution.PlayURL()) {
+		return 0
+	}
 	ttl := fallback
 	if resolution != nil {
 		// 移动云盘直链（含 cmecloud.cn）**固定**缓存 cmecloudCacheTTL，不读它自带的 `t`：
@@ -268,6 +311,9 @@ func (r *Resolver) cacheTTLFor(provider upstream.Provider, resolution *Resolutio
 	// 都截成 24 小时。已经过期的直链这里仍是 0（0 不大于上限），依旧不入缓存。
 	if ttl > resolverCacheMax {
 		ttl = resolverCacheMax
+	}
+	if resolution != nil && resolution.Target != nil && sharePlaybackURL(resolution.Target.URL) {
+		ttl = min(ttl, 5*time.Minute)
 	}
 	return ttl
 }
@@ -444,8 +490,17 @@ func (r *Resolver) followRedirects(ctx context.Context, startURL, userAgent stri
 	current := startURL
 	hops := make([]string, 0, r.config.MaxFollowHops)
 	for hop := 0; hop < r.config.MaxFollowHops; hop++ {
-		location, err := r.probeOnce(ctx, http.MethodHead, current, userAgent)
+		method := http.MethodHead
+		deferred := sharePlaybackURL(current)
+		headOnly := ctx.Value(requestMethodKey{}) == http.MethodHead
+		if deferred && !headOnly {
+			method = http.MethodGet
+		}
+		location, err := r.probeOnce(ctx, method, current, userAgent)
 		if err != nil {
+			if deferred && (headOnly || method == http.MethodGet) {
+				return "", hops, err
+			}
 			location, err = r.probeOnce(ctx, http.MethodGet, current, userAgent)
 			if err != nil {
 				return "", hops, err

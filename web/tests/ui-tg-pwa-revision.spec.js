@@ -34,7 +34,7 @@ test('plugin search has one integrated input header and descriptions', async ({ 
   await page.getByRole('button', { name: '搜索辅助工具', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '搜索辅助工具', exact: true })
   await expect(dialog.locator('.modal-header')).toHaveCount(0)
-  await expect(dialog.locator('.plugin-search-result').first()).toContainText('通过 SHA1 哈希')
+  await expect(dialog.locator('.plugin-search-result').filter({hasText:'115 网盘 · SHA1 秒传'})).toContainText('通过 SHA1 哈希')
   await expect(dialog.locator('.plugin-search-result').nth(1).locator('.provider-logo')).toHaveCSS('width', '40px')
   await expect(dialog.getByRole('textbox', { name: '插件搜索关键词' })).toHaveAttribute('placeholder', '按插件名称或描述搜索')
   await captureScreenshot(page, { path: info.outputPath('search-desktop.png') })

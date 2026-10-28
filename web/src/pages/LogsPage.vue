@@ -15,7 +15,7 @@ function toggleView() {
   filters.view = filters.view === 'raw' ? 'structured' : 'raw'
   if (viewKey.value) { try { localStorage.setItem(viewKey.value, filters.view) } catch {} }
 }
-const modules = { audit: '操作审计', files: '文件与备份', transfers: '传输中心', storage: '存储与服务', tasks: '任务管理', links: '以太链接', notifications: '通知服务', system: '系统' }
+const modules = { audit: '操作审计', files: '文件与备份', transfers: '传输中心', storage: '存储与服务', tasks: '任务中心', links: '以太链接', notifications: '通知服务', system: '系统' }
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试' }
 if (!modules[filters.module]) filters.module = 'all'
 if (!levels[filters.level]) filters.level = 'all'
@@ -46,6 +46,12 @@ function indexAt(position) {
 }
 const start = computed(() => Math.max(0, indexAt(scroll.value) - 5))
 const visible = computed(() => logs.value.slice(start.value, indexAt(scroll.value + height.value) + 6))
+const showBackTop = computed(() => scroll.value > Math.max(320, height.value * .75))
+function backToTop() {
+  scrollHost.value?.scrollTo({ top: 0, behavior: 'instant' })
+  syncScroll()
+  viewport.value?.focus({ preventScroll: true })
+}
 function setRow(el, index) {
   const previous = rowNodes.get(index)
   if (previous === el) return
@@ -148,8 +154,12 @@ onUnmounted(() => { alive = false; clearInterval(refreshTimer); observer?.discon
     </div></div>
     <footer>{{ logs.length }} 条记录</footer>
   </section>
+  <button v-if="showBackTop" class="log-back-top" type="button" aria-label="回到顶部" data-tooltip="回到顶部" data-tooltip-always @click="backToTop"><Icon name="ArrowUp" :size="23" /></button>
 </template>
 <style scoped>
 :root:not([data-theme="dark"]) .log-entry:not(.raw) { background: var(--input); }
 :root:not([data-theme="dark"]) .log-entry:not(.raw).striped { background: color-mix(in srgb, var(--text) 2%, var(--input)); }
+.log-back-top { position:fixed; right:calc(28px + env(safe-area-inset-right,0px)); bottom:calc(28px + env(safe-area-inset-bottom,0px)); z-index:32; width:46px; height:46px; padding:0; display:grid; place-items:center; border:1px solid var(--border); border-radius:50%; background:var(--surface); color:var(--text); box-shadow:var(--shadow); transition:color .16s,transform .16s; }
+.log-back-top:hover { color:var(--primary); transform:translateY(-2px); }
+@media(prefers-reduced-motion:reduce) { .log-back-top { transition:none; } }
 </style>

@@ -8,10 +8,13 @@ const emit = defineEmits(['page'])
 const jump=ref(1)
 watch(()=>props.page,value=>jump.value=value,{immediate:true})
 const statuses={running:'处理中',failed:'秒传失败',interrupted:'已中断',deleted:'重试3次失败，已删除'}
-function status(r){return r.status==='running'?(r.phase||'处理中'):r.status==='success'?(r.retries?`重试${r.retries}次秒传成功`:'秒传成功'):r.status==='uploaded'?'传输成功':r.status==='retrying'?`等待第${(r.retries||0)+1}次重试`:statuses[r.status]||r.status}
+function status(r){return r.status==='running'?(r.phase||'处理中'):r.status==='success'?(r.retries?`重试${r.retries}次成功`:'秒传成功'):r.status==='uploaded'?'传输成功':r.status==='retrying'?`等待第${(r.retries||0)+1}次重试`:statuses[r.status]||r.status}
+const statusMessage=r=>r.status==='success'&&r.retries>0&&r.message===`重试${r.retries}次秒传成功`?status(r):r.message||status(r)
 const icon=r=>({running:'LoaderCircle',success:'CircleCheck',uploaded:'Upload',retrying:'Clock',deleted:'Trash2',failed:'CircleAlert',interrupted:'CircleAlert'})[r.status]||'CircleAlert'
 const progress=r=>['success','uploaded'].includes(r.status)?1:r.total>0?Math.max(0,Math.min(1,(r.done||0)/r.total)):0
 const sourceKind=r=>r.sourceKind||(r.source?.startsWith('监控')?'monitor':r.source?.startsWith('手动')?'manual':'')
+const sourceName=r=>sourceKind(r)==='manual'?'手动执行':sourceKind(r)==='monitor'?(r.source||'').replace(/^监控\s*[·：:]\s*/,'')||'监控':r.source||'--'
+const sourceText=r=>{const chars=Array.from(sourceName(r));return chars.length>5?chars.slice(0,5).join('')+'…':sourceName(r)}
 const columns=computed(()=>['文件名称','文件大小','PickCode',...(!props.scoped?['触发来源']:[]),'执行时间','秒传状态'])
 </script>
 <template>
@@ -19,12 +22,12 @@ const columns=computed(()=>['文件名称','文件大小','PickCode',...(!props.
     <div class="rapid115-record-table" role="table" aria-label="秒传记录">
       <div class="rapid115-record-columns" role="row"><span v-for="label in columns" :key="label" role="columnheader">{{label}}</span></div>
       <article v-for="r in items" :key="r.id" class="rapid115-record" role="row">
-        <span class="rapid115-record-name" role="cell" :data-tooltip="r.name" data-tooltip-stationary data-tooltip-delay="300" tabindex="0">{{r.name}}</span>
+        <span class="rapid115-record-name" role="cell" :data-tooltip="r.name" data-tooltip-variant="rapid-file" data-tooltip-stationary data-tooltip-delay="300" tabindex="0">{{r.name}}</span>
         <span class="rapid115-record-size" role="cell">{{bytes(r.size)}}</span>
         <span class="rapid115-pickcode" role="cell">{{r.pickcode||'--'}}</span>
-        <span v-if="!scoped" class="rapid115-source" :class="sourceKind(r)" role="cell" :data-tooltip="r.source" data-tooltip-stationary data-tooltip-delay="300">{{r.source}}</span>
+        <span v-if="!scoped" class="rapid115-source" :class="sourceKind(r)" role="cell" :data-tooltip="sourceName(r)" :data-tooltip-always="Array.from(sourceName(r)).length>5?true:undefined" data-tooltip-stationary data-tooltip-delay="300">{{sourceText(r)}}</span>
         <time role="cell" :datetime="r.time" :data-tooltip="date(r.time)" data-tooltip-always data-tooltip-stationary>{{scoped?compactDate(r.time).slice(3):compactDate(r.time)}}</time>
-        <span class="rapid115-status" role="cell" :class="r.status"><span class="rapid115-status-label" :data-tooltip="r.message||status(r)" data-tooltip-stationary data-tooltip-delay="300"><Icon :name="icon(r)" :size="14" /><span>{{status(r)}}</span></span><progress :aria-label="`${r.name}：${status(r)}`" :aria-valuetext="r.total>0?`${status(r)}，${Math.floor(progress(r)*100)}%`:status(r)" :value="progress(r)" max="1" /></span>
+        <span class="rapid115-status" role="cell" :class="r.status"><span class="rapid115-status-label" :data-tooltip="statusMessage(r)" data-tooltip-stationary data-tooltip-delay="300"><Icon :name="icon(r)" :size="14" /><span>{{status(r)}}</span></span><progress :aria-label="`${r.name}：${status(r)}`" :aria-valuetext="r.total>0?`${status(r)}，${Math.floor(progress(r)*100)}%`:status(r)" :value="progress(r)" max="1" /></span>
       </article>
     </div>
     <p v-if="!items.length" class="small-empty">暂无秒传记录</p>

@@ -179,5 +179,5 @@ func (a *App) playVirtual115Name(w http.ResponseWriter, r *http.Request) {
 }
 
 func virtual115FilenameURL(base, code, pass, name string) string {
-	return strings.TrimRight(base, "/") + "/115-share/" + url.PathEscape(virtual115SharePart(code, pass)) + "/" + url.PathEscape(name)
+	return strings.TrimRight(base, "/") + "/115-share/" + url.PathEscape(virtual115SharePart(code, pass)) + "/" + shareFilenamePath(name)
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	driver "github.com/SheltonZhu/115driver/pkg/driver"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -247,7 +248,9 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 				changed := false
 				if grantErr == nil {
 					legacy := legacyVirtualShareURL(a.currentSTRMSettings().Address, key, item.Name) + "\n"
-					changed, e = replaceStrmFileMode(child, item.Name+".strm", `\A`+regexp.QuoteMeta(legacy)+`\z`,
+					encoded := strings.TrimRight(a.currentSTRMSettings().Address, "/") + "/115-share/" +
+						url.PathEscape(virtual115SharePart(preview.Code, preview.Pass)) + "/" + url.PathEscape(item.Name) + "\n"
+					changed, e = replaceStrmFileMode(child, item.Name+".strm", `\A(?:`+regexp.QuoteMeta(legacy)+`|`+regexp.QuoteMeta(encoded)+`)\z`,
 						strings.ReplaceAll(content+"\n", "$", "$$"), "regex", nil)
 				}
 				child.Close()

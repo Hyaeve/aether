@@ -67,6 +67,7 @@ for (const width of [1440, 390]) {
     })
     expect(colors.highlighted.every(color => color !== colors.normal)).toBe(true)
     expect(colors.highlighted.every(color => color === colors.highlighted[0])).toBe(true)
+    expect(colors.highlighted).toEqual(examples.map(()=>theme==='light'?'rgb(99, 80, 189)':'rgb(244, 223, 134)'))
     expect(colors.backgrounds.every(color => color === 'rgba(0, 0, 0, 0)')).toBe(true)
     expect(colors.shadows.every(value => value === 'none')).toBe(true)
     expect(colors.radii.every(value => value === '0px')).toBe(true)

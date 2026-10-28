@@ -89,6 +89,8 @@ function open(t) {
     delete form.casBindingId
     delete form.retentionHours
     form.casOperation = 'generate'
+    form.mode = 'incremental'
+    form.casInfoMode ||= storage(form.storageId)?.type === 'mobile' ? 'mobile' : 'all'
   }
   modal.value = true
 }
@@ -100,7 +102,10 @@ async function save() {
 }
 function selectSource(value) {
   Object.assign(form, value)
-  if (props.kind === 'cas' && storage(value.storageId)?.type === 'local') form.casOperation = 'generate'
+  if (props.kind === 'cas') {
+    form.casOperation = 'generate'
+    if (storage(value.storageId)?.type === 'mobile') form.casInfoMode = 'mobile'
+  }
   picker.value = false
 }
 function sourceLabel(task) { return task.sourceLabel || (task.source === '/' ? '根目录' : '已选目录') }
@@ -133,7 +138,7 @@ async function toggle(t) {
     <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
     <div class="task-last-scan" tabindex="0" :aria-label="`最近执行：${scanTime(t.lastRun)}，${taskResult(t)}`"><time>最近执行：{{ scanTime(t.lastRun) }}</time><span class="task-result">{{ taskResult(t) }}</span></div>
     <button class="icon-btn task-run" :class="{stopping:t.status === 'running'}" :aria-label="t.healthPause ? '健康异常，暂时停止' : t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id) || !!t.healthPause" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.healthPause ? 'Pause' : t.status === 'running' ? 'Square' : 'Play'" /></button>
-    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button v-if="kind !== 'cache'" :disabled="t.status === 'running' || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
+    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button v-if="!['cache','cas'].includes(kind)" :disabled="t.status === 'running' || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
   </article><button class="add-storage-tile add-task-tile" :aria-label="`添加 ${taskTitle} 任务卡片`" @click="open()"><Icon name="Plus" :size="25" /><strong>添加 {{taskTitle}} 任务</strong></button></div>
   <section v-if="generationJobs.length" class="generation-job-list" aria-label="解析生成队列"><article v-for="job in generationJobs" :key="job.id" :class="{running:job.status==='running',failed:job.status==='error'}"><div><strong>{{job.name}}</strong><small>{{job.processed}} / {{job.total}} · {{job.status==='queued'?'排队中':job.message}}</small></div><progress :value="job.processed" :max="job.total||1" :aria-label="`${job.name}生成进度`" /></article></section>
   <GenerationImport v-if="importer" :kind="kind" @close="importer=false" @queued="loadGeneration" />
@@ -142,7 +147,7 @@ async function toggle(t) {
     <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />请先添加并启用一个存储池。<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
       <div class="form-grid">
         <label>任务名称 <span class="required">*</span><input v-model="form.name" required /></label>
-        <div v-if="kind === 'cas'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
+        <div v-if="kind === 'cas'" class="field"><label>CAS 信息</label><RoundedSelect v-model="form.casInfoMode" label="CAS 信息" :options="[{value:'all',label:'全计算'},{value:'mobile',label:'移动CAS'},{value:'tianyi',label:'天翼CAS'}]" /></div>
         <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '' }}</span><Icon name="FolderOpen" /></button></div>

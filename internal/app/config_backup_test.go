@@ -31,10 +31,12 @@ func TestConfigBackup(t *testing.T) {
 		st.Storages = append(st.Storages, Storage{ID: "saved-pool", Name: "saved", Type: "local", Enabled: true, Config: map[string]string{"root": t.TempDir()}})
 		st.Links = append(st.Links, MediaLink{ID: "saved-link", Name: "saved", APIKey: "backup-private-key"})
 		st.Simulcast = map[string]SimulcastConfig{"pan": {Enabled: true, Directory: "99"}}
-		st.Tasks = []Task{{ID: "manual", Kind: "strm", Cron: ""}}
+		st.Tasks = []Task{{ID: "manual", Kind: "strm", Cron: ""}, {ID: "cas", Kind: "cas", CASOperation: "generate", CASInfoMode: "tianyi", Mode: "incremental"}}
 		st.FileFavorites = []FileFavorite{{Storage: "saved-pool", ID: "/a", Name: "a", History: []FavoriteCrumb{{ID: "/", Name: "a"}}}}
 		st.FileVisits = []FileVisit{{Storage: "saved-pool", ID: "/a/b", History: []FavoriteCrumb{{ID: "/", Name: "a"}, {ID: "/a", Name: "b"}}}}
 		st.CloudCASRecords = []cloudCASRecord{{ID: "runtime-cas", StorageID: "saved-pool", Status: "error", CAS: CASInfo{Name: "film.mp4", Size: 4}}}
+		st.Pan115SigninReceipts = map[string]pan115SigninReceipt{"proof": {Status: "pending"}}
+		st.CASPlaybackAttempts = map[string]bool{"pending-mobile-playback": true}
 		st.BackupRules = []BackupRule{{ID: "backup-rule", Name: "备份规则", SourceID: "saved-pool", Source: "/", TargetID: "saved-pool", Target: "/other", Replace: "skip"}}
 		st.Automations = []Automation{{ID: "rule", Name: "Rule", Enabled: true, Trigger: "manual", Steps: []AutomationStep{{Kind: "refresh", Condition: "always"}}}}
 		return nil
@@ -61,6 +63,12 @@ func TestConfigBackup(t *testing.T) {
 	}
 	if len(bundle.State.CloudCASRecords) != 0 {
 		t.Fatal("CAS run records leaked into configuration backup")
+	}
+	if len(bundle.State.Pan115SigninReceipts) != 0 {
+		t.Fatal("signin receipts leaked into configuration backup")
+	}
+	if len(bundle.State.CASPlaybackAttempts) != 0 {
+		t.Fatal("CAS playback write intents leaked into configuration backup")
 	}
 	if bytes.Contains(res.Body.Bytes(), []byte("admin")) {
 		t.Fatal("plaintext backup")
@@ -109,6 +117,12 @@ func TestConfigBackup(t *testing.T) {
 	if len(a.store.snapshot().CloudCASRecords) != 1 {
 		t.Fatal("import erased CAS run records")
 	}
+	if len(a.store.snapshot().Pan115SigninReceipts) != 1 {
+		t.Fatal("import erased signin anti-replay receipts")
+	}
+	if !a.store.snapshot().CASPlaybackAttempts["pending-mobile-playback"] {
+		t.Fatal("import erased CAS playback anti-replay intents")
+	}
 	if len(a.store.snapshot().FileFavorites) != 1 || len(a.store.snapshot().FileVisits) != 1 {
 		t.Fatal("configuration import lost existing file records")
 	}
@@ -128,10 +142,14 @@ func TestConfigBackup(t *testing.T) {
 	if err := reloaded.initTools(a.store.toolsDir); err != nil {
 		t.Fatal(err)
 	}
+	tasks := reloaded.snapshot().Tasks
+	if len(tasks) != 2 || tasks[1].CASInfoMode != "tianyi" || tasks[1].Mode != "incremental" {
+		t.Fatal("CAS feature selection lost across backup, import or restart", tasks)
+	}
 	if reloaded.snapshot().Simulcast["pan"].Directory != "99" {
 		t.Fatal("simulcast snapshot not persisted")
 	}
-	if got := reloaded.snapshot(); len(got.Automations) != 1 || len(got.Tasks) != 1 || got.Tasks[0].Cron != "" || !got.Tasks[0].NextRun.IsZero() {
+	if got := reloaded.snapshot(); len(got.Automations) != 1 || len(got.Tasks) != 2 || got.Tasks[0].ID != "manual" || got.Tasks[0].Cron != "" || !got.Tasks[0].NextRun.IsZero() {
 		t.Fatal("automation or manual task lost in backup")
 	}
 	bundle.Files["../escape.json"] = json.RawMessage("{}")

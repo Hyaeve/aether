@@ -2,7 +2,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { numberEasing } from '../number-motion'
 
-const props = defineProps({ value: { type: Number, default: 0 }, duration: { type: Number, default: 2200 } })
+const props = defineProps({ value: { type: Number, default: 0 }, duration: { type: Number, default: 1400 } })
 const displayed = ref(0)
 let frame = 0
 function stop() { if (frame) cancelAnimationFrame(frame); frame = 0 }

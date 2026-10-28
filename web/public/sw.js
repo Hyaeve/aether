@@ -1,6 +1,6 @@
 const CACHE = 'aether-public-offline-v1'
 const OFFLINE = '/pwa/offline.html'
-const APP_PAGE = /^\/(?:$|dashboard$|storage(?:\/(?:shares|downloads|trash))?$|files(?:\/(?:webdav|mounts))?$|transfer(?:\/backup(?:\/settings)?)?$|tasks\/(?:strm|cas|ed2k|cache|scrape|automation|organize)(?:\/(?:pool|settings))?$|virtual\/(?:115|mobile|quark|cas)(?:\/settings)?$|links\/(?:manage|cache)$|tools(?:\/(?:market|115-rapid))?$|notifications(?:\/(?:telegram|transfers))?$|logs$|settings\/[a-z]+$)/
+const APP_PAGE = /^\/(?:$|dashboard$|storage(?:\/(?:shares|downloads|trash))?$|files(?:\/(?:webdav|mounts))?$|transfer(?:\/backup(?:\/settings)?)?$|tasks(?:\/(?:panel|strm|cas|ed2k|cache|scrape|automation|organize)(?:\/(?:pool|settings))?)?$|virtual\/(?:115|mobile|quark|cas)(?:\/settings)?$|links\/(?:manage|cache)$|tools(?:\/(?:market|115-rapid))?$|notifications(?:\/(?:telegram|transfers))?$|logs$|settings\/[a-z]+$)/
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.add(new Request(OFFLINE, { cache: 'reload', credentials: 'omit' }))))

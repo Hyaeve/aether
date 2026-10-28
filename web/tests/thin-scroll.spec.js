@@ -14,7 +14,7 @@ test('workspace scroll starts below header and hairline survives device/pinch sc
     await expect(page.locator('.notice-scroll .thin-scroll-thumb')).toBeVisible()
     for (const selector of ['.page-scroll', '.notice-scroll']) {
       const thumb = page.locator(`${selector} .thin-scroll-thumb`)
-      const target = selector === '.page-scroll' ? 7 : 3
+      const target = selector === '.page-scroll' ? 8 : 3
       await expect.poll(() => thumb.evaluate(el => parseFloat(getComputedStyle(el, '::after').width) * devicePixelRatio)).toBeGreaterThanOrEqual(target - .05)
       await expect.poll(() => thumb.evaluate(el => parseFloat(getComputedStyle(el, '::after').width) * devicePixelRatio)).toBeLessThanOrEqual(target + .05)
     }

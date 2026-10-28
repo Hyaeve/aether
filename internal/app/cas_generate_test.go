@@ -54,13 +54,20 @@ func TestLocalCASGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.Mode = "full"
-	if _, err := a.executeTask(context.Background(), task, s); err != nil {
+	if count, err := a.executeTask(context.Background(), task, s); err != nil || count != 0 {
 		t.Fatal(err)
 	}
 	updated, _ := os.ReadFile(output)
-	if string(updated) == string(encoded) {
-		t.Fatal("full did not replace CAS")
+	if string(updated) != string(encoded) {
+		t.Fatal("legacy full mode overwrote incremental CAS output")
 	}
+	if err := os.Remove(output); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.executeTask(context.Background(), task, s); err != nil {
+		t.Fatal(err)
+	}
+	updated, _ = os.ReadFile(output)
 	updatedInfo := generatedCASClaim(t, updated)
 	md := md5.Sum([]byte("updated"))
 	shaUpdated := sha256.Sum256([]byte("updated"))
@@ -95,7 +102,7 @@ func generatedCASClaim(t *testing.T, content []byte) CASInfo {
 	if err != nil || u.Scheme != "http" || u.Host == "" || u.Query().Get("sign") == "" || strings.ContainsAny(link, "\r\n") {
 		t.Fatalf("invalid STRM link: %s (%v)", content, err)
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/cas/"))
 	if err != nil {
 		t.Fatal(err)
 	}

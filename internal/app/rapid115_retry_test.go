@@ -49,7 +49,7 @@ func TestRapid115MonitorRetryScheduleAndOutcomes(t *testing.T) {
 				if retry == successAt || retry == 3 {
 					want := "秒传成功"
 					if retry > 0 {
-						want = fmt.Sprintf("重试%d次秒传成功", retry)
+						want = fmt.Sprintf("重试%d次成功", retry)
 					}
 					if successAt == 4 {
 						want = "传输成功"
@@ -216,7 +216,7 @@ func TestRapid115DueRetryRunsBeforeNextCron(t *testing.T) {
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		st := a.store.snapshot()
-		if len(st.Rapid115Records) == 2 && st.Rapid115Records[0].Message == "重试1次秒传成功" && len(st.Rapid115Retries) == 0 {
+		if len(st.Rapid115Records) == 2 && st.Rapid115Records[0].Message == "重试1次成功" && len(st.Rapid115Retries) == 0 {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)

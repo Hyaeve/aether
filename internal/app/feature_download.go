@@ -17,7 +17,7 @@ func (a *App) transferTempDirectory() string {
 	return filepath.Join(a.dataDir, "cache", "transfer")
 }
 
-func (a *App) downloadCASInfo(ctx context.Context, source Storage, f File) (CASInfo, error) {
+func (a *App) downloadCASInfo(ctx context.Context, source Storage, f File, mode string) (CASInfo, error) {
 	release, err := a.acquireTransferResource(ctx, "feature-hash")
 	if err != nil {
 		return CASInfo{}, err
@@ -33,11 +33,16 @@ func (a *App) downloadCASInfo(ctx context.Context, source Storage, f File) (CASI
 	}
 	defer stage.clear()
 	local := Storage{Type: "local", Config: map[string]string{"root": filepath.Dir(stage.name)}}
-	info, err := a.generateCASInfo(ctx, local, File{ID: filepath.Base(stage.name), Name: f.Name, Size: stage.size})
+	// SHA256 remains necessary to verify the temporary transfer, even when it
+	// is not one of the selected output features.
+	info, err := a.hashLocalCASInfo(ctx, local, File{ID: filepath.Base(stage.name), Name: f.Name, Size: stage.size}, true, mode != "mobile")
 	if err == nil && info.SHA256 != stage.digest {
 		return CASInfo{}, errors.New("临时文件在哈希计算期间变化")
 	}
-	return info, err
+	if err != nil {
+		return info, err
+	}
+	return selectCASInfo(info, mode)
 }
 
 type casPrecomputed struct {
@@ -47,7 +52,7 @@ type casPrecomputed struct {
 
 // Two workers per directory, with a shared service-wide limit across tasks.
 func (a *App) precomputeRemoteCAS(ctx context.Context, t Task, s Storage, files []File, rel, outputDir, target string) map[string]casPrecomputed {
-	if t.Kind != "cas" || t.CASOperation == "restore" || s.Type == "local" || s.Type == "mobile" || s.Type == "tianyi" {
+	if t.Kind != "cas" || t.CASOperation == "restore" || s.Type == "local" || s.Type == "mobile" && casTaskInfoMode(t, s) == "mobile" {
 		return nil
 	}
 	results := map[string]casPrecomputed{}
@@ -59,7 +64,7 @@ func (a *App) precomputeRemoteCAS(ctx context.Context, t Task, s Storage, files 
 		go func() {
 			defer workers.Done()
 			for f := range jobs {
-				info, err := a.generateCASInfo(ctx, s, f)
+				info, err := a.generateCASInfo(ctx, s, f, casTaskInfoMode(t, s))
 				mu.Lock()
 				results[f.ID+"\x00"+f.Name] = casPrecomputed{info, err}
 				mu.Unlock()
@@ -71,11 +76,9 @@ func (a *App) precomputeRemoteCAS(ctx context.Context, t Task, s Storage, files 
 		if f.IsDir || !safeName(f.Name) || !taskMedia(t, f.Name) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) || strings.EqualFold(path.Ext(f.Name), ".cas") || strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm") {
 			continue
 		}
-		if t.Mode == "incremental" {
-			name := filepath.Join(outputDir, filepath.FromSlash(path.Join(target, rel, f.Name+".cas.strm")))
-			if _, err := os.Stat(name); err == nil {
-				continue
-			}
+		name := filepath.Join(outputDir, filepath.FromSlash(path.Join(target, rel, f.Name+".cas.strm")))
+		if _, err := os.Stat(name); err == nil {
+			continue
 		}
 		select {
 		case jobs <- f:

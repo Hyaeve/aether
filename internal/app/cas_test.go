@@ -152,7 +152,7 @@ func TestCASLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, _ := url.Parse(strings.TrimSpace(string(content)))
-	token := strings.TrimPrefix(u.Path, "/stream/")
+	token := strings.TrimPrefix(u.Path, "/cas/")
 	raw, _ := base64.RawURLEncoding.DecodeString(token)
 	var claim streamClaim
 	if json.Unmarshal(raw, &claim) != nil || claim.CAS == nil || claim.CAS.SHA256 != hash || claim.RetentionHours != 24 {

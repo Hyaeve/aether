@@ -39,7 +39,7 @@ func TestTianyiCASDynamicPartSizeAndLegacyImport(t *testing.T) {
 				for _, pointer := range []bool{false, true} {
 					content, name := raw, "video.mkv.cas"
 					if pointer {
-						content = "http://localhost/stream/" + base64.RawURLEncoding.EncodeToString([]byte(`{"cas":`+raw+`}`))
+						content = "http://localhost/cas/" + base64.RawURLEncoding.EncodeToString([]byte(`{"cas":`+raw+`}`))
 						name = "video.mkv.cas.strm"
 					}
 					info, err := decodeCAS([]byte(content), name)

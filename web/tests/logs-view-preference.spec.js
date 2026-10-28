@@ -35,7 +35,7 @@ test('only the log view survives reload and navigation for the browser account',
   await page.getByRole('button', { name: '日志级别', exact: true }).click()
   await page.getByRole('option', { name: '错误', exact: true }).click()
   await page.getByRole('button', { name: '日志模块', exact: true }).click()
-  await page.getByRole('option', { name: '任务管理', exact: true }).click()
+  await page.getByRole('option', { name: '任务中心', exact: true }).click()
   expect(await page.evaluate(k => localStorage.getItem(k), key('log-preference'))).toBe('raw')
   expect(await page.evaluate(() => localStorage.getItem('aether-log-filters:log-preference'))).toBeNull()
   await page.reload()

@@ -166,8 +166,9 @@ test('monitor choices have concise explanations and invalid cron exposes a stati
 
 test('115 folder cleanup plugin selects only 115 folders and confirms zero-day scope',async({page},info)=>{
  const f=await fixture(page);await page.goto('/tools');const cards=page.locator('.plugin-card')
- await expect(cards.nth(1)).toHaveAttribute('aria-label','115 同播复制')
- await expect(cards.nth(2)).toHaveAttribute('aria-label','115文件夹清理')
+ await expect(cards.first()).toHaveAttribute('aria-label','115签到')
+ await expect(cards.nth(2)).toHaveAttribute('aria-label','115 同播复制')
+ await expect(cards.nth(3)).toHaveAttribute('aria-label','115文件夹清理')
  await page.getByRole('button',{name:'115文件夹清理',exact:true}).click()
  await page.getByRole('button',{name:'添加文件夹',exact:true}).click()
  const editor=page.getByRole('dialog',{name:'添加清理文件夹',exact:true})
@@ -183,8 +184,7 @@ test('115 folder cleanup plugin selects only 115 folders and confirms zero-day s
  await expect(confirm).toContainText('全部文件');expect(f.writes).toHaveLength(0)
  await confirm.getByRole('button',{name:'确认保存',exact:true}).click()
  await expect.poll(()=>f.cleanup.rules.length).toBe(1);expect(f.cleanup.rules[0]).toMatchObject({storageId:'p',directory:'10',days:0,cron:'0 3 * * *'})
- await page.getByRole('switch',{name:'启用文件夹清理',exact:true}).check()
- await page.getByRole('dialog',{name:'启用文件夹清理计划'}).getByRole('button',{name:'确认启用',exact:true}).click()
+ await expect(page.getByRole('switch',{name:'启用文件夹清理',exact:true})).toHaveCount(0)
  await expect.poll(()=>f.cleanup.enabled).toBe(true)
  await page.getByRole('button',{name:'编辑文件夹清理 /清理目录',exact:true}).click()
  const edit=page.getByRole('dialog',{name:'编辑清理文件夹',exact:true}),days=edit.getByRole('spinbutton',{name:'清理阈值',exact:true})

@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test'
 test('notifications identify library actions and provider logos fill their bounds', async ({ page }, info) => {
 	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
 	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))
+	await page.route('**/api/115-folder-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
+	await page.route('**/api/115-signin', r => r.fulfill({ json: { enabled: false, rules: [] } }))
   await page.route('**/api/plugins/**', r => r.fulfill({ json: {} }))
   await page.route('**/api/quark-takeover', r => r.fulfill({ json: { enabled: false, bindings: [] } }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))

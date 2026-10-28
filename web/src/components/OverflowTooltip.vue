@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
-const text = ref(''), left = ref(0), top = ref(0), popup = ref(null), stationary = ref(false), playback = ref(false)
+const text = ref(''), left = ref(0), top = ref(0), popup = ref(null), stationary = ref(false), playback = ref(false), rapidFile = ref(false)
 let target, timer, value = '', delay = 350
 let pointerX = 0, pointerY = 0
 function move(event) {
@@ -29,7 +29,7 @@ function show(event) {
   const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight
   if (!content || (!clipped && !el.hasAttribute('data-tooltip-always')) || target === el) return
   const fileName = el.matches('.file-browser .file-name strong, .file-browser .file-grid-name strong')
-  hide(); target = el; value = content; playback.value = !!el.closest('.playback-scroller'); stationary.value = fileName || playback.value || el.hasAttribute('data-tooltip-stationary')
+  hide(); target = el; value = content; playback.value = !!el.closest('.playback-scroller'); rapidFile.value = el.dataset.tooltipVariant === 'rapid-file'; stationary.value = fileName || playback.value || el.hasAttribute('data-tooltip-stationary')
   delay = Number(el.dataset.tooltipDelay) || (fileName ? 350 : stationary.value || el.hasAttribute('data-tooltip-always') ? 600 : 350)
   const r = el.getBoundingClientRect()
   pointerX = event.clientX ?? r.left; pointerY = event.clientY ?? r.bottom
@@ -40,4 +40,4 @@ function key(event) { if (event.key === 'Escape') hide() }
 onMounted(() => { document.addEventListener('mousemove', move); document.addEventListener('mouseover', show); document.addEventListener('mouseout', out); document.addEventListener('focusin', show); document.addEventListener('focusout', hide); document.addEventListener('keydown', key); window.addEventListener('scroll', hide, true) })
 onUnmounted(() => { hide(); document.removeEventListener('mousemove', move); document.removeEventListener('mouseover', show); document.removeEventListener('mouseout', out); document.removeEventListener('focusin', show); document.removeEventListener('focusout', hide); document.removeEventListener('keydown', key); window.removeEventListener('scroll', hide, true) })
 </script>
-<template><Teleport to="body"><div v-if="text" ref="popup" role="tooltip" class="overflow-tooltip" :class="{'playback-tooltip':playback}" :style="{ left: `${left}px`, top: `${top}px` }">{{ text }}</div></Teleport></template>
+<template><Teleport to="body"><div v-if="text" ref="popup" role="tooltip" class="overflow-tooltip" :class="{'playback-tooltip':playback,'rapid-file-tooltip':rapidFile}" :style="{ left: `${left}px`, top: `${top}px` }">{{ text }}</div></Teleport></template>

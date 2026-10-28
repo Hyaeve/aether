@@ -99,7 +99,7 @@ func TestVirtual115FilenameURL(t *testing.T) {
 		if pass != "" {
 			share += "-" + pass
 		}
-		want := "http://example.test/115-share/" + share + "/%E7%AC%AC1%E9%9B%86%20%231.mkv"
+		want := "http://example.test/115-share/" + share + "/第1集 %231.mkv"
 		if err != nil || address != want {
 			t.Fatal(address, want, err)
 		}
@@ -116,7 +116,8 @@ func TestVirtual115FilenameNestedLookupAndPersistence(t *testing.T) {
 			}
 			for _, item := range []struct{ directory, name, parent string }{{"第一季", "第1集 #1.mkv", "10"}, {"第二季", "第2集.mkv", "20"}} {
 				body, err := os.ReadFile(filepath.Join(directory, "Show", item.directory, item.name+".strm"))
-				if err != nil || string(body) != "http://example.test"+f.address(item.name)+"\n" {
+				want := "http://example.test/115-share/" + virtual115SharePart("sample", f.pass) + "/" + strings.ReplaceAll(item.name, "#", "%23") + "\n"
+				if err != nil || string(body) != want {
 					t.Fatal("directory should remain only in the generated tree", string(body), err)
 				}
 				f.reads = nil
@@ -163,7 +164,7 @@ func TestVirtual115FilenameConflictHasNoCloudSideEffects(t *testing.T) {
 }
 
 func TestVirtual115FilenameLegacyMigrationPreservesOtherContent(t *testing.T) {
-	for _, mode := range []string{"registered", "unregistered", "modified", "current", "unrelated"} {
+	for _, mode := range []string{"registered", "encoded", "encoded-modified", "unregistered", "modified", "current", "unrelated"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newVirtual115NameFixture(t, "aB12")
 			directory := t.TempDir()
@@ -178,7 +179,12 @@ func TestVirtual115FilenameLegacyMigrationPreservesOtherContent(t *testing.T) {
 			case "modified":
 				body += "# local edit\n"
 			case "current":
+				body = "http://example.test/115-share/sample-aB12/第1集 %231.mkv\n"
+			case "encoded", "encoded-modified":
 				body = "http://example.test" + f.address(item.Name) + "\n"
+				if mode == "encoded-modified" {
+					body += "# local edit\n"
+				}
 			case "unrelated":
 				body = "http://other.test/keep.mkv\n"
 			}
@@ -196,8 +202,8 @@ func TestVirtual115FilenameLegacyMigrationPreservesOtherContent(t *testing.T) {
 			if w.Code != 200 {
 				t.Fatal(w.Code, w.Body.String())
 			}
-			if mode == "registered" {
-				body = "http://example.test" + f.address(item.Name) + "\n"
+			if mode == "registered" || mode == "encoded" {
+				body = "http://example.test/115-share/sample-aB12/第1集 %231.mkv\n"
 			}
 			raw, err := os.ReadFile(filename)
 			if err != nil || string(raw) != body {
@@ -208,7 +214,7 @@ func TestVirtual115FilenameLegacyMigrationPreservesOtherContent(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantGenerated := 1
-			if mode == "registered" {
+			if mode == "registered" || mode == "encoded" {
 				wantGenerated = 2
 			}
 			if result.Generated != wantGenerated || result.Generated+result.Skipped != 2 {

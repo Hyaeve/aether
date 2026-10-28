@@ -23,22 +23,26 @@ import (
 type transferSourceKey struct{}
 type transferOwnedKey struct{}
 type transferEntry struct {
-	ID      string            `json:"id"`
-	Kind    string            `json:"kind"`
-	Source  string            `json:"source"`
-	Storage string            `json:"storage"`
-	From    *transferLocation `json:"from,omitempty"`
-	To      *transferLocation `json:"to,omitempty"`
-	Name    string            `json:"name"`
-	Status  string            `json:"status"`
-	Done    int64             `json:"done"`
-	Total   int64             `json:"total"`
-	Speed   int64             `json:"speed"`
-	rate    *trafficMeter
-	cancel  context.CancelFunc
-	Started time.Time `json:"started"`
-	Updated time.Time `json:"updated"`
-	Message string    `json:"message,omitempty"`
+	ID       string            `json:"id"`
+	Kind     string            `json:"kind"`
+	Source   string            `json:"source"`
+	Storage  string            `json:"storage"`
+	From     *transferLocation `json:"from,omitempty"`
+	To       *transferLocation `json:"to,omitempty"`
+	Name     string            `json:"name"`
+	Status   string            `json:"status"`
+	Done     int64             `json:"done"`
+	Total    int64             `json:"total"`
+	Speed    int64             `json:"speed"`
+	Controls transferControls  `json:"controls"`
+	rate     *trafficMeter
+	cancel   context.CancelFunc
+	pausable bool
+	phase    string
+	retry    func(context.Context, *transferProgress) error
+	Started  time.Time `json:"started"`
+	Updated  time.Time `json:"updated"`
+	Message  string    `json:"message,omitempty"`
 }
 type transferLog struct {
 	mu             sync.Mutex
@@ -61,7 +65,8 @@ func (l *transferLog) restore(file string) {
 		return
 	}
 	for _, item := range items {
-		if item.Status == "failed" && time.Since(item.Updated) <= 72*time.Hour && len(l.items) < 500 {
+		if transferFailed(item.Status) && time.Since(item.Updated) <= 72*time.Hour && len(l.items) < 500 {
+			item.Controls = transferControls{Delete: true}
 			l.items[item.ID] = item
 		}
 	}
@@ -74,7 +79,7 @@ func (l *transferLog) saveFailures() error {
 	}
 	items := []transferEntry{}
 	for _, item := range l.items {
-		if item.Status == "failed" && time.Since(item.Updated) <= 72*time.Hour {
+		if transferFailed(item.Status) && time.Since(item.Updated) <= 72*time.Hour {
 			items = append(items, item)
 		}
 	}
@@ -130,6 +135,12 @@ func transferFailureReason(err error) string {
 	var dns *net.DNSError
 	var network net.Error
 	switch {
+	case errors.Is(err, errDAVPartialRead):
+		return errDAVPartialRead.Error()
+	case errors.Is(err, errTransferIgnored):
+		return errTransferIgnored.Error()
+	case errors.Is(err, errTransferSkipped):
+		return errTransferSkipped.Error()
 	case errors.Is(err, context.Canceled):
 		return "已取消或连接中断"
 	case errors.Is(err, context.DeadlineExceeded):
@@ -198,7 +209,7 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 	if len(l.items) >= 500 {
 		oldest := ""
 		for key, item := range l.items {
-			if item.Status != "running" && item.Status != "paused" && (oldest == "" || item.Updated.Before(l.items[oldest].Updated)) {
+			if !transferActive(item.Status) && (oldest == "" || item.Updated.Before(l.items[oldest].Updated)) {
 				oldest = key
 			}
 		}
@@ -213,7 +224,9 @@ func (a *App) beginTransfer(ctx context.Context, kind string, s Storage, name st
 	l.items[entry.ID] = entry
 	l.mu.Unlock()
 	a.transferEvent("info", entry, "开始")
-	return &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind, ctx: ctx, app: a, cancel: cancel, entry: entry, ignored: kind == "upload" && a.transferIgnored(name)}
+	p := &transferProgress{log: l, id: entry.ID, meter: &a.traffic, kind: kind, ctx: ctx, app: a, cancel: cancel, entry: entry, ignored: kind == "upload" && a.transferIgnored(name)}
+	p.ctx = context.WithValue(ctx, transferProgressResourceKey{}, p)
+	return p
 }
 
 // Pause at IO boundaries without buffering the remaining file in memory.
@@ -229,10 +242,13 @@ func (p *transferProgress) waitContext(ctx context.Context) error {
 		return nil
 	}
 	if p.ignored {
-		return errors.New("此扩展名已被全局传输设置忽略")
+		return errTransferIgnored
 	}
 	if p.ctx != nil && p.ctx.Err() != nil {
 		return p.ctx.Err()
+	}
+	if err := p.waitPaused(ctx); err != nil {
+		return err
 	}
 	if p.app != nil && p.kind == "upload" {
 		if owned, _ := p.ctx.Value(transferUploadResourceKey{}).(bool); !owned {
@@ -259,7 +275,11 @@ func (p *transferProgress) waitContext(ctx context.Context) error {
 			p.resourceMu.Unlock()
 		}
 	}
-	if p.log == nil {
+	return p.waitPaused(ctx)
+}
+
+func (p *transferProgress) waitPaused(ctx context.Context) error {
+	if p == nil || p.log == nil {
 		return nil
 	}
 	for {
@@ -308,14 +328,19 @@ func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
 	}
 	switch in.Action {
 	case "pause", "resume":
-		if entry.Kind == "copy" || (entry.Status != "running" && entry.Status != "paused") {
+		if entry.Kind == "copy" && !entry.pausable || !transferActive(entry.Status) {
 			fail(w, 409, errors.New("此任务不支持暂停或继续，请重新发起失败的传输"))
 			return
 		}
 		before := entry.Status
 		entry.Status = "paused"
 		if in.Action == "resume" {
-			entry.Status = "running"
+			entry.Status = entry.phase
+			if entry.Status == "" || entry.Status == "paused" {
+				entry.Status = "running"
+			}
+		} else if before != "paused" {
+			entry.phase = before
 		}
 		entry.Updated = time.Now()
 		l.items[in.ID] = entry
@@ -327,7 +352,7 @@ func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "delete":
-		if entry.Kind == "copy" && entry.Status == "running" {
+		if entry.Kind == "copy" && !entry.pausable && transferActive(entry.Status) {
 			fail(w, 409, errors.New("云端复制提交后不能中断，请等待结束"))
 			return
 		}
@@ -341,9 +366,31 @@ func (a *App) transferAction(w http.ResponseWriter, r *http.Request) {
 		}
 		eventEntry = entry
 		result = "清理传输记录"
-		if entry.Status == "running" || entry.Status == "paused" {
+		if transferActive(entry.Status) {
 			level, result = "warn", "取消传输并清理记录"
 		}
+	case "retry":
+		if entry.Status != "failed" || entry.retry == nil {
+			fail(w, 409, errors.New("此记录没有可安全重建的传输源，请从原入口重新发起；未知云端写入不会重放"))
+			return
+		}
+		replay := entry.retry
+		before := entry
+		ctx, cancel := context.WithCancel(a.ctx)
+		entry.Status, entry.phase, entry.Message = "preparing", "preparing", ""
+		entry.Done, entry.Speed, entry.rate, entry.cancel = 0, 0, &trafficMeter{}, cancel
+		entry.Updated = time.Now()
+		l.items[in.ID] = entry
+		if err := l.saveFailures(); err != nil {
+			l.items[in.ID] = before
+			cancel()
+			fail(w, 500, errors.New("保存传输记录失败"))
+			return
+		}
+		p := &transferProgress{log: l, id: entry.ID, kind: entry.Kind, meter: &a.traffic, app: a, ctx: ctx, cancel: cancel, entry: entry}
+		p.ctx = context.WithValue(ctx, transferProgressResourceKey{}, p)
+		eventEntry, result = entry, "手动重试"
+		go func() { p.finish(replay(p.ctx, p)); a.cache.clear() }()
 	default:
 		fail(w, 400, errors.New("无效的传输操作"))
 		return
@@ -360,8 +407,11 @@ func (p *transferProgress) add(n int) {
 	p.log.mu.Lock()
 	defer p.log.mu.Unlock()
 	entry, ok := p.log.items[p.id]
-	if !ok || (entry.Status != "running" && entry.Status != "paused") {
+	if !ok || !transferActive(entry.Status) {
 		return
+	}
+	if entry.Status != "paused" {
+		entry.Status, entry.phase = "running", "running"
 	}
 	entry.Done += int64(n)
 	if entry.rate != nil {
@@ -402,6 +452,9 @@ func (p *transferProgress) finish(err error) {
 			}
 			if err != nil {
 				level, result = "error", transferFailureReason(err)
+				if errors.Is(err, errTransferIgnored) || errors.Is(err, errTransferSkipped) || errors.Is(err, errDAVPartialRead) {
+					level = "info"
+				}
 				if errors.Is(err, context.Canceled) {
 					level = "warn"
 				}
@@ -425,10 +478,21 @@ func (p *transferProgress) finish(err error) {
 		entry.Updated = time.Now()
 		if err != nil {
 			entry.Status = "failed"
-			entry.Message = "操作失败，请检查服务日志及存储权限"
+			entry.Message = transferFailureReason(err)
 			var diagnosed *fileTransferError
 			if errors.As(err, &diagnosed) {
 				entry.Message = transferFailureReason(err)
+			}
+			if errors.Is(err, context.Canceled) {
+				entry.Status = "error"
+				entry.Message = transferFailureReason(err)
+			}
+			if errors.Is(err, errTransferIgnored) {
+				entry.Status, entry.Message = "ignored", errTransferIgnored.Error()
+			} else if errors.Is(err, errTransferSkipped) {
+				entry.Status, entry.Message = "skipped", errTransferSkipped.Error()
+			} else if errors.Is(err, errDAVPartialRead) {
+				entry.Status, entry.Message = "skipped", errDAVPartialRead.Error()
 			}
 		}
 		p.log.items[p.id] = entry
@@ -447,12 +511,12 @@ func (a *App) transferList(w http.ResponseWriter, r *http.Request) {
 	items := make([]transferEntry, 0, len(a.transfers.items))
 	cleared := 0
 	for _, item := range a.transfers.items {
-		if (item.Status == "completed" && time.Since(item.Updated) >= time.Minute) || (item.Status == "failed" && time.Since(item.Updated) > 72*time.Hour) {
+		if (!transferActive(item.Status) && !transferFailed(item.Status) && time.Since(item.Updated) >= time.Minute) || (transferFailed(item.Status) && time.Since(item.Updated) > 72*time.Hour) {
 			delete(a.transfers.items, item.ID)
 			changed = true
 			continue
 		}
-		if r.Method == "DELETE" && item.Status == "failed" {
+		if r.Method == "DELETE" && transferFailed(item.Status) {
 			delete(a.transfers.items, item.ID)
 			changed = true
 			cleared++
@@ -462,6 +526,7 @@ func (a *App) transferList(w http.ResponseWriter, r *http.Request) {
 		if item.Status == "running" && item.rate != nil {
 			item.Speed = item.rate.rates(time.Now())["uploadRate"]
 		}
+		item.Controls = controlsForTransfer(item)
 		items = append(items, item)
 	}
 	var saveErr error

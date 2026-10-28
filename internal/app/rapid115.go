@@ -691,7 +691,7 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 			record.Status = "success"
 			record.Message = "秒传成功"
 			if record.Retries > 0 {
-				record.Message = fmt.Sprintf("重试%d次秒传成功", record.Retries)
+				record.Message = fmt.Sprintf("重试%d次成功", record.Retries)
 			}
 			if !rapid {
 				record.Status = "uploaded"

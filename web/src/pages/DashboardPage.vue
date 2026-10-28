@@ -9,7 +9,7 @@ import { noticeTime } from '../library-notices'
 const recent = computed(() => state.logs.slice(-6).reverse())
 const modules = {
   audit: ['操作审计','ShieldCheck'], files: ['文件与备份','FolderOpen'], storage: ['存储与服务','HardDrive'],
-  tasks: ['任务管理','ListTodo'], links: ['以太链接','Waypoints'], system: ['系统','Server']
+  tasks: ['任务中心','ListTodo'], links: ['以太链接','Waypoints'], system: ['系统','Server']
 }
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试', success: '完成', cancelled: '取消', interrupted: '中断' }
 const moduleOf = log => modules[log.module] || modules.system

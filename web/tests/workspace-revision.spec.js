@@ -10,6 +10,8 @@ test('rename changes highlight separate replacements without marking unchanged t
 async function mock(page) {
 	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
 	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))
+	await page.route('**/api/115-folder-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
+	await page.route('**/api/115-signin', r => r.fulfill({ json: { enabled: false, rules: [] } }))
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
   await page.route('**/api/state', r => r.fulfill({ json: { username: 'revision', storages: [{ id: 'local', type: 'local', name: '资料', enabled: true, status: 'error', config: {} }], tasks: [], settings: {}, cache: {}, traffic: {}, logs: [] } }))
   await page.route('**/api/files?**', r => r.fulfill({ json: [{ id: '/Movies', name: 'Movies', isDir: true, size: 20, sizeKnown: true, countsKnown: true, folderCount: 1, fileCount: 2 }, { id: '/film.mkv', name: 'film.mkv', size: 5 }] }))

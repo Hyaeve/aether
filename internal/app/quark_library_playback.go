@@ -334,7 +334,7 @@ func quarkLibrarySharePath(card quarkLibraryCard) string {
 
 func quarkLibraryURL(card quarkLibraryCard, relative, address string) string {
 	name := path.Base(strings.TrimSuffix(relative, ".strm"))
-	return strings.TrimRight(address, "/") + "/quark-share/" + url.PathEscape(quarkLibrarySharePath(card)) + "/" + url.PathEscape(name) + "\n"
+	return strings.TrimRight(address, "/") + "/quark-share/" + url.PathEscape(quarkLibrarySharePath(card)) + "/" + shareFilenamePath(name) + "\n"
 }
 
 func (a *App) playQuarkLibraryPath(w http.ResponseWriter, r *http.Request) {
@@ -405,6 +405,7 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 	original := s
 	token, items, err := a.readShareSession(ctx, &s, code, pass, grant.SourceParent, "")
 	if err != nil {
+		a.store.event("warn", "virtual", "夸克链库播放分享读取失败："+card.Name+" · "+grant.Name+"；"+safeStorageError(err))
 		fail(w, 502, err)
 		return
 	}
@@ -420,6 +421,7 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if source == nil {
+		a.store.event("warn", "virtual", "夸克链库播放源文件核对失败："+card.Name+" · "+grant.Name+"；分享文件身份、名称或大小已变化")
 		http.NotFound(w, r)
 		return
 	}
@@ -434,8 +436,10 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 		redirectDownload(w, r, target)
 		return
 	}
+	a.store.event("info", "virtual", "夸克链库未取得TV直链，改用已转存文件的网页中继："+card.Name+" · "+grant.Name)
 	download, err := a.downloadWithUA(ctx, session, record.FileID, "", r.UserAgent())
 	if err != nil {
+		a.store.event("warn", "virtual", "夸克链库转存文件取链失败："+card.Name+" · "+grant.Name+"；"+safeStorageError(err))
 		fail(w, 502, err)
 		return
 	}
@@ -457,9 +461,16 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 	}()
 	from := a.transferDirectory(session, record.Folder)
 	from.Directory = record.FolderName
-	progress := a.beginTransfer(r.Context(), "download", session, grant.Name, grant.Size,
-		transferLocations{From: from, To: transferClientLocation(r.Context())})
-	reader := &davFile{ctx: progress.ctx, info: davInfo{File{Name: grant.Name, Size: grant.Size}}, download: download, progress: progress}
+	var progress *transferProgress
+	readerCtx := ctx
+	if r.Header.Get("Range") != "bytes=0-0" {
+		progress = a.beginTransfer(r.Context(), "download", session, grant.Name, grant.Size,
+			transferLocations{From: from, To: transferClientLocation(r.Context())})
+		if progress != nil {
+			readerCtx = progress.ctx
+		}
+	}
+	reader := &davFile{ctx: readerCtx, info: davInfo{File{Name: grant.Name, Size: grant.Size}}, download: download, progress: progress}
 	defer reader.Close()
 	a.store.event("info", "virtual", "夸克链库中继播放："+card.Name+" · "+grant.Name)
 	http.ServeContent(w, r, grant.Name, time.Time{}, reader)

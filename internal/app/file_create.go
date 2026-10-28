@@ -131,7 +131,7 @@ func (a *App) storeUploadedFile(ctx context.Context, s Storage, parent, name, st
 			return err
 		}
 		if existing != nil {
-			return errors.New("同名文件已存在，不覆盖")
+			return errTransferSkipped
 		}
 		return a.publishCloudFile(ctx, s, parent, name, staged)
 	}
@@ -152,6 +152,9 @@ func (a *App) storeUploadedFile(ctx context.Context, s Storage, parent, name, st
 	target := path.Join(rel, name)
 	out, err := root.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return errTransferSkipped
+		}
 		return err
 	}
 	_, err = io.Copy(out, &cancelReader{ctx: ctx, reader: in})
@@ -185,8 +188,14 @@ func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, b
 	if directory := path.Dir(strings.ReplaceAll(name, "\\", "/")); directory != "." {
 		from.Directory = path.Base(directory)
 	}
-	progress := a.beginTransfer(ctx, "upload", s, name, size,
-		transferLocations{From: from, To: a.transferUploadLocation(s, parent, name)})
+	progress, _ := ctx.Value(transferRequestProgressKey{}).(*transferProgress)
+	if progress == nil {
+		progress = a.beginTransfer(ctx, "upload", s, name, size,
+			transferLocations{From: from, To: a.transferUploadLocation(s, parent, name)})
+	}
+	if progress != nil {
+		ctx = progress.ctx
+	}
 	defer func() { progress.finish(resultErr) }()
 	body = transferReader{body, progress}
 	limit := uploadFileLimit(s)
@@ -222,6 +231,7 @@ func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, b
 	if n > limit || (size >= 0 && n != size) {
 		return fmt.Errorf("文件过大或上传内容不完整（单文件上限 %s）", uploadLimitLabel(limit))
 	}
+	progress.stage("preparing")
 	if err := a.storeUploadedFile(ctx, s, parent, name, f.Name()); err != nil {
 		return err
 	}
@@ -236,6 +246,9 @@ func (a *App) uploadFile(w http.ResponseWriter, r *http.Request) {
 		err = a.receiveFile(r.Context(), s, r.URL.Query().Get("parent"), r.URL.Query().Get("name"), r.Body, r.ContentLength)
 	}
 	if err != nil {
+		if p, _ := r.Context().Value(transferRequestProgressKey{}).(*transferProgress); p != nil {
+			p.finish(err)
+		}
 		fail(w, 400, err)
 		return
 	}

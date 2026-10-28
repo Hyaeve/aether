@@ -28,6 +28,48 @@ type folderCleanupReceipt struct {
 	Time time.Time `json:"time"`
 }
 
+func (a *App) folderCleanupRunAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(405)
+		return
+	}
+	var input struct {
+		ID        string `json:"id"`
+		Confirmed bool   `json:"confirmed"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if !input.Confirmed {
+		fail(w, 400, errors.New("请二次确认文件夹清理范围和阈值"))
+		return
+	}
+	var rule *folderCleanupRule
+	for _, saved := range a.store.snapshotWithLogLimit(0).FolderCleanup.Rules {
+		if saved.ID == input.ID {
+			copy := saved
+			rule = &copy
+		}
+	}
+	if rule == nil {
+		fail(w, 404, errors.New("清理规则不存在，请重新打开"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+	count, err := a.runFolderCleanup(ctx, *rule)
+	level, message := "info", "完成"
+	if err != nil {
+		level, message = "warn", err.Error()
+	}
+	a.store.event(level, "tasks", fmt.Sprintf("115文件夹手动清理：%s，阈值%d天，已处理%d项：%s", rule.Label, rule.Days, count, message))
+	if err != nil {
+		fail(w, 502, err)
+		return
+	}
+	jsonResponse(w, 200, map[string]int{"count": count})
+}
+
 func validateFolderCleanup(value folderCleanupSettings, st State, legacy bool) error {
 	if len(value.Rules) > 100 {
 		return errors.New("最多添加100个清理文件夹")

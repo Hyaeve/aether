@@ -7,6 +7,7 @@ import ProviderIcon from './ProviderIcon.vue'
 import RoundedSelect from './RoundedSelect.vue'
 import TaskSourcePicker from './TaskSourcePicker.vue'
 import NumberInput from './NumberInput.vue'
+import '../plugin-tasks.css'
 
 const emit = defineEmits(['close'])
 const configs = ref({}), loaded = ref(false), busy = ref(false), error = ref('')
@@ -53,18 +54,18 @@ function select(value) {
 
 <template>
   <Modal standard title="115 同播复制" @close="!busy && emit('close')">
-  <section class="modal-body simulcast-settings" :aria-busy="busy">
+  <section class="modal-body simulcast-settings plugin-task-settings" :aria-busy="busy">
     <p v-if="error && !editing && !removing" class="error-message" role="alert">{{ error }}</p>
-    <div class="simulcast-list">
-      <article v-for="(config, id) in configs" :key="id" class="simulcast-row">
+    <div class="plugin-task-list">
+      <article v-for="(config, id) in configs" :key="id" class="simulcast-row plugin-task-row">
         <button class="simulcast-toggle" :aria-label="`${config.enabled ? '停用' : '启用'} ${poolName(id)} 同播复制`" :aria-pressed="config.enabled" :disabled="busy" @click="persist({ ...configs, [id]: { ...config, enabled: !config.enabled } })"><ProviderIcon type="115" /></button>
-        <div class="simulcast-name"><strong>{{ poolName(id) }}</strong><span>{{ config.directoryLabel || config.directory }}</span></div>
+        <div class="plugin-task-copy"><strong>{{ poolName(id) }}</strong><span :data-tooltip="config.directoryLabel||config.directory" data-tooltip-stationary data-tooltip-delay="300">{{ config.directoryLabel || config.directory }}</span></div>
         <button class="icon-btn" :aria-label="`编辑 ${poolName(id)}`" :disabled="busy" @click="edit(id)"><Icon name="Pencil" /></button>
         <button class="icon-btn danger-text" :aria-label="`删除 ${poolName(id)}`" :disabled="busy" @click="removing = id; error = ''"><Icon name="Trash2" /></button>
       </article>
-      <button class="simulcast-add" :disabled="busy || !loaded || !canAdd" @click="edit()"><Icon name="Plus" />存储绑定</button>
     </div>
   </section>
+  <footer class="modal-footer plugin-task-footer"><button class="btn plugin-task-add" :disabled="busy || !loaded || !canAdd" @click="edit()"><Icon name="Plus" />添加同播</button></footer>
   </Modal>
   <Modal v-if="editing" standard :title="original ? '编辑同播复制' : '添加同播复制'" @close="!busy && (editing = false)">
     <form @submit.prevent="save">

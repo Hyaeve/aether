@@ -94,8 +94,10 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 		if req.Action == "copy" || req.Action == "move" {
 			progress = a.beginTransfer(r.Context(), "copy", s, fmt.Sprintf("%s · %d 项", req.Action, len(req.IDs)), 0,
 				transferLocations{From: a.transferDirectory(s, req.Source), To: a.transferDirectory(target, req.Target)})
+			progress.stage("preparing")
 		}
-		err := a.cloudFileAction(r.Context(), s, target, req)
+		ctx := context.WithValue(r.Context(), fileTransferProgressKey{}, progress)
+		err := a.cloudFileAction(ctx, s, target, req)
 		progress.finish(err)
 		a.cache.clear()
 		if req.Action != "copy" {
@@ -209,12 +211,34 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 		case "copy", "move":
 			progress := a.beginTransfer(r.Context(), "copy", s, path.Base(name), 0,
 				transferLocations{From: a.transferFileLocation(s, name), To: a.transferFileLocation(target, out)})
+			ctx := r.Context()
+			if progress != nil {
+				ctx = progress.ctx
+			}
 			if req.Action == "move" && s.ID == target.ID {
 				err = src.Rename(name, out)
 			} else {
-				err = copyLocalTree(context.WithValue(r.Context(), copyProgressKey{}, progress), src, dst, name, out, 0)
+				progress.controlCopy()
+				progress.stage("preparing")
+				var size int64
+				count := 0
+				size, err = localCopySize(ctx, src, name, 0, &count)
+				progress.setTotal(size)
+				info, _ := src.Lstat(name)
+				if req.Action == "copy" {
+					a.localCopyReplay(progress, s, target, name, out, info)
+				}
+				if err == nil {
+					err = copyLocalTree(context.WithValue(ctx, copyProgressKey{}, progress), src, dst, name, out, 0)
+				}
 				if err == nil && req.Action == "move" {
-					err = src.RemoveAll(name)
+					err = progress.wait()
+					if err == nil {
+						err = ctx.Err()
+					}
+					if err == nil {
+						err = src.RemoveAll(name)
+					}
 				}
 			}
 			progress.finish(err)
@@ -254,6 +278,10 @@ func copyLocalTree(ctx context.Context, src, dst *os.Root, from, to string, dept
 	}
 	if depth > 128 {
 		return errors.New("目录层级过深")
+	}
+	progress, _ := ctx.Value(copyProgressKey{}).(*transferProgress)
+	if err := progress.wait(); err != nil {
+		return err
 	}
 	info, err := src.Lstat(from)
 	if err != nil {
@@ -311,15 +339,16 @@ func copyLocalTree(ctx context.Context, src, dst *os.Root, from, to string, dept
 		if err = ctx.Err(); err != nil {
 			return err
 		}
+		if err = progress.wait(); err != nil {
+			return err
+		}
 		n, e := in.Read(buf)
 		if n > 0 {
 			if _, err = out.Write(buf[:n]); err != nil {
 				return err
 			}
 			copied += int64(n)
-			if progress, ok := ctx.Value(copyProgressKey{}).(*transferProgress); ok {
-				progress.add(n)
-			}
+			progress.add(n)
 		}
 		if e == io.EOF {
 			break
@@ -336,6 +365,9 @@ func copyLocalTree(ctx context.Context, src, dst *os.Root, from, to string, dept
 		return errors.New("源文件在复制期间变化，已中止操作并保留源文件")
 	}
 	if err = out.Sync(); err != nil {
+		return err
+	}
+	if err = progress.wait(); err != nil {
 		return err
 	}
 	return out.Close()

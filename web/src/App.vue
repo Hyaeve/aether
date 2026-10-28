@@ -20,6 +20,7 @@ import LoginPage from './pages/LoginPage.vue'
 import StoragePage from './pages/StoragePage.vue'
 import CloudManagementPage from './pages/CloudManagementPage.vue'
 import TasksPage from './pages/TasksPage.vue'
+import TaskPanelPage from './pages/TaskPanelPage.vue'
 import AutomationPage from './pages/AutomationPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
 import FilesPage from './pages/FilesPage.vue'
@@ -72,7 +73,7 @@ const navigationGroups = [
   ] },
   { id: 'workshop', label: '以太工坊', items: [
     { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
-    { path: '/tasks', label: '任务管理', icon: 'ListTodo' },
+    { path: '/tasks', label: '任务中心', icon: 'ListTodo' },
     { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' },
     { path: '/links', label: '以太链接', icon: 'Waypoints' },
     { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' },
@@ -85,14 +86,14 @@ const navigationGroups = [
   ] }
 ]
 const navigation = navigationGroups.flatMap(group => group.items)
-const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/strm' : route.path)
+const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/panel' : route.path)
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
 const title = computed(() => activeNav.value?.label || '以太')
 const sectionTitles = {
   '/files':['文件管理'], '/files/webdav':['WebDAV'], '/files/mounts':['本地挂载'],
   '/storage':['存储池'], '/storage/shares':['分享栏'], '/storage/downloads':['云下载'], '/storage/trash':['回收站'],
   '/transfer':['传输任务'], '/transfer/backup':['备份规则'], '/transfer/backup/settings':['备份规则','备份设置'],
-  '/tasks/strm':['STRM 任务'], '/tasks/cas':['CAS 任务'], '/tasks/cas/pool':['CAS 任务','存储绑定池'],
+  '/tasks/panel':['任务面板'], '/tasks/strm':['STRM 任务'], '/tasks/cas':['CAS 任务'], '/tasks/cas/pool':['CAS 任务','存储绑定池'],
   '/tasks/ed2k':['ED2K 任务'], '/tasks/ed2k/pool':['ED2K 任务','存储绑定池'],
   '/tasks/cache':['缓存任务'], '/tasks/cache/settings':['缓存任务','缓存设置'],
   '/tasks/organize':['目录整理'], '/tasks/scrape':['STRM 刮削'], '/tasks/automation':['联动任务'],
@@ -232,11 +233,11 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
           </div>
         </div>
       </header>
-      <ThinScroll class="page-scroll" :thickness="7" :key="currentPath">
+      <ThinScroll class="page-scroll" :thickness="8" :key="currentPath">
       <main class="page-content">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />
-        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k','/tasks/ed2k/pool', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
+        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/panel','/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k','/tasks/ed2k/pool', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />
         <CloudManagementPage v-else-if="['/storage/shares','/storage/downloads','/storage/trash'].includes(currentPath)" :key="currentPath" :kind="currentPath.split('/').at(-1)" />
         <template v-else-if="currentPath === '/transfer/backup/settings'"><section class="task-heading"><button class="btn" @click="router.push('/transfer/backup')"><Icon name="ArrowLeft" />返回备份规则</button></section><TransferSettings mode="backup" /></template>
@@ -244,6 +245,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
         <FilesPage v-else-if="currentPath === '/files'" :key="route.fullPath" />
         <MountsPage v-else-if="currentPath === '/files/mounts'" />
+        <TaskPanelPage v-else-if="currentPath === '/tasks/panel'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas', '/tasks/ed2k'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <ScrapePage v-else-if="currentPath === '/tasks/scrape'" />
         <AutomationPage v-else-if="currentPath === '/tasks/automation'" />

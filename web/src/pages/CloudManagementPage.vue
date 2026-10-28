@@ -12,6 +12,7 @@ import Modal from '../components/Modal.vue'
 import PinInput from '../components/PinInput.vue'
 import CloudShare from '../components/CloudShare.vue'
 import VirtualList from '../components/VirtualList.vue'
+import SelectionDock from '../components/SelectionDock.vue'
 import {compactDate} from '../date-time.mjs'
 import {cloudListings,cloudListingKey,cloudSelectedPool,rememberCloudPool} from '../cloud-session-cache'
 const props=defineProps({kind:String})
@@ -107,7 +108,7 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
 <span v-if="kind==='shares'" class="cloud-status">{{item.status}}<small v-if="item.expiration">{{item.expiration}}</small></span>
 <div class="cloud-row-actions" @click.stop><template v-if="kind==='shares'"><button v-if="capabilities.edit" class="icon-btn" aria-label="修改分享设置" :disabled="busy" @click="editing=item"><Icon name="Pencil" /></button><button class="icon-btn danger-text" aria-label="撤回分享" :disabled="busy" @click="ask('cancel',[item])"><Icon name="X" /></button></template><template v-else><button class="icon-btn" :aria-label="kind==='trash'?'还原':'重试'" :disabled="busy||kind==='downloads'&&(item.status==='success'||storage==='cas'&&item.status==='running')" @click="ask(kind==='trash'?'restore':'retry',[item])"><Icon :name="kind==='trash'?'Undo2':'RotateCcw'" /></button><button class="icon-btn danger-text" :aria-label="kind==='trash'?'彻底删除':'删除记录'" :disabled="busy||storage==='cas'&&item.status==='running'" @click="ask('delete',[item])"><Icon name="Trash2" /></button></template></div></article></template></VirtualList>
 <span v-if="loading" class="cloud-loading" role="status"><Icon name="LoaderCircle" class="spin" :size="14" />加载中</span></section>
-<Teleport to="body"><div v-if="selecting" class="cloud-management-dock" role="toolbar" aria-label="所选云盘条目操作"><strong>已选 {{selected.length}} 项</strong><button class="btn" :aria-pressed="selectAll" :class="{active:selectAll}" @click="toggleSelectAll"><Icon name="CheckCheck" />全选</button><button class="btn" @click="clearSelection"><Icon name="X" />清空</button><button v-if="kind!=='shares'" class="btn" :disabled="busy||!(kind==='trash'?selected.length:eligible.length)" @click="ask(kind==='trash'?'restore':'retry',kind==='trash'?selectedRows:eligible)"><Icon :name="kind==='trash'?'Undo2':'RotateCcw'" />{{kind==='trash'?'还原':'重试'}}</button><button class="btn danger-text" :disabled="busy||!selected.length||storage==='cas'&&selectedRows.some(i=>i.status==='running')" @click="ask(kind==='shares'?'cancel':'delete',selectedRows)"><Icon name="Trash2" />{{kind==='trash'?'彻底删除':kind==='shares'?'删除分享':'删除'}}</button></div></Teleport>
+<SelectionDock v-if="selecting" class="cloud-management-dock" :count="selected.length" label="所选云盘条目操作"><button class="btn" :aria-pressed="selectAll" :class="{active:selectAll}" @click="toggleSelectAll"><Icon name="CheckCheck" /><span>全选</span></button><button class="btn" @click="clearSelection"><Icon name="X" /><span>清空</span></button><button v-if="kind!=='shares'" class="btn" :disabled="busy||!(kind==='trash'?selected.length:eligible.length)" @click="ask(kind==='trash'?'restore':'retry',kind==='trash'?selectedRows:eligible)"><Icon :name="kind==='trash'?'Undo2':'RotateCcw'" /><span>{{kind==='trash'?'还原':'重试'}}</span></button><button class="btn danger-text" :disabled="busy||!selected.length||storage==='cas'&&selectedRows.some(i=>i.status==='running')" @click="ask(kind==='shares'?'cancel':'delete',selectedRows)"><Icon name="Trash2" /><span>{{kind==='trash'?'彻底删除':kind==='shares'?'删除分享':'删除'}}</span></button></SelectionDock>
 <Modal v-if="confirm" compact confirmation :title="`确认${actionLabel(confirm.action)}`" @close="if(!busy){confirm=null;password=''}"><form @submit.prevent="execute"><div class="modal-body cloud-confirm"><p>确认{{actionLabel(confirm.action)}} {{confirm.action==='clear'?'全部回收站条目（包括未加载的项目）':confirm.count+' 项'}}？{{kind==='trash'&&confirm.action!=='restore'?'无法撤销。':''}}</p><label v-if="kind==='trash'&&confirm.action!=='restore'&&capabilities.password">115回收站密码<PinInput v-model="password" label="115回收站密码" :disabled="busy" /></label></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="confirm=null;password=''">取消</button><button class="btn primary" :disabled="busy||kind==='trash'&&confirm.action!=='restore'&&capabilities.password&&!/^\d{6}$/.test(password)"><Icon name="Check" />确认</button></footer></form></Modal>
 <CloudShare v-if="editing" :storage="storage" :editing="editing" @close="editing=null" @changed="cloudListings.clear();refresh()" />
 </template>
@@ -120,7 +121,7 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
 .cloud-management-row{height:52px;border:1px solid transparent;border-bottom-color:var(--border);border-radius:6px;background:var(--input);user-select:none}
 .downloads .cloud-management-row{height:60px}
 .cloud-management-panel :deep(.virtual-directory-row:nth-child(odd)) .cloud-management-row{background:var(--layer-item)}
-.cloud-management-panel .cloud-management-row.selected{border-color:var(--primary);background:color-mix(in srgb,var(--primary) 13%,var(--input))}
+.cloud-management-panel .cloud-management-row.selected{border-color:var(--selection-border);background:var(--selection-bg)}
 .cloud-row-name{grid-column:1;grid-row:1;display:flex;gap:8px;align-items:center;min-width:0}
 .cloud-row-name svg{flex:none}.cloud-row-name>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cloud-size{grid-column:2;grid-row:1}.cloud-path,.cloud-link{grid-column:3;grid-row:1;min-width:0}
@@ -142,8 +143,6 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
 .cloud-management-row progress.success{border-color:var(--green)}.cloud-management-row progress.error,.cloud-management-row progress.interrupted{border-color:var(--red);accent-color:var(--red)}
 .cloud-management-row progress.success::-webkit-progress-value{background:var(--green)}.cloud-management-row progress.error::-webkit-progress-value,.cloud-management-row progress.interrupted::-webkit-progress-value{background:var(--red)}
 .cloud-management-row progress::-moz-progress-bar{background:var(--amber)}.cloud-management-row progress.success::-moz-progress-bar{background:var(--green)}.cloud-management-row progress.error::-moz-progress-bar,.cloud-management-row progress.interrupted::-moz-progress-bar{background:var(--red)}
-.cloud-management-dock{position:fixed;bottom:var(--workspace-end-gap);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:7px 12px;background:color-mix(in srgb,var(--surface) 90%,transparent);backdrop-filter:blur(20px);z-index:140;font-size:13px;max-width:calc(100vw - 16px);white-space:nowrap}
-.cloud-management-dock .btn{height:30px;padding:3px 8px}.cloud-management-dock .btn.active{background:var(--primary-soft);color:var(--primary)}
 .cloud-confirm{display:grid;gap:14px}.cloud-confirm label{display:grid;gap:8px}.cloud-toolbar{align-items:center}
 .cloud-toolbar :deep(.rounded-select){width:180px;min-width:180px;max-width:180px;flex:none}
 .cloud-toolbar :deep(.rounded-select-trigger){width:100%}
@@ -170,7 +169,6 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
  .downloads .cloud-execution progress{top:auto;bottom:0;height:4px}
  .cloud-status{grid-column:1/4;grid-row:3;display:flex;gap:8px}
  .cloud-row-name{gap:4px}.cloud-management-row small{font-size:12px;flex:none}
- .cloud-management-dock{gap:3px;padding:6px}.cloud-management-dock strong{font-size:11px}.cloud-management-dock .btn{padding:3px 5px;font-size:12px}
 }
 @media(max-width:440px){
  .cloud-toolbar{gap:4px}.cloud-toolbar :deep(.rounded-select){width:124px;min-width:124px;max-width:124px}

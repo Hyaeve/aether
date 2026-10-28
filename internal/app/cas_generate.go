@@ -14,6 +14,33 @@ import (
 
 var errCASMissingHash = errors.New("云端目录接口未返回有效文件哈希，无法生成 CAS")
 
+func casTaskInfoMode(t Task, s Storage) string {
+	if t.CASInfoMode != "" {
+		return t.CASInfoMode
+	}
+	if s.Type == "mobile" {
+		return "mobile"
+	}
+	return "all"
+}
+
+func validCASInfoMode(mode string) bool {
+	return mode == "" || mode == "all" || mode == "mobile" || mode == "tianyi"
+}
+
+func selectCASInfo(info CASInfo, mode string) (CASInfo, error) {
+	switch mode {
+	case "mobile":
+		info.MD5, info.SliceMD5, info.SliceSize = "", "", 0
+	case "tianyi":
+		info.SHA256 = ""
+	}
+	if err := validateCAS(info); err != nil {
+		return info, errCASMissingHash
+	}
+	return info, nil
+}
+
 // Match OpenList's Cloud189PC partSize rule, using integer ceiling division.
 func tianyiCASPartSize(size int64) int64 {
 	const base = int64(10 << 20)
@@ -50,23 +77,36 @@ func casForBinding(info CASInfo, binding Storage) (CASInfo, error) {
 	return info, validateCASFor(binding, info)
 }
 
-func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, error) {
+func (a *App) generateCASInfo(ctx context.Context, s Storage, f File, modes ...string) (CASInfo, error) {
+	mode := ""
+	if len(modes) > 0 {
+		mode = modes[0]
+	}
 	info := CASInfo{Provider: s.Type, Name: f.Name, Size: f.Size, SHA256: strings.ToLower(f.SHA256), MD5: strings.ToLower(f.MD5)}
+	if !validCASInfoMode(mode) {
+		return info, errors.New("CAS 信息类型无效")
+	}
 	if err := ctx.Err(); err != nil {
 		return info, err
 	}
 	if s.Type != "local" {
-		if s.Type != "mobile" && s.Type != "tianyi" {
-			return a.downloadCASInfo(ctx, s, f)
+		if s.Type == "mobile" && (mode == "" || mode == "mobile") {
+			return selectCASInfo(info, "mobile")
 		}
-		if info.SHA256 == "" && info.MD5 == "" {
-			return info, errCASMissingHash
+		if s.Type == "tianyi" && mode == "" {
+			return selectCASInfo(info, mode)
 		}
-		if err := validateCAS(info); err != nil {
-			return info, errCASMissingHash
-		}
-		return info, nil
+		return a.downloadCASInfo(ctx, s, f, mode)
 	}
+	info, err := a.hashLocalCASInfo(ctx, s, f, mode != "tianyi", mode != "mobile")
+	if err != nil {
+		return info, err
+	}
+	return selectCASInfo(info, mode)
+}
+
+func (a *App) hashLocalCASInfo(ctx context.Context, s Storage, f File, includeSHA, includeMD bool) (CASInfo, error) {
+	info := CASInfo{Provider: s.Type, Name: f.Name, Size: f.Size}
 	name, err := relative(f.ID)
 	if err != nil {
 		return info, err
@@ -110,15 +150,19 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 		}
 		n, err := file.Read(buffer)
 		if n > 0 {
-			sha.Write(buffer[:n])
-			md.Write(buffer[:n])
-			for chunk := buffer[:n]; len(chunk) > 0; {
-				take := min(int64(len(chunk)), sliceSize-sliceBytes)
-				slice.Write(chunk[:take])
-				sliceBytes += take
-				chunk = chunk[take:]
-				if sliceBytes == sliceSize {
-					finishSlice()
+			if includeSHA {
+				sha.Write(buffer[:n])
+			}
+			if includeMD {
+				md.Write(buffer[:n])
+				for chunk := buffer[:n]; len(chunk) > 0; {
+					take := min(int64(len(chunk)), sliceSize-sliceBytes)
+					slice.Write(chunk[:take])
+					sliceBytes += take
+					chunk = chunk[take:]
+					if sliceBytes == sliceSize {
+						finishSlice()
+					}
 				}
 			}
 			total += int64(n)
@@ -137,13 +181,18 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File) (CASInfo, 
 	if total != before.Size() || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
 		return info, errors.New("文件在计算哈希期间发生变化，请重新执行")
 	}
-	info.SHA256, info.MD5 = hex.EncodeToString(sha.Sum(nil)), hex.EncodeToString(md.Sum(nil))
-	if sliceBytes > 0 {
-		finishSlice()
+	if includeSHA {
+		info.SHA256 = hex.EncodeToString(sha.Sum(nil))
 	}
-	info.SliceSize, info.SliceMD5 = sliceSize, strings.ToUpper(info.MD5)
-	if sliceCount > 1 {
-		info.SliceMD5 = strings.ToUpper(hex.EncodeToString(aggregate.Sum(nil)))
+	if includeMD {
+		info.MD5 = hex.EncodeToString(md.Sum(nil))
+		if sliceBytes > 0 {
+			finishSlice()
+		}
+		info.SliceSize, info.SliceMD5 = sliceSize, strings.ToUpper(info.MD5)
+		if sliceCount > 1 {
+			info.SliceMD5 = strings.ToUpper(hex.EncodeToString(aggregate.Sum(nil)))
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return info, err

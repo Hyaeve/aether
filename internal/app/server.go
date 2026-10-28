@@ -31,6 +31,9 @@ import (
 type App struct {
 	archives            *executionArchives
 	folderCleanupMu     sync.Mutex
+	pan115SigninMu      sync.Mutex
+	davReadMu           sync.Mutex
+	davReads            map[string]*davReadSession
 	channels            notificationChannels
 	notificationQueue   chan channelNotice
 	wecom               wecomService
@@ -57,6 +60,7 @@ type App struct {
 	thumbnails          *thumbnailService
 	usageMu             sync.Mutex
 	usageCache          map[string]*storageUsageEntry
+	mobileCASMembers    map[string]mobileCASMembership
 	healthMu            sync.Mutex
 	healthChecks        map[string]*storageHealthCheck
 	backupMu            sync.Mutex
@@ -227,6 +231,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.recycleCleanupMonitor()
 	a.wg.Add(1)
 	go a.folderCleanupMonitor()
+	a.wg.Add(1)
+	go a.pan115SigninMonitor()
 	a.wg.Add(3)
 	go a.telegramPoll()
 	go a.telegramWorker()
@@ -340,6 +346,9 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
 	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))
 	mux.Handle("/api/115-folder-cleanup", a.protected(http.HandlerFunc(a.folderCleanupAPI)))
+	mux.Handle("/api/115-folder-cleanup/run", a.protected(http.HandlerFunc(a.folderCleanupRunAPI)))
+	mux.Handle("/api/115-signin", a.protected(http.HandlerFunc(a.pan115SigninAPI)))
+	mux.Handle("/api/115-signin/run", a.protected(http.HandlerFunc(a.pan115SigninRunAPI)))
 	mux.Handle("/api/115-recycle-cleanup/run", a.protected(http.HandlerFunc(a.recycleCleanupRunAPI)))
 	mux.Handle("/api/115-rapid", a.protected(http.HandlerFunc(a.rapid115Settings)))
 	mux.Handle("POST /api/115-rapid/run", a.protected(http.HandlerFunc(a.rapid115Start)))
@@ -411,6 +420,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("PUT /api/files/share-preferences", a.protected(http.HandlerFunc(a.sharePreferences)))
 	mux.Handle("/api/storages/reorder", a.protected(http.HandlerFunc(a.reorderStorage)))
 	mux.Handle("/api/tasks/reorder", a.protected(http.HandlerFunc(a.reorderTask)))
+	mux.Handle("/api/tasks/panel", a.protected(http.HandlerFunc(a.taskPanel)))
 	mux.Handle("GET /api/transfers", a.protected(http.HandlerFunc(a.transferList)))
 	mux.Handle("/api/transfer/settings", a.protected(http.HandlerFunc(a.transferSettingsAPI)))
 	mux.Handle("/api/backup/settings", a.protected(http.HandlerFunc(a.backupSettingsAPI)))
@@ -457,6 +467,8 @@ func (a *App) Handler(webDir string) http.Handler {
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 	})))
 	mux.HandleFunc("/stream/{token}", a.stream)
+	mux.HandleFunc("/cas/{token}", a.stream)
+	mux.HandleFunc("/cas/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("/d/{account}/{key}", a.playSTRMReference)
 	mux.HandleFunc("/d/{account}/{key}/{name}", a.playSTRMReference)
 	mux.HandleFunc("/d/{key}", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
@@ -983,6 +995,13 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				st.FolderCleanup.Rules = folders
+				signins := st.Pan115Signin.Rules[:0]
+				for _, rule := range st.Pan115Signin.Rules {
+					if rule.StorageID != sid {
+						signins = append(signins, rule)
+					}
+				}
+				st.Pan115Signin.Rules = signins
 				targets := st.Notifications.Targets[:0]
 				for _, target := range st.Notifications.Targets {
 					if target.StorageID != sid {
@@ -1170,6 +1189,12 @@ func (a *App) validateTask(t *Task) error {
 			// Generated features are independent of the playback account pool.
 			t.CASBindingID = ""
 			t.RetentionHours = 0
+			if !validCASInfoMode(t.CASInfoMode) {
+				return errors.New("CAS 信息类型无效")
+			}
+			s, _ := a.store.storage(t.StorageID)
+			t.CASInfoMode = casTaskInfoMode(*t, s)
+			t.Mode = "incremental"
 		}
 		t.Target = strings.TrimSpace(t.Target)
 		if _, err := a.outputRelative(t.Target); err != nil {
@@ -1446,6 +1471,11 @@ func (a *App) stream(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
+	casRoute := strings.HasPrefix(r.URL.Path, "/cas/")
+	if casRoute != (claim.CAS != nil) || claim.CAS != nil && claim.ED2K != nil {
+		http.NotFound(w, r)
+		return
+	}
 	var s Storage
 	if claim.ED2K != nil && claim.Storage == "" {
 		s, claim.RetentionHours, err = a.selectED2KStorage(*claim.ED2K, time.Now())
@@ -1611,6 +1641,12 @@ func (a *App) serveDAV(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
 		return
 	}
+	ip, _, splitErr := net.SplitHostPort(r.RemoteAddr)
+	if splitErr != nil {
+		ip = r.RemoteAddr
+	}
+	client := rapid115Stamp([]any{user, ip, r.UserAgent(), r.Context().Value(davGrantsKey{})})
+	r = r.WithContext(context.WithValue(r.Context(), davReadClientKey{}, client))
 	switch r.Method {
 	case "OPTIONS":
 		allow := "GET, HEAD, PROPFIND, OPTIONS"

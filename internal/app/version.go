@@ -15,7 +15,7 @@ import (
 )
 
 // Version may be set by the image build with -ldflags.
-var Version = "0.7.1"
+var Version = "0.7.2"
 var Revision = ""
 
 func (a *App) version(w http.ResponseWriter, r *http.Request) {

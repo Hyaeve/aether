@@ -33,6 +33,10 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 	if err != nil {
 		return err
 	}
+	if progress, _ := ctx.Value(fileTransferProgressKey{}).(*transferProgress); progress != nil {
+		progress.setName(transferSelectionName(items, req.IDs))
+		progress.stage("running")
+	}
 	selected := []File{}
 	seen := map[string]bool{}
 	for _, fid := range req.IDs {
@@ -272,6 +276,10 @@ func (a *App) protocolFileAction(ctx context.Context, s Storage, req fileActionR
 		items, err := a.rawList(ctx, s, req.Source)
 		if err != nil {
 			return err
+		}
+		if progress, _ := ctx.Value(fileTransferProgressKey{}).(*transferProgress); progress != nil {
+			progress.setName(transferSelectionName(items, req.IDs))
+			progress.stage("running")
 		}
 		var file *File
 		for _, f := range items {

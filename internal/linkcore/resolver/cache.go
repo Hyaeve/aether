@@ -133,6 +133,20 @@ func (c *lruCache) purge() int {
 	return count
 }
 
+func (c *lruCache) removeIf(key string, value *Resolution) {
+	c.mu.Lock()
+	element, ok := c.entries[key]
+	removed := ok && element.Value.(*cacheEntry).value == value
+	if removed {
+		c.order.Remove(element)
+		delete(c.entries, key)
+	}
+	c.mu.Unlock()
+	if removed {
+		c.markDirty()
+	}
+}
+
 func (c *lruCache) size() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()

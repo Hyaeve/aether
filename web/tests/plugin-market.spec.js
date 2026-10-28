@@ -35,7 +35,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`re
   await page.goto('/tools')
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
   const cards = page.locator('.plugin-card')
-  await expect(cards).toHaveCount(15)
+  await expect(cards).toHaveCount(16)
   await expect(cards.first()).toHaveCSS('height', '130px')
   for (const card of await cards.all()) {
     const bounds = await card.evaluate(el => { const text = el.querySelector('.plugin-description'); const box = text.getBoundingClientRect(); const card = el.getBoundingClientRect(); return { textHeight: box.height, bottom: card.bottom - box.bottom, overflow: el.scrollWidth > el.clientWidth } })

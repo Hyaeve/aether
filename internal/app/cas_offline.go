@@ -83,6 +83,12 @@ func (a *App) restoreCASInto(ctx context.Context, s Storage, parent string, info
 			a.casLog("info", s, info.Name, "离线秒传成功")
 		}
 	}()
+	if nativeTianyi(s) {
+		stage = "离线秒传会员额度预检"
+		if err := a.checkTianyiCASSize(ctx, s, info.Size); err != nil {
+			return err
+		}
+	}
 	existing, err := a.cloudByName(ctx, s, parent, info.Name)
 	if err != nil {
 		return err

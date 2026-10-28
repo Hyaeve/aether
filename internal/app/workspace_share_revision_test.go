@@ -217,7 +217,7 @@ func TestVirtual115GenerateAndPortableKey(t *testing.T) {
 		} `json:"files"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &result)
-	want := "http://10.0.0.31:15151/115-share/swf1h7936et-YJFX/%E7%89%87%E5%90%8D.mkv"
+	want := "http://10.0.0.31:15151/115-share/swf1h7936et-YJFX/片名.mkv"
 	if len(result.Files) != 1 || result.Files[0].Content != want || result.Files[0].Path != "Show/片名.mkv.strm" {
 		t.Fatal(result)
 	}

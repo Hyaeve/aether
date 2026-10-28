@@ -20,7 +20,7 @@ for (const [width, height] of [[1440, 900], [375, 812], [844, 390]]) for (const 
     if (await toggle.isVisible()) await toggle.click()
     const nav = page.getByRole('navigation', { name: '主导航', exact: true })
     await expect(nav.getByRole('heading')).toHaveText(['以太视界', '以太工坊', '系统面板'])
-    await expect(nav.getByRole('group', { name: '以太工坊', exact: true }).getByRole('link')).toHaveText(['传输中心', '任务管理', '虚拟链库', '以太链接', '辅助工具', '档案中心'])
+    await expect(nav.getByRole('group', { name: '以太工坊', exact: true }).getByRole('link')).toHaveText(['传输中心', '任务中心', '虚拟链库', '以太链接', '辅助工具', '档案中心'])
     await expect(nav.getByRole('group', { name: '系统面板', exact: true }).getByRole('link')).toHaveText(['通知服务', '运行日志', '系统设置'])
     await expect(page.locator('.breadcrumbs strong')).toHaveText('信息总览')
     expect(await nav.locator('h2').first().evaluate(el => getComputedStyle(el, '::after').height)).toBe('1px')

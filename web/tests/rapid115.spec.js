@@ -18,10 +18,10 @@ async function fixture(page){
   return {writes,get config(){return config},get runs(){return runs},setRecords(value){items=value},setConfig(value){config=value}}
 }
 
-test('115 rapid center is first plugin, persists manual directories and confirms execution',async({page},info)=>{
+test('115 rapid center follows signin, persists manual directories and confirms execution',async({page},info)=>{
   const f=await fixture(page)
   await page.goto('/tools')
-  await expect(page.locator('.plugin-card').first()).toHaveAttribute('aria-label','115 秒传')
+  await expect(page.locator('.plugin-card').nth(1)).toHaveAttribute('aria-label','115 秒传')
   await expect.poll(()=>page.locator('.page-content').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true)
   const iconBounds=await page.locator('.plugin-card').evaluateAll(cards=>cards.map(card=>{const icon=card.querySelector('.rapid115-icon,.plugin-symbol');const r=icon.getBoundingClientRect();return [r.width,r.height]}));expect(iconBounds.every(([w,h])=>w===44&&h===44)).toBe(true)
   await page.getByRole('button',{name:'115 秒传',exact:true}).click()
@@ -147,7 +147,7 @@ test('STRM mode closes selection without a check and simulcast retention default
   await page.screenshot({path:info.outputPath('replace-mode.png')})
   await page.keyboard.press('Escape')
   await page.getByRole('button',{name:'115 同播复制',exact:true}).click()
-  await page.getByRole('button',{name:'存储绑定',exact:true}).click()
+  await page.getByRole('button',{name:'添加同播',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'添加同播复制',exact:true})
   await expect(dialog.getByRole('spinbutton',{name:'复制保活',exact:true})).toHaveValue('12')
   await expect(dialog.locator('.number-unit')).toHaveText('h')
@@ -199,7 +199,7 @@ test('rapid controls share editor height, icon presets and nested day/night surf
 })
 
 test('simulcast directory picker preserves every chosen path segment',async({page})=>{
- await fixture(page);let saved={};await page.route('**/api/115-simulcast',r=>{if(r.request().method()==='PUT')saved=r.request().postDataJSON();return r.fulfill({json:saved})});await page.route('**/api/files?**',r=>{const path=new URL(r.request().url()).searchParams.get('path');return r.fulfill({json:path==='/'?[{id:'1',name:'影视',isDir:true}]:path==='1'?[{id:'2',name:'副本',isDir:true}]:[]})});await page.goto('/tools');await page.getByRole('button',{name:'115 同播复制',exact:true}).click();await page.getByRole('button',{name:'存储绑定',exact:true}).click();const modal=page.getByRole('dialog',{name:'添加同播复制'});await modal.getByRole('button',{name:'115 存储',exact:true}).click();await modal.getByRole('option',{name:'115 主账号'}).click();await modal.getByRole('button',{name:'选择复制目录'}).click();await page.getByRole('dialog',{name:'选择存储目录'}).getByRole('button',{name:'影视',exact:true}).click();await page.getByRole('button',{name:'副本',exact:true}).click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click();await expect(modal.getByRole('button',{name:'选择复制目录'})).toContainText('/影视/副本');await modal.getByRole('button',{name:'保存',exact:true}).click();expect(saved.p1.directoryLabel).toBe('/影视/副本')
+ await fixture(page);let saved={};await page.route('**/api/115-simulcast',r=>{if(r.request().method()==='PUT')saved=r.request().postDataJSON();return r.fulfill({json:saved})});await page.route('**/api/files?**',r=>{const path=new URL(r.request().url()).searchParams.get('path');return r.fulfill({json:path==='/'?[{id:'1',name:'影视',isDir:true}]:path==='1'?[{id:'2',name:'副本',isDir:true}]:[]})});await page.goto('/tools');await page.getByRole('button',{name:'115 同播复制',exact:true}).click();await page.getByRole('button',{name:'添加同播',exact:true}).click();const modal=page.getByRole('dialog',{name:'添加同播复制'});await modal.getByRole('button',{name:'115 存储',exact:true}).click();await modal.getByRole('option',{name:'115 主账号'}).click();await modal.getByRole('button',{name:'选择复制目录'}).click();await page.getByRole('dialog',{name:'选择存储目录'}).getByRole('button',{name:'影视',exact:true}).click();await page.getByRole('button',{name:'副本',exact:true}).click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click();await expect(modal.getByRole('button',{name:'选择复制目录'})).toContainText('/影视/副本');await modal.getByRole('button',{name:'保存',exact:true}).click();expect(saved.p1.directoryLabel).toBe('/影视/副本')
 })
 
 test('editable rapid directories start empty, resolve paths before saving and never reuse an invalid target',async({page})=>{

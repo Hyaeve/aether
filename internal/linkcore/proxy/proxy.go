@@ -289,6 +289,7 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 	// apiClient.credentials）。
 	ctx := upstream.WithClientCredentials(request.Context(), request)
 	ctx = upstream.WithUserAgent(ctx, event.EffectiveUserAgent)
+	ctx = resolver.WithRequestMethod(ctx, request.Method)
 	resolution, cacheSource, cacheTTL, err := s.resolver.ResolveWithSource(ctx, s.provider, ref, request.UserAgent())
 	event.CacheSource = string(cacheSource)
 	event.CacheHit = cacheSource != resolver.CacheSourceMiss
@@ -422,6 +423,9 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 	status, err := s.relayRemote(writer, request, playURL)
 	event.StatusCode = status
 	if err != nil {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			s.resolver.Invalidate(ctx, s.provider, ref, request.UserAgent(), resolution)
+		}
 		event.Error = err.Error()
 		finish(stats.OutcomeError, "中继 strm 目标失败")
 		return
@@ -1319,6 +1323,17 @@ func (s *Server) relayRemote(writer http.ResponseWriter, request *http.Request, 
 	defer response.Body.Close()
 
 	copyResponseHeaders(writer.Header(), response.Header)
+	if response.StatusCode >= http.StatusBadRequest {
+		writer.WriteHeader(response.StatusCode)
+		if request.Method != http.MethodHead {
+			_, _ = io.Copy(writer, response.Body)
+		}
+		host := outbound.URL.Host
+		if response.Request != nil && response.Request.URL != nil {
+			host = response.Request.URL.Host
+		}
+		return response.StatusCode, fmt.Errorf("上游读取返回 HTTP %d（实际响应主机 %q；未自动重复播放请求）", response.StatusCode, host)
+	}
 
 	// 类型以上游原样为准——**中继不改上游给的 `Content-Type`**，只有上游压根没给
 	// 类型时（罕见）才由我们补一个。

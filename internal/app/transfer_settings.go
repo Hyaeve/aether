@@ -182,8 +182,15 @@ func (a *App) acquireTransferResource(ctx context.Context, kind string) (func(),
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	progress, _ := ctx.Value(transferProgressResourceKey{}).(*transferProgress)
+	if progress == nil {
+		progress, _ = ctx.Value(fileTransferProgressKey{}).(*transferProgress)
+	}
 	for {
 		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := progress.waitPaused(ctx); err != nil {
 			return nil, err
 		}
 		limit := a.transferConfig().MaxUploads
@@ -209,10 +216,18 @@ func (a *App) acquireTransferResource(ctx context.Context, kind string) (func(),
 		if a.resources.active[kind] < limit {
 			a.resources.active[kind]++
 			a.resources.mu.Unlock()
+			if kind == "preprocess" {
+				progress.stage("preparing")
+			} else if kind == "upload" {
+				progress.stage("waiting")
+			}
 			var once sync.Once
 			return func() { once.Do(func() { a.resources.mu.Lock(); a.resources.active[kind]--; a.resources.mu.Unlock() }) }, nil
 		}
 		a.resources.mu.Unlock()
+		if kind == "upload" || kind == "preprocess" {
+			progress.stage("queued")
+		}
 		if err := waitResource(ctx, 25*time.Millisecond); err != nil {
 			return nil, err
 		}
@@ -286,6 +301,11 @@ type resourceReader struct {
 type transferProgressResourceKey struct{}
 
 func (r resourceReader) Read(b []byte) (int, error) {
+	if parent, _ := r.ctx.Value(fileTransferProgressKey{}).(*transferProgress); parent != nil {
+		if err := parent.wait(); err != nil {
+			return 0, err
+		}
+	}
 	if progress, _ := r.ctx.Value(transferProgressResourceKey{}).(*transferProgress); progress != nil {
 		if err := progress.waitContext(r.ctx); err != nil {
 			return 0, err
@@ -304,6 +324,11 @@ var errBackupPaused = errors.New("双向同步已暂停，操作计划已记录�
 func (a *App) checkBackupMutation(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if parent, _ := ctx.Value(fileTransferProgressKey{}).(*transferProgress); parent != nil {
+		if err := parent.wait(); err != nil {
+			return err
+		}
 	}
 	if cfg, ok := ctx.Value(backupTransferSnapshotKey{}).(TransferSettings); ok {
 		current := a.transferConfig()
@@ -346,6 +371,9 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 	if !legacySchedule {
 		expressions := []string{}
 		for _, task := range st.Tasks {
+			if task.Kind == "cas" && !validCASInfoMode(task.CASInfoMode) {
+				return errors.New("CAS 信息类型无效")
+			}
 			if task.Kind != "cache" {
 				expressions = append(expressions, task.Cron)
 			}
@@ -367,6 +395,9 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 		}
 	}
 	if err := validateFolderCleanup(st.FolderCleanup, *st, legacySchedule); err != nil {
+		return err
+	}
+	if err := validate115Signin(st.Pan115Signin, *st, legacySchedule); err != nil {
 		return err
 	}
 	if err := validateQuarkLibrary(*st, legacySchedule); err != nil {
@@ -520,6 +551,10 @@ func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir
 	}
 	n, err := io.Copy(io.MultiWriter(writers...), io.LimitReader(&cancelReader{ctx, input}, limit+1))
 	if err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			phase = "核对来源文件完整性"
+			return stage, rejectFileTransfer(ctx, phase, "源文件内容不完整或读取期间大小变化")
+		}
 		return stage, err
 	}
 	phase = "核对来源文件完整性"
@@ -618,24 +653,43 @@ func (a *App) transferRequestControls(next http.Handler) http.Handler {
 			return
 		}
 		if a.transferIgnored(r.URL.Query().Get("name")) {
+			if s, err := a.store.storage(r.URL.Query().Get("storage")); err == nil {
+				p := a.beginTransfer(r.Context(), "upload", s, r.URL.Query().Get("name"), r.ContentLength)
+				p.finish(errTransferIgnored)
+			}
 			fail(w, 400, errors.New("此扩展名已被全局传输设置忽略"))
 			return
 		}
-		uploadRelease, err := a.acquireTransferResource(r.Context(), "upload")
+		ctx := r.Context()
+		var progress *transferProgress
+		if s, err := a.store.storage(r.URL.Query().Get("storage")); err == nil {
+			name, parent := r.URL.Query().Get("name"), r.URL.Query().Get("parent")
+			progress = a.beginTransfer(ctx, "upload", s, name, r.ContentLength, transferLocations{From: transferClientLocation(ctx), To: a.transferUploadLocation(s, parent, name)})
+			if progress != nil {
+				ctx = progress.ctx
+			}
+		}
+		uploadRelease, err := a.acquireTransferResource(ctx, "upload")
 		if err != nil {
+			progress.finish(err)
 			fail(w, 408, err)
 			return
 		}
 		defer uploadRelease()
-		release, err := a.acquireTransferResource(r.Context(), "preprocess")
+		release, err := a.acquireTransferResource(ctx, "preprocess")
 		if err != nil {
+			progress.finish(err)
 			fail(w, 408, err)
 			return
 		}
 		defer release()
-		ctx := context.WithValue(r.Context(), transferUploadResourceKey{}, true)
+		ctx = context.WithValue(ctx, transferUploadResourceKey{}, true)
+		ctx = context.WithValue(ctx, transferRequestProgressKey{}, progress)
 		ctx = context.WithValue(ctx, transferAppResourceKey{}, a)
 		ctx = context.WithValue(ctx, transferPreprocessResourceKey{}, true)
+		if progress != nil {
+			progress.ctx = ctx
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

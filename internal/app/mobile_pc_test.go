@@ -370,11 +370,13 @@ func TestMobilePCSyncAndStagingLimits(t *testing.T) {
 	if limit, err := syncUploadStageLimit(replicas, []syncOperation{op}); err != nil || limit != mobilePCUploadFileLimit {
 		t.Fatal("PC synchronization retained old staging limit", limit, err)
 	}
-	for _, target := range []int{0, 2} {
-		op.to = target
-		if _, err := syncUploadStageLimit(replicas, []syncOperation{op}); err == nil {
-			t.Fatal("unrelated sync target inherited PC limit", target)
-		}
+	op.to = 0
+	if limit, err := syncUploadStageLimit(replicas, []syncOperation{op}); err != nil || limit != uploadFileLimit(replicas[0].storage) {
+		t.Fatal("local sync target retained a cloud upload limit", limit, err)
+	}
+	op.to = 2
+	if _, err := syncUploadStageLimit(replicas, []syncOperation{op}); err == nil {
+		t.Fatal("Web mobile sync target inherited PC limit")
 	}
 	a := testApp(t)
 	dir := t.TempDir()

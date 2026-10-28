@@ -209,7 +209,7 @@ func TestGeneratedCASPlaybackAndPermanentImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/stream/"))
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(u.Path, "/cas/"))
 	if err != nil {
 		t.Fatal(err)
 	}
