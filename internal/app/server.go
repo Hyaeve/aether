@@ -34,6 +34,7 @@ type App struct {
 	pan115SigninMu      sync.Mutex
 	davReadMu           sync.Mutex
 	davReads            map[string]*davReadSession
+	davReadClosed       bool
 	channels            notificationChannels
 	notificationQueue   chan channelNotice
 	wecom               wecomService
@@ -214,6 +215,7 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	if err != nil {
 		return err
 	}
+	defer a.closeDAVReads()
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -263,6 +265,7 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}
+	a.closeDAVReads()
 	a.wg.Wait()
 	if a.store.snapshot().Settings.CachePersist {
 		return a.cache.persist(a.dataDir)

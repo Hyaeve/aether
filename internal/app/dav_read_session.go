@@ -44,6 +44,9 @@ func (a *App) attachDAVRead(ctx context.Context, s Storage, f File) *davReadSess
 	key := fmt.Sprintf("%s:%s:%x:%s:%d:%d", client, s.ID, shareConfig(s), f.ID, f.Size, f.Modified.UnixNano())
 	a.davReadMu.Lock()
 	defer a.davReadMu.Unlock()
+	if a.davReadClosed || a.ctx.Err() != nil {
+		return nil
+	}
 	if a.davReads == nil {
 		a.davReads = map[string]*davReadSession{}
 	}
@@ -61,7 +64,7 @@ func (a *App) attachDAVRead(ctx context.Context, s Storage, f File) *davReadSess
 	if session == nil {
 		for k, old := range a.davReads {
 			old.mu.Lock()
-			if old.refs == 0 && now.Sub(old.last) > davReadSessionIdle {
+			if old.finished && old.refs == 0 && now.Sub(old.last) > davReadSessionIdle {
 				delete(a.davReads, k)
 			}
 			old.mu.Unlock()
@@ -74,18 +77,9 @@ func (a *App) attachDAVRead(ctx context.Context, s Storage, f File) *davReadSess
 		session = &davReadSession{progress: a.beginTransfer(base, "download", s, f.Name, f.Size,
 			transferLocations{From: a.transferFileLocation(s, f.ID), To: transferClientLocation(ctx)}), last: now, total: f.Size}
 		a.davReads[key] = session
-		active := session
-		session.stop = context.AfterFunc(a.ctx, func() {
-			active.mu.Lock()
-			defer active.mu.Unlock()
-			if active.timer != nil {
-				active.timer.Stop()
-			}
-			if !active.finished {
-				active.finished = true
-				active.progress.finish(context.Canceled)
-			}
-		})
+		session.mu.Lock()
+		session.stop = context.AfterFunc(a.ctx, session.shutdown)
+		session.mu.Unlock()
 	}
 	session.mu.Lock()
 	session.refs++
@@ -97,6 +91,33 @@ func (a *App) attachDAVRead(ctx context.Context, s Storage, f File) *davReadSess
 	}
 	session.mu.Unlock()
 	return session
+}
+
+func (a *App) closeDAVReads() {
+	a.davReadMu.Lock()
+	defer a.davReadMu.Unlock()
+	a.davReadClosed = true
+	for _, session := range a.davReads {
+		session.shutdown()
+	}
+	a.davReads = nil
+}
+
+func (s *davReadSession) shutdown() {
+	// Serialize with in-flight finalizers so no callback can persist after
+	// shutdown returns, even when stopping an already-started callback fails.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	if s.stop != nil {
+		s.stop()
+	}
+	if !s.finished {
+		s.finished, s.failure, s.last = true, context.Canceled, time.Now()
+		s.progress.finish(context.Canceled)
+	}
 }
 
 func (s *davReadSession) add(offset int64, n int) {

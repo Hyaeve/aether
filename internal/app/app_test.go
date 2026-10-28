@@ -89,7 +89,7 @@ func testApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cancel(); a.wg.Wait() })
+	t.Cleanup(func() { cancel(); a.closeDAVReads(); a.wg.Wait() })
 	return a
 }
 
