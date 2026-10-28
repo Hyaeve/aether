@@ -37,7 +37,7 @@ func TestBackupNameBlacklistPrunesBeforeListingAndHashing(t *testing.T) {
 			})}
 			if sync {
 				visited := 0
-				rep, err := a.scanSyncReplica(context.Background(), BackupLocation{"source", "/", ""}, s, rule, map[string]bool{}, &visited)
+				rep, err := a.scanSyncReplica(context.Background(), BackupLocation{"source", "/", ""}, s, rule, map[string]bool{}, &visited, defaultUploadFileLimit)
 				if err != nil || len(rep.files) != 0 || len(rep.dirs) != 0 {
 					t.Fatal("blacklist not pruned", rep, err)
 				}

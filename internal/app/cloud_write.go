@@ -47,6 +47,16 @@ type cloudWriteFile struct {
 }
 
 func (f *cloudWriteFile) Write(data []byte) (int, error) {
+	if mobilePCClient(f.storage) {
+		offset, err := f.File.Seek(0, io.SeekCurrent)
+		if err == nil && (offset < 0 || offset > mobilePCUploadFileLimit || int64(len(data)) > mobilePCUploadFileLimit-offset) {
+			err = errors.New("文件过大（单文件上限 500 GB）")
+		}
+		if err != nil {
+			f.writeErr = err
+			return 0, err
+		}
+	}
 	n, err := f.File.Write(data)
 	if err != nil {
 		f.writeErr = err
@@ -90,6 +100,9 @@ func (f *cloudWriteFile) Close() error {
 	if err == nil && f.expected >= 0 && info.Size() != f.expected {
 		err = errors.New("上传内容不完整")
 	}
+	if err == nil && mobilePCClient(f.storage) && info.Size() > mobilePCUploadFileLimit {
+		err = errors.New("文件过大（单文件上限 500 GB）")
+	}
 	if err == nil {
 		err = f.publish(f.ctx)
 	}
@@ -105,6 +118,18 @@ func (f *cloudWriteFile) Close() error {
 }
 
 func (f *cloudWriteFile) publish(ctx context.Context) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	if mobilePCClient(f.storage) {
+		info, err := os.Stat(f.File.Name())
+		if err != nil {
+			return err
+		}
+		if info.Size() > mobilePCUploadFileLimit {
+			return errors.New("文件过大（单文件上限 500 GB）")
+		}
+	}
 	ctx, release, err := f.app.controlCloudUpload(ctx, f.name, f.File.Name())
 	if err != nil {
 		return err
@@ -145,6 +170,9 @@ func (d mountFS) openCloudWrite(ctx context.Context, s Storage, source, rel stri
 	}
 	if d.app.transferIgnored(path.Base(rel)) {
 		return nil, errors.New("此扩展名已被全局传输设置忽略")
+	}
+	if n, ok := ctx.Value(mountPutLength{}).(int64); ok && mobilePCClient(s) && n > mobilePCUploadFileLimit {
+		return nil, errors.New("文件过大（单文件上限 500 GB）")
 	}
 	parent, err := d.cloudParent(ctx, s, source, rel)
 	if err != nil {

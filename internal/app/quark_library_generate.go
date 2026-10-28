@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -255,7 +254,7 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 	cfg := effectiveQuarkLibrary(st)
 	result = st.QuarkLibraryRuntime.Results[card.ID]
 	result.Status, result.Message, result.LastRun = "running", "正在读取分享", now
-	result.Generated, result.Metadata, result.Skipped = 0, 0, 0
+	result.Generated, result.Metadata, result.Skipped, result.Removed = 0, 0, 0, 0
 	result.NextRun = quarkLibraryNext(card, now)
 	if err := a.store.update(func(st *State) error {
 		initQuarkLibraryRuntime(st)
@@ -276,15 +275,26 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 				}
 			}
 		} else {
-			result.Status, result.Message = "completed", fmt.Sprintf("新增STRM %d 条，元数据 %d 个，跳过 %d 个", result.Generated, result.Metadata, result.Skipped)
+			result.Status, result.Message = "completed", fmt.Sprintf("新增STRM %d 条，元数据 %d 个，跳过 %d 个，清理 %d 个", result.Generated, result.Metadata, result.Skipped, result.Removed)
 			result.InvalidSince = time.Time{}
 		}
+		expired := result.Status == "invalid" && !result.InvalidSince.Add(time.Duration(cfg.InvalidDays)*24*time.Hour).After(now)
+		if expired {
+			if err := a.expireQuarkLibraryOutput(ctx, card); err != nil {
+				expired = false
+				resultErr = errors.Join(resultErr, err)
+				result.Message += "；" + err.Error()
+			}
+		}
 		err := a.store.update(func(st *State) error {
+			if current, ok := quarkLibraryCardAt(*st, card.ID); !ok || current != card {
+				return errors.New("夸克链库卡片已改变，未覆盖新配置的执行结果")
+			}
 			initQuarkLibraryRuntime(st)
 			st.QuarkLibraryRuntime.Results[card.ID] = result
-			if result.Status == "invalid" && !result.InvalidSince.Add(time.Duration(cfg.InvalidDays)*24*time.Hour).After(now) {
+			if expired {
 				for i, item := range st.QuarkLibraryCards {
-					if item.ID == card.ID && item.Secret == card.Secret {
+					if item == card {
 						st.QuarkLibraryCards = append(st.QuarkLibraryCards[:i], st.QuarkLibraryCards[i+1:]...)
 						revokeQuarkLibraryCard(st, card.ID)
 						break
@@ -325,6 +335,9 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 		return result, err
 	}
 	defer root.Close()
+	if err := a.ensureQuarkLibraryOwnership(ctx, card, root); err != nil {
+		return result, err
+	}
 	media, metadata := card.MediaExtensions, card.MetadataExtensions
 	if media == "" {
 		media = cfg.MediaExtensions
@@ -336,6 +349,45 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 	for _, file := range st.QuarkLibraryRuntime.Files {
 		if file.CardID == card.ID {
 			known[file.Relative] = file
+		}
+	}
+	wanted := map[string]bool{}
+	mediaPaths := map[string]bool{}
+	for _, batch := range batches {
+		for _, item := range batch.Items {
+			isMedia := taskMedia(Task{MediaExtensions: media}, item.Name)
+			if !isMedia && !excludedType(item.Name, metadata) {
+				continue
+			}
+			relative := path.Join(batch.Directory, item.Name)
+			if isMedia {
+				relative += ".strm"
+			}
+			if !quarkLibraryRelative(relative) || wanted[relative] {
+				return result, errors.New("分享包含不安全或重复的输出路径，未执行同步清理")
+			}
+			wanted[relative] = true
+			if isMedia {
+				mediaPaths[relative] = true
+			}
+		}
+	}
+	if card.CascadeCleanup != "off" {
+		for relative := range wanted {
+			directory := path.Dir(relative)
+			if mediaPaths[relative] || directory == "." {
+				continue
+			}
+			hasMedia := false
+			for mediaPath := range mediaPaths {
+				if strings.HasPrefix(mediaPath, directory+"/") {
+					hasMedia = true
+					break
+				}
+			}
+			if !hasMedia {
+				delete(wanted, relative)
+			}
 		}
 	}
 	for _, batch := range batches {
@@ -354,6 +406,10 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 			if isMedia {
 				rel += ".strm"
 			}
+			if !wanted[rel] {
+				result.Skipped++
+				continue
+			}
 			manifest := quarkLibraryFile{Key: id(), CardID: card.ID, ShareStamp: quarkLibraryStamp(card.Secret), SourceID: item.ID,
 				SourceParent: batch.Source, Name: item.Name, Size: item.Size, Relative: rel, Media: isMedia}
 			var previous *quarkLibraryFile
@@ -367,7 +423,12 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 					result.Skipped++
 					continue
 				}
-				if previous.Stage != "transfer" && previous.ShareStamp == manifest.ShareStamp && previous.SourceID == manifest.SourceID && previous.Size == manifest.Size {
+				currentFormat := true
+				if isMedia {
+					sum := sha256.Sum256([]byte(quarkLibraryURL(card, rel, a.currentSTRMSettings().Address)))
+					currentFormat = previous.Digest == hex.EncodeToString(sum[:])
+				}
+				if previous.Stage != "transfer" && previous.ShareStamp == manifest.ShareStamp && previous.SourceID == manifest.SourceID && previous.SourceParent == manifest.SourceParent && previous.Size == manifest.Size && currentFormat {
 					if !previous.Published {
 						previous.Published = true
 						previous.Stage = ""
@@ -383,8 +444,7 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 			}
 			var content []byte
 			if isMedia {
-				base := strings.TrimRight(a.currentSTRMSettings().Address, "/")
-				content = []byte(base + "/q/" + manifest.Key + "/" + url.PathEscape(item.Name) + "\n")
+				content = []byte(quarkLibraryURL(card, rel, a.currentSTRMSettings().Address))
 			} else {
 				if item.Size < 0 || item.Size > 64<<20 {
 					return result, errors.New("元数据超过64MiB或大小无效，未转存")
@@ -497,7 +557,11 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 			}
 		}
 	}
-	return result, nil
+	if err := a.quarkLibraryCheckStorage(s); err != nil {
+		return result, err
+	}
+	result.Removed, err = a.reconcileQuarkLibrary(ctx, card, root, wanted, false)
+	return result, err
 }
 
 func (a *App) saveQuarkLibraryFile(file quarkLibraryFile) error {

@@ -6,6 +6,7 @@ import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
 import NumberInput from './NumberInput.vue'
+import {cloudListings} from '../cloud-session-cache'
 const props=defineProps({storage:String,parent:String,files:Array,editing:Object})
 const emit=defineEmits(['close','changed'])
 const pool=computed(()=>state.storages.find(s=>s.id===props.storage)),kind=computed(()=>pool.value?.type)
@@ -16,7 +17,7 @@ const owner=state.username
 const active=()=>alive&&state.authenticated&&state.username===owner
 onBeforeUnmount(()=>{alive=false})
 onMounted(async()=>{try{const saved=await api(`/cloud/preferences?storage=${encodeURIComponent(props.storage)}`);if(active()){options.value={...saved,code:''};ready.value=true}}catch(e){if(active())error.value=e.message}})
-async function submit(){if(busy.value||!ready.value||!active())return;busy.value=true;error.value='';try{await api(`/cloud/preferences?storage=${encodeURIComponent(props.storage)}`,'PUT',options.value);if(!active())return;if(props.editing){await api(`/cloud/manage?storage=${encodeURIComponent(props.storage)}&kind=shares`,'POST',{action:'edit',ids:[props.editing.id],options:options.value,confirm:true});if(!active())return;emit('changed');emit('close');notify('分享设置已更新')}else{const created=await api('/cloud/shares','POST',{storageId:props.storage,parent:props.parent,ids:props.files.map(f=>f.id),options:options.value});if(!active())return;result.value=created;rememberOwnShare(created.url);emit('changed')}}catch(e){if(active())error.value=e.message}finally{if(alive)busy.value=false}}
+async function submit(){if(busy.value||!ready.value||!active())return;busy.value=true;error.value='';let writing=false;try{await api(`/cloud/preferences?storage=${encodeURIComponent(props.storage)}`,'PUT',options.value);if(!active())return;writing=true;if(props.editing){await api(`/cloud/manage?storage=${encodeURIComponent(props.storage)}&kind=shares`,'POST',{action:'edit',ids:[props.editing.id],options:options.value,confirm:true});cloudListings.clear();if(!active())return;emit('changed');emit('close');notify('分享设置已更新')}else{const created=await api('/cloud/shares','POST',{storageId:props.storage,parent:props.parent,ids:props.files.map(f=>f.id),options:options.value});cloudListings.clear();if(!active())return;result.value=created;rememberOwnShare(created.url);emit('changed')}}catch(e){if(writing)cloudListings.clear();if(active())error.value=e.message}finally{if(alive)busy.value=false}}
 async function copy(content){try{await copyOwnShare(result.value,kind.value,content);notify('分享已复制')}catch{notify('浏览器未允许复制，请选中文本复制',true)}}
 </script>
 <template>

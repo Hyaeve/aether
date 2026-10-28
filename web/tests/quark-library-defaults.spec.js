@@ -83,6 +83,7 @@ test('draft requires an output before it can be enabled and retains the original
   await enabled.check()
   await captureScreenshot(page, { path: info.outputPath('draft-enabled.png') })
   await dialog.getByRole('button', { name: '保存链接', exact: true }).click()
+  await page.getByRole('dialog', { name: '同步夸克分享', exact: true }).getByRole('button', { name: '确认同步', exact: true }).click()
   await expect.poll(() => saves.length).toBe(1)
   expect(saves[0]).toMatchObject({ id: 'draft', directory: '/media/strm', enabled: true })
 })

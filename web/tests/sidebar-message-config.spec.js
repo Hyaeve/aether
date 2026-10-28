@@ -20,6 +20,7 @@ async function fixture(page){
    const input=r.postDataJSON(),value=secrets[input.field]||''
    json=input.metadataOnly?{length:value.length}:{value}
   }else if(p==='/api/notification-service/wecom/test'){tests++;json={ok:true}}
+  else if(p==='/api/archives/tasks'||p==='/api/archives/scrape')json={items:[],total:0,page:1,pages:1,pageSize:30}
   else if(['/api/logs','/api/transfers','/api/backup-rules'].includes(p))json=[]
   return route.fulfill({json})
  })
@@ -60,27 +61,77 @@ for(const size of [
  })
 })
 
-for(const width of [1440,390])for(const theme of ['light','dark'])test(`sidebar is continuous, compact and scrolls without a track ${width} ${theme}`,async({page},info)=>{
+for(const width of [1440,390])for(const theme of ['light','dark'])test(`sidebar is grouped, compact and scrolls without a track ${width} ${theme}`,async({page},info)=>{
  await fixture(page);await page.setViewportSize({width,height:900});await page.goto('/dashboard')
  await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
  if(width<800)await page.getByRole('button',{name:'打开导航',exact:true}).click()
  const nav=page.getByRole('navigation',{name:'主导航',exact:true}),links=nav.getByRole('link')
- await expect(links).toHaveText(['以太视界','文件服务','存储管理','传输中心','任务管理','虚拟链库','以太链接','辅助工具','通知服务','运行日志','系统设置'])
+ await expect(nav.getByRole('heading')).toHaveText(['以太视界','以太工坊','系统面板'])
+ const sections=[
+  ['以太视界',['信息总览','文件服务','存储管理']],
+  ['以太工坊',['传输中心','任务管理','虚拟链库','以太链接','辅助工具','档案中心']],
+  ['系统面板',['通知服务','运行日志','系统设置']]
+ ]
+ await expect(links).toHaveText(sections.flatMap(([,items])=>items))
+ for(const [label,items] of sections){
+  const group=nav.getByRole('group',{name:label,exact:true})
+  await expect(group.getByRole('link')).toHaveText(items)
+  const layout=await group.evaluate(el=>{
+   const heading=el.querySelector('h2'),r=heading.getBoundingClientRect(),first=el.querySelector('[role=link]').getBoundingClientRect()
+   const links=[...el.querySelectorAll('[role=link]')].map(e=>e.getBoundingClientRect())
+   return {gap:first.top-r.bottom,gaps:links.slice(1).map((r,i)=>r.top-links[i].bottom),font:parseFloat(getComputedStyle(heading).fontSize),line:getComputedStyle(heading,'::after').height,lineWidth:getComputedStyle(heading,'::after').width,nowrap:getComputedStyle(heading).whiteSpace}
+  })
+  expect(layout.gap).toBe(4)
+  expect(layout.gaps.every(gap=>gap===4)).toBe(true)
+  expect(layout.font).toBe(12)
+  expect(layout.line).toBe('1px')
+  expect(parseFloat(layout.lineWidth)).toBeGreaterThan(30)
+  expect(layout.nowrap).toBe('nowrap')
+ }
  const geometry=await nav.evaluate(el=>{
-  const links=[...el.querySelectorAll('[role=link]')].map(e=>e.getBoundingClientRect()),brand=document.querySelector('.sidebar .brand').getBoundingClientRect()
-  return {gaps:links.slice(1).map((r,i)=>r.top-links[i].bottom),brandGap:links[0].top-brand.bottom,width:el.closest('.sidebar').getBoundingClientRect().width}
+  const groups=[...el.querySelectorAll('.nav-group')].map(e=>e.getBoundingClientRect()),brand=document.querySelector('.sidebar .brand').getBoundingClientRect()
+  return {gaps:groups.slice(1).map((r,i)=>r.top-groups[i].bottom),brandGap:groups[0].top-brand.bottom,width:el.closest('.sidebar').getBoundingClientRect().width}
  })
- expect(Math.max(...geometry.gaps)-Math.min(...geometry.gaps)).toBeLessThan(1)
+ expect(geometry.gaps).toEqual([12,12])
  expect(geometry.brandGap).toBeLessThanOrEqual(6);expect(geometry.width).toBe(220)
+ await expect(nav.getByRole('link',{name:'信息总览',exact:true})).toHaveAttribute('aria-current','page')
+ await expect(page.locator('.breadcrumbs strong')).toHaveText('信息总览')
+ await expect(page.getByRole('heading',{name:'信息总览',exact:true})).toHaveCount(1)
+ await expect(nav.getByRole('link',{name:'太一档案',exact:true})).toHaveCount(0)
  await expect(nav).toHaveCSS('scrollbar-width','none')
  await captureScreenshot(page,{path:info.outputPath(`sidebar-${width}-${theme}.png`)})
  await page.setViewportSize({width,height:390})
  await nav.evaluate(el=>{el.scrollTop=el.scrollHeight})
  await expect(nav.getByRole('link',{name:'系统设置',exact:true})).toBeInViewport()
  const top=await nav.evaluate(el=>el.scrollTop);expect(top).toBeGreaterThan(0)
+ await captureScreenshot(page,{path:info.outputPath(`sidebar-short-${width}-${theme}.png`)})
  await nav.getByRole('link',{name:'运行日志',exact:true}).click()
  await expect(page.locator('.breadcrumbs strong')).toHaveText('运行日志')
  await expect(page.getByRole('region',{name:'运行日志',exact:true})).toBeVisible()
+})
+
+test('group headings are not links and keyboard navigation preserves archive memory',async({page})=>{
+ await fixture(page);await page.emulateMedia({reducedMotion:'reduce'})
+ await page.goto('/archives/tasks')
+ const nav=page.getByRole('navigation',{name:'主导航',exact:true})
+ await expect(nav.getByRole('link',{name:'档案中心',exact:true})).toHaveAttribute('aria-current','page')
+ await expect(page.locator('.breadcrumbs strong')).toHaveText('档案中心')
+ await expect(page.locator('.breadcrumbs [aria-current=page]')).toHaveText('任务档案')
+ await expect(nav.getByRole('heading')).toHaveCount(3)
+ expect(await nav.getByRole('heading').evaluateAll(nodes=>nodes.every(el=>el.tabIndex<0))).toBe(true)
+ const overview=nav.getByRole('link',{name:'信息总览',exact:true})
+ await overview.focus();await page.keyboard.press('Enter')
+ await expect(page).toHaveURL(/\/dashboard$/)
+ await overview.focus()
+ const sequence=['文件服务','存储管理','传输中心','任务管理','虚拟链库','以太链接','辅助工具','档案中心']
+ for(const name of sequence){
+  await page.keyboard.press('Tab')
+  await expect(nav.getByRole('link',{name,exact:true})).toBeFocused()
+ }
+ await page.keyboard.press('Enter')
+ await expect(page).toHaveURL(/\/archives\/tasks$/)
+ await expect(page.locator('.breadcrumbs strong')).toHaveText('档案中心')
+ await expect(nav.locator('[aria-current=page]')).toHaveCount(1)
 })
 
 for(const width of [1440,375])for(const theme of ['light','dark'])test(`message configuration orders channels above a wider WeCom panel ${width} ${theme}`,async({page},info)=>{

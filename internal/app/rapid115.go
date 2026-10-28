@@ -45,19 +45,21 @@ type Rapid115Settings struct {
 	Watches []Rapid115Watch `json:"watches"`
 }
 type Rapid115Record struct {
-	ID        string    `json:"id"`
-	Time      time.Time `json:"time"`
-	Name      string    `json:"name"`
-	Size      int64     `json:"size"`
-	PickCode  string    `json:"pickcode"`
-	Status    string    `json:"status"`
-	Source    string    `json:"source"`
-	Message   string    `json:"message,omitempty"`
-	Retries   int       `json:"retries,omitempty"`
-	NextRetry time.Time `json:"nextRetry,omitempty"`
-	Done      int64     `json:"done,omitempty"`
-	Total     int64     `json:"total,omitempty"`
-	Phase     string    `json:"phase,omitempty"`
+	WatchID    string    `json:"watchId,omitempty"`
+	SourceKind string    `json:"sourceKind,omitempty"`
+	ID         string    `json:"id"`
+	Time       time.Time `json:"time"`
+	Name       string    `json:"name"`
+	Size       int64     `json:"size"`
+	PickCode   string    `json:"pickcode"`
+	Status     string    `json:"status"`
+	Source     string    `json:"source"`
+	Message    string    `json:"message,omitempty"`
+	Retries    int       `json:"retries,omitempty"`
+	NextRetry  time.Time `json:"nextRetry,omitempty"`
+	Done       int64     `json:"done,omitempty"`
+	Total      int64     `json:"total,omitempty"`
+	Phase      string    `json:"phase,omitempty"`
 }
 
 type rapid115Retry struct {
@@ -115,6 +117,14 @@ func normalizedRapid115(s Rapid115Settings) Rapid115Settings {
 	return s
 }
 func rapid115Stamp(v any) string {
+	if settings, ok := v.(Rapid115Settings); ok {
+		settings.Watches = append([]Rapid115Watch(nil), settings.Watches...)
+		sort.Slice(settings.Watches, func(i, j int) bool { return settings.Watches[i].ID < settings.Watches[j].ID })
+		v = settings
+	}
+	return rapid115RawStamp(v)
+}
+func rapid115RawStamp(v any) string {
 	raw, _ := json.Marshal(v)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
@@ -193,10 +203,14 @@ func validateRapid115(s Rapid115Settings, st State, verifyFiles ...bool) error {
 			if len(w.Cron) > 128 {
 				return errors.New("Cron表达式过长")
 			}
-			if _, err := cronParser.Parse(w.Cron); err != nil {
-				return errors.New("Cron表达式无效")
-			}
 			legacySchedule := len(verifyFiles) > 1 && verifyFiles[1]
+			parser := rawCronParser.Parse
+			if !legacySchedule && w.FailureAction == "skip" {
+				parser = cronParser.Parse
+			}
+			if _, err := parser(w.Cron); err != nil {
+				return err
+			}
 			if !legacySchedule && (w.FailureAction == "upload" || w.FailureAction == "delete") {
 				if err := validateRapid115RetryCron(w.Cron); err != nil {
 					return err
@@ -281,9 +295,19 @@ func (a *App) rapid115Records(w http.ResponseWriter, r *http.Request) {
 	a.rapid115Mu.Lock()
 	manualRunning, monitorRunning := a.rapid115Runs["manual"], a.rapid115Runs["monitor"]
 	a.rapid115Mu.Unlock()
-	const pageSize = 30
+	pageSize := 30
+	watchID := r.URL.Query().Get("watch")
+	if watchID != "" {
+		pageSize = 10
+	}
 	a.store.mu.RLock()
-	total := len(a.store.state.Rapid115Records)
+	filtered := make([]Rapid115Record, 0)
+	for _, record := range a.store.state.Rapid115Records {
+		if watchID == "" || record.WatchID == watchID {
+			filtered = append(filtered, record)
+		}
+	}
+	total := len(filtered)
 	pages := max(1, (total+pageSize-1)/pageSize)
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil {
@@ -291,7 +315,7 @@ func (a *App) rapid115Records(w http.ResponseWriter, r *http.Request) {
 	}
 	page = max(1, min(page, pages))
 	start := min((page-1)*pageSize, total)
-	items := append([]Rapid115Record{}, a.store.state.Rapid115Records[start:min(start+pageSize, total)]...)
+	items := append([]Rapid115Record{}, filtered[start:min(start+pageSize, total)]...)
 	a.store.mu.RUnlock()
 	for i := range items {
 		items[i] = a.rapid115RecordProgress(items[i])
@@ -539,6 +563,10 @@ func (a *App) runRapid115(ctx context.Context, job Rapid115Job, key, label, revi
 		a.rapid115Mu.Unlock()
 		defer func() { a.rapid115Mu.Lock(); delete(a.rapid115Files, localFile); a.rapid115Mu.Unlock() }()
 		record := Rapid115Record{ID: id(), Time: time.Now(), Name: filepath.Base(name), Size: fi.Size(), Status: "running", Source: label}
+		record.SourceKind = "manual"
+		if key != "manual" {
+			record.WatchID, record.SourceKind = key, "monitor"
+		}
 		attempt := rapid115Stamp([]any{key, job, storage.Config, name, fi.Size(), fi.ModTime().UnixNano()})
 		expectedDigest := ""
 		if retry, ok := a.store.snapshotWithLogLimit(0).Rapid115Retries[attempt]; ok {

@@ -104,12 +104,15 @@ func (a *App) virtualShareParent(key string) (string, error) {
 }
 
 func virtualShareURL(base, code, pass string, item shareEntry) (string, error) {
-	key := code + "_" + pass + "_" + item.ID + strings.ToLower(path.Ext(item.Name))
-	if !virtual115Key.MatchString(key) || !safeName(item.Name) || item.IsDir {
-		return "", errors.New("分享文件不适用于115链库格式")
+	if _, err := virtual115ResourceKey(code, pass, item); err != nil {
+		return "", err
 	}
-	name := strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F", "\r", "%0D", "\n", "%0A").Replace(item.Name)
-	return strings.TrimRight(base, "/") + "/s/" + key + "?/" + name, nil
+	return virtual115FilenameURL(base, code, pass, item.Name), nil
+}
+
+func legacyVirtualShareURL(base, key, filename string) string {
+	name := strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F", "\r", "%0D", "\n", "%0A").Replace(filename)
+	return strings.TrimRight(base, "/") + "/s/" + key + "?/" + name
 }
 
 func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +206,7 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 	preview := *p
 	a.shareMu.Unlock()
 	generated, skipped := 0, 0
+	names := virtual115Names{Version: 1, Files: []virtual115NamedFile{}}
 	for _, batch := range preview.Batches {
 		for _, item := range batch.Items {
 			if err = ctx.Err(); err != nil {
@@ -223,10 +227,16 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			key := preview.Code + "_" + preview.Pass + "_" + item.ID + strings.ToLower(path.Ext(item.Name))
+			grantErr := a.virtualGrant(key, false)
+			if grantErr != nil && !os.IsNotExist(grantErr) {
+				fail(w, 400, grantErr)
+				return
+			}
 			if e = a.virtualGrant(key, true, batch.Source); e != nil {
 				fail(w, 400, e)
 				return
 			}
+			names.Files = append(names.Files, virtual115NamedFile{Key: key, Parent: batch.Source, Name: item.Name, Size: item.Size, SHA1: item.SHA1})
 			child, e := virtualOutputRoot(root, batch.Directory)
 			if e != nil {
 				fail(w, 400, e)
@@ -234,8 +244,22 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 			}
 			f, e := child.OpenFile(item.Name+".strm", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 			if os.IsExist(e) {
+				changed := false
+				if grantErr == nil {
+					legacy := legacyVirtualShareURL(a.currentSTRMSettings().Address, key, item.Name) + "\n"
+					changed, e = replaceStrmFileMode(child, item.Name+".strm", `\A`+regexp.QuoteMeta(legacy)+`\z`,
+						strings.ReplaceAll(content+"\n", "$", "$$"), "regex", nil)
+				}
 				child.Close()
-				skipped++
+				if grantErr == nil && e != nil {
+					fail(w, 400, e)
+					return
+				}
+				if changed {
+					generated++
+				} else {
+					skipped++
+				}
 				continue
 			}
 			if e != nil {
@@ -260,6 +284,15 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 			child.Close()
 			generated++
 		}
+	}
+	current, err := a.store.storage(s.ID)
+	if err != nil || shareConfig(current) != preview.Config || ctx.Err() != nil {
+		fail(w, 409, errors.New("存储配置已改变或执行已取消，未发布文件名索引"))
+		return
+	}
+	if err := a.saveVirtual115Names(preview.Code, preview.Pass, names); err != nil {
+		fail(w, 400, err)
+		return
 	}
 	a.store.event("info", "virtual", fmt.Sprintf("115链库生成完成：%d 个，跳过 %d 个已有文件", generated, skipped))
 	jsonResponse(w, 200, map[string]int{"generated": generated, "skipped": skipped})
@@ -358,9 +391,14 @@ func (a *App) playVirtualShare(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	parent, grantErr := a.virtualShareParent(r.PathValue("key"))
+	identity, named := r.Context().Value(virtual115IdentityKey{}).(virtual115NamedFile)
 	if grantErr != nil {
 		if !os.IsNotExist(grantErr) {
 			fail(w, 403, grantErr)
+			return
+		}
+		if named {
+			http.NotFound(w, r)
 			return
 		}
 		c, e := client115(ctx, s)
@@ -396,6 +434,11 @@ func (a *App) playVirtualShare(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if named && (identity.Key != r.PathValue("key") || identity.Parent != parent || identity.Name != source.Name ||
+		identity.Size != source.Size || identity.SHA1 != "" && !strings.EqualFold(identity.SHA1, source.SHA1)) {
+		http.NotFound(w, r)
+		return
+	}
 	sum := sha256.Sum256([]byte(ed2kRevision(s) + "\x00" + r.PathValue("key")))
 	key := hex.EncodeToString(sum[:])
 	st := a.store.snapshotWithLogLimit(0)
@@ -406,8 +449,9 @@ func (a *App) playVirtualShare(w http.ResponseWriter, r *http.Request) {
 			temporary = &copy
 		}
 	}
-	if r.Method == "HEAD" && temporary == nil {
+	if r.Method == "HEAD" && (temporary == nil || named) {
 		w.Header().Set("Content-Length", fmt.Sprint(source.Size))
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(200)
 		return
 	}

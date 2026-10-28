@@ -335,7 +335,41 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State, allowLegacyPIN ...bool) error {
-	if err := validateQuarkLibrary(*st); err != nil {
+	for _, storage := range st.Storages {
+		if nativeMobile(storage) {
+			if err := validateMobileClient(storage); err != nil {
+				return err
+			}
+		}
+	}
+	legacySchedule := len(allowLegacyPIN) > 0 && allowLegacyPIN[0]
+	if !legacySchedule {
+		expressions := []string{}
+		for _, task := range st.Tasks {
+			if task.Kind != "cache" {
+				expressions = append(expressions, task.Cron)
+			}
+		}
+		for _, rule := range st.BackupRules {
+			expressions = append(expressions, rule.Cron)
+		}
+		for _, rule := range st.Automations {
+			if rule.Trigger == "cron" {
+				expressions = append(expressions, rule.Cron)
+			}
+		}
+		for _, expression := range expressions {
+			if strings.TrimSpace(expression) != "" {
+				if _, err := cronParser.Parse(expression); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if err := validateFolderCleanup(st.FolderCleanup, *st, legacySchedule); err != nil {
+		return err
+	}
+	if err := validateQuarkLibrary(*st, legacySchedule); err != nil {
 		return err
 	}
 	if err := validatePluginRepositories(st.PluginRepositories); err != nil {
@@ -349,7 +383,8 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 			return err
 		}
 	}
-	if err := validateRecycleCleanup(st.RecycleCleanup, *st, allowLegacyPIN...); err != nil {
+	legacyPIN := len(allowLegacyPIN) > 0 && allowLegacyPIN[0]
+	if err := validateRecycleCleanup(st.RecycleCleanup, *st, legacyPIN, legacySchedule); err != nil {
 		return err
 	}
 	if value := st.CASExportDirectory; value != "" && (!filepath.IsAbs(value) || filepath.Clean(value) != value || len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n")) {
@@ -366,7 +401,6 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 	st.Rapid115 = normalizedRapid115(st.Rapid115)
 	// Preserve readable legacy schedules at startup; the monitor pauses unsafe
 	// intervals. New edits and imported configurations still enforce the limit.
-	legacySchedule := len(allowLegacyPIN) > 0 && allowLegacyPIN[0]
 	if err := validateRapid115(st.Rapid115, *st, false, legacySchedule); err != nil {
 		return err
 	}
@@ -421,9 +455,12 @@ func (s *backupStageResource) clear() {
 	}
 }
 
-func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir string) (stage backupStageResource, resultErr error) {
+func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir string, limit int64) (stage backupStageResource, resultErr error) {
 	phase := "创建本机暂存文件"
 	defer func() { resultErr = diagnoseFileTransfer(ctx, phase, resultErr) }()
+	if f.Size < 0 || f.Size > limit {
+		return stage, rejectFileTransfer(ctx, "核对单文件大小", "暂存单文件上限 "+uploadLimitLabel(limit))
+	}
 	out, err := os.CreateTemp(dir, "backup-*")
 	if err != nil {
 		return stage, err
@@ -481,12 +518,12 @@ func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir
 	if progress, ok := ctx.Value(fileTransferProgressKey{}).(*transferProgress); ok {
 		writers = append(writers, fileTransferCountWriter{progress})
 	}
-	n, err := io.Copy(io.MultiWriter(writers...), io.LimitReader(&cancelReader{ctx, input}, (100<<30)+1))
+	n, err := io.Copy(io.MultiWriter(writers...), io.LimitReader(&cancelReader{ctx, input}, limit+1))
 	if err != nil {
 		return stage, err
 	}
 	phase = "核对来源文件完整性"
-	if n != f.Size || n > 100<<30 {
+	if n != f.Size || n > limit {
 		return stage, rejectFileTransfer(ctx, phase, "源文件内容不完整或读取期间大小变化")
 	}
 	phase = "关闭本机暂存文件"

@@ -2,6 +2,8 @@
 
 配置使用固定名称 JSON，不再为每次保存生成带摘要的文件名。
 
+原生移动存储的客户端类型保存在`storage/storage.json`对应池的`config.clientType`，仅`web`或`pc`，新建及旧记录缺失/空值默认PC；明确保存的Web不自动修改，缺省生效不批量改写旧配置。PC上传的500 GB目标上限、分片及暂存边界见[移动PC上传](mobile-pc-upload.md)；Authorization继续字段加密，修改模式不替换凭据。
+
 ```text
 /config/
   master.key
@@ -34,11 +36,17 @@
 
 插件市场仓库保存在 `state.json` 的 `pluginRepositories`，包括来源ID、名称、公开GitHub地址、ref、启停和顺序；索引仅作有界内存缓存，可重建。没有外部插件安装清单或运行能力，详见 [插件市场](plugin-market.md)。TG Token 仍加密保存，普通设置读取不回显，管理员可以通过密码框小眼睛按需查看。
 
-夸克链库设置 `quarkLibrary` 与链接卡片 `quarkLibraryCards` 同样保存在 `state.json`，卡片的 `secret` 为字段加密的规范分享链接。`/data/runtime/state.json` 的 `quarkLibraryRuntime` 保存执行结果、已生成文件授权和摘要、临时转存与删除意图；配置导入保留现有运行回执，重启不重放云端写入。请与主密钥一起备份配置和运行态，详见 [虚拟链库](virtual-library.md)。
+夸克链库设置 `quarkLibrary` 与链接卡片 `quarkLibraryCards` 同样保存在 `state.json`，卡片的 `secret` 为字段加密的规范分享链接，`cascadeCleanup` 缺省/`on` 开启、`off` 关闭；旧客户端更新时省略该字段不会覆盖已保存的关闭值。`/data/runtime/state.json` 的 `quarkLibraryRuntime` 保存执行结果、已生成文件授权和摘要、生成目录归属、临时转存与删除意图；目录内 `.aether-library-owner` 与运行态共同校验清理范围，不能随意移除。配置导入保留现有运行回执，重启不重放云端写入。请与主密钥一起备份配置和运行态，详见 [虚拟链库](virtual-library.md)。
+
+[115文件夹清理](115-folder-cleanup.md)规则保存在`state.json`的`folderCleanup`，写前意图及成功回执另存`/data/runtime/state.json`的`folderCleanupReceipts`；导出配置排除回执，导入保留现有回执。全部Cron计划须满足[至少15分钟](cron-policy.md)，旧短周期可载入但不执行，115监控重试策略仍严格大于120分钟。
 
 以太链接的 `relayGuard` 在 `link/links.json` 按卡片保存，旧记录缺省按启用处理。更多选项中的“中继守护”默认开启，只在非“始终中继”时可选。开启时，302 所需的 STRM 解析、直链探测或公网访问私网目标失败可退回中继/上游透传；关闭后，仅当客户端网络命中卡片的跳转策略时禁止这种回退，不能得到可用直链则明确返回502。策略本来要求中继的另一侧网络仍正常中继，不改变普通非 STRM 媒体的既有处理方式。
 
 任务进度、执行结果、最近运行时间、存储健康状态及巡检计划、云盘空间快照、挂载状态、通知和 CAS 临时文件记录存于 `/data/runtime/state.json`，会话存于 `/data/runtime/sessions.enc`；目录缓存、刮削索引、播放流水和日志沿用 `/data/cache`、`/data/log`。运行态文件同样校验完整性，涉及凭据的字段仍加密。首次启动迁移配置中的旧运行记录，旧文件不删除；任务更新只改变运行态，不重写任务定义。运行态丢失时不能找回过去的结果，但不会回退旧配置；运行态损坏则明确报错。若需要保留历史、会话及 CAS 临时文件追踪，备份 `/data`，并与配置主密钥一起恢复。
+
+[档案中心](taiyi-archives.md)另存于 `/data/runtime/taiyi-archives.json`，包含每份 STRM 最近识别刮削结果及普通任务逐次执行记录，不属于可重建刮削索引，也不加入配置导出或全局状态轮询。显示名称变更不迁移数据文件或接口。重启把未结束档案标中断，不自动重放；完整性验证及主密钥恢复要求与运行态一致。
+
+115 分享 STRM 的资源授权位于 `/data/virtual-library`，文件名到真实资源的加密快照位于 `/data/virtual-library-names`，两者不是可重建目录缓存或配置导出内容。恢复 `/115-share/分享码[-提取码]/文件名.扩展名` 播放须一并保留这两处及配置主密钥；名称索引只有本次生成完整成功后才替换，认证失败不降级到任意分享转存。详见[虚拟链库](virtual-library.md)。
 
 ## 传输来源与目标
 

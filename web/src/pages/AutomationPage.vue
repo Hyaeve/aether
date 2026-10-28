@@ -1,4 +1,5 @@
 <script setup>
+import CronInput from '../components/CronInput.vue'
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api, state, notify, date } from '../lib'
 import TaskTabs from '../components/TaskTabs.vue'
@@ -56,7 +57,7 @@ const taskOptions = () => state.tasks.map(t => ({value:t.id,label:t.name}))
     <form @submit.prevent="save"><div class="modal-body automation-form">
       <label>联动名称<input v-model="form.name" required maxlength="200" /></label>
       <div class="form-grid"><div class="field"><label>触发方式</label><RoundedSelect v-model="form.trigger" label="触发方式" :options="triggers" /></div>
-      <label v-if="form.trigger==='cron'">Cron 表达式<input v-model="form.cron" required /></label>
+      <label v-if="form.trigger==='cron'">Cron 表达式<CronInput v-model="form.cron" label="Cron 表达式" required /></label>
       <div v-if="form.trigger==='task'" class="field"><label>触发任务</label><RoundedSelect v-model="form.sourceTask" label="触发任务" :options="taskOptions()" /></div></div>
       <div v-for="(step,index) in form.steps" :key="index" class="automation-step">
         <header><strong>动作 {{index+1}}</strong><span><button type="button" class="icon-btn" aria-label="上移动作" :disabled="index===0" @click="form.steps.splice(index-1,2,step,form.steps[index-1])"><Icon name="ArrowUp" /></button><button type="button" class="icon-btn" aria-label="下移动作" :disabled="index===form.steps.length-1" @click="form.steps.splice(index,2,form.steps[index+1],step)"><Icon name="ArrowDown" /></button><button type="button" class="icon-btn" aria-label="删除动作" :disabled="form.steps.length===1" @click="form.steps.splice(index,1)"><Icon name="Trash2" /></button></span></header>

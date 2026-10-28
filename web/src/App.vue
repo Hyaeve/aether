@@ -37,6 +37,7 @@ import TransferSettings from './components/TransferSettings.vue'
 import VirtualLibraryPage from './pages/VirtualLibraryPage.vue'
 import Rapid115Page from './pages/Rapid115Page.vue'
 import NotificationPage from './pages/NotificationPage.vue'
+import ArchivesPage from './pages/ArchivesPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -63,13 +64,27 @@ const media = window.matchMedia('(prefers-color-scheme: dark)')
 function applyTheme() { document.documentElement.dataset.theme = theme.value === 'system' ? media.matches ? 'dark' : 'light' : theme.value }
 watch(theme, () => { localStorage.setItem('aether-theme', theme.value); applyTheme() })
 applyTheme()
-const navigation = [
-  { path: '/dashboard', label: '以太视界', icon: 'Gauge' }, { path: '/files', label: '文件服务', icon: 'FolderOpen' },
-  { path: '/storage', label: '存储管理', icon: 'HardDrive' }, { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
-  { path: '/tasks', label: '任务管理', icon: 'ListTodo' }, { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' }, { path: '/links', label: '以太链接', icon: 'Waypoints' },
-  { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }, { path: '/notifications', label: '通知服务', icon: 'RadioTower' }, { path: '/logs', label: '运行日志', icon: 'ScrollText' },
-  { path: '/settings', label: '系统设置', icon: 'Settings' }
+const navigationGroups = [
+  { id: 'overview', label: '以太视界', items: [
+    { path: '/dashboard', label: '信息总览', icon: 'Gauge' },
+    { path: '/files', label: '文件服务', icon: 'FolderOpen' },
+    { path: '/storage', label: '存储管理', icon: 'HardDrive' }
+  ] },
+  { id: 'workshop', label: '以太工坊', items: [
+    { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
+    { path: '/tasks', label: '任务管理', icon: 'ListTodo' },
+    { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' },
+    { path: '/links', label: '以太链接', icon: 'Waypoints' },
+    { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' },
+    { path: '/archives', label: '档案中心', icon: 'Archive' }
+  ] },
+  { id: 'system', label: '系统面板', items: [
+    { path: '/notifications', label: '通知服务', icon: 'RadioTower' },
+    { path: '/logs', label: '运行日志', icon: 'ScrollText' },
+    { path: '/settings', label: '系统设置', icon: 'Settings' }
+  ] }
 ]
+const navigation = navigationGroups.flatMap(group => group.items)
 const currentPath = computed(() => route.path === '/' ? '/storage' : route.path === '/tasks' ? '/tasks/strm' : route.path)
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
 const title = computed(() => activeNav.value?.label || '以太')
@@ -84,7 +99,8 @@ const sectionTitles = {
   '/virtual':['115链库'], '/virtual/115':['115链库'], '/virtual/mobile':['移动链库'], '/virtual/quark':['夸克链库'],
   '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/cas':['CAS链库'],
   '/links/manage':['以链管理'], '/links/cache':['直链缓存'],
-  '/tools':['辅助工具'], '/tools/market':['插件市场'], '/tools/115-rapid':['115秒传中心'],
+  '/tools':['我的插件'], '/tools/market':['插件市场'], '/tools/115-rapid':['115秒传中心'],
+  '/archives':['整理档案'], '/archives/organize':['整理档案'], '/archives/scrape':['刮削档案'], '/archives/tasks':['任务档案'],
   '/notifications/telegram':['消息配置'], '/notifications/transfers':['链接转存'],
   '/settings':['账号与安全'], '/settings/account':['账号与安全'], '/settings/transfer':['传输设置'],
   '/settings/strm':['STRM 配置'], '/settings/logs':['日志管理'], '/settings/about':['关于以太']
@@ -178,7 +194,12 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
     <aside class="sidebar" :class="{ open: mobileNav }">
       <div class="brand"><img src="/aether.svg" alt="" /><span>Aether<small>云端本地 · 以太空间</small></span></div>
-      <nav aria-label="主导航"><div class="nav-group"><button v-for="item in navigation" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path }" @click="router.push(rememberedRoute(state.username, item.path))"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button></div></nav>
+      <nav aria-label="主导航">
+        <div v-for="group in navigationGroups" :key="group.id" class="nav-group" role="group" :aria-labelledby="`sidebar-${group.id}`">
+          <h2 :id="`sidebar-${group.id}`" class="nav-group-title">{{ group.label }}</h2>
+          <button v-for="item in group.items" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path }" @click="router.push(rememberedRoute(state.username, item.path))"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button>
+        </div>
+      </nav>
     </aside>
     <div class="main-shell">
       <header class="topbar">
@@ -236,6 +257,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <Rapid115Page v-else-if="currentPath === '/tools/115-rapid'" />
         <NotificationPage v-else-if="currentPath.startsWith('/notifications')" :section="currentPath.endsWith('transfers') ? 'transfers' : 'telegram'" />
         <VirtualLibraryPage v-else-if="currentPath.startsWith('/virtual')" />
+        <ArchivesPage v-else-if="['/archives','/archives/organize','/archives/scrape','/archives/tasks'].includes(currentPath)" :section="currentPath.endsWith('/scrape') ? 'scrape' : currentPath.endsWith('/tasks') ? 'tasks' : 'organize'" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />
         <div v-else class="empty-state"><h1>页面不存在</h1><RouterLink class="btn" to="/storage">返回存储管理</RouterLink></div>

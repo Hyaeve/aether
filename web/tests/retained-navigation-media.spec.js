@@ -67,8 +67,8 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`breadcru
  await captureScreenshot(page,{path:info.outputPath(`breadcrumbs-${width}-${theme}.png`)})
  await page.goto('/dashboard')
  if(width<=760)await page.getByRole('button',{name:'打开导航',exact:true}).click()
- await expect(page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name:'以太视界',exact:true})).toHaveAttribute('aria-current','page')
- await expect(page.locator('.breadcrumbs')).toContainText('以太视界')
+ await expect(page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name:'信息总览',exact:true})).toHaveAttribute('aria-current','page')
+ await expect(page.locator('.breadcrumbs')).toContainText('信息总览')
 })
 
 test('video details close on leaving fullscreen and all popup surfaces match',async({page},info)=>{

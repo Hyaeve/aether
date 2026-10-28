@@ -17,6 +17,7 @@ import { useCardDrag } from '../useCardDrag'
 import { revealOptions } from '../expanded-options'
 import GenerationImport from '../components/GenerationImport.vue'
 import {extensionError} from '../extension-rules'
+import CronInput from '../components/CronInput.vue'
 const importer=ref(false),generationJobs=ref([])
 let generationTimer,alive=true
 async function loadGeneration(){if(!['cas','ed2k'].includes(props.kind))return;try{const result=await api('/generation/jobs');if(alive)generationJobs.value=Array.isArray(result)?result.filter(j=>j.kind===props.kind):[]}catch(e){if(alive)notify(e.message,true)}}
@@ -148,10 +149,10 @@ async function toggle(t) {
         <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" @keydown.enter.prevent /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
         <div v-else class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
-        <label v-if="kind !== 'cache'">Cron 表达式<input v-model="form.cron" /></label>
+        <label v-if="kind !== 'cache'">Cron 表达式<CronInput v-model="form.cron" label="Cron 表达式" /></label>
         <div v-else class="field"><label for="task-cache">缓存期</label><NumberInput id="task-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
         <label v-if="kind === 'strm' && storage(form.storageId)?.type === 'openlist'" class="toggle-line full"><span>编码路径</span><input v-model="form.encodePath" type="checkbox" role="switch" class="switch" /></label>
-        <div v-for="field in kind === 'cache' ? [] : [{ key: 'mediaExtensions', id: 'task-media-extensions', label: '媒体扩展名', groups: ['video', 'audio', 'comic'] }, { key: 'metadataExtensions', id: 'task-metadata-extensions', label: '元数据扩展名', groups: ['image', 'data'] }]" :key="field.key" class="field full extension-field">
+        <div v-for="field in kind === 'cache' ? [] : [{ key: 'mediaExtensions', id: 'task-media-extensions', label: '媒体扩展名', groups: ['video', 'audio'] }, { key: 'metadataExtensions', id: 'task-metadata-extensions', label: '元数据扩展名', groups: ['image', 'data'] }]" :key="field.key" class="field full extension-field">
           <div class="extension-heading"><label :for="field.id">{{ field.label }}</label><ExtensionPresets v-model="form[field.key]" :groups="field.groups" /></div>
           <input :id="field.id" v-model="form[field.key]" />
         </div>

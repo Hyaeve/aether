@@ -32,7 +32,11 @@ func validateRapid115RetryCron(expression string) error {
 }
 
 func checkRapid115RetryCron(expression string) error {
-	schedule, err := cronParser.Parse(expression)
+	return checkCronInterval(expression, 120*time.Minute, true)
+}
+
+func checkCronInterval(expression string, minimum time.Duration, strict bool) error {
+	schedule, err := rawCronParser.Parse(expression)
 	if err != nil {
 		return errors.New("Cron表达式无效")
 	}
@@ -40,8 +44,11 @@ func checkRapid115RetryCron(expression string) error {
 	if !ok {
 		return errors.New("不支持此Cron计划")
 	}
-	const minimum = 120 * time.Minute
-	tooShort := errors.New("带重试的Cron计划相邻执行间隔必须严格大于120min")
+	tooShort := errors.New("Cron计划相邻执行间隔至少15分钟；如每14分钟执行则不允许")
+	if strict {
+		tooShort = errors.New("带重试的Cron计划相邻执行间隔必须严格大于120min")
+	}
+	short := func(interval time.Duration) bool { return interval < minimum || strict && interval == minimum }
 	loc := spec.Location
 	if loc == time.Local {
 		loc = time.Local
@@ -56,7 +63,7 @@ func checkRapid115RetryCron(expression string) error {
 		for minute := 0; minute < 60; minute++ {
 			if spec.Hour&(1<<hour) != 0 && spec.Minute&(1<<minute) != 0 {
 				value := hour*60 + minute
-				if len(slots) > 0 && value-slots[len(slots)-1] <= 120 {
+				if len(slots) > 0 && short(time.Duration(value-slots[len(slots)-1])*time.Minute) {
 					return tooShort
 				}
 				slots = append(slots, value)
@@ -66,7 +73,7 @@ func checkRapid115RetryCron(expression string) error {
 	_, zoneEnd := start.ZoneBounds()
 	fixed := zoneEnd.IsZero()
 	wrap := 1440 - slots[len(slots)-1] + slots[0]
-	if fixed && wrap > 120 {
+	if fixed && !short(time.Duration(wrap)*time.Minute) {
 		return nil
 	}
 	// A full Gregorian cycle catches weekday/month boundaries; the library
@@ -81,7 +88,7 @@ func checkRapid115RetryCron(expression string) error {
 		if next.IsZero() {
 			return nil
 		}
-		if next.Sub(previous) <= minimum {
+		if short(next.Sub(previous)) {
 			return tooShort
 		}
 		previous = next

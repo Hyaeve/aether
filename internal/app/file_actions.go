@@ -20,6 +20,7 @@ type fileActionRequest struct {
 	Name          string   `json:"name"`
 	TargetStorage string   `json:"targetStorage"`
 	Target        string   `json:"target"`
+	emptyOnly     bool
 }
 
 func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {

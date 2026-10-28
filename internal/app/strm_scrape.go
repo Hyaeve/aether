@@ -29,19 +29,21 @@ type scrapeSettings struct {
 	Excluded  string `json:"excluded"`
 }
 type scrapeItem struct {
-	Path    string `json:"path"`
-	Title   string `json:"title"`
-	Year    string `json:"year"`
-	Kind    string `json:"kind"`
-	TMDB    int    `json:"tmdb"`
-	Season  int    `json:"season"`
-	Episode int    `json:"episode"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
-	Poster  string `json:"poster,omitempty"`
-	Manual  bool   `json:"manual,omitempty"`
+	MatchedTitle string `json:"matchedTitle,omitempty"`
+	Path         string `json:"path"`
+	Title        string `json:"title"`
+	Year         string `json:"year"`
+	Kind         string `json:"kind"`
+	TMDB         int    `json:"tmdb"`
+	Season       int    `json:"season"`
+	Episode      int    `json:"episode"`
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	Poster       string `json:"poster,omitempty"`
+	Manual       bool   `json:"manual,omitempty"`
 }
 type scrapeProgress struct {
+	Error     bool   `json:"error,omitempty"`
 	Running   bool   `json:"running"`
 	TaskID    string `json:"taskId"`
 	Done      int    `json:"done"`
@@ -444,6 +446,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
+		ArchiveID      string   `json:"archiveId"`
 		TaskID         string   `json:"taskId"`
 		Path           string   `json:"path"`
 		TMDB           int      `json:"tmdb"`
@@ -460,6 +463,22 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	retryFingerprint := ""
+	if in.ArchiveID != "" {
+		if !in.Confirmed || action != "identify" {
+			fail(w, 400, errors.New("请确认重新识别刮削"))
+			return
+		}
+		record, err := a.validateArchiveRetry(in.ArchiveID)
+		if err != nil {
+			fail(w, 409, err)
+			return
+		}
+		in.TaskID, in.Path = record.TaskID, record.Path
+		in.Scope, in.Scopes, in.ExcludedScopes, in.Paths = "", nil, nil, nil
+		retryFingerprint = record.Fingerprint
+		in.Reidentify, in.Scrape, in.Group = true, true, false
 	}
 	if in.Scope != "" && (!fs.ValidPath(in.Scope) || in.Scope == ".") {
 		fail(w, 400, errors.New("无效的库目录"))
@@ -561,6 +580,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 				index.Items[i].TMDB = 0
 				index.Items[i].Manual = false
 				index.Items[i].Poster, index.Items[i].Message = "", ""
+				index.Items[i].MatchedTitle = ""
 				index.Items[i].Status = "pending"
 			}
 		}
@@ -585,6 +605,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 				index.Items[i].Status = "pending"
 				index.Items[i].Message = ""
 				index.Items[i].Poster = ""
+				index.Items[i].MatchedTitle = ""
 				found = true
 			}
 		}
@@ -638,6 +659,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 						index.Items[i].Manual = false
 						index.Items[i].Status = "pending"
 						index.Items[i].Poster = ""
+						index.Items[i].MatchedTitle = ""
 					}
 				}
 			}
@@ -653,6 +675,9 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			}
 			selectedCount := a.scrapeProgress.Total
 			a.scrapeMu.Unlock()
+			if in.ArchiveID != "" && selectedCount != 1 {
+				runErr = errors.New("原 STRM 已不在当前刮削范围，请从刮削平台重新选择")
+			}
 			if (action == "run" || action == "identify") && selectedCount > 10000 {
 				runErr = errors.New("索引已完整刷新；单次自动刮削最多处理 10000 个 STRM，请选择子目录分批处理")
 			}
@@ -672,12 +697,22 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 						if !selected(*item) {
 							continue
 						}
+						archiveAction := "scrape"
+						if action == "identify" && !in.Scrape {
+							archiveAction = "identify"
+						}
+						record, archiveErr := a.newScrapeArchive(in.TaskID, rootName, archiveAction, root, *item, retryFingerprint)
+						if archiveErr != nil {
+							runErr = errors.New("无法保存刮削档案或原 STRM 已不可读取，执行已停止")
+							break
+						}
 						item.Message = ""
 						var e error
 						if action == "identify" {
 							key := scrapeWorkKey(*item)
 							if known, ok := identified[key]; ok {
 								item.TMDB, item.Title, item.Year, item.Poster, item.Status, item.Message = known.TMDB, known.Title, known.Year, known.Poster, known.Status, known.Message
+								item.MatchedTitle = known.MatchedTitle
 							} else {
 								_, e = resolveScrapeMedia(ctx, client, tmdb, cfg, item)
 								if e == nil && item.TMDB > 0 && item.Status != "ok" {
@@ -693,9 +728,16 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 						if action == "identify" && in.Scrape && e == nil && item.TMDB > 0 {
 							e = scrapeOne(ctx, root, client, tmdb, cfg, item)
 						}
+						if e != nil && ctx.Err() != nil {
+							e = ctx.Err()
+						}
 						if e != nil {
 							item.Status = "error"
 							item.Message = e.Error()
+						}
+						if archiveErr := a.finishScrapeArchive(record, *item, e); archiveErr != nil {
+							runErr = errors.New("刮削档案保存失败，执行已停止，请检查数据目录")
+							break
 						}
 						a.scrapeMu.Lock()
 						a.scrapeProgress.Done++
@@ -735,6 +777,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		a.scrapeProgress.Running = false
+		a.scrapeProgress.Error = runErr != nil || a.scrapeProgress.Failed > 0
 		a.scrapeProgress.Message = message
 		a.scrapeCancel = nil
 		a.scrapeMu.Unlock()
@@ -857,6 +900,7 @@ func resolveScrapeMedia(ctx context.Context, client *http.Client, tmdb PluginCon
 		return tmdbMedia{}, errors.New("TMDB 详情无效")
 	}
 	item.Title = title
+	item.MatchedTitle = title
 	if media.Poster != "" && tmdb.ImageURL != "" {
 		item.Poster = strings.TrimRight(tmdb.ImageURL, "/") + "/t/p/w342" + media.Poster
 	}

@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	archives            *executionArchives
+	folderCleanupMu     sync.Mutex
 	channels            notificationChannels
 	notificationQueue   chan channelNotice
 	wecom               wecomService
@@ -164,6 +166,10 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	}
 	a := &App{store: store, cache: NewCache(), ctx: ctx, outputDir: output, dataDir: dataDir, logger: log.Default(), running: map[string]context.CancelFunc{}, runningStorage: map[string]string{},
 		gates: map[string]time.Time{}, intervals: map[string]int{}, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, started: time.Now()}
+	a.archives, err = openExecutionArchives(store, dataDir)
+	if err != nil {
+		return nil, err
+	}
 	a.casGate = make(chan struct{}, 1)
 	a.notificationQueue = make(chan channelNotice, 64)
 	a.transfers.restore(filepath.Join(dataDir, "cache", "transfers.json"))
@@ -219,6 +225,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	a.wg.Add(1)
 	go a.rapid115Monitor()
 	go a.recycleCleanupMonitor()
+	a.wg.Add(1)
+	go a.folderCleanupMonitor()
 	a.wg.Add(3)
 	go a.telegramPoll()
 	go a.telegramWorker()
@@ -321,14 +329,17 @@ func (a *App) Handler(webDir string) http.Handler {
 	a.RegisterStrmReplace(mux)
 	mux.Handle("POST /api/virtual-library/115/{action}", a.protected(http.HandlerFunc(a.virtualLibrary)))
 	mux.HandleFunc("/s/{key}", a.playVirtualShare)
+	mux.HandleFunc("/115-share/{share}/{file...}", a.playVirtual115Name)
 	mux.Handle("/api/virtual-library/quark", a.protected(http.HandlerFunc(a.quarkLibraryAPI)))
 	mux.Handle("/api/virtual-library/quark/{id}", a.protected(http.HandlerFunc(a.quarkLibraryAPI)))
 	mux.Handle("POST /api/virtual-library/quark/resolve", a.protected(http.HandlerFunc(a.quarkLibraryResolve)))
 	mux.Handle("POST /api/virtual-library/quark/{id}/run", a.protected(http.HandlerFunc(a.quarkLibraryRunAPI)))
 	mux.HandleFunc("/q/{key}/{name}", a.playQuarkLibrary)
+	mux.HandleFunc("/quark-share/{share}/{file...}", a.playQuarkLibraryPath)
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
 	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))
+	mux.Handle("/api/115-folder-cleanup", a.protected(http.HandlerFunc(a.folderCleanupAPI)))
 	mux.Handle("/api/115-recycle-cleanup/run", a.protected(http.HandlerFunc(a.recycleCleanupRunAPI)))
 	mux.Handle("/api/115-rapid", a.protected(http.HandlerFunc(a.rapid115Settings)))
 	mux.Handle("POST /api/115-rapid/run", a.protected(http.HandlerFunc(a.rapid115Start)))
@@ -345,6 +356,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/plugin-market/repositories", a.protected(http.HandlerFunc(a.pluginRepositories)))
 	mux.Handle("GET /api/plugin-market", a.protected(http.HandlerFunc(a.pluginMarketCatalog)))
 	mux.Handle("GET /api/115-rapid/records", a.protected(http.HandlerFunc(a.rapid115Records)))
+	mux.Handle("POST /api/cron/validate", a.protected(http.HandlerFunc(a.cronPolicyAPI)))
 	mux.Handle("GET /api/logs", a.protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, a.store.logSnapshot())
 	})))
@@ -417,6 +429,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/automations/{id}", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("POST /api/automations/{id}/{action}", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("/api/strm-scrape/{action}", a.protected(http.HandlerFunc(a.strmScrape)))
+	mux.Handle("GET /api/archives/{category}", a.protected(http.HandlerFunc(a.archiveList)))
+	mux.Handle("POST /api/archives/scrape/{id}/retry", a.protected(http.HandlerFunc(a.archiveRetry)))
 	mux.Handle("/api/tasks/{id}", a.protected(http.HandlerFunc(a.taskItem)))
 	mux.Handle("/api/tasks/{id}/{action}", a.protected(http.HandlerFunc(a.taskAction)))
 	mux.Handle("/api/settings", a.protected(http.HandlerFunc(a.settings)))
@@ -666,6 +680,9 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 		st.Tasks[i].HealthPause = taskHealthPause(st, st.Tasks[i])
 	}
 	for i := range st.Storages {
+		mac := hmac.New(sha256.New, a.store.macKey)
+		_, _ = mac.Write([]byte(storageRevision(st.Storages[i])))
+		st.Storages[i].ViewRevision = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 		if st.Storages[i].Usage != nil && st.Storages[i].Usage.Stamp != storageRevision(st.Storages[i]) {
 			st.Storages[i].Usage = nil
 		}
@@ -689,6 +706,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateStorage(s *Storage) error {
+	s.ViewRevision = ""
 	s.Name = strings.TrimSpace(s.Name)
 	if s.Name == "" || len(s.Name) > 150 {
 		return errors.New("请输入有效的存储池名称")
@@ -732,6 +750,9 @@ func validateStorage(s *Storage) error {
 		}
 	}
 	if nativeMobile(*s) {
+		if err := validateMobileClient(*s); err != nil {
+			return err
+		}
 		if value := s.Config["userDomainId"]; len(value) > 128 || strings.ContainsAny(value, "\r\n\t /\\") {
 			return errors.New("移动账号域ID无效")
 		}
@@ -955,6 +976,13 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				st.RecycleCleanup.Rules = kept
+				folders := st.FolderCleanup.Rules[:0]
+				for _, rule := range st.FolderCleanup.Rules {
+					if rule.StorageID != sid {
+						folders = append(folders, rule)
+					}
+				}
+				st.FolderCleanup.Rules = folders
 				targets := st.Notifications.Targets[:0]
 				for _, target := range st.Notifications.Targets {
 					if target.StorageID != sid {
@@ -1152,7 +1180,7 @@ func (a *App) validateTask(t *Task) error {
 		}
 		if t.Cron != "" {
 			if _, err := cronParser.Parse(t.Cron); err != nil {
-				return errors.New("Cron 格式错误，需要五个字段")
+				return err
 			}
 		}
 		if t.CompletionAction == "delete" {

@@ -131,6 +131,9 @@ func (a *App) crossStorageFileAction(ctx context.Context, source, target Storage
 		if !safeName(f.Name) {
 			return reject("源文件名无效")
 		}
+		if !f.IsDir && (f.Size < 0 || f.Size > uploadFileLimit(target)) {
+			return reject("目标单文件上限 " + uploadLimitLabel(uploadFileLimit(target)))
+		}
 		if source.Type == "local" {
 			root, err := os.OpenRoot(source.Config["root"])
 			if err != nil {

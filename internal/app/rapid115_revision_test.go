@@ -132,7 +132,7 @@ func TestRapid115RetryCronStrictlyExceeds120Minutes(t *testing.T) {
 			})
 		}
 	}
-	value := Rapid115Settings{Manual: job, Watches: []Rapid115Watch{{Rapid115Job: job, ID: "watch", Name: "skip", Mode: "cron", Cron: "* * * * *", Enabled: true}}}
+	value := Rapid115Settings{Manual: job, Watches: []Rapid115Watch{{Rapid115Job: job, ID: "watch", Name: "skip", Mode: "cron", Cron: "*/15 * * * *", Enabled: true}}}
 	if err := validateRapid115(value, a.store.snapshot()); err != nil {
 		t.Fatal("skip policy acquired a retry restriction", err)
 	}

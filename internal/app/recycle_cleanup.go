@@ -54,8 +54,12 @@ func validateRecycleCleanup(v recycleCleanupSettings, st State, allowLegacy ...b
 		if len(rule.Cron) > 128 {
 			return errors.New("Cron过长")
 		}
-		if _, err := cronParser.Parse(rule.Cron); err != nil {
-			return errors.New("Cron表达式无效")
+		parser := cronParser.Parse
+		if len(allowLegacy) > 1 && allowLegacy[1] {
+			parser = rawCronParser.Parse
+		}
+		if _, err := parser(rule.Cron); err != nil {
+			return err
 		}
 	}
 	return nil

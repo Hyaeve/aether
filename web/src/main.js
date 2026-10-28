@@ -14,6 +14,7 @@ const router = createRouter({
     { path: '/backup', redirect: '/transfer/backup' },
     { path: '/links', redirect: '/links/manage' },
     { path: '/notifications', redirect: '/notifications/telegram' },
+    { path: '/archives', redirect: '/archives/organize' },
     { path: '/virtual/tianyi', redirect: '/virtual/115' },
     { path: '/webdav', redirect: '/files/webdav' },
     { path: '/mounts', redirect: '/files/mounts' },

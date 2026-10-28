@@ -1,0 +1,65 @@
+.archive-panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; min-width:0; overflow:hidden; }
+.archive-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px; border-bottom:1px solid var(--border); }
+.archive-toolbar .search-field { width:240px; min-width:140px; }
+.archive-toolbar .rounded-select { width:130px; }
+.archive-view { display:flex; gap:2px; border:1px solid var(--border); border-radius:6px; padding:2px; }
+.archive-view .icon-btn[aria-pressed=true] { color:var(--primary); background:var(--primary-soft); }
+.archive-toolbar>.archive-count { margin-left:auto; }
+.archive-count { color:var(--primary); background:var(--primary-soft); border:1px solid color-mix(in srgb,var(--primary) 20%,var(--border)); border-radius:6px; padding:5px 9px; font-size:13px; white-space:nowrap; }
+.archive-columns,.archive-row { display:grid; grid-template-columns:minmax(0,1fr) 110px 136px 90px 36px; gap:16px; align-items:center; padding:12px 16px; }
+.archive-columns,.archive-task-columns { background:var(--layer-frame); color:var(--muted); font-size:13px; }
+.archive-row { min-height:102px; border-bottom:1px solid var(--border); background:var(--input); }
+.archive-media { display:flex; gap:12px; align-items:center; min-width:0; }
+.archive-poster { display:grid; place-items:center; width:44px; height:66px; flex:none; overflow:hidden; border:1px solid var(--border); border-radius:4px; background:var(--layer-frame); color:var(--muted); }
+.archive-poster img { width:100%;height:100%;object-fit:cover; }
+.archive-name { min-width:0; flex:1; display:grid; gap:5px; }
+.archive-title { display:flex; align-items:center; gap:8px; min-width:0; }
+.archive-title strong { font-size:15px; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.archive-title>small { flex:none; color:var(--primary); font-size:12px; }
+.archive-filename,.archive-origin { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.archive-filename { color:var(--text); font-size:13px; }
+.archive-origin { color:var(--muted); font-size:12px; }
+.archive-trigger { font-size:13px; white-space:nowrap; }
+.archive-trigger svg { margin-right:5px; color:var(--muted); }
+.archive-trigger>small { display:block; color:var(--muted); margin-top:5px; }
+.archive-time,.archive-task-time { font-size:13px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.archive-status { display:inline-flex; align-items:center; gap:5px; font-size:13px; color:var(--muted); white-space:nowrap; }
+.archive-status.success { color:var(--green); }.archive-status.doubt { color:var(--amber); }.archive-status.failed { color:var(--red); }
+.archive-retry { width:36px; height:36px; }
+.archive-group { border-bottom:1px solid var(--border); }
+.archive-group-toggle { display:flex; align-items:center; width:100%; text-align:left; padding:14px 16px; gap:12px; border:0; background:var(--layer-item); }
+.archive-group-toggle:hover { background:var(--primary-soft); }
+.archive-group-toggle>span:not(.archive-status) { display:grid; gap:5px; min-width:0; flex:1; }
+.archive-group-toggle strong,.archive-group-toggle small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.archive-group-toggle strong { font-size:15px; }.archive-group-toggle small { color:var(--muted); font-size:12px; }
+.archive-group-toggle>b { font-size:13px; font-weight:500; white-space:nowrap; }
+.archive-group-pages,.archive-pagination { display:flex; align-items:center; justify-content:flex-end; padding:12px; gap:6px; font-size:13px; font-variant-numeric:tabular-nums; }
+.archive-pagination>span { min-width:54px; text-align:center; }
+.archive-pagination input { width:60px; height:32px; min-height:32px; padding:5px 8px; text-align:center; }
+.archive-task-row,.archive-task-columns { display:grid; grid-template-columns:minmax(0,1fr) 120px 150px 100px; align-items:center; gap:16px; padding:12px 16px; }
+.archive-task-row { min-height:82px; background:var(--input); border-bottom:1px solid var(--border); }
+.archive-task-name { display:flex; align-items:center; gap:12px; min-width:0; }
+.archive-task-name>svg { color:var(--primary); }.archive-task-name>span { display:grid;gap:6px;min-width:0; }
+.archive-task-name strong { font-size:14px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+.archive-task-name small,.archive-task-time small { display:block; font-size:12px; color:var(--muted); }.archive-task-time small { margin-top:5px; }
+.archive-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; color:var(--muted); }
+.archive-panel>.small-empty { min-height:240px; display:grid; place-items:center; }
+@media(max-width:1100px) {
+  .archive-columns,.archive-row { grid-template-columns:minmax(0,1fr) 100px 128px 78px 36px; gap:10px; }
+}
+@media(max-width:700px) {
+  .archive-toolbar { gap:8px; }.archive-toolbar .search-field { width:100%; }.archive-toolbar .rounded-select { width:calc((100% - 8px)/2); }
+  .archive-columns,.archive-task-columns { display:none; }
+  .archive-row { grid-template-columns:minmax(0,1fr) 36px; gap:10px 6px; padding:12px; }
+  .archive-media { grid-column:1;grid-row:1; }.archive-retry { grid-column:2;grid-row:1; }
+  .archive-row>.archive-trigger { grid-column:1/-1;grid-row:2; }.archive-trigger>small { display:inline;margin-left:8px; }
+  .archive-row>.archive-time { grid-column:1;grid-row:3; }.archive-row>.archive-status { grid-column:1/-1;grid-row:2;justify-self:end; }
+  .archive-trigger { font-size:12px; }.archive-status { font-size:12px; }
+  .archive-title strong { font-size:14px; }.archive-title>small { font-size:12px; }
+  .archive-task-row { grid-template-columns:minmax(0,1fr) 90px;gap:12px;padding:14px 12px; }
+  .archive-task-name { grid-column:1/-1; }.archive-task-row>.archive-trigger { grid-row:2; }.archive-task-row>.archive-status { grid-column:2;grid-row:2;justify-self:end; }
+  .archive-task-time { grid-column:1/-1;grid-row:3; }.archive-task-time small { display:inline;margin-left:12px; }
+  .archive-group-toggle { flex-wrap:wrap;padding:12px;gap:8px; }.archive-group-toggle>span:not(.archive-status) { flex-basis:calc(100% - 70px); }
+  .archive-group-toggle>b { margin-left:49px; }.archive-group-toggle>.archive-status { margin-left:auto; }
+  .archive-pagination { justify-content:center;gap:3px;padding:10px 6px; }.archive-pagination .icon-btn { width:30px;height:36px; }
+}

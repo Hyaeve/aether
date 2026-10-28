@@ -56,7 +56,7 @@ func validateAutomation(r *Automation, state State) error {
 		r.SourceTask = ""
 	case "cron":
 		if _, err := cronParser.Parse(r.Cron); err != nil {
-			return errors.New("联动 Cron 表达式无效")
+			return err
 		}
 		r.SourceTask = ""
 	case "task":
@@ -198,13 +198,17 @@ func newAutomationID() string { return id() }
 func (a *App) triggerAutomations(taskID string) {
 	for _, r := range a.store.snapshot().Automations {
 		if r.Enabled && r.Trigger == "task" && r.SourceTask == taskID {
-			if err := a.startAutomation(r.ID); err != nil {
+			if err := a.startAutomationWithTrigger(r.ID, "automation"); err != nil {
 				a.store.event("warn", "tasks", r.Name+"：联动触发失败："+err.Error())
 			}
 		}
 	}
 }
 func (a *App) startAutomation(id string) error {
+	return a.startAutomationWithTrigger(id, "manual")
+}
+
+func (a *App) startAutomationWithTrigger(id string, trigger string) error {
 	a.automationMu.Lock()
 	defer a.automationMu.Unlock()
 	if a.ctx.Err() != nil {
@@ -227,6 +231,13 @@ func (a *App) startAutomation(id string) error {
 	if err := validateAutomation(&rule, st); err != nil {
 		return err
 	}
+	record := archiveRecord{archiveEntry: archiveEntry{
+		ID: newAutomationID(), Category: "tasks", TaskID: rule.ID, TaskName: rule.Name,
+		TaskKind: "automation", Trigger: trigger, Action: "run", Status: "running", StartedAt: time.Now(),
+	}}
+	if err := a.archives.put(record); err != nil {
+		return errors.New("无法保存联动任务档案，联动未启动")
+	}
 	ctx, cancel := context.WithTimeout(a.ctx, 6*time.Hour)
 	if err := a.automationUpdate(id, func(r *Automation) {
 		r.Status = "running"
@@ -235,6 +246,10 @@ func (a *App) startAutomation(id string) error {
 		r.NextRun = automationNext(*r, time.Now())
 	}); err != nil {
 		cancel()
+		record.Status, record.Message, record.FinishedAt = "failed", "联动启动失败，未执行动作", time.Now()
+		if archiveErr := a.archives.put(record); archiveErr != nil {
+			a.store.event("warn", "tasks", "太一档案：联动启动失败结果保存失败，请检查数据目录")
+		}
 		return err
 	}
 	if a.automationRuns == nil {
@@ -246,6 +261,7 @@ func (a *App) startAutomation(id string) error {
 		defer a.wg.Done()
 		defer cancel()
 		success, failed := true, false
+		completed := 0
 		message := "执行完成"
 		for i, step := range rule.Steps {
 			if ctx.Err() != nil {
@@ -271,12 +287,15 @@ func (a *App) startAutomation(id string) error {
 				timer.Stop()
 			case "task":
 				done := make(chan error, 1)
-				err = a.startTaskContext(ctx, step.TaskID, done)
+				err = a.startTaskWithTrigger(ctx, step.TaskID, done, "automation")
 				if err == nil {
 					err = <-done
 				}
 			}
 			success = err == nil
+			if success {
+				completed++
+			}
 			if err != nil {
 				failed = true
 				message = fmt.Sprintf("动作 %d 失败：%s", i+1, err)
@@ -295,6 +314,16 @@ func (a *App) startAutomation(id string) error {
 			a.logger.Printf("persist automation: %v", err)
 		}
 		a.store.event(status, "tasks", rule.Name+"："+message)
+		record.Status, record.Processed, record.FinishedAt = status, completed, time.Now()
+		record.Message = fmt.Sprintf("联动结束，完成 %d 个动作", completed)
+		if status == "error" {
+			record.Status, record.Message = "failed", "联动执行失败，请查看运行日志"
+		} else if status == "cancelled" {
+			record.Message = "联动已停止"
+		}
+		if err := a.archives.put(record); err != nil {
+			a.store.event("warn", "tasks", "太一档案：联动结果保存失败，请检查数据目录")
+		}
 		a.automationMu.Lock()
 		delete(a.automationRuns, id)
 		a.automationMu.Unlock()

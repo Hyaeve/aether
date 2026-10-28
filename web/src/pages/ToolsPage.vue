@@ -7,6 +7,7 @@ import QuarkTakeover from '../components/QuarkTakeover.vue'
 import StrmReplace from '../components/StrmReplace.vue'
 import Pan115Simulcast from '../components/Pan115Simulcast.vue'
 import RecycleCleanup from '../components/RecycleCleanup.vue'
+import FolderCleanup from '../components/FolderCleanup.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import Rapid115Icon from '../components/Rapid115Icon.vue'
 import { useRouter } from 'vue-router'
@@ -80,6 +81,7 @@ function selectTool(tool){if(tool.name==='115 秒传')router.push('/tools/115-ra
 const tools = [
   {name:'115 秒传',icon:'Zap',subtitle:'115 网盘 · SHA1 秒传',detail:'通过 SHA1 哈希秒传本地文件到 115 网盘，无需实际上传文件数据'},
   { name: '115 同播复制', icon: 'Copy', subtitle: '115 网盘 · 多客户端播放', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
+  { name:'115文件夹清理',icon:'FolderClock',subtitle:'115 网盘 · 文件夹清理',detail:'按Cron计划清理所选文件夹中超过阈值的文件及空子目录，保留所选文件夹' },
   { name:'115回收站清理',icon:'Trash2',subtitle:'115 网盘 · 定时清理',detail:'按计划清理115回收站中超过保留天数的项目' },
   { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '接管本项目生成的夸克 STRM 播放请求，按绑定策略返回 TV 版 302 直链；画质、字幕及客户端兼容性受上游限制。' },
   { name: '整理规则', icon: 'FolderTree', subtitle: '媒体整理 · 命名与目录', file: 'organize-rules.json', detail: '配置媒体命名、目录结构和整理规则' },
@@ -96,18 +98,19 @@ tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', su
 const results = computed(() => tools.filter(tool => `${tool.name} ${tool.subtitle} ${tool.detail}`.toLowerCase().includes(query.value.toLowerCase())).map(tool => ({ ...tool, iconName: tool.icon })))
 </script>
 <template>
-  <nav v-tab-scroll class="content-tabs" aria-label="辅助工具栏目"><RouterLink to="/tools" aria-label="内置辅助工具" :class="{ active: section === 'tools' }"><Icon name="BriefcaseBusiness" />辅助工具</RouterLink><RouterLink to="/tools/market" :class="{ active: section === 'market' }"><Icon name="Puzzle" />插件市场</RouterLink></nav>
+  <nav v-tab-scroll class="content-tabs" aria-label="辅助工具栏目"><RouterLink to="/tools" :class="{ active: section === 'tools' }"><Icon name="Blocks" />我的插件</RouterLink><RouterLink to="/tools/market" :class="{ active: section === 'market' }"><Icon name="Puzzle" />插件市场</RouterLink></nav>
   <PluginMarket v-if="section === 'market'" />
   <div v-else class="plugin-grid">
     <article v-for="tool in tools" :key="tool.name" class="plugin-card" role="button" tabindex="0" :aria-label="tool.name" @click="selectTool(tool)" @keydown.enter.self="selectTool(tool)" @keydown.space.prevent.self="selectTool(tool)">
       <Rapid115Icon v-if="tool.name==='115 秒传'" /><button v-else-if="['115 同播复制','115回收站清理'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 同播复制'?simulcastOn:cleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 同播复制'?simulcastOn:cleanup.enabled" :disabled="busy" @click.stop="toggle115(tool.name==='115 同播复制'?'simulcast':'cleanup')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span>
       <div class="plugin-heading"><strong>{{ tool.name }}</strong><small class="plugin-subtitle">{{ tool.subtitle }}</small></div>
-      <small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115回收站清理', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
+      <small class="plugin-description" :data-tooltip="tool.detail">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115回收站清理', '115文件夹清理', 'STRM 替换','115 秒传'].includes(tool.name)" class="status pending">待实现</span>
     </article>
   </div>
   <PluginSearch v-if="section === 'tools'" :items="results" @search="query = $event" @select="selectTool" />
   <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" @changed="takeover = $event" />
   <Pan115Simulcast v-else-if="selected?.name === '115 同播复制'" @close="selected = null" />
+  <FolderCleanup v-else-if="selected?.name === '115文件夹清理'" @close="selected=null" />
       <RecycleCleanup v-else-if="selected?.name === '115回收站清理'" @close="selected=null" @changed="cleanup=$event" />
   <StrmReplace v-else-if="selected?.name === 'STRM 替换'" @close="selected = null" @started="refreshReplacementNotices" />
   <PluginSettings v-else-if="selected?.kind" :key="selected.kind" :kind="selected.kind" :title="selected.name" @close="selected = null" @changed="pluginStates[$event.kind] = $event.enabled" />

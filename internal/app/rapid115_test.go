@@ -151,7 +151,7 @@ func TestRapid115SettingsAuthPersistenceAndValidation(t *testing.T) {
 			t.Fatal("unprotected", route, w.Code)
 		}
 	}
-	config := Rapid115Settings{Manual: job, Watches: []Rapid115Watch{{Rapid115Job: job, ID: "watch1", Name: "监控", Mode: "cron", Cron: "*/5 * * * *", Enabled: true}}}
+	config := Rapid115Settings{Manual: job, Watches: []Rapid115Watch{{Rapid115Job: job, ID: "watch1", Name: "监控", Mode: "cron", Cron: "*/15 * * * *", Enabled: true}}}
 	config.Manual.Extensions = ".MP4;mp4;MKV"
 	res := request(t, h, "PUT", "/api/115-rapid", config, cookie)
 	if res.Code != 200 {

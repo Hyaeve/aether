@@ -20,7 +20,7 @@ for (const size of [{ width: 375, height: 812 }, { width: 844, height: 390 }]) f
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
     await page.getByRole('button', { name: '搜索辅助工具', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '搜索辅助工具', exact: true })
-    await expect(dialog.locator('.plugin-search-result')).toHaveCount(14)
+    await expect(dialog.locator('.plugin-search-result')).toHaveCount(15)
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
     await captureScreenshot(page, { path: info.outputPath(`search-webkit-${size.width}-${theme}.png`) })
     await page.evaluate(() => document.documentElement.style.setProperty('--aether-visible-height', '320px'))

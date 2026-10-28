@@ -59,7 +59,7 @@ func TestQuarkLibraryGuardClosesUnpublishedOutput(t *testing.T) {
 		t.Fatal("publication guard did not stop the write", err)
 	}
 	items, err := os.ReadDir(quarkLibraryRoot(card))
-	if err != nil || len(items) != 0 {
+	if err != nil || len(items) != 1 || items[0].Name() != quarkLibraryMarker {
 		t.Fatal("unpublished output or open temporary file was left behind", items, err)
 	}
 }
@@ -126,8 +126,11 @@ func TestQuarkLibraryDraftAPIActivationAndNoStorageEdit(t *testing.T) {
 	}
 	body["url"], body["enabled"] = first.Secret, true
 	w = request(t, h, "PUT", "/api/virtual-library/quark/"+first.ID, body, cookie)
-	if w.Code != 200 {
+	if w.Code != 202 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+	if result := waitQuarkLibrary(t, a, first.ID); result.Status != "completed" {
+		t.Fatal(result)
 	}
 	updated := a.store.snapshot().QuarkLibraryCards[0]
 	if updated.ID != first.ID || !updated.Enabled || updated.Directory != output || len(a.store.snapshot().QuarkLibraryRuntime.Files) != 1 {

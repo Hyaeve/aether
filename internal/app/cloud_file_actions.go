@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+var errEmptyDirectoryUnconfirmed = errors.New("子目录无法确认仍为空，未提交删除")
+
 // Native cloud operations never transfer credentials or IDs between accounts.
 func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileActionRequest) error {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -173,6 +175,17 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 		case "copy":
 			return c.Copy(dest, req.IDs...)
 		case "delete":
+			if req.emptyOnly {
+				for _, file := range selected {
+					if !file.IsDir {
+						return errors.New("仅空目录清理不能用于文件")
+					}
+					items, err := a.rawList(ctx, s, file.ID)
+					if err != nil || len(items) != 0 {
+						return errEmptyDirectoryUnconfirmed
+					}
+				}
+			}
 			return c.Delete(req.IDs...)
 		}
 		return errors.New("无效的 115 文件操作")

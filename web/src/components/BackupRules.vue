@@ -1,4 +1,5 @@
 <script setup>
+import CronInput from './CronInput.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, state, notify, date } from '../lib'
 import Icon from './Icon.vue'
@@ -127,7 +128,7 @@ defineExpose({ open, load })
           <div class="form-grid"><div class="field"><label>每 N 次普通扫描</label><NumberInput v-model="form.fullScanEvery" aria-label="每 N 次普通扫描" :disabled="!form.fullScan" min="0" max="100000" /></div><div class="field"><label>至少每 N 小时</label><NumberInput v-model="form.fullScanHours" aria-label="至少每 N 小时" :disabled="!form.fullScan" unit="小时" min="0" max="876000" /></div></div>
         </div></details></template>
       </section>
-      <section v-show="step===2" class="backup-section"><label>Cron 表达式<input v-model="form.cron" aria-label="Cron 表达式" /></label><div class="field"><label>自动扫描间隔</label><NumberInput v-model="form.scanInterval" aria-label="自动扫描间隔" unit="秒" min="0" max="31536000" /></div><label v-if="twoWay" class="backup-monitor"><span>同步删除</span><input v-model="form.syncDelete" type="checkbox" role="switch" class="switch" /></label></section>
+      <section v-show="step===2" class="backup-section"><label>Cron 表达式<CronInput v-model="form.cron" aria-label="Cron 表达式" /></label><div class="field"><label>自动扫描间隔</label><NumberInput v-model="form.scanInterval" aria-label="自动扫描间隔" unit="秒" min="0" max="31536000" /></div><label v-if="twoWay" class="backup-monitor"><span>同步删除</span><input v-model="form.syncDelete" type="checkbox" role="switch" class="switch" /></label></section>
       <section v-show="step===3" class="backup-section">
       <BackupFilterEditor ref="filterEditor" :form="form" />
       </section>

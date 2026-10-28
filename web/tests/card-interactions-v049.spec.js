@@ -95,7 +95,7 @@ for (const surface of surfaces) {
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down()
     await expect(page.locator('.card-drag-ghost')).toBeVisible()
-    await page.getByRole('link', { name: '以太视界', exact: true }).dispatchEvent('click')
+    await page.getByRole('link', { name: '信息总览', exact: true }).dispatchEvent('click')
     await page.mouse.up()
     await expect(page.locator('.card-drag-ghost')).toHaveCount(0)
     await expect(page.locator('html')).not.toHaveClass(/card-drag-active/)

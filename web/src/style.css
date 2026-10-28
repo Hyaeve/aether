@@ -4,7 +4,7 @@
   --primary: #3a4980; --primary-hover: #303f73; --primary-soft: #edf0f8; --lavender: #b4b9d6;
   --sidebar: #181e2d; --sidebar-hover: #242c40; --sidebar-active: #5263a8;
   --bg: #f2f3f5; --surface: #fafbfc; --text: #27313e; --muted: #85909f; --border: #e9ecf1;
-  --green: #328c79; --amber: #b58740; --info:#356b8c; --red: #c75d64; --input: #fff;
+  --green: #328c79; --amber: #b58740; --orange:#c96d12; --info:#356b8c; --red: #c75d64; --input: #fff;
   --shadow: 0 12px 40px #17213518;
   --modal-standard-width:640px;
   --token-background:linear-gradient(120deg,#e6ebfa,#ede7f8); --token-border:#d3d9ef;
@@ -14,7 +14,7 @@
 [data-theme="dark"] { color-scheme: dark; --bg: #111216; --surface: #1b1d23; --text: #e3e6ed; --muted: #9aa3b1; --border: #30343f; --primary: #8997cb; --primary-hover: #9aa7d7; --primary-soft: #2c3246; --input: #292c34; --green: #78c2aa; --amber: #d9b170; --red: #e58b90; }
 [data-theme="dark"]{--layer-shell:#131419;--layer-frame:#17191e;--layer-item:#22252d;--layer-rule:#262831}
 [data-theme="dark"]{--token-background:linear-gradient(120deg,#303d61,#40365c);--token-border:#51577a}
-[data-theme="dark"]{--info:#9ac8e4}
+[data-theme="dark"]{--info:#9ac8e4;--orange:#ffb454}
 * { box-sizing: border-box; letter-spacing: 0; }
 body { margin: 0; color: var(--text); background: var(--bg); }
 button, input, select, textarea { font: inherit; }
@@ -1358,7 +1358,8 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .log-entry time { color:#6485aa; font-variant-numeric:tabular-nums; }
 [data-theme="dark"] .log-entry time { color:#9db8d8; }
 .log-entry.raw .raw-time { display:inline; width:auto; margin:0; }
-.file-browser { --favorites-width:176px; }
+.file-browser { --favorites-width:208px; }
+.file-browser .file-toolbar > .rounded-select { width:calc(var(--favorites-width) - 48px); }
 .file-browser .file-workspace.with-favorites { grid-template-columns:var(--favorites-width) minmax(0,1fr); }
 .file-favorites > * { min-width:0; }
 .content-tabs, .settings-navigation { flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; min-width:0; overscroll-behavior-x:contain; scrollbar-width:none; }
@@ -1367,7 +1368,11 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .task-heading .toolbar-right, .files-heading-actions, .link-heading .playback-toolbar, .mount-heading > .btn { flex-shrink:0; }
 .task-heading .toolbar-right { flex-direction:row; }
 .task-heading > .transfer-actions { flex-shrink:0; }
-@media(max-width:760px) { .file-browser { --favorites-width:134px; } }
+@media(max-width:760px) {
+  .file-browser { --favorites-width:154px; }
+  .file-browser .file-toolbar { grid-template-columns:32px 110px minmax(0,1fr) 32px; }
+  .file-browser .file-toolbar > .rounded-select { width:calc(var(--favorites-width) - 44px); }
+}
 
 /* Shared workspace end spacing and gradual header-to-list scrolling. */
 :root { --workspace-end-gap:8px; }
@@ -1457,9 +1462,14 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 :root{--sidebar-width:220px;--workspace-sidebar-offset:var(--sidebar-width)}
 .sidebar{width:var(--sidebar-width)}
 .sidebar .brand{flex:none;padding:20px 20px 12px}
-.sidebar nav{min-height:0;overflow-x:hidden;overflow-y:auto;padding-top:2px;scrollbar-width:none;overscroll-behavior:contain}
+.sidebar nav{min-height:0;overflow-x:hidden;overflow-y:auto;padding-top:2px;scrollbar-width:none;overscroll-behavior:contain;flex-direction:column}
 .sidebar nav::-webkit-scrollbar{display:none}
 .sidebar .nav-group{flex:none;min-height:0;align-self:flex-start}
+.sidebar .nav-group + .nav-group{margin-top:12px}
+.sidebar .nav-group-title{display:flex;align-items:center;gap:10px;min-height:26px;margin:0 0 4px;padding:0 12px;color:color-mix(in srgb,currentColor 78%,transparent);font-size:12px;font-weight:500;line-height:18px;white-space:nowrap}
+.sidebar .nav-group-title::before,.sidebar .nav-group-title::after{content:'';height:1px;background:currentColor;opacity:.23}
+.sidebar .nav-group-title::before{width:10px;flex:none}
+.sidebar .nav-group-title::after{flex:1;min-width:0}
 .main-shell{margin-left:var(--workspace-sidebar-offset)}
 .topbar,.page-tabs{left:var(--workspace-sidebar-offset)}
 @media(max-width:760px),(hover:none) and (pointer:coarse) and (max-height:500px){

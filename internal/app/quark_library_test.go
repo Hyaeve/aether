@@ -143,7 +143,7 @@ func TestQuarkLibraryGenerateIncrementalAndCustomExtensions(t *testing.T) {
 	}
 	for _, name := range []string{"Movie.mkv.strm", "Comic.pdf.strm"} {
 		content, err := os.ReadFile(filepath.Join(card.Directory, "Series", name))
-		if err != nil || !strings.Contains(string(content), "/q/") || strings.Contains(string(content), "aB12") {
+		if err != nil || !strings.Contains(string(content), "/quark-share/sample-aB12/"+strings.TrimSuffix(name, ".strm")) || strings.Contains(string(content), "secret-cookie") {
 			t.Fatal(name, err)
 		}
 	}
@@ -304,12 +304,15 @@ func TestQuarkLibraryAPIAndPersistence(t *testing.T) {
 	cookie := request(t, h, "POST", "/api/auth/setup", credentials{Username: "owner", Password: "x"}, nil).Result().Cookies()[0]
 	body := map[string]any{"url": "https://pan.quark.cn/s/sample?pwd=aB12", "directory": t.TempDir(), "enabled": true, "mediaExtensions": "mkv", "cron": "0 */6 * * *"}
 	w := request(t, h, "POST", "/api/virtual-library/quark", body, cookie)
-	if w.Code != 200 {
+	if w.Code != http.StatusAccepted {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	st := a.store.snapshot()
 	if len(st.QuarkLibraryCards) != 1 || st.QuarkLibraryCards[0].Name != "Series" || st.QuarkLibraryCards[0].DirectoryName != "Series" {
 		t.Fatal("defaults missing", st.QuarkLibraryCards)
+	}
+	if result := waitQuarkLibrary(t, a, st.QuarkLibraryCards[0].ID); result.Status != "completed" {
+		t.Fatal(result)
 	}
 	raw, _ := os.ReadFile(filepath.Join(a.store.dir, "state.json"))
 	if strings.Contains(string(raw), "aB12") || strings.Contains(string(raw), "pan.quark.cn") || strings.Contains(string(raw), "sourceParent") {

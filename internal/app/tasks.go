@@ -18,7 +18,8 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+var rawCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+var cronParser scheduledCronParser
 
 func nextRun(t Task, now time.Time) time.Time {
 	if !t.Enabled {
@@ -108,6 +109,10 @@ func (a *App) startTask(taskID string, reset ...bool) error {
 }
 
 func (a *App) startTaskContext(parent context.Context, taskID string, done chan<- error, reset ...bool) error {
+	return a.startTaskWithTrigger(parent, taskID, done, "manual", reset...)
+}
+
+func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done chan<- error, trigger string, reset ...bool) error {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	var task Task
@@ -141,11 +146,28 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 	if err := storageAuthBlocked(s, time.Now()); err != nil {
 		return err
 	}
-	if len(reset) > 0 && reset[0] {
+	resetOutput := len(reset) > 0 && reset[0]
+	if resetOutput {
 		if err := a.validateTask(&task); err != nil {
 			return err
 		}
+	}
+	record := archiveRecord{archiveEntry: archiveEntry{
+		ID: id(), Category: "tasks", TaskID: task.ID, TaskName: task.Name,
+		TaskKind: task.Kind, Trigger: trigger, Action: "run", Status: "running", StartedAt: time.Now(),
+	}}
+	if resetOutput {
+		record.Action = "reset-run"
+	}
+	if err := a.archives.put(record); err != nil {
+		return errors.New("无法保存任务档案，任务未启动")
+	}
+	if resetOutput {
 		if err := a.resetTaskOutput(task, s); err != nil {
+			record.Status, record.Message, record.FinishedAt = "failed", "重置生成目录未完成，任务未启动", time.Now()
+			if archiveErr := a.archives.put(record); archiveErr != nil {
+				a.store.event("warn", "tasks", "太一档案：重置失败结果保存失败，请检查数据目录")
+			}
 			return err
 		}
 		task.Mode = "full"
@@ -198,6 +220,17 @@ func (a *App) startTaskContext(parent context.Context, taskID string, done chan<
 			a.logger.Printf("persist task: %v", persistErr)
 		}
 		a.store.event(status, "tasks", task.Name+"："+message)
+		record.Status, record.Processed, record.FinishedAt = status, count, time.Now()
+		if status == "error" {
+			record.Status = "failed"
+		}
+		record.Message = fmt.Sprintf("执行完成，处理 %d 项", count)
+		if err != nil {
+			record.Message = transferFailureReason(err)
+		}
+		if archiveErr := a.archives.put(record); archiveErr != nil {
+			a.store.event("warn", "tasks", "太一档案：任务结果保存失败，请检查数据目录")
+		}
 		a.queueResultNotification("任务", task.Name, status, count)
 		a.runMu.Lock()
 		delete(a.running, taskID)
@@ -671,6 +704,11 @@ func (a *App) scheduler() {
 			}
 			st := a.store.snapshot()
 			for _, rule := range st.BackupRules {
+				if rule.Cron != "" {
+					if _, err := cronParser.Parse(rule.Cron); err != nil {
+						continue
+					}
+				}
 				if rule.Enabled && backupHealthPause(st, rule) == "" && rule.Status != "running" && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
 					if err := a.startBackupScheduled(rule.ID); err != nil {
 						_ = a.backupUpdate(rule.ID, func(r *BackupRule) { r.NextRun = now.Add(time.Minute) })
@@ -678,15 +716,29 @@ func (a *App) scheduler() {
 				}
 			}
 			for _, rule := range st.Automations {
+				if rule.Trigger == "cron" {
+					if _, err := cronParser.Parse(rule.Cron); err != nil {
+						continue
+					}
+				}
 				if rule.Enabled && rule.Trigger == "cron" && !rule.NextRun.IsZero() && !now.Before(rule.NextRun) {
-					if err := a.startAutomation(rule.ID); err != nil {
+					if err := a.startAutomationWithTrigger(rule.ID, "scheduled"); err != nil {
 						a.automationUpdate(rule.ID, func(r *Automation) { r.NextRun = now.Add(time.Minute) })
 					}
 				}
 			}
 			for _, t := range st.Tasks {
+				if t.Kind != "cache" && t.Cron != "" {
+					if _, err := cronParser.Parse(t.Cron); err != nil {
+						continue
+					}
+				}
 				if t.Enabled && taskHealthPause(st, t) == "" && !t.NextRun.IsZero() && !now.Before(t.NextRun) {
-					if err := a.startTask(t.ID); err != nil {
+					trigger := "scheduled"
+					if t.Kind == "cache" {
+						trigger = "monitor"
+					}
+					if err := a.startTaskWithTrigger(a.ctx, t.ID, nil, trigger); err != nil {
 						a.taskUpdate(t.ID, func(t *Task) { t.NextRun = now.Add(time.Minute) })
 					}
 				}

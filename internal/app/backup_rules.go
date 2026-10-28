@@ -189,7 +189,7 @@ func validateBackupPair(r *BackupRule, st State) error {
 	}
 	if r.Cron != "" {
 		if _, err := cronParser.Parse(r.Cron); err != nil {
-			return errors.New("Cron 表达式无效")
+			return err
 		}
 	}
 	if backupSameTree(s, t) && backupDir(s, r.Source) == backupDir(t, r.Target) {
@@ -509,10 +509,10 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 		return err
 	}
 	defer release()
-	const limit = int64(100 << 30)
+	limit := uploadFileLimit(target)
 	phase = "核对单文件大小"
 	if f.Size < 0 || f.Size > limit {
-		return rejectFileTransfer(ctx, phase, "备份单文件上限100GiB")
+		return rejectFileTransfer(ctx, phase, "备份单文件上限 "+uploadLimitLabel(limit))
 	}
 	phase = "准备本机暂存目录"
 	rootDir := a.transferTempDirectory()
@@ -525,7 +525,7 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	if reuse && cache.name != "" {
 		stage = *cache
 	} else {
-		stage, err = a.stageBackupSource(ctx, source, f, rootDir)
+		stage, err = a.stageBackupSource(ctx, source, f, rootDir, limit)
 		if err != nil {
 			return err
 		}

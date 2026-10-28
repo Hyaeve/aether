@@ -22,6 +22,13 @@ func nativeMobile(s Storage) bool {
 	return s.Type == "mobile" && s.Config["mode"] == "native"
 }
 
+func validateMobileClient(s Storage) error {
+	if client := s.Config["clientType"]; client != "" && client != "web" && client != "pc" {
+		return errors.New("移动客户端类型须为 Web 或 PC")
+	}
+	return nil
+}
+
 func mobileAccount(s Storage) (string, string, error) {
 	auth := strings.TrimSpace(s.Config["authorization"])
 	if len(auth) >= 6 && strings.EqualFold(auth[:6], "Basic ") {
@@ -50,7 +57,16 @@ func mobileSign(body, timestamp, nonce string) string {
 }
 
 func (a *App) mobilePost(ctx context.Context, s Storage, address string, payload any, pc bool, out any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateMobileClient(s); err != nil {
+		return err
+	}
 	if err := a.waitAPI(ctx, s.ID); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	account, auth, err := mobileAccount(s)
@@ -83,6 +99,9 @@ func (a *App) mobilePost(ctx context.Context, s Storage, address string, payload
 	}
 	for name, value := range headers {
 		request.Header.Set(name, value)
+	}
+	if mobilePCClient(s) {
+		request.Header.Set("X-Yun-Client-Info", strings.Replace(device, "||9|", "||13|", 1)+"dW5kZWZpbmVk||")
 	}
 	if pc {
 		deviceID := "OPENLIST" + strings.ToUpper(mobileMD5(account)[:16]) + "-PC"

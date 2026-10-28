@@ -217,7 +217,7 @@ func TestVirtual115GenerateAndPortableKey(t *testing.T) {
 		} `json:"files"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &result)
-	want := "http://10.0.0.31:15151/s/swf1h7936et_YJFX_3416909918244961440.mkv?/片名.mkv"
+	want := "http://10.0.0.31:15151/115-share/swf1h7936et-YJFX/%E7%89%87%E5%90%8D.mkv"
 	if len(result.Files) != 1 || result.Files[0].Content != want || result.Files[0].Path != "Show/片名.mkv.strm" {
 		t.Fatal(result)
 	}
@@ -246,7 +246,7 @@ func TestVirtual115GenerateAndPortableKey(t *testing.T) {
 		t.Fatal("ambiguous password accepted")
 	}
 	// HEAD validates but must not create a temporary directory or receive request.
-	w = request(t, h, "HEAD", "/s/swf1h7936et_YJFX_3416909918244961440.mkv", nil, nil)
+	w = request(t, h, "HEAD", "/115-share/swf1h7936et-YJFX/%E7%89%87%E5%90%8D.mkv", nil, nil)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

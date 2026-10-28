@@ -44,7 +44,7 @@ for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [390, 'light'], [
   await expect(page).toHaveURL(new RegExp(`${entry.child}$`))
   const key = `aether-session:${username}:route:/${entry.child.split('/')[1]}`
   await expect.poll(() => page.evaluate(key => JSON.parse(sessionStorage.getItem(key)), key)).toBe(entry.parent)
-  await sidebar(page, '以太视界')
+  await sidebar(page, '信息总览')
   await expect(page).toHaveURL(/\/dashboard$/)
   await sidebar(page, entry.module)
   await expect(page).toHaveURL(new RegExp(`${entry.parent}$`))
@@ -65,12 +65,12 @@ test('old stored child routes normalize while normal columns and browser history
     })
     await sidebar(page, entry.module)
     await expect(page).toHaveURL(new RegExp(`${entry.parent}$`))
-    await sidebar(page, '以太视界')
+    await sidebar(page, '信息总览')
   }
   for (const [path, module] of [['/tasks/ed2k', '任务管理'], ['/tools/market', '辅助工具'], ['/settings/strm', '系统设置'], ['/notifications/transfers', '通知服务']]) {
     await page.goto(path)
     await expect(page.locator('.app-shell')).toBeVisible()
-    await sidebar(page, '以太视界')
+    await sidebar(page, '信息总览')
     await sidebar(page, module)
     await expect(page).toHaveURL(new RegExp(`${path}$`))
   }
@@ -79,7 +79,7 @@ test('old stored child routes normalize while normal columns and browser history
   await page.reload()
   await expect(page).toHaveURL(/\/tasks\/cache\/settings\?panel=cache#details$/)
   await expect(page.getByRole('button', { name: '返回缓存任务', exact: true })).toBeVisible()
-  await sidebar(page, '以太视界')
+  await sidebar(page, '信息总览')
   await page.goBack()
   await expect(page).toHaveURL(/\/tasks\/cache\/settings\?panel=cache#details$/)
   await expect(page.getByRole('button', { name: '返回缓存任务', exact: true })).toBeVisible()

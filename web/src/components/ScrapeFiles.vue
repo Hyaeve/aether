@@ -17,7 +17,26 @@ watch(() => filtered.value.length, count => emit('count', count), { immediate:tr
 const crumbs = computed(() => dir.value.split('/').filter(Boolean).map((name, i, all) => ({ name, path: all.slice(0, i + 1).join('/') })))
 const isImage = f => /\.(png|jpe?g|webp|gif|avif)$/i.test(f.name)
 const images = computed(() => files.value.filter(isImage))
-function work(f) { return props.works?.find(w => (w.directories || [w.path.split('/').slice(0, -1).join('/')]).some(p => p === f.id || p.startsWith(f.id + '/') && /^(?:season\s*\d+|s\d+|第.+季)$/i.test(p.slice(f.id.length + 1)))) }
+const directoryWorks = computed(() => {
+  const result=new Map()
+  for(const item of props.works || []) for(const directory of item.directories || [item.path.split('/').slice(0,-1).join('/')]) {
+    const matched=item.tmdb>0 && (item.matchedTitle || item.status==='ok')
+    const paths=[directory]
+    const parts=directory.split('/')
+    if(/^(?:season\s*\d+|s\d+|第.+季)$/i.test(parts.at(-1))) paths.push(parts.slice(0,-1).join('/'))
+    for(const path of paths) {
+      const saved=result.get(path)
+      if(!saved) result.set(path,{item,recognized:matched?item:null,conflict:false})
+      else if(matched && !saved.conflict) {
+        if(saved.recognized && (saved.recognized.tmdb!==item.tmdb || saved.recognized.kind!==item.kind)) { saved.recognized=null;saved.conflict=true }
+        else saved.recognized=item
+      }
+    }
+  }
+  return result
+})
+function work(f) { return directoryWorks.value.get(f.id)?.item }
+function recognizedWork(f) { return f.isDir && directoryWorks.value.get(f.id)?.recognized }
 async function load(path = '') {
   const request = ++run
   editRun++; editor.value = null; image.value = null
@@ -44,8 +63,8 @@ defineExpose({ refresh: () => load(dir.value) })
   <div class="scrape-file-path path-bar"><button class="text-btn" @click="load()"><Icon name="Folder" />根目录</button><template v-for="crumb in crumbs" :key="crumb.path"><Icon name="ChevronRight" :size="14" /><button class="text-btn" @click="load(crumb.path)">{{ crumb.name }}</button></template></div>
   <div class="scrape-file-shell"><div ref="viewport" class="scrape-files">
     <div v-if="top" :style="{height:`${top}px`}" />
-    <article v-for="f in shown" :key="f.id" class="scrape-file-row">
-      <button class="file-name" @click="open(f)"><Icon :name="f.isDir ? 'Folder' : documentIcon(f.name) || 'Image'" :size="24" :class="{'folder-color':f.isDir}" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button>
+    <article v-for="f in shown" :key="f.id" class="scrape-file-row" :class="{recognized:!!recognizedWork(f)}">
+      <button class="file-name" :aria-label="f.name" :aria-description="recognizedWork(f) ? `${recognizedWork(f).kind==='tv'?'剧集':'电影'}，${recognizedWork(f).matchedTitle || recognizedWork(f).title}，TMDB ${recognizedWork(f).tmdb}` : undefined" @click="open(f)"><Icon :name="f.isDir ? 'Folder' : documentIcon(f.name) || 'Image'" :size="24" :class="{'folder-color':f.isDir}" /><span class="scrape-file-label"><strong :data-tooltip="f.name">{{ f.name }}</strong><span v-if="recognizedWork(f)" class="scrape-folder-identity"><b>{{recognizedWork(f).kind==='tv'?'剧集':'电影'}}</b><span :data-tooltip="recognizedWork(f).matchedTitle || recognizedWork(f).title">{{recognizedWork(f).matchedTitle || recognizedWork(f).title}}</span><small>TMDB {{recognizedWork(f).tmdb}}</small></span></span></button>
       <div v-if="f.isDir && work(f)" class="scrape-folder-actions"><button class="text-btn" :disabled="running" @click="emit('reset',work(f))"><Icon name="RotateCcw" />重置</button><button class="text-btn" :disabled="running" @click="emit('identify',work(f))"><Icon name="ScanSearch" />识别</button></div>
     </article>
     <div v-if="bottom" :style="{height:`${bottom}px`}" />
@@ -64,9 +83,14 @@ defineExpose({ refresh: () => load(dir.value) })
 .scrape-file-row:hover { background:var(--primary-soft); }
 .scrape-file-row .file-name { flex:1; min-width:0; }
 .scrape-file-row strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.scrape-file-label { display:grid;gap:4px;min-width:0; }.scrape-file-label>strong { display:block; }
+.scrape-folder-identity { display:flex;align-items:center;gap:8px;min-width:0;color:var(--primary);font-size:12px; }
+.scrape-folder-identity b { font-size:12px;font-weight:500;flex:none; }.scrape-folder-identity>span { white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.scrape-folder-identity small { flex:none;color:inherit;font-size:12px; }
+.scrape-file-row.recognized { background:color-mix(in srgb,var(--primary) 8%,var(--input));box-shadow:inset 3px 0 var(--primary); }
 .scrape-file-row small { color:var(--muted); }
 .scrape-folder-actions { display:flex; gap:14px; opacity:0; }
 .scrape-file-row:hover .scrape-folder-actions,.scrape-file-row:focus-within .scrape-folder-actions { opacity:1; }
 @media(hover:none) { .scrape-folder-actions { opacity:1; } }
-@media(max-width:600px) { .scrape-file-row small { display:none; }.scrape-folder-actions { gap:7px; } }
+@media(max-width:600px) { .scrape-folder-actions { gap:7px; }.scrape-folder-identity { gap:5px; }.scrape-folder-identity small { font-size:11px; } }
 </style>

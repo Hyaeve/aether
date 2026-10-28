@@ -112,10 +112,11 @@ function open(storage) {
   if (storage?.type === 'mobile' && storage.config.mode !== 'native') {
     form.config = { root: '/', mode: 'native', deleteMode: form.config.deleteMode }
   }
+  if (storage?.type === 'mobile') form.config.clientType ||= 'pc'
   modal.value = true
 }
 function next(type) {
-  selected.value = type; form.type = type; form.config = { root: driverOf(type).root, deleteMode: 'trash', downloadMode: type === 'quark' ? 'proxy' : 'redirect', passUA: 'true', refreshList: 'false', ...(type === 'mobile' ? { mode: 'native' } : {}), ...(type === '115' ? { device: 'web', cookie: '' } : {}) }; step.value = 2
+  selected.value = type; form.type = type; form.config = { root: driverOf(type).root, deleteMode: 'trash', downloadMode: type === 'quark' ? 'proxy' : 'redirect', passUA: 'true', refreshList: 'false', ...(type === 'mobile' ? { mode: 'native', clientType: 'pc' } : {}), ...(type === '115' ? { device: 'web', cookie: '' } : {}) }; step.value = 2
 }
 function changeOpenlistMode(mode) {
   if (mode !== (form.config.authMode || 'token')) {
@@ -225,6 +226,7 @@ async function remove() {
           <div v-if="selected === '115'" class="field"><label>设备类型</label><RoundedSelect v-model="form.config.device" label="设备类型" :options="devices115" /></div>
           <div v-if="selected === 'tianyi'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'account'" @update:model-value="form.config.authMode = $event" label="天翼接入模式" :options="[{ value: 'account', label: '账号密码' }, { value: 'token', label: 'Token 令牌' }]" /></div>
           <label v-if="selected === 'mobile'" class="full">Authorization<SecretInput v-model="form.config.authorization" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="authorization" aria-label="Authorization" required autocomplete="off" /><small>新版个人云，支持 CAS；授权失效后需更新。</small></label>
+          <div v-if="selected === 'mobile'" class="field full"><label>客户端类型</label><RoundedSelect v-model="form.config.clientType" label="移动客户端类型" :options="[{ value: 'web', label: 'Web' }, { value: 'pc', label: 'PC' }]" /></div>
           <template v-if="selected === '115'">
             <label class="full storage-cookie">CK <span class="required">*</span><SecretInput v-model="form.config.cookie" aria-label="CK" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="cookie" required autocomplete="off" /></label>
           </template>

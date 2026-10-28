@@ -27,7 +27,7 @@ func (a *App) downloadCASInfo(ctx context.Context, source Storage, f File) (CASI
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return CASInfo{}, err
 	}
-	stage, err := a.stageBackupSource(ctx, source, f, dir)
+	stage, err := a.stageBackupSource(ctx, source, f, dir, defaultUploadFileLimit)
 	if err != nil {
 		return CASInfo{}, err
 	}

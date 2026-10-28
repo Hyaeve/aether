@@ -33,6 +33,7 @@ type quarkLibraryCard struct {
 	DirectoryName      string `json:"directoryName"`
 	MediaExtensions    string `json:"mediaExtensions"`
 	MetadataExtensions string `json:"metadataExtensions"`
+	CascadeCleanup     string `json:"cascadeCleanup,omitempty"`
 	Enabled            bool   `json:"enabled"`
 }
 
@@ -45,6 +46,7 @@ type quarkLibraryResult struct {
 	Generated    int       `json:"generated"`
 	Metadata     int       `json:"metadata"`
 	Skipped      int       `json:"skipped"`
+	Removed      int       `json:"removed"`
 }
 
 // Manifests authorize only resources actually published by this deployment.
@@ -83,6 +85,7 @@ type quarkLibraryRuntime struct {
 	Results   map[string]quarkLibraryResult    `json:"results,omitempty"`
 	Files     map[string]quarkLibraryFile      `json:"files,omitempty"`
 	Temporary map[string]quarkLibraryTemporary `json:"temporary,omitempty"`
+	Roots     map[string]quarkLibraryOwnership `json:"roots,omitempty"`
 }
 
 func initQuarkLibraryRuntime(st *State) {
@@ -94,6 +97,9 @@ func initQuarkLibraryRuntime(st *State) {
 	}
 	if st.QuarkLibraryRuntime.Temporary == nil {
 		st.QuarkLibraryRuntime.Temporary = map[string]quarkLibraryTemporary{}
+	}
+	if st.QuarkLibraryRuntime.Roots == nil {
+		st.QuarkLibraryRuntime.Roots = map[string]quarkLibraryOwnership{}
 	}
 }
 
@@ -119,7 +125,7 @@ func effectiveQuarkLibrary(st State) quarkLibrarySettings {
 	return cfg
 }
 
-func validateQuarkLibrary(st State) error {
+func validateQuarkLibrary(st State, legacy ...bool) error {
 	if cfg := st.QuarkLibrary; cfg != nil {
 		if cfg.Directory != "" && (!filepath.IsAbs(cfg.Directory) || len(cfg.Directory) > 4096 || strings.ContainsAny(cfg.Directory, "\x00\r\n")) {
 			return errors.New("请选择容器内绝对生成位置")
@@ -158,7 +164,7 @@ func validateQuarkLibrary(st State) error {
 		if card.DirectoryName == "" {
 			return errors.New("夸克链库目录名称不能为空")
 		}
-		if err := validateQuarkLibraryCard(&card); err != nil {
+		if err := validateQuarkLibraryCard(&card, legacy...); err != nil {
 			return err
 		}
 		_, code, _, _ := parseShareLink(card.Secret, "")
@@ -175,7 +181,10 @@ func validateQuarkLibrary(st State) error {
 	return nil
 }
 
-func validateQuarkLibraryCard(card *quarkLibraryCard) error {
+func validateQuarkLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
+	if card.CascadeCleanup != "" && card.CascadeCleanup != "on" && card.CascadeCleanup != "off" {
+		return errors.New("级联清理须选择开启或关闭")
+	}
 	provider, code, pass, err := parseShareLink(card.Secret, "")
 	if err != nil || provider != "quark" {
 		return errors.New("请输入有效的夸克分享链接和提取码")
@@ -197,8 +206,12 @@ func validateQuarkLibraryCard(card *quarkLibraryCard) error {
 		card.Directory = filepath.Clean(card.Directory)
 	}
 	if card.Cron != "" {
-		if _, err := cronParser.Parse(card.Cron); err != nil {
-			return errors.New("Cron表达式无效，须为五段表达式")
+		parser := cronParser.Parse
+		if len(legacy) > 0 && legacy[0] {
+			parser = rawCronParser.Parse
+		}
+		if _, err := parser(card.Cron); err != nil {
+			return err
 		}
 	}
 	card.MediaExtensions, err = normalizeExtensions(card.MediaExtensions)
@@ -233,6 +246,7 @@ func quarkLibraryCardAt(st State, sid string) (quarkLibraryCard, bool) {
 
 func revokeQuarkLibraryCard(st *State, sid string) {
 	delete(st.QuarkLibraryRuntime.Results, sid)
+	delete(st.QuarkLibraryRuntime.Roots, sid)
 	for key, file := range st.QuarkLibraryRuntime.Files {
 		if file.CardID == sid {
 			delete(st.QuarkLibraryRuntime.Files, key)
@@ -339,7 +353,12 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, errors.New("夸克链库正在执行，请稍后重试"))
 		return
 	}
-	defer a.quarkLibraryMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			a.quarkLibraryMu.Unlock()
+		}
+	}()
 	if r.PathValue("id") == "settings" {
 		if r.Method != http.MethodPut {
 			w.WriteHeader(405)
@@ -401,15 +420,16 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		ID                 string `json:"id"`
-		URL                string `json:"url"`
-		Name               string `json:"name"`
-		Cron               string `json:"cron"`
-		Directory          string `json:"directory"`
-		DirectoryName      string `json:"directoryName"`
-		MediaExtensions    string `json:"mediaExtensions"`
-		MetadataExtensions string `json:"metadataExtensions"`
-		Enabled            bool   `json:"enabled"`
+		ID                 string  `json:"id"`
+		URL                string  `json:"url"`
+		Name               string  `json:"name"`
+		Cron               string  `json:"cron"`
+		Directory          string  `json:"directory"`
+		DirectoryName      string  `json:"directoryName"`
+		MediaExtensions    string  `json:"mediaExtensions"`
+		MetadataExtensions string  `json:"metadataExtensions"`
+		CascadeCleanup     *string `json:"cascadeCleanup"`
+		Enabled            bool    `json:"enabled"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -417,8 +437,12 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		sid = id()
 	}
+	cascade := old.CascadeCleanup
+	if in.CascadeCleanup != nil {
+		cascade = *in.CascadeCleanup
+	}
 	card := quarkLibraryCard{ID: sid, Secret: in.URL, Name: in.Name, Cron: in.Cron, Directory: in.Directory, DirectoryName: in.DirectoryName,
-		MediaExtensions: in.MediaExtensions, MetadataExtensions: in.MetadataExtensions, Enabled: in.Enabled}
+		MediaExtensions: in.MediaExtensions, MetadataExtensions: in.MetadataExtensions, CascadeCleanup: cascade, Enabled: in.Enabled}
 	if strings.TrimSpace(card.Directory) == "" && card.Enabled {
 		card.Directory = effectiveQuarkLibrary(st).Directory
 	}
@@ -504,11 +528,14 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	a.store.event("info", "virtual", "夸克链库保存卡片："+card.Name)
 	response := map[string]any{"id": sid}
 	if card.Enabled {
-		result, err := a.runQuarkLibrary(ctx, card)
-		response["result"] = result
-		if err != nil {
-			response["generationError"] = err.Error()
+		if err := a.startQuarkLibraryLocked(card); err != nil {
+			fail(w, 500, err)
+			return
 		}
+		locked = false
+		response["message"] = "链接已保存，已在后台开始生成"
+		jsonResponse(w, http.StatusAccepted, response)
+		return
 	}
 	jsonResponse(w, 200, response)
 }
@@ -527,20 +554,46 @@ func (a *App) quarkLibraryRunAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, errors.New("夸克链库正在执行，请稍后重试"))
 		return
 	}
-	defer a.quarkLibraryMu.Unlock()
 	card, ok := quarkLibraryCardAt(a.store.snapshotWithLogLimit(0), r.PathValue("id"))
 	if !ok || !card.Enabled {
+		a.quarkLibraryMu.Unlock()
 		fail(w, 400, errors.New("卡片不存在或已停用"))
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-	defer cancel()
-	result, err := a.runQuarkLibrary(ctx, card)
-	if err != nil {
-		fail(w, 400, err)
+	if err := a.startQuarkLibraryLocked(card); err != nil {
+		a.quarkLibraryMu.Unlock()
+		fail(w, 500, err)
 		return
 	}
-	jsonResponse(w, 200, result)
+	jsonResponse(w, http.StatusAccepted, map[string]string{"status": "running", "message": "已在后台开始生成，可离开或刷新页面"})
+}
+
+// The caller transfers the library lock only after the running state is saved.
+func (a *App) startQuarkLibraryLocked(card quarkLibraryCard) error {
+	if err := a.ctx.Err(); err != nil {
+		return err
+	}
+	if err := a.store.update(func(st *State) error {
+		if current, ok := quarkLibraryCardAt(*st, card.ID); !ok || current != card {
+			return errors.New("夸克链库卡片已改变，未开始后台任务")
+		}
+		initQuarkLibraryRuntime(st)
+		result := st.QuarkLibraryRuntime.Results[card.ID]
+		result.Status, result.Message = "running", "已在后台开始生成"
+		st.QuarkLibraryRuntime.Results[card.ID] = result
+		return nil
+	}); err != nil {
+		return err
+	}
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		defer a.quarkLibraryMu.Unlock()
+		ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
+		defer cancel()
+		_, _ = a.runQuarkLibrary(ctx, card)
+	}()
+	return nil
 }
 
 func (a *App) quarkLibraryMonitor() {
@@ -561,6 +614,11 @@ func (a *App) quarkLibraryTick(now time.Time) {
 	if a.quarkLibraryMu.TryLock() {
 		st := a.store.snapshotWithLogLimit(0)
 		for _, card := range st.QuarkLibraryCards {
+			if card.Cron != "" {
+				if _, err := cronParser.Parse(card.Cron); err != nil {
+					continue
+				}
+			}
 			result := st.QuarkLibraryRuntime.Results[card.ID]
 			invalidCheck := !result.InvalidSince.IsZero() && !result.LastRun.Add(time.Hour).After(now)
 			if !card.Enabled || !invalidCheck && (card.Cron == "" || result.NextRun.After(now)) {

@@ -159,7 +159,7 @@ for (const width of [1440, 390]) {
       await page.goto('/tools')
       await page.evaluate(value => document.documentElement.dataset.theme = value, theme)
       const cards = page.locator('.plugin-card')
-      await expect(cards).toHaveCount(14)
+      await expect(cards).toHaveCount(15)
       const layout = await cards.evaluateAll(elements => elements.map(el => {
         const bounds = node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom } }
         return { card: bounds(el), symbol: bounds(el.querySelector('.plugin-symbol,.rapid115-icon')), title: bounds(el.querySelector('strong')), subtitle: bounds(el.querySelector('.plugin-subtitle')), description: bounds(el.querySelector('.plugin-description')), subtitleText: el.querySelector('.plugin-subtitle').textContent }

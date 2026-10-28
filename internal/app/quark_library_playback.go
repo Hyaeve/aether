@@ -6,8 +6,64 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
+	"strings"
 	"time"
 )
+
+// Keep trusted Cookie rotations in this temporary-transfer session. Publication
+// happens once the file is verified, together with the existing TV binding.
+func (a *App) quarkLibraryList(ctx context.Context, session *Storage, parent string) ([]File, error) {
+	files := []File{}
+	for page := 1; page <= 101; page++ {
+		if err := a.waitAPI(ctx, session.ID); err != nil {
+			return nil, err
+		}
+		var result struct {
+			Data struct {
+				List []struct {
+					ID   string `json:"fid"`
+					Name string `json:"file_name"`
+					Dir  bool   `json:"dir"`
+					Type int    `json:"file_type"`
+					Size int64  `json:"size"`
+				} `json:"list"`
+			} `json:"data"`
+		}
+		address := "https://drive.quark.cn/1/clouddrive/file/sort?pr=ucpro&fr=pc&_size=200&_fetch_total=1&pdir_fid=" + url.QueryEscape(parent) + fmt.Sprintf("&_page=%d", page)
+		if err := shareSessionRequest(ctx, session, http.MethodGet, address, nil, &result); err != nil {
+			return nil, err
+		}
+		for _, f := range result.Data.List {
+			files = append(files, File{ID: f.ID, Name: f.Name, IsDir: f.Dir || f.Type == 0, Size: f.Size})
+		}
+		if len(files) > 20000 {
+			return nil, errors.New("夸克链库临时目录超过20000项，未继续")
+		}
+		if len(result.Data.List) < 200 {
+			return files, nil
+		}
+	}
+	return nil, errors.New("夸克链库临时目录分页未完成")
+}
+
+func (a *App) quarkLibraryByName(ctx context.Context, session *Storage, parent, name string) (*File, error) {
+	files, err := a.quarkLibraryList(ctx, session, parent)
+	if err != nil {
+		return nil, err
+	}
+	var found *File
+	for _, f := range files {
+		if f.Name == name {
+			if found != nil {
+				return nil, errors.New("夸克临时目录存在同名条目，未继续")
+			}
+			copy := f
+			found = &copy
+		}
+	}
+	return found, nil
+}
 
 func (a *App) quarkLibraryCheckStorage(s Storage) error {
 	current, err := a.store.storage(s.ID)
@@ -32,7 +88,7 @@ func (a *App) quarkLibraryConfirmFolder(ctx context.Context, session *Storage, c
 		if err := check(); err != nil {
 			return "", err
 		}
-		f, err := a.cloudByName(ctx, *session, parent, name)
+		f, err := a.quarkLibraryByName(ctx, session, parent, name)
 		if err != nil {
 			return "", err
 		}
@@ -63,7 +119,7 @@ func (a *App) quarkLibraryCreateFolder(ctx context.Context, session *Storage, ch
 	if !safeName(name) {
 		return "", errors.New("夸克链库临时目录名称无效")
 	}
-	if f, err := a.cloudByName(ctx, *session, parent, name); err != nil {
+	if f, err := a.quarkLibraryByName(ctx, session, parent, name); err != nil {
 		return "", err
 	} else if f != nil {
 		return "", errors.New("夸克链库临时目录已存在，未重复创建")
@@ -98,7 +154,7 @@ func (a *App) quarkLibraryFolder(ctx context.Context, session *Storage, check fu
 	if err := check(); err != nil {
 		return "", err
 	}
-	f, err := a.cloudByName(ctx, *session, parent, name)
+	f, err := a.quarkLibraryByName(ctx, session, parent, name)
 	if err != nil {
 		return "", err
 	}
@@ -114,7 +170,7 @@ func (a *App) quarkLibraryFolder(ctx context.Context, session *Storage, check fu
 	return a.quarkLibraryCreateFolder(ctx, session, check, parent, name)
 }
 
-func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, grant quarkLibraryFile, session *Storage, token string, item shareEntry) (quarkLibraryTemporary, Storage, error) {
+func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, grant quarkLibraryFile, session *Storage, token string, item shareEntry) (out quarkLibraryTemporary, actual Storage, resultErr error) {
 	a.quarkTemporaryMu.Lock()
 	defer a.quarkTemporaryMu.Unlock()
 	var empty quarkLibraryTemporary
@@ -122,6 +178,11 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 	if err != nil || a.quarkLibraryCheckStorage(storage) != nil {
 		return empty, storage, errors.New("夸克链库存储不可用")
 	}
+	defer func() {
+		if err := a.persistQuarkCookies(storage, *session); err != nil {
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 	check := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -183,7 +244,7 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 	if record.Folder == "" {
 		return record, storage, errors.New("上次临时目录创建结果未确认，请核对网盘，未重复写入")
 	}
-	files, err := a.rawList(ctx, *session, record.Folder)
+	files, err := a.quarkLibraryList(ctx, session, record.Folder)
 	if err != nil {
 		return record, storage, err
 	}
@@ -209,7 +270,7 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 			return record, storage, err
 		}
 	}
-	for {
+	for attempt := 0; ; attempt++ {
 		if err := check(); err != nil {
 			return record, storage, err
 		}
@@ -238,7 +299,7 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 				}
 			}
 		}
-		files, err = a.rawList(ctx, *session, record.Folder)
+		files, err = a.quarkLibraryList(ctx, session, record.Folder)
 		if err != nil {
 			return record, storage, err
 		}
@@ -248,14 +309,70 @@ func (a *App) quarkLibraryTransfer(ctx context.Context, card quarkLibraryCard, g
 			if err = save(); err != nil {
 				return record, storage, err
 			}
-			if err := a.persistQuarkCookies(storage, *session); err != nil {
-				return record, storage, err
-			}
 			a.store.event("info", "virtual", fmt.Sprintf("夸克链库临时文件就绪：存储池 %q，文件 %q", storage.Name, item.Name))
 			return record, *session, nil
 		}
+		if len(files) == 0 && attempt < 5 {
+			select {
+			case <-ctx.Done():
+				return record, storage, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+				continue
+			}
+		}
 		return record, storage, errors.New("临时转存尚未确认或文件身份不符；不重复提交，请核对网盘")
 	}
+}
+
+func quarkLibrarySharePath(card quarkLibraryCard) string {
+	_, code, pass, _ := parseShareLink(card.Secret, "")
+	if pass != "" {
+		code += "-" + pass
+	}
+	return code
+}
+
+func quarkLibraryURL(card quarkLibraryCard, relative, address string) string {
+	name := path.Base(strings.TrimSuffix(relative, ".strm"))
+	return strings.TrimRight(address, "/") + "/quark-share/" + url.PathEscape(quarkLibrarySharePath(card)) + "/" + url.PathEscape(name) + "\n"
+}
+
+func (a *App) playQuarkLibraryPath(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	name := r.PathValue("file")
+	if !safeName(name) {
+		http.NotFound(w, r)
+		return
+	}
+	st := a.store.snapshotWithLogLimit(0)
+	for _, card := range st.QuarkLibraryCards {
+		if !card.Enabled || r.PathValue("share") != quarkLibrarySharePath(card) {
+			continue
+		}
+		var match *quarkLibraryFile
+		for _, grant := range st.QuarkLibraryRuntime.Files {
+			if grant.CardID == card.ID && grant.Published && grant.Media && grant.ShareStamp == quarkLibraryStamp(card.Secret) &&
+				grant.Name == name {
+				if match != nil {
+					a.store.event("warn", "virtual", "夸克链库播放名称冲突："+card.Name+" · "+name)
+					fail(w, http.StatusConflict, errors.New("分享内存在多个同名文件，无法仅凭文件名定位；请调整分享文件名后重新生成"))
+					return
+				}
+				copy := grant
+				match = &copy
+			}
+		}
+		if match != nil {
+			r.SetPathValue("key", match.Key)
+			r.SetPathValue("name", match.Name)
+			a.playQuarkLibrary(w, r)
+			return
+		}
+	}
+	http.NotFound(w, r)
 }
 
 func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {

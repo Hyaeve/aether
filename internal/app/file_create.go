@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -188,9 +189,9 @@ func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, b
 		transferLocations{From: from, To: a.transferUploadLocation(s, parent, name)})
 	defer func() { progress.finish(resultErr) }()
 	body = transferReader{body, progress}
-	const limit = int64(100 << 30)
+	limit := uploadFileLimit(s)
 	if size > limit {
-		return errors.New("文件过大（单文件上限 100 GiB）")
+		return fmt.Errorf("文件过大（单文件上限 %s）", uploadLimitLabel(limit))
 	}
 	parts := strings.Split(name, "/")
 	if len(parts) > 128 {
@@ -219,7 +220,7 @@ func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, b
 		return err
 	}
 	if n > limit || (size >= 0 && n != size) {
-		return errors.New("文件过大或上传内容不完整（单文件上限 100 GiB）")
+		return fmt.Errorf("文件过大或上传内容不完整（单文件上限 %s）", uploadLimitLabel(limit))
 	}
 	if err := a.storeUploadedFile(ctx, s, parent, name, f.Name()); err != nil {
 		return err

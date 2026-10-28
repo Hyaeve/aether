@@ -1,5 +1,17 @@
 # Protocol References
 
+## Mobile Personal-Cloud PC Upload Identity
+
+The configurable Web/PC identity in `X-Yun-Client-Info` and the bounded
+100-part upload-URL batches were checked against
+`https://github.com/OpenListTeam/OpenList`, commit
+`74320ca6dbde96e546b2e5183bae228a88139bd0`, specifically
+`drivers/139/meta.go`, `util.go` and `driver.go`, on 2026-10-28.
+Aether independently implements the protocol using its existing Go transport,
+signatures, staged files and publication checks; no OpenList source or runtime
+is bundled. Client selection does not grant account membership or capacity,
+and simulated 500 GB boundaries do not verify a real 500 GB cloud upload.
+
 ## QQ Official Bot and Feishu Custom Bot
 
 The notification channel selection and configuration fields were compared with

@@ -14,13 +14,13 @@ async function mock(page) {
    else{saves.push(r.postDataJSON());json={id:'new',result:{message:'新增STRM 1 条'}}}
   }
   if(p==='/api/virtual-library/quark/settings'){Object.assign(settings,r.postDataJSON());saves.push(r.postDataJSON());json=settings}
-  if(/\/quark\/c\d$/.test(p)&&r.method()==='PUT'){saves.push(r.postDataJSON());json={id:p.split('/').at(-1)}}
+  if(/\/quark\/c\d$/.test(p)&&r.method()==='PUT'){saves.push(r.postDataJSON());const id=p.split('/').at(-1);Object.assign(cards.find(card=>card.id===id),r.postDataJSON());json={id}}
   if(p.endsWith('/run'))json={message:'新增STRM 1 条，元数据 0 个'}
   if(p==='/api/links'&&r.method()==='POST'){links.push(r.postDataJSON());json={id:'new'}}
   if(p==='/api/local-directories')json={path:'/media',items:[]}
   return route.fulfill({json})
  })
- return {saves,links}
+ return {saves,links,cards}
 }
 
 for(const width of [1440,390])for(const theme of ['light','dark']){
@@ -42,6 +42,7 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   await captureScreenshot(page,{path:info.outputPath(`cards-${width}-${theme}.png`)})
   await page.getByRole('button',{name:'添加链接',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'添加夸克链接',exact:true})
+  await expect(dialog.getByRole('button',{name:'级联清理',exact:true})).toHaveText('开启')
   const url=dialog.getByRole('textbox',{name:'分享链接',exact:true})
   await url.fill('https://pan.quark.cn/s/new?pwd=abc1')
   await dialog.getByRole('textbox',{name:'生成位置',exact:true}).fill('/media')
@@ -59,16 +60,20 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   await expect(dialog.locator('.switch-label')).toHaveCSS('flex-direction','row')
   for(const input of await dialog.locator('input:not([type=checkbox])').all())expect(await input.evaluate(e=>e.getBoundingClientRect().height)).toBe(40)
   expect(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
-  const rowCenters=await dialog.getByRole('textbox').evaluateAll(els=>els.map(e=>{const r=e.getBoundingClientRect();return r.y+r.height/2}))
-  expect(Math.abs(rowCenters[1]-rowCenters[2])).toBeLessThan(1)
-  expect(Math.abs(rowCenters[3]-rowCenters[4])).toBeLessThan(1)
+  for(const names of [['分享链接','分享名称'],['Cron表达式','级联清理'],['生成位置','目录名称']]){
+   const centers=[]
+   for(const name of names)centers.push(await dialog.getByRole(name==='级联清理'?'button':'textbox',{name,exact:true}).evaluate(e=>{const r=e.getBoundingClientRect();return r.y+r.height/2}))
+   expect(Math.abs(centers[0]-centers[1])).toBeLessThan(1)
+  }
+  await dialog.getByRole('button',{name:'级联清理',exact:true}).click()
+  await page.getByRole('option',{name:'关闭',exact:true}).click()
   await dialog.getByRole('textbox',{name:'分享链接',exact:true}).focus()
   await page.mouse.move(1,1)
   await expect.poll(()=>dialog.locator('.extension-preset').evaluateAll(els=>els.every(e=>getComputedStyle(e,'::after').opacity==='0'))).toBe(true)
   await captureScreenshot(page,{path:info.outputPath(`editor-${width}-${theme}.png`)})
   await dialog.getByRole('button',{name:'保存链接',exact:true}).click()
   await expect(dialog).toHaveCount(0)
-  expect(saves[0]).toMatchObject({directory:'/media',name:'',directoryName:'',enabled:true})
+  expect(saves[0]).toMatchObject({directory:'/media',name:'',directoryName:'',enabled:true,cascadeCleanup:'off'})
   await page.getByRole('button',{name:'夸克链库设置',exact:true}).click()
   await expect(page.getByRole('heading',{name:'夸克链库设置',exact:true})).toBeVisible()
   await expect(page.getByRole('button',{name:'绑定 夸克影视',exact:true})).toHaveAttribute('aria-pressed','true')
@@ -109,4 +114,34 @@ test('relay guard defaults on, disables for always-relay, and preserves preferen
  await dialog.getByRole('button',{name:'保存以链',exact:true}).click()
  await expect.poll(()=>links.length).toBe(1)
  expect(links[0]).toMatchObject({relayGuard:false,mode:'public'})
+})
+
+test('background generation remains visible after reload and cleanup setting reopens',async({page})=>{
+ const {cards,saves}=await mock(page)
+ await page.route('**/api/virtual-library/quark/c0/run',route=>{
+  cards[0].result={status:'running',message:'正在后台同步分享',lastRun:new Date().toISOString()}
+  return route.fulfill({status:202,json:{status:'running',message:'已在后台开始生成，可离开或刷新页面'}})
+ })
+ await page.goto('/virtual/quark')
+ await page.locator('.quark-library-card').first().getByRole('button',{name:'立即生成',exact:true}).click()
+ const confirmation=page.getByRole('dialog',{name:'同步夸克分享',exact:true})
+ await expect(confirmation).toContainText('无 STRM 的子目录')
+ await confirmation.getByRole('button',{name:'确认同步',exact:true}).click()
+ await expect(page.locator('.quark-library-card').first().getByRole('button',{name:'生成中',exact:true})).toBeDisabled()
+ await page.reload()
+ await expect(page.locator('.quark-library-card').first().getByRole('button',{name:'生成中',exact:true})).toBeDisabled()
+ await expect(page.getByRole('button',{name:'编辑 分享目录 1',exact:true})).toBeDisabled()
+ cards[0].result={status:'completed',message:'新增STRM 2 条，清理 1 个'}
+ await page.reload()
+ await page.getByRole('button',{name:'编辑 分享目录 1',exact:true}).click()
+ const editor=page.getByRole('dialog',{name:'编辑夸克链接',exact:true})
+ await expect(editor.getByRole('button',{name:'级联清理',exact:true})).toHaveText('开启')
+ await editor.getByRole('button',{name:'级联清理',exact:true}).click()
+ await page.getByRole('option',{name:'关闭',exact:true}).click()
+ await editor.getByRole('button',{name:'保存链接',exact:true}).click()
+ await page.getByRole('dialog',{name:'同步夸克分享',exact:true}).getByRole('button',{name:'确认同步',exact:true}).click()
+ await expect(editor).toHaveCount(0)
+ expect(saves[0].cascadeCleanup).toBe('off')
+ await page.getByRole('button',{name:'编辑 分享目录 1',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'编辑夸克链接',exact:true}).getByRole('button',{name:'级联清理',exact:true})).toHaveText('关闭')
 })

@@ -68,7 +68,7 @@ func (a *App) syncStatePath(id string) string {
 }
 func syncInternal(name string) bool { return strings.HasPrefix(name, ".aether-") }
 
-func (a *App) scanSyncReplica(ctx context.Context, loc BackupLocation, s Storage, rule BackupRule, roots map[string]bool, visited *int, cached ...syncBaseline) (syncReplica, error) {
+func (a *App) scanSyncReplica(ctx context.Context, loc BackupLocation, s Storage, rule BackupRule, roots map[string]bool, visited *int, limit int64, cached ...syncBaseline) (syncReplica, error) {
 	if ctx.Value(backupAncestryKey{}) == nil {
 		ctx = context.WithValue(ctx, backupAncestryKey{}, backupAncestryCache{})
 	}
@@ -133,8 +133,8 @@ func (a *App) scanSyncReplica(ctx context.Context, loc BackupLocation, s Storage
 					return err
 				}
 			} else if allowed && backupAccept(rule, f) && !a.backupIgnored(ctx, f.Name) {
-				if f.Size < 0 || f.Size > 100<<30 {
-					return errors.New("同步单文件上限100GiB")
+				if f.Size < 0 || f.Size > limit {
+					return errors.New("同步单文件上限 " + uploadLimitLabel(limit))
 				}
 				digest := ""
 				if s.Type != "local" && len(cached) > 0 && len(cached[0].Files) > 0 && len(cached[0].Metadata) > 0 && !f.Modified.IsZero() && cached[0].Metadata[0][name] == syncMetadata(f) {
@@ -553,6 +553,14 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 	}
 	sources, targets := backupLocations(*rule)
 	locations := append(append([]BackupLocation{}, sources...), targets...)
+	scanLimit := defaultUploadFileLimit
+	for _, loc := range locations {
+		s, err := backupStorage(st, loc.StorageID)
+		if err != nil {
+			return err
+		}
+		scanLimit = max(scanLimit, uploadFileLimit(s))
+	}
 	revision := syncRevision(*rule, st)
 	prior := syncBaseline{}
 	if data, err := os.ReadFile(a.syncStatePath(rule.ID)); err == nil {
@@ -585,13 +593,17 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 			cache.Files = []map[string]string{prior.Files[i]}
 			cache.Metadata = []map[string]string{prior.Metadata[i]}
 		}
-		rep, err := a.scanSyncReplica(ctx, loc, s, *rule, roots, &visited, cache)
+		rep, err := a.scanSyncReplica(ctx, loc, s, *rule, roots, &visited, scanLimit, cache)
 		if err != nil {
 			return err
 		}
 		replicas = append(replicas, rep)
 	}
 	operations, err := planSync(*rule, replicas, prior, len(sources))
+	if err != nil {
+		return err
+	}
+	stageLimit, err := syncUploadStageLimit(replicas, operations)
 	if err != nil {
 		return err
 	}
@@ -678,10 +690,10 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 			return err
 		}
 		defer release()
-		stageBytes += op.file.file.Size
-		if stageBytes > 100<<30 {
-			return errors.New("单次同步暂存超过100GiB，请拆分规则")
+		if op.file.file.Size > stageLimit-stageBytes {
+			return errors.New("单次同步暂存超过 " + uploadLimitLabel(stageLimit) + "，请拆分规则")
 		}
+		stageBytes += op.file.file.Size
 		fs := mountFS{app: a, config: MountConfig{StorageID: op.file.source.ID, Source: op.file.parent}}
 		input, err := fs.OpenFile(ctx, "/"+op.file.file.Name, os.O_RDONLY, 0)
 		if err != nil {
@@ -800,7 +812,7 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 	}
 	visited = 0
 	for i, rep := range replicas {
-		next, e := a.scanSyncReplica(ctx, rep.location, rep.storage, *rule, map[string]bool{}, &visited)
+		next, e := a.scanSyncReplica(ctx, rep.location, rep.storage, *rule, map[string]bool{}, &visited, scanLimit)
 		if e != nil {
 			return e
 		}
@@ -883,6 +895,21 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 		return err
 	}
 	return a.backupUpdate(rule.ID, func(r *BackupRule) { r.SyncPending = "" })
+}
+
+func syncUploadStageLimit(replicas []syncReplica, operations []syncOperation) (int64, error) {
+	limit := defaultUploadFileLimit
+	for _, op := range operations {
+		if op.remove {
+			continue
+		}
+		targetLimit := uploadFileLimit(replicas[op.to].storage)
+		if op.file.file.Size < 0 || op.file.file.Size > targetLimit {
+			return 0, errors.New("同步目标单文件上限 " + uploadLimitLabel(targetLimit))
+		}
+		limit = max(limit, targetLimit)
+	}
+	return limit, nil
 }
 
 func (a *App) publishSyncStaged(ctx context.Context, target Storage, parent, name, staged, digest, expected string) error {
@@ -1005,7 +1032,7 @@ func (a *App) deleteOneWayExtras(ctx context.Context, rule *BackupRule, st State
 		if err != nil {
 			return err
 		}
-		rep, err := a.scanSyncReplica(ctx, loc, s, *rule, map[string]bool{}, &visited)
+		rep, err := a.scanSyncReplica(ctx, loc, s, *rule, map[string]bool{}, &visited, uploadFileLimit(s))
 		if err != nil {
 			return err
 		}

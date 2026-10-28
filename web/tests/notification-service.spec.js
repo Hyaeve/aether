@@ -37,7 +37,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`no
   await expect(page).toHaveURL(/\/notifications\/telegram$/)
   if (width < 700) await page.getByRole('button', { name: '打开导航', exact: true }).click()
   const nav = (await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('link').allTextContents()).map(text => text.trim())
-  expect(nav.indexOf('通知服务')).toBe(nav.indexOf('辅助工具') + 1)
+  expect(nav.indexOf('通知服务')).toBe(nav.indexOf('档案中心') + 1)
   if (width < 700) await page.locator('.nav-overlay').click({ position: { x: width - 8, y: 50 } })
   const tg = page.getByRole('form', { name: 'TG Bot', exact: true })
   const qq = page.getByRole('form', { name: 'QQ Bot', exact: true })
