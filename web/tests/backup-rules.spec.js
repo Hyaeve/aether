@@ -261,6 +261,38 @@ test('backup empty action and heading align with the tabs without a refresh cont
   await expect(page.getByRole('dialog',{name:'添加备份规则',exact:true})).toBeVisible()
 })
 
+test('backup actions stay on the tab row across transfer breakpoints and both themes',async({page},info)=>{
+  await setup(page)
+  await page.goto('/transfer/backup')
+  const heading=page.locator('.backup-heading')
+  for(const theme of ['light','dark']){
+    await page.evaluate(value=>document.documentElement.dataset.theme=value,theme)
+    for(const width of [1440,1200,760,701,700,390,375,320]){
+      await page.setViewportSize({width,height:844})
+      await expect.poll(()=>heading.evaluate(el=>{
+        const tab=el.querySelector('a[href="/transfer/backup"]').getBoundingClientRect()
+        const buttons=[...el.querySelectorAll('.transfer-actions>button')].map(button=>button.getBoundingClientRect())
+        return {
+          width:innerWidth,
+          aligned:buttons.every(button=>Math.abs(tab.y+tab.height/2-button.y-button.height/2)<2),
+          inside:buttons.every(button=>button.left>=0&&button.right<=innerWidth),
+          overflow:document.documentElement.scrollWidth>innerWidth+1
+        }
+      })).toEqual({width,aligned:true,inside:true,overflow:false})
+      if(width===1440||width===375)await page.screenshot({path:info.outputPath(`backup-heading-${width}-${theme}.png`)})
+    }
+  }
+  await heading.getByRole('button',{name:'添加规则',exact:true}).click()
+  await expect(page.getByRole('dialog',{name:'添加备份规则',exact:true})).toBeVisible()
+  await page.getByRole('dialog',{name:'添加备份规则',exact:true}).getByRole('button',{name:'取消',exact:true}).click()
+  await heading.getByRole('link',{name:'传输任务',exact:true}).click()
+  await expect.poll(()=>page.locator('.task-heading').evaluate(el=>{
+    const tabs=el.querySelector('nav').getBoundingClientRect(),actions=el.querySelector('.transfer-actions').getBoundingClientRect()
+    return actions.top>=tabs.bottom
+  })).toBe(true)
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
+})
+
 test('six filter types support wrapped removable tokens and scopes without extra case controls',async({page},info)=>{
   await setup(page);await page.goto('/transfer/backup')
   await page.locator('.task-heading').getByRole('button',{name:'添加规则',exact:true}).click()

@@ -168,7 +168,7 @@ onUnmounted(()=>{alive=false;clearTimeout(timer);document.removeEventListener('p
 .backup-content{padding:16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-height:0}.backup-content :deep(.backup-grid){align-content:start}
 @media(max-width:1200px){.transfer-header,.transfer-table tr:not(.transfer-spacer){grid-template-columns:minmax(90px,1.4fr) minmax(110px,1fr) minmax(110px,1fr) 118px 68px 72px}.transfer-header span:last-child,.transfer-table .transfer-started{display:none}.transfer-header span,.transfer-table td{padding-inline:7px}}
 @media(max-width:700px){
- .task-heading{flex-wrap:wrap}.transfer-actions{width:100%;justify-content:flex-end;gap:5px}.transfer-actions .search-field{width:160px}
+ .task-heading:not(.backup-heading){flex-wrap:wrap}.task-heading:not(.backup-heading)>.transfer-actions{width:100%;justify-content:flex-end}.transfer-actions{gap:5px}.transfer-actions .search-field{width:160px}
  .transfer-modes{gap:6px}.transfer-modes button{padding:10px 8px;min-height:118px;gap:6px;align-items:flex-start;position:relative}.transfer-modes button>svg{position:absolute;top:12px;width:16px;height:16px}.transfer-mode-summary>div{padding-left:22px;flex-wrap:wrap;gap:4px}.transfer-mode-summary strong{font-size:13px}.transfer-mode-summary>div>span{font-size:12px}.transfer-mode-summary small{white-space:normal;flex-wrap:wrap;gap:3px;font-size:11px}
  .transfer-header{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);border:0}
  .transfer-table tr:not(.transfer-spacer){grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:24px 58px 24px 20px;grid-template-areas:"file file" "from to" "progress progress" "size speed";height:160px;padding:9px 10px;column-gap:14px;row-gap:4px}

@@ -1,14 +1,39 @@
 import { test, expect } from '@playwright/test'
 
+async function setupWorkspace(page, storages = [], { failurePath, failureStatus } = {}) {
+  const unexpected = [], requests = []
+  const replies = {
+    '/api/auth/status': {initialized:true,authenticated:true},
+    '/api/state': {username:'quark-workspace',storages,tasks:[],settings:{},cache:{},traffic:{}},
+    '/api/traffic': {upload:0,download:0},
+    '/api/strm-replace': {tasks:[]},
+    '/api/115-folder-cleanup': {enabled:false,rules:[]},
+    '/api/115-signin': {enabled:false,rules:[]},
+    '/api/115-recycle-cleanup': {enabled:false,rules:[]},
+    '/api/115-simulcast/enabled': {enabled:true},
+    '/api/quark-takeover': {bindings:[],broker:'https://broker.example'},
+    ...Object.fromEntries(['emby','tmdb','ai','proxy'].map(kind=>[`/api/plugins/${kind}`,{enabled:false}]))
+  }
+  await page.route('**/api/**', route => {
+    const request = route.request(), path = new URL(request.url()).pathname
+    requests.push(`${request.method()} ${path}`)
+    if (path === failurePath) return route.fulfill({status:failureStatus,json:{error:'配置读取失败'}})
+    if (request.method() === 'GET' && Object.hasOwn(replies,path)) return route.fulfill({json:replies[path]})
+    unexpected.push(`${request.method()} ${path}`)
+    return route.fulfill({status:500,json:{error:'测试未定义接口'}})
+  })
+  return {requests,unexpected}
+}
+
+function configurationResponse(page, path) {
+  return page.waitForResponse(response => new URL(response.url()).pathname === path && response.request().method() === 'GET')
+}
+
 test('Quark workspace has a binding sidebar, per-account settings and confirmed unbind', async ({ page }, info) => {
-	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
-	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))
-  await page.route('**/api/plugins/*', r => r.fulfill({json:{enabled:false}}))
   const storages = ['one','two'].map((id,i) => ({id, name:`夸克 ${i+1}`, type:'quark',enabled:true}))
+  const fixture = await setupWorkspace(page,storages)
   let bindings = storages.map(s => ({...s, valid:true,nickname:`账号 ${s.id}`}))
   const configs = Object.fromEntries(storages.map(s => [s.id,{enabled:true, quality:'4k',allowDolby:false,mode:'adaptive',uaListMode:'proxy_list',ua:''}]))
-  await page.route('**/api/auth/status', r => r.fulfill({json:{initialized:true,authenticated:true}}))
-  await page.route('**/api/state', r => r.fulfill({json:{storages,tasks:[],settings:{},cache:{},traffic:{}}}))
   await page.route('**/api/quark-takeover', r => r.fulfill({json:{enabled:true,bindings}}))
   await page.route('**/api/quark-takeover/*', r => {
     const id = new URL(r.request().url()).pathname.split('/').at(-1)
@@ -16,7 +41,9 @@ test('Quark workspace has a binding sidebar, per-account settings and confirmed 
     if(r.request().method()==='DELETE') bindings=bindings.filter(b=>b.id!==id)
     return r.fulfill({json:{config:configs[id]}})
   })
+  const configurations = Promise.all(['/api/115-folder-cleanup','/api/115-signin'].map(path=>configurationResponse(page,path)))
   await page.goto('/tools')
+  expect((await configurations).map(response=>response.status())).toEqual([200,200])
   await page.getByRole('button',{name:'夸克 STRM 接管',exact:true}).getByText('夸克 STRM 接管',{exact:true}).click()
   const dialog = page.getByRole('dialog',{name:'夸克 STRM 接管',exact:true})
   await expect(dialog.locator('.takeover-account h3')).toHaveText('夸克 1')
@@ -48,17 +75,11 @@ test('Quark workspace has a binding sidebar, per-account settings and confirmed 
   await page.setViewportSize({width:390,height:844})
   expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
   await page.screenshot({path:info.outputPath('quark-workspace-mobile.png')})
+  expect(fixture.unexpected).toEqual([])
 })
 
 test('empty Quark workspace keeps settings visible and explains missing storage',async({page})=>{
-  await page.route('**/api/**',r=>{
-    const path=new URL(r.request().url()).pathname
-    let json={}
-    if(path==='/api/auth/status')json={initialized:true,authenticated:true}
-    if(path==='/api/state')json={storages:[],tasks:[],settings:{},cache:{},traffic:{}}
-    if(path==='/api/quark-takeover')json={bindings:[],broker:'https://broker.example'}
-    return r.fulfill({json})
-  })
+  const fixture = await setupWorkspace(page)
   await page.goto('/tools')
   await page.getByRole('button',{name:'夸克 STRM 接管',exact:true}).getByText('夸克 STRM 接管',{exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'夸克 STRM 接管',exact:true})
@@ -67,4 +88,28 @@ test('empty Quark workspace keeps settings visible and explains missing storage'
   await dialog.getByRole('button',{name:'添加绑定',exact:true}).click()
   await expect(page.getByText('请先添加并启用夸克存储池',{exact:true})).toBeVisible()
   await expect(page.getByRole('dialog',{name:'选择绑定的存储'})).toHaveCount(0)
+  expect(fixture.unexpected).toEqual([])
+})
+
+for (const path of ['/api/115-folder-cleanup','/api/115-signin']) {
+  test(`tool configuration ${path} authorization failures still require login`,async({page})=>{
+    const fixture = await setupWorkspace(page,[],{failurePath:path,failureStatus:401})
+    const response = configurationResponse(page,path)
+    await page.goto('/tools')
+    expect((await response).status()).toBe(401)
+    await expect(page.getByRole('button',{name:'登录工作空间',exact:true})).toBeVisible()
+    await expect(page.getByRole('button',{name:'夸克 STRM 接管',exact:true})).toHaveCount(0)
+    expect(fixture.unexpected).toEqual([])
+  })
+}
+
+test('non-authorization tool configuration failures keep the Quark workspace usable',async({page})=>{
+  const fixture = await setupWorkspace(page,[],{failurePath:'/api/115-folder-cleanup',failureStatus:500})
+  const response = configurationResponse(page,'/api/115-folder-cleanup')
+  await page.goto('/tools')
+  expect((await response).status()).toBe(500)
+  await page.getByRole('button',{name:'夸克 STRM 接管',exact:true}).getByText('夸克 STRM 接管',{exact:true}).click()
+  await expect(page.getByRole('dialog',{name:'夸克 STRM 接管',exact:true})).toBeVisible()
+  await expect(page.getByRole('button',{name:'登录工作空间',exact:true})).toHaveCount(0)
+  expect(fixture.unexpected).toEqual([])
 })
