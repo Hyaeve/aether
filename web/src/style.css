@@ -10,7 +10,7 @@
   --share-password:#6350bd;
   --han-gap:.1em;
   --token-background:linear-gradient(120deg,#e6ebfa,#ede7f8); --token-border:#d3d9ef;
-  --control-height:40px; --toolbar-height:36px; --layer-shell:#edf0f7; --layer-frame:#f3f5fa; --layer-item:#fafbfe; --layer-rule:#fff;
+  --control-height:40px; --toolbar-height:36px; --layer-shell:#edf0f7; --layer-frame:#f3f5fa; --layer-item:#fafbfe; --layer-rule:#fdfdff;
   font-size: 14px; letter-spacing: 0;
 }
 [data-theme="dark"] { color-scheme: dark; --bg: #111216; --surface: #1b1d23; --text: #e3e6ed; --muted: #9aa3b1; --border: #30343f; --primary: #8997cb; --primary-hover: #9aa7d7; --primary-soft: #2c3246; --input: #292c34; --green: #78c2aa; --amber: #d9b170; --red: #e58b90; }
@@ -963,7 +963,7 @@ select { border-radius: 12px; }
 .link-identity { min-width: 0; flex: 1; padding-left: 10px; }
 .link-identity strong { max-width: 100%; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-toggle, .link-toggle img { width: 40px; height: 40px; }
-.link-card-controls { width: 120px; flex-shrink: 0; gap: 10px; justify-content: center; }
+.link-card-controls { width: 132px; flex-shrink: 0; gap: 10px; justify-content: center; }
 .link-card-controls .rounded-select { width: 100%; min-width: 0; }
 .link-card-controls .rounded-select-trigger { padding-left: 7px; padding-right: 7px; gap: 5px; }
 .link-port-actions { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 2px; }

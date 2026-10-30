@@ -21,7 +21,7 @@ test('account credentials and security occupy separate themed panels with an inp
     await page.setViewportSize({width,height:900});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
     const rects=await page.locator('.account-credentials').evaluate(el=>[...el.querySelectorAll('.credential-input,.account-save')].map(n=>{const r=n.getBoundingClientRect();return{x:r.x,width:r.width}}))
     for(const rect of rects){expect(Math.abs(rect.width-rects[0].width)).toBeLessThan(1);expect(Math.abs(rect.x-rects[0].x)).toBeLessThan(1)}
-    await expect(page.locator('.account-panel').first()).toHaveCSS('background-color',theme==='light'?'rgb(250, 251, 252)':'rgb(27, 29, 35)')
+    await expect(page.locator('.account-panel').first()).toHaveCSS('background-color',theme==='light'?'rgb(245, 247, 251)':'rgb(27, 29, 35)')
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     await page.screenshot({path:info.outputPath(`account-${theme}-${width}.png`)})
   }

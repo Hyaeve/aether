@@ -137,7 +137,7 @@ test('cache text and account surface remain scoped and theme aware', async ({ pa
   const proxyResponse = page.waitForResponse('**/api/plugins/proxy')
   await page.goto('/settings/account')
   expect((await proxyResponse).status()).toBe(200)
-  await expect(page.locator('.account-credentials')).toHaveCSS('background-color', 'rgb(250, 251, 252)')
+  await expect(page.locator('.account-credentials')).toHaveCSS('background-color', 'rgb(245, 247, 251)')
   await expect(page.getByRole('textbox',{name:'账号',exact:true})).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
   await expect(page.locator('.account-settings .credential-input').first()).toHaveCSS('background-color','rgb(255, 255, 255)')
   expect(await page.locator('.account-settings').evaluate(el => el.clientWidth)).toBeLessThanOrEqual(380)

@@ -56,7 +56,7 @@ test('task rows have paired layout, scan times, direct actions and toggle feedba
   await run.click()
   await expect(rows.first().locator('.task-provider-toggle')).toBeDisabled()
   await rows.first().getByRole('button', { name: '停止任务', exact: true }).click()
-  await expect(page.locator('.toast-stack')).toContainText('正在停止任务')
+  await expect(page.locator('.toast-stack')).toContainText('STRM 任务「任务 1」正在停止')
   for (const theme of ['light', 'dark']) {
     await page.evaluate(t => document.documentElement.dataset.theme = t, theme)
     await page.screenshot({ path: info.outputPath(`tasks-${theme}.png`) })

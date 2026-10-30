@@ -227,7 +227,7 @@ async function remove() {
       <div class="modal-body">
         <div class="selected-driver"><ProviderIcon :type="selected" small /><h3>{{ picked.name }}</h3></div>
         <div class="form-grid">
-          <label :class="{ full: !['115', 'tianyi', 'mobile'].includes(selected) }">存储池名称 <span class="required">*</span><input v-model="form.name" required maxlength="60" /></label>
+          <label :class="{ full: !['115', 'tianyi', 'mobile'].includes(selected) }"><span>存储池名称 <span class="required">*</span></span><input v-model="form.name" required maxlength="60" /></label>
           <label v-if="selected === 'mobile'">账号域 ID（可选）<input v-model.trim="form.config.userDomainId" aria-label="账号域 ID" autocomplete="off" maxlength="128" /></label>
           <div v-if="selected === '115'" class="field"><label>设备类型</label><RoundedSelect v-model="form.config.device" label="设备类型" :options="devices115" /></div>
           <div v-if="selected === 'tianyi'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'account'" @update:model-value="form.config.authMode = $event" label="天翼接入模式" :options="[{ value: 'account', label: '账号密码' }, { value: 'token', label: 'Token 令牌' }]" /></div>
@@ -246,7 +246,7 @@ async function remove() {
             <div class="field"><label>删除模式</label><RoundedSelect v-model="form.config.deleteMode" label="删除模式" :options="[{ value: 'trash', label: '移到回收站' }, { value: 'permanent', label: '永久删除' }]" /></div>
           </template>
           <template v-if="['openlist', 'webdav'].includes(selected)">
-            <label :class="{ full: selected === 'webdav' }">服务地址 <span class="required">*</span><input v-model="form.config.address" required type="url" placeholder="https://storage.example.com" /></label>
+            <label :class="{ full: selected === 'webdav' }"><span>服务地址 <span class="required">*</span></span><input v-model="form.config.address" required type="url" placeholder="https://storage.example.com" /></label>
             <div v-if="selected === 'openlist'" class="field"><label>接入模式</label><RoundedSelect :model-value="form.config.authMode || 'token'" @update:model-value="changeOpenlistMode" label="接入模式" :options="[{ value: 'token', label: 'API令牌' }, { value: 'account', label: '账号密码' }]" /></div>
             <label v-if="selected === 'openlist' && form.config.authMode !== 'account'" class="full">API令牌<SecretInput v-model="form.config.token" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="token" autocomplete="off" /></label>
             <template v-if="selected === 'webdav' || form.config.authMode === 'account'"><label>账号<input v-model="form.config.username" autocomplete="off" :required="selected === 'openlist'" /></label><label>密码<SecretInput v-model="form.config.password" :secret-path="editing ? `/storages/${editing}/secret` : ''" secret-field="password" autocomplete="off" :required="selected === 'openlist'" /></label></template>

@@ -142,7 +142,7 @@ test('log settings use the account panel input layers', async ({page}, info) => 
   for(const theme of ['light','dark']) {
     await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
     const colors=await page.locator('.log-settings-panel').evaluate(el=>({panel:getComputedStyle(el).backgroundColor,input:getComputedStyle(el.querySelector('.number-control')).backgroundColor}))
-    expect(colors.panel).toBe(theme==='light'?'rgb(250, 251, 252)':'rgb(27, 29, 35)')
+    expect(colors.panel).toBe(theme==='light'?'rgb(245, 247, 251)':'rgb(27, 29, 35)')
     expect(colors.input).toBe(theme==='light'?'rgb(255, 255, 255)':'rgb(41, 44, 52)')
     await page.screenshot({path:info.outputPath(`logs-${theme}.png`)})
   }

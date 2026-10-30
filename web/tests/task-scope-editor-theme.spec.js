@@ -83,7 +83,7 @@ for(const theme of ['light','dark'])test(`day blue surface hierarchy and night p
     return Object.fromEntries(keys.map(k=>[k,root.getPropertyValue(k).trim()]))
   })
   if(theme==='light'){
-    expect(colors).toEqual({'--bg':'#e9ecf5','--surface':'#f5f7fb','--input':'#fff','--layer-shell':'#edf0f7','--layer-frame':'#f3f5fa','--layer-item':'#fafbfe','--layer-rule':'#fff'})
+    expect(colors).toEqual({'--bg':'#e9ecf5','--surface':'#f5f7fb','--input':'#fff','--layer-shell':'#edf0f7','--layer-frame':'#f3f5fa','--layer-item':'#fafbfe','--layer-rule':'#fdfdff'})
     await expect(page.locator('.sidebar')).toHaveCSS('background-color','rgb(217, 224, 239)')
   }else{
     expect(colors['--bg']).toBe('#111216')
