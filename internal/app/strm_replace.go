@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	strmReplaceMaxEntries = 10000
-	strmReplaceMaxDepth   = 32
-	strmReplaceMaxBytes   = 1 << 20
-	strmReplaceHistory    = 16
+	strmReplaceMaxDepth     = 32
+	strmReplaceMaxBytes     = 1 << 20
+	strmReplaceSamples      = 100
+	strmReplacePreviewBytes = 4 << 20
+	strmReplaceHistory      = 16
 )
 
 type strmReplaceRequest struct {
@@ -42,8 +43,9 @@ type strmReplaceSample struct {
 	Replacements [][2]int `json:"replacements"`
 }
 type strmReplacePreview struct {
-	Count   int                 `json:"count"`
-	Samples []strmReplaceSample `json:"samples"`
+	Count       int                 `json:"count"`
+	Samples     []strmReplaceSample `json:"samples"`
+	sampleBytes int
 }
 
 type strmReplaceTask struct {
@@ -251,9 +253,6 @@ func scanStrmReplace(ctx context.Context, in strmReplaceRequest, task *strmRepla
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				if task.Scanned >= strmReplaceMaxEntries {
-					return errors.New("扫描数量超过 10000 项，任务停止；已完成的替换保留")
-				}
 				task.Scanned++
 				info, err := root.Lstat(entry.Name())
 				if err != nil {
@@ -296,8 +295,16 @@ func scanStrmReplace(ctx context.Context, in strmReplaceRequest, task *strmRepla
 						}
 						if !bytes.Equal(data, output) {
 							in.preview.Count++
-							if len(in.preview.Samples) < 4 {
-								in.preview.Samples = append(in.preview.Samples, strmReplaceSample{Name: filepath.Join(root.Name(), entry.Name()), Before: string(data), After: string(output), Matches: matches, Replacements: replacements})
+							if len(in.preview.Samples) < strmReplaceSamples {
+								sample := strmReplaceSample{Name: filepath.Join(root.Name(), entry.Name()), Before: string(data), After: string(output), Matches: matches, Replacements: replacements}
+								encoded, err := json.Marshal(sample)
+								if err != nil {
+									return err
+								}
+								if in.preview.sampleBytes+len(encoded)+1 <= strmReplacePreviewBytes {
+									in.preview.Samples = append(in.preview.Samples, sample)
+									in.preview.sampleBytes += len(encoded) + 1
+								}
 							}
 						}
 						continue

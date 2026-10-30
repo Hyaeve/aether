@@ -153,7 +153,7 @@ onBeforeUnmount(()=>{alive=false;recordRequest++;watchRequest++;clearInterval(ti
 .rapid115-watch:hover{border-color:var(--primary)}.rapid115-watch.disabled{opacity:.5}
 .rapid115-watch>div{display:grid;gap:4px;flex:1;min-width:0}
 .rapid115-watch strong{font-size:16px;line-height:24px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rapid115-watch small{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rapid115-watch>.watch-avatar{width:48px;height:48px;flex:none;border:0;border-radius:8px;font-size:18px;font-weight:600;color:var(--info);background:color-mix(in srgb,var(--info) 14%,var(--input))}
+.rapid115-watch>.watch-avatar{width:48px;height:48px;flex:none;border:0;border-radius:8px;padding:0;display:grid;place-items:center;white-space:nowrap;font-size:18px;font-weight:600;color:var(--info);background:color-mix(in srgb,var(--info) 14%,var(--input))}
 .rapid115-watch>.watch-avatar.cron{color:var(--amber);background:color-mix(in srgb,var(--amber) 17%,var(--input))}
 .rapid115-watch .watch-route{display:flex;align-items:center;gap:4px;min-width:0}.watch-route>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
 .rapid115-watch .icon-btn{flex:none;width:30px;height:30px;min-height:30px}
@@ -166,6 +166,11 @@ onBeforeUnmount(()=>{alive=false;recordRequest++;watchRequest++;clearInterval(ti
 .rapid115-filters{display:grid;gap:12px}.rapid115-filters h3{display:flex;align-items:center;gap:8px}
 .rapid115-page.leaving{animation-timing-function:cubic-bezier(.2,.55,.35,1)}
 .watch-record-dialog{overflow-y:auto;scrollbar-width:none}.watch-record-dialog::-webkit-scrollbar{display:none}
+:global(.modal.standard-modal:has(.watch-record-dialog)){width:min(860px,calc(100vw - 32px));display:flex;flex-direction:column;overflow:hidden}
+.watch-record-dialog{min-height:0;height:min(680px,calc(100dvh - 150px));display:flex;flex-direction:column;overflow:hidden}
+.watch-record-dialog :deep(.rapid115-record-frame){flex:1;min-height:0;overflow-y:auto;scrollbar-width:none}
+.watch-record-dialog :deep(.rapid115-record-frame::-webkit-scrollbar){display:none}
+.watch-record-dialog :deep(.rapid115-pagination){flex:none}
 @media(max-width:1000px){.rapid115-top{grid-template-columns:minmax(0,1fr)}.rapid115-section{padding:14px}}
 @media(max-width:440px){.rapid115-pagination{gap:3px;justify-content:center}.rapid115-pagination .icon-btn{width:30px;height:36px}.rapid115-pagination input{width:52px}}
 </style>

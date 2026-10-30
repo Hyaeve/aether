@@ -112,7 +112,7 @@ defineExpose({open})
         <label class="full">生成位置<div class="quark-directory-field"><input v-model="cfg.directory" aria-label="默认生成位置" :disabled="saving||loading" /><button type="button" class="icon-btn" aria-label="选择默认生成位置" :disabled="saving||loading" @click="settingsPicker=true"><Icon name="FolderOpen" /></button></div></label>
         <label>失效链接保留时间<NumberInput v-model="cfg.invalidDays" aria-label="失效链接保留时间" unit="天" :min="1" :max="3650" required /></label>
         <label>临时转存保活期<NumberInput v-model="cfg.retentionHours" aria-label="临时转存保活期" unit="h" :min="1" :max="8760" required /></label>
-        <label class="full"><span class="quark-extension-label">默认媒体扩展名<ExtensionPresets v-model="cfg.mediaExtensions" :groups="['video','audio','comic']" /></span><input v-model="cfg.mediaExtensions" aria-label="默认媒体扩展名" /></label>
+        <label class="full"><span class="quark-extension-label">默认媒体扩展名<ExtensionPresets v-model="cfg.mediaExtensions" :groups="['video','audio']" /></span><input v-model="cfg.mediaExtensions" aria-label="默认媒体扩展名" /></label>
         <label class="full"><span class="quark-extension-label">默认元数据扩展名<ExtensionPresets v-model="cfg.metadataExtensions" :groups="['image','data']" /></span><input v-model="cfg.metadataExtensions" aria-label="默认元数据扩展名" /></label>
       </div><footer><button class="btn primary" :disabled="saving||loading"><Icon name="Save" />保存设置</button></footer></section>
     </form>
@@ -134,11 +134,11 @@ defineExpose({open})
     <form @submit.prevent="save" @keydown.enter="['INPUT'].includes($event.target.tagName)&&$event.preventDefault()"><div class="modal-body quark-library-editor"><fieldset :disabled="saving"><div class="form-grid">
       <label>分享链接<input v-model="form.url" aria-label="分享链接" required autocomplete="off" @blur="resolveName" /></label>
       <label>分享名称<input v-model="form.name" aria-label="分享名称" maxlength="85" /></label>
-      <label>Cron表达式<CronInput v-model="form.cron" aria-label="Cron表达式" /></label>
-      <label>级联清理<RoundedSelect v-model="form.cascadeCleanup" label="级联清理" hide-check :options="[{value:'on',label:'开启'},{value:'off',label:'关闭'}]" /></label>
       <label>生成位置<div class="quark-directory-field"><input v-model="form.directory" aria-label="生成位置" :required="form.enabled" /><button type="button" class="icon-btn" aria-label="选择生成位置" @click="picker=true"><Icon name="FolderOpen" /></button></div></label>
       <label>目录名称<input v-model="form.directoryName" aria-label="目录名称" maxlength="255" /></label>
-      <label class="full"><span class="quark-extension-label">媒体扩展名<ExtensionPresets v-model="form.mediaExtensions" :groups="['video','audio','comic']" /></span><input v-model="form.mediaExtensions" aria-label="媒体扩展名" /></label>
+      <label>Cron表达式<CronInput v-model="form.cron" aria-label="Cron表达式" /></label>
+      <label>级联清理<RoundedSelect v-model="form.cascadeCleanup" label="级联清理" hide-check :options="[{value:'on',label:'开启'},{value:'off',label:'关闭'}]" /></label>
+      <label class="full"><span class="quark-extension-label">媒体扩展名<ExtensionPresets v-model="form.mediaExtensions" :groups="['video','audio']" /></span><input v-model="form.mediaExtensions" aria-label="媒体扩展名" /></label>
       <label class="full"><span class="quark-extension-label">元数据扩展名<ExtensionPresets v-model="form.metadataExtensions" :groups="['image','data']" /></span><input v-model="form.metadataExtensions" aria-label="元数据扩展名" /></label>
       <label class="switch-label full">启用链接<input v-model="form.enabled" class="switch" type="checkbox" role="switch" aria-label="启用链接" :disabled="!form.directory?.trim()" /></label>
     </div></fieldset></div><footer class="modal-footer"><button type="button" class="btn" :disabled="saving" @click="modal=false">取消</button><button class="btn primary" :disabled="saving"><Icon name="Save" />{{saving?'保存中':'保存链接'}}</button></footer></form>

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { hanSpacingCount } from '../han-spacing'
 const props = defineProps({ parents: Array, deepest: String })
 const root = ref(null), measure = ref(null), parent = ref(''), omitted = ref(false)
 const full = computed(() => [...(props.parents || []), props.deepest].join('/'))
@@ -7,7 +8,9 @@ let observer
 function fit() {
   if (!root.value || !measure.value) return
   const available = root.value.clientWidth
-  const width = text => { measure.value.setAttribute('data-measure', text); return measure.value.getBoundingClientRect().width }
+  const css = getComputedStyle(measure.value)
+  const gap = parseFloat(css.getPropertyValue('--han-gap')) * parseFloat(css.fontSize)
+  const width = text => { measure.value.setAttribute('data-measure', text); return measure.value.getBoundingClientRect().width + hanSpacingCount(text) * gap }
   const parents = props.parents || []
   let count = parents.length
   while (count > 0 && width(`/${count < parents.length ? '../' : ''}${parents.slice(-count).join('/')}/${props.deepest}`) > available) count--

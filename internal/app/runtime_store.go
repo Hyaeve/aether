@@ -10,14 +10,14 @@ import (
 )
 
 var runtimeFields = map[string][]string{
-	"tasks":       {"status", "message", "processed", "lastRun", "nextRun", "casGenerated", "casFailed"},
-	"automations": {"status", "message", "lastRun", "nextRun", "lastResult"},
+	"tasks":       {"status", "message", "processed", "progressDone", "progressTotal", "progressKnown", "progressFraction", "lastRun", "nextRun", "casGenerated", "casFailed"},
+	"automations": {"status", "message", "lastRun", "nextRun", "lastResult", "progressDone"},
 	"backupRules": {"status", "message", "scanned", "copied", "skipped", "deleted", "phase", "total", "processed", "lastRun", "nextRun", "syncPending"},
 	"storages":    {"status", "lastError", "health", "usage"},
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "shareTransfers", "shareLiveLinks", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "rename115Attempts", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -118,6 +118,9 @@ func (s *Store) initRuntime(dir string) error {
 			FolderCleanupReceipts map[string]folderCleanupReceipt `json:"folderCleanupReceipts"`
 			Pan115SigninReceipts  map[string]pan115SigninReceipt  `json:"pan115SigninReceipts"`
 			CASPlaybackAttempts   map[string]bool                 `json:"casPlaybackAttempts"`
+			ShareTransfers        []shareTransferRecord           `json:"shareTransfers"`
+			ShareLiveLinks        []shareLiveLink                 `json:"shareLiveLinks"`
+			Rename115Attempts     map[string]bool                 `json:"rename115Attempts"`
 		}
 		if err := s.decodeJSONConfig("runtime/state", raw, &records); err != nil {
 			return err
@@ -136,6 +139,8 @@ func (s *Store) initRuntime(dir string) error {
 		s.state.CASPlaybackAttempts = records.CASPlaybackAttempts
 		s.state.TelegramRuntime = records.Telegram
 		s.state.QuarkLibraryRuntime = records.QuarkLibrary
+		s.state.ShareTransfers, s.state.ShareLiveLinks = records.ShareTransfers, records.ShareLiveLinks
+		s.state.Rename115Attempts = records.Rename115Attempts
 	}
 	if err == nil && s.state.RuntimeSeparated {
 		var plain json.RawMessage
@@ -199,6 +204,17 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for i := range s.state.ShareLiveLinks {
+		link := &s.state.ShareLiveLinks[i]
+		if link.Status == "running" || link.Intent != "" {
+			link.Status, link.Message, link.NextRun = "interrupted", "服务重启，操作结果未确认；请核对云盘目录后手动执行", time.Time{}
+		}
+	}
+	for i := range s.state.ShareTransfers {
+		if s.state.ShareTransfers[i].Status == "running" {
+			s.state.ShareTransfers[i].Status, s.state.ShareTransfers[i].Message = "interrupted", "服务重启，转存结果未确认，请核对云盘"
+		}
+	}
 	for key, result := range s.state.QuarkLibraryRuntime.Results {
 		if result.Status == "running" {
 			result.Status, result.Message = "interrupted", "服务重启，生成已中断，已生成文件保留"

@@ -44,7 +44,7 @@ for(const width of [1440,390]) for(const theme of ['light','dark']) test(`transf
     await expect(dock).toHaveCount(0)
   }
   await page.getByRole('button',{name:'筛选传输状态',exact:true}).click()
-  await page.getByRole('checkbox',{name:'失败',exact:true}).check()
+  await page.getByRole('menuitemcheckbox',{name:'失败',exact:true}).click()
   await expect(page.locator('.transfer-table tbody tr:not(.transfer-spacer)')).toHaveCount(1)
   await page.getByRole('button',{name:'筛选传输状态',exact:true}).click()
   await page.getByRole('tab',{name:/^复制/}).click()
@@ -81,12 +81,12 @@ test('transfer bulk resume, retry, deletion and filters retain real action seman
   }
   await search.fill('')
   await page.getByRole('button',{name:'筛选传输状态',exact:true}).click()
-  await page.getByRole('checkbox',{name:'错误',exact:true}).check()
+  await page.getByRole('menuitemcheckbox',{name:'错误',exact:true}).click()
   await expect(page.locator('.transfer-table tbody tr:not(.transfer-spacer)')).toHaveCount(1)
   await page.reload()
   await expect(page.locator('.transfer-table tbody tr:not(.transfer-spacer)')).toHaveCount(10)
   await page.getByRole('button',{name:'筛选传输状态',exact:true}).click()
-  await page.getByRole('checkbox',{name:'失败',exact:true}).check()
+  await page.getByRole('menuitemcheckbox',{name:'失败',exact:true}).click()
   await page.getByRole('link',{name:'备份规则',exact:true}).click()
   await page.getByRole('link',{name:'传输任务',exact:true}).click()
   await expect(page.locator('.transfer-table tbody tr:not(.transfer-spacer)')).toHaveCount(10)

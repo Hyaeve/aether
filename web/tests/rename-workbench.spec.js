@@ -51,6 +51,7 @@ test('toolbox selection, ordered rename rules, saved sets and folder size', asyn
   const previewCount = previews.length
   await page.locator('.rename-preview-row').last().evaluate(el => window.renameStableRow = el)
   await page.getByRole('button', { name: '添加规则', exact: true }).click()
+  await page.getByRole('group', { name: '可选规则' }).getByRole('button', { name: '查找替换', exact: true }).click()
   await expect(page.getByLabel('查找内容', { exact: true })).toHaveCount(1)
   await page.getByLabel('替换为', { exact: true }).fill('unused')
   await page.waitForTimeout(400)

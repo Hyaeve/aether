@@ -45,20 +45,20 @@ for(const [width,theme] of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dar
   await filename.hover()
   const tip=page.getByRole('tooltip')
   await expect(tip).toHaveText(longName)
-  expect(await tip.evaluate(el=>el.getBoundingClientRect().width)).toBeGreaterThan(width>700?500:width-50)
+  expect(await tip.evaluate(el=>el.getBoundingClientRect().width)).toBe(Math.min(480,width-16))
   expect(await tip.evaluate(el=>getComputedStyle(el).backgroundColor)).not.toBe('rgb(255, 255, 255)')
   await captureScreenshot(page,{path:info.outputPath(`rapid-tooltip-${width}-${theme}.png`)})
  })
  test(`115 plugin dialogs share task rows and footer controls ${width} ${theme}`,async({page},info)=>{
   const f=await fixture(page);await page.setViewportSize({width,height:900});await page.goto('/tools')
   await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
-  await expect(page.locator('.plugin-card').first()).toHaveAttribute('aria-label','115签到')
-  for(const name of ['115签到','115文件夹清理']){
+  await expect(page.locator('.plugin-card').first()).toHaveAttribute('aria-label','115 自动签到')
+  for(const name of ['115 自动签到','115 文件夹清理']){
    const card=page.getByRole('button',{name,exact:true})
    await expect(card.locator('.provider-logo')).toHaveAttribute('src',/115/)
    await expect(card.locator('.plugin-symbol>svg')).toHaveCount(1)
   }
-  for(const [name,add] of [['115 同播复制','添加同播'],['115回收站清理','添加清理任务'],['115文件夹清理','添加文件夹']]){
+  for(const [name,add] of [['115 同播复制','添加同播'],['115 回收站清理','添加清理任务'],['115 文件夹清理','添加文件夹']]){
    await page.getByRole('button',{name,exact:true}).click()
    const dialog=page.getByRole('dialog',{name,exact:true})
    await expect(dialog.locator('.modal-footer').getByRole('button',{name:add,exact:true})).toBeVisible()
@@ -68,7 +68,7 @@ for(const [width,theme] of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dar
    await expect(dialog.locator('.plugin-task-list')).toHaveCSS('scrollbar-width','none')
    expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
    await captureScreenshot(page,{path:info.outputPath(`${name}-${width}-${theme}.png`)})
-   if(name==='115文件夹清理'){
+   if(name==='115 文件夹清理'){
     await dialog.getByRole('button',{name:/执行文件夹清理/}).click()
     expect(f.calls).not.toContain('folder-run')
     await page.getByRole('dialog',{name:'执行文件夹清理',exact:true}).getByRole('button',{name:'确认清理'}).click()
@@ -81,8 +81,8 @@ for(const [width,theme] of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dar
    }
    await page.keyboard.press('Escape')
   }
-  await page.getByRole('button',{name:'115签到',exact:true}).click()
-  const dialog=page.getByRole('dialog',{name:'115签到',exact:true})
+  await page.getByRole('button',{name:'115 自动签到',exact:true}).click()
+  const dialog=page.getByRole('dialog',{name:'115 自动签到',exact:true})
   await dialog.getByRole('button',{name:'添加签到',exact:true}).click()
   const editor=page.getByRole('dialog',{name:'添加签到',exact:true})
   await editor.getByRole('textbox',{name:'签到Cron表达式'}).fill('*/14 * * * *')

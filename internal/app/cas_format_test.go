@@ -123,7 +123,7 @@ func TestCASFormatTaskTreeSkipsIncompleteAndKeepsSources(t *testing.T) {
 		t.Fatal(n, err)
 	}
 	for _, name := range []string{"sha", "pair", "pointer"} {
-		raw, err := os.ReadFile(filepath.Join(a.outputDir, "format", "Season 1", name+".mkv.cas.strm"))
+		raw, err := os.ReadFile(filepath.Join(a.outputDir, "format", "A", "Season 1", name+".mkv.cas.strm"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,7 +133,7 @@ func TestCASFormatTaskTreeSkipsIncompleteAndKeepsSources(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"md", "slice", "old"} {
-		if _, err := os.Stat(filepath.Join(a.outputDir, "format", "Season 1", name+".mkv.cas.strm")); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(a.outputDir, "format", "A", "Season 1", name+".mkv.cas.strm")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("incomplete output generated", name, err)
 		}
 		suffix := ".cas"
@@ -152,6 +152,9 @@ func TestCASFormatTaskTreeSkipsIncompleteAndKeepsSources(t *testing.T) {
 		if !strings.Contains(logs, "/A/Season 1/"+name) || !strings.Contains(logs, "CAS信息缺失") {
 			t.Fatal("missing diagnostic", logs)
 		}
+	}
+	if strings.Contains(logs, "/A/A/") {
+		t.Fatal("output wrapper duplicated in source diagnostic", logs)
 	}
 	if a.store.snapshot().Tasks[0].CASFailed != 3 {
 		t.Fatal("missing failed counters")

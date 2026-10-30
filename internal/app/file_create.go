@@ -112,14 +112,14 @@ func (a *App) storeUploadedFile(ctx context.Context, s Storage, parent, name, st
 	defer release()
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
-	if len(a.running) != 0 {
-		return errors.New("有任务正在执行，请等待完成后上传")
-	}
 	current, err := a.store.storage(s.ID)
 	if err != nil {
 		return err
 	}
 	s = current
+	if err := a.checkTaskFileNodes(ctx, []taskFileNode{{s, parent, name}}); err != nil {
+		return err
+	}
 	parent, name, err = a.uploadParent(ctx, s, parent, name)
 	if err != nil {
 		return err

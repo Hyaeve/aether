@@ -17,6 +17,7 @@ type taskPanelEntry struct {
 	Processed  int       `json:"processed"`
 	Total      int       `json:"total"`
 	TotalKnown bool      `json:"totalKnown"`
+	Fraction   float64   `json:"fraction,omitempty"`
 	Unit       string    `json:"unit,omitempty"`
 	StartedAt  time.Time `json:"startedAt,omitempty"`
 }
@@ -40,7 +41,7 @@ func (a *App) taskPanel(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, taskPanelEntry{ID: "task:" + task.ID, TaskID: task.ID, Kind: task.Kind, Source: "task",
 			Name: task.Name, Status: task.Status, Message: task.Message, StorageID: task.StorageID,
-			Processed: task.Processed, Unit: unit, StartedAt: task.LastRun})
+			Processed: task.ProgressDone, Total: task.ProgressTotal, TotalKnown: task.ProgressKnown, Fraction: task.ProgressFraction, Unit: unit, StartedAt: task.LastRun})
 	}
 	for _, job := range st.GenerationJobs {
 		if job.Status == "running" || job.Status == "queued" {
@@ -64,7 +65,8 @@ func (a *App) taskPanel(w http.ResponseWriter, r *http.Request) {
 	for _, rule := range st.Automations {
 		if rule.Status == "running" {
 			items = append(items, taskPanelEntry{ID: "automation:" + rule.ID, TaskID: rule.ID, Kind: "automation", Source: "automation",
-				Name: rule.Name, Status: rule.Status, Message: rule.Message, StartedAt: rule.LastRun})
+				Name: rule.Name, Status: rule.Status, Message: rule.Message, StartedAt: rule.LastRun, Processed: rule.ProgressDone,
+				Total: len(rule.Steps), TotalKnown: len(rule.Steps) > 0, Unit: "动作"})
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")

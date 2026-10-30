@@ -180,10 +180,6 @@ func TestStrmReplaceConflictAndLimits(t *testing.T) {
 	if changed, err := replaceStrmFile(root, "a.strm", "o", strings.Repeat("x", strmReplaceMaxBytes), nil); err == nil || changed {
 		t.Fatal("output limit bypass")
 	}
-	task := strmReplaceTask{Scanned: strmReplaceMaxEntries}
-	if err := scanStrmReplace(context.Background(), strmReplaceRequest{Directory: dir, Find: "old"}, &task, func() {}); err == nil {
-		t.Fatal("scan limit bypass")
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := scanStrmReplace(ctx, strmReplaceRequest{Directory: dir, Find: "old"}, &strmReplaceTask{}, func() {}); err == nil {

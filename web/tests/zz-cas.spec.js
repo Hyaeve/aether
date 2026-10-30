@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 
@@ -41,7 +41,9 @@ test('local CAS generation and persisted named directory navigation', async ({ p
     const state = await (await page.request.get('/api/state')).json()
     return state.tasks.find(t => t.name === '本地 CAS 哈希')?.status
   }).toBe('success')
-  const output = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'local-cas', 'Arrival.MP4.cas.strm'), 'utf8')
+  const outputDirectory = path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'local-cas')
+  const output = readFileSync(path.join(outputDirectory, 'Movies', 'Arrival.MP4.cas.strm'), 'utf8')
+  expect(existsSync(path.join(outputDirectory, 'Arrival.MP4.cas.strm'))).toBe(false)
   const link = new URL(output.trim())
   expect(link.pathname).toMatch(/^\/cas\//)
   const claim = JSON.parse(Buffer.from(link.pathname.replace('/cas/', ''), 'base64url').toString('utf8'))

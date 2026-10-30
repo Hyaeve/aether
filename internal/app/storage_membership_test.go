@@ -18,6 +18,13 @@ func TestStorageMembershipReadOnlyAndExplicitTiers(t *testing.T) {
 	for _, tc := range []struct{ kind, tier, body string }{
 		{"115", "annual", `{"state":true,"data":{"user_id":"1","vip_info":{"level_name":"年费VIP"}}}`},
 		{"115", "permanent", `{"state":true,"data":{"user_id":"1","vip_info":{"level_name":"永久VIP"}}}`},
+		{"quark", "svip", `{"code":0,"status":200,"data":{"member_type":"SUPER_VIP"}}`},
+		{"quark", "88vip", `{"code":0,"status":200,"data":{"member_type":"EXP_SVIP"}}`},
+		{"quark", "svip-plus", `{"code":0,"status":200,"data":{"member_type":"Z_VIP"}}`},
+		{"quark", "vip", `{"code":0,"status":200,"data":{"member_type":"VIP"}}`},
+		{"quark", "mini", `{"code":0,"status":200,"data":{"member_type":"MINI_VIP"}}`},
+		{"quark", "", `{"code":0,"status":200,"data":{"member_type":"UNKNOWN","total_capacity":10995116277760}}`},
+		{"quark", "", `{"code":403,"status":403,"data":{"member_type":"EXP_SVIP"}}`},
 		{"mobile", "diamond", `{"success":true,"data":{"userSubMemberList":[{"memberLvName":"白银会员"},{"memberLvName":"钻石会员"}]}}`},
 		{"mobile", "gold", `{"success":true,"data":{"userSubMemberList":[{"memberLvName":"黄金会员"}]}}`},
 		{"mobile", "silver", `{"success":true,"data":{"userSubMemberList":[{"memberLvName":"白银会员"}]}}`},
@@ -34,6 +41,10 @@ func TestStorageMembershipReadOnlyAndExplicitTiers(t *testing.T) {
 			}
 			transport := casTransport(func(r *http.Request) (*http.Response, error) {
 				switch tc.kind {
+				case "quark":
+					if r.Method != "GET" || r.URL.Host != "drive-pc.quark.cn" || r.URL.Path != "/1/clouddrive/member" || r.Header.Get("Cookie") != s.Config["cookie"] || !strings.Contains(r.UserAgent(), "quark-cloud-drive") {
+						t.Errorf("unexpected quark membership request %s %s", r.Method, r.URL)
+					}
 				case "115":
 					if r.Method != "GET" || r.URL.Host != "passportapi.115.com" || r.URL.Path != "/app/1.0/web/26.0/user/base_info" {
 						t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -100,5 +111,40 @@ func TestStorageMembershipFailureDropsTierButKeepsQuota(t *testing.T) {
 	value, err := a.cachedStorageUsage(context.Background(), s)
 	if err != nil || value.Total != 1000 || value.Used != 250 || value.Membership != nil {
 		t.Fatal(value, err)
+	}
+}
+
+func TestStorageMembershipDoesNotWaitForQuota(t *testing.T) {
+	old := apiClient
+	defer func() { apiClient = old }()
+	a := testApp(t)
+	s := Storage{ID: "mobile", Type: "mobile", Enabled: true, Config: map[string]string{"mode": "native", "userDomainId": "domain", "authorization": base64.StdEncoding.EncodeToString([]byte("pc:account:token"))}}
+	if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	memberRead := make(chan struct{})
+	apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
+		var raw string
+		switch r.URL.Path {
+		case "/orchestration/group-rebuild/member/v1.0/queryUserBenefits":
+			close(memberRead)
+			raw = `{"success":true,"data":{"userSubMemberList":[{"memberLvName":"钻石会员"}]}}`
+		case "/user/disk/quota/detail":
+			select {
+			case <-memberRead:
+			case <-r.Context().Done():
+				return nil, r.Context().Err()
+			}
+			raw = `{"success":true,"data":{"diskSize":"1000","freeDiskSize":"750"}}`
+		default:
+			t.Errorf("unexpected endpoint %s", r.URL.Path)
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(raw)), Request: r}, nil
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	value, err := a.cachedStorageUsage(ctx, s)
+	if err != nil || value.Membership == nil || value.Membership.Tier != "diamond" || value.Total != 1000<<20 {
+		t.Fatal("quota starved membership lookup", value, err)
 	}
 }

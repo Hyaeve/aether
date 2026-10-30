@@ -562,9 +562,15 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.DeleteFiles {
 			a.runMu.Lock()
-			if len(a.running) != 0 {
+			nodes := []taskFileNode{}
+			for _, item := range index.Items {
+				if selected(item) {
+					nodes = append(nodes, taskFileNode{storage: Storage{Type: "local", Config: map[string]string{"root": rootName}}, id: scrapeWorkDir(item.Path)})
+				}
+			}
+			if err := a.checkTaskFileNodes(r.Context(), nodes); err != nil {
 				a.runMu.Unlock()
-				fail(w, 409, errors.New("有任务正在执行，请等待完成后重置"))
+				fail(w, 409, err)
 				return
 			}
 			removed, err := resetScrapeFiles(r.Context(), rootName, index.Items, selected)

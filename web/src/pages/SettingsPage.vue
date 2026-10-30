@@ -10,6 +10,7 @@ import AccountFields from '../components/AccountFields.vue'
 import TransferSettings from '../components/TransferSettings.vue'
 import STRMSettings from '../components/STRMSettings.vue'
 import ClipboardConsent from '../components/ClipboardConsent.vue'
+import ProxySettings from '../components/ProxySettings.vue'
 import { usePageSlide } from '../page-slide'
 import { authorizeClipboard, clipboardCapability, clipboardEnabled, clipboardStatus } from '../clipboard-settings'
 const props = defineProps({ section: { default: 'cache' } })
@@ -64,8 +65,10 @@ async function clear() {
     <div class="settings-row"><strong>日志条数上限</strong><NumberInput v-model="form.logMaxEntries" aria-label="日志条数上限" unit="条" min="100" max="1000000" required /></div>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p><div class="settings-actions"><button class="btn primary" :disabled="busy">保存设置</button></div>
   </form>
-  <form v-else-if="section === 'account'" class="settings-form account-settings" @submit.prevent="changeAccount">
+  <div v-else-if="section === 'account'" class="account-settings-layout">
+  <form class="settings-form account-settings" @submit.prevent="changeAccount">
     <section class="account-panel account-credentials">
+      <div class="settings-section-title account-panel-title"><Icon name="UserRound" /><h2>账户配置</h2></div>
       <AccountFields v-model:username="account.username" v-model:password="account.password" />
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       <button class="btn primary account-save" :disabled="busy"><Icon name="Save" />保存修改</button>
@@ -75,6 +78,8 @@ async function clear() {
       <div class="clipboard-setting"><label for="clipboard-listening"><strong>剪贴板监听</strong><small role="status">{{ clipboardLabel }}</small></label><div class="clipboard-controls"><button v-if="clipboardEnabled && clipboardEnvironment === 'available'" type="button" class="icon-btn" aria-label="授权剪贴板" data-tooltip="授权剪贴板" @click="authorizeClipboard"><Icon name="KeyRound" /></button><span v-else class="clipboard-security-mark" aria-hidden="true"><Icon name="KeyRound" /></span><input id="clipboard-listening" aria-label="剪贴板监听" :checked="clipboardEnabled" type="checkbox" role="switch" class="switch" @change="toggleClipboard" /></div></div>
     </section>
   </form>
+  <ProxySettings />
+  </div>
   <form v-else id="cache-settings-form" class="settings-form" :class="{ 'dav-settings': section === 'webdav' }" @submit.prevent="save">
     <template v-if="section === 'cache'">
       <section class="settings-section"><div class="settings-section-title"><Icon name="Database" /><div><h2>元数据缓存</h2><p>任务级设置优先于存储池设置，其次使用全局设置。</p></div><span class="status success">{{ state.cache.entries || 0 }} 条 · {{ bytes(state.cache.bytes) }}</span></div>
@@ -112,6 +117,8 @@ async function clear() {
 #cache-settings-form :deep(.number-control input) { font-size: 16px; }
 #cache-settings-form :deep(.number-unit) { font-size: 16px; }
 .account-settings.settings-form { display:grid; gap:16px; box-sizing:border-box; background:transparent; padding:0; border:0; }
+.account-settings-layout{display:grid;grid-template-columns:repeat(2,minmax(0,380px));gap:16px;align-items:start}
+.account-panel-title{gap:10px;margin-bottom:18px}.account-panel-title h2{font-size:16px;margin:0}
 .account-panel { min-width:0; padding:20px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
 .account-save { width:100%; margin-top:16px; }
 .account-security .settings-row { margin:0; padding:0; border:0; }
@@ -119,4 +126,5 @@ async function clear() {
 .clipboard-setting label { min-width:0; gap:6px; }.clipboard-setting strong { font-size:14px; font-weight:500; }.clipboard-setting small { font-size:12px; overflow-wrap:anywhere; }
 .clipboard-controls { display:flex; align-items:center; gap:10px; flex:none; }
 .clipboard-security-mark { display:grid; place-items:center; width:33px; height:33px; color:var(--muted); pointer-events:none; }
+@media(max-width:900px){.account-settings-layout{grid-template-columns:minmax(0,380px)}}
 </style>

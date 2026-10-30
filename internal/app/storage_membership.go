@@ -38,6 +38,8 @@ func membershipTime(raw json.RawMessage) time.Time {
 }
 func (a *App) readStorageMembership(ctx context.Context, s Storage) *storageMembership {
 	switch s.Type {
+	case "quark":
+		return a.readQuarkMember(ctx, s).Membership
 	case "115":
 		c, err := client115(ctx, s)
 		if err != nil || a.waitAPI(ctx, s.ID) != nil {
@@ -141,6 +143,36 @@ func (a *App) readStorageMembership(ctx context.Context, s Storage) *storageMemb
 		return best
 	}
 	return nil
+}
+
+func quarkMembership(memberType string) *storageMembership {
+	for _, tier := range []struct{ upstream, tier, label string }{
+		{"VIP", "vip", "VIP"}, {"SUPER_VIP", "svip", "SVIP"},
+		{"Z_VIP", "svip-plus", "SVIP+"}, {"EXP_SVIP", "88vip", "88VIP"},
+		{"MINI_VIP", "mini", "迷你VIP"},
+	} {
+		if strings.ToUpper(strings.TrimSpace(memberType)) == tier.upstream {
+			return membership(tier.tier, tier.label, time.Time{})
+		}
+	}
+	return nil
+}
+
+// The PC member response carries both quota and the explicit current tier.
+func (a *App) readQuarkMember(ctx context.Context, s Storage) storageUsage {
+	var result struct {
+		Code   int `json:"code"`
+		Status int `json:"status"`
+		Data   struct {
+			Total      int64  `json:"total_capacity"`
+			Used       int64  `json:"use_capacity"`
+			MemberType string `json:"member_type"`
+		} `json:"data"`
+	}
+	if a.waitAPI(ctx, s.ID) != nil || quarkTVJSON(ctx, "GET", "https://drive-pc.quark.cn/1/clouddrive/member?pr=ucpro&fr=pc&fetch_subscribe=false&_ch=home&fetch_identity=false", cloudHeaders(s), nil, &result) != nil || result.Code != 0 || result.Status != 200 {
+		return storageUsage{}
+	}
+	return storageUsage{Total: result.Data.Total, Used: result.Data.Used, Membership: quarkMembership(result.Data.MemberType)}
 }
 func freshMembership(m *storageMembership) *storageMembership {
 	if m == nil || m.CheckedAt.IsZero() || time.Since(m.CheckedAt) > 5*time.Minute || (m.ExpiresAt != nil && !m.ExpiresAt.After(time.Now())) {

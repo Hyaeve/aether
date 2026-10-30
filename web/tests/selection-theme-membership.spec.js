@@ -8,6 +8,8 @@ async function setup(page){
     {id:'diamond',name:'移动钻石',type:'mobile',tier:'diamond'},
     {id:'tgold',name:'天翼黄金',type:'tianyi',tier:'gold'},
     {id:'platinum',name:'天翼铂金',type:'tianyi',tier:'platinum'},
+    {id:'qsvip',name:'夸克超级会员',type:'quark',tier:'svip'},
+    {id:'q88',name:'夸克88会员',type:'quark',tier:'88vip'},
     {id:'unknown',name:'未知会员',type:'mobile',tier:'unrecognized'},
   ].map(s=>({...s,enabled:true,config:{},usage:{used:25,total:100,membership:{tier:s.tier,checkedAt:new Date().toISOString()}}}))
   await page.route('**/api/**',r=>{
@@ -28,8 +30,9 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`unified 
   await page.setViewportSize({width,height:950})
   await page.goto('/storage')
   await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
-  await expect(page.locator('.storage-membership')).toHaveCount(7)
+  await expect(page.locator('.storage-membership')).toHaveCount(9)
   for(const label of ['年费VIP','永久VIP','白银会员','钻石会员','铂金会员'])await expect(page.getByRole('img',{name:label,exact:true})).toBeVisible()
+  for(const label of ['88VIP','SVIP'])await expect(page.getByRole('img',{name:label,exact:true})).toBeVisible()
   for(const card of await page.locator('.storage-card').all()){
     expect(await card.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
     expect(await card.locator('.storage-card-top').evaluate(el=>getComputedStyle(el).zIndex)).toBe('1')
@@ -37,7 +40,8 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`unified 
   if(width<760)await page.getByRole('button',{name:'打开导航',exact:true}).click()
   const sidebar=page.locator('.sidebar')
   const rgb=await sidebar.evaluate(el=>getComputedStyle(el).backgroundColor.match(/\d+/g).map(Number))
-  expect(rgb.slice(0,3).every(v=>theme==='light'?v>220:v<120)).toBe(true)
+  if(theme==='light')expect(rgb.slice(0,3)).toEqual([217,224,239])
+  else expect(rgb.slice(0,3).every(v=>v<120)).toBe(true)
   const active=sidebar.locator('[aria-current=page]')
   await expect(active).not.toHaveCSS('background-color',await sidebar.evaluate(el=>getComputedStyle(el).backgroundColor))
   if(width>=760){

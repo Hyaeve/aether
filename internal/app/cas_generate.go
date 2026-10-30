@@ -15,17 +15,17 @@ import (
 var errCASMissingHash = errors.New("云端目录接口未返回有效文件哈希，无法生成 CAS")
 
 func casTaskInfoMode(t Task, s Storage) string {
-	if t.CASInfoMode != "" {
+	if t.CASInfoMode != "" && t.CASInfoMode != "auto" {
 		return t.CASInfoMode
 	}
-	if s.Type == "mobile" {
+	if nativeMobile(s) {
 		return "mobile"
 	}
 	return "all"
 }
 
 func validCASInfoMode(mode string) bool {
-	return mode == "" || mode == "all" || mode == "mobile" || mode == "tianyi"
+	return mode == "" || mode == "auto" || mode == "all" || mode == "mobile" || mode == "tianyi"
 }
 
 func selectCASInfo(info CASInfo, mode string) (CASInfo, error) {
@@ -86,11 +86,14 @@ func (a *App) generateCASInfo(ctx context.Context, s Storage, f File, modes ...s
 	if !validCASInfoMode(mode) {
 		return info, errors.New("CAS 信息类型无效")
 	}
+	if mode == "auto" {
+		mode = casTaskInfoMode(Task{CASInfoMode: mode}, s)
+	}
 	if err := ctx.Err(); err != nil {
 		return info, err
 	}
 	if s.Type != "local" {
-		if s.Type == "mobile" && (mode == "" || mode == "mobile") {
+		if nativeMobile(s) && (mode == "" || mode == "mobile") {
 			return selectCASInfo(info, "mobile")
 		}
 		if s.Type == "tianyi" && mode == "" {
@@ -166,6 +169,9 @@ func (a *App) hashLocalCASInfo(ctx context.Context, s Storage, f File, includeSH
 				}
 			}
 			total += int64(n)
+			if progress, ok := ctx.Value(taskHashProgressKey{}).(func(int64, int64)); ok {
+				progress(total, info.Size)
+			}
 		}
 		if err == io.EOF {
 			break

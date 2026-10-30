@@ -132,18 +132,16 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		return errors.New("旧版 CAS 转 STRM 任务已停用，请重新选择视频源目录并保存")
 	}
 	if _, ok := a.running[taskID]; ok {
-		return errors.New("任务正在执行")
-	}
-	for _, storage := range a.runningStorage {
-		if storage == task.StorageID {
-			return errors.New("该存储池已有任务执行中")
-		}
+		return fmt.Errorf("%s正在执行，请勿重复启动", taskDescription(task))
 	}
 	s, err := a.store.storage(task.StorageID)
 	if err != nil {
 		return err
 	}
 	if err := storageAuthBlocked(s, time.Now()); err != nil {
+		return err
+	}
+	if err := a.checkTaskStartScopes(parent, task, s); err != nil {
 		return err
 	}
 	resetOutput := len(reset) > 0 && reset[0]
@@ -183,13 +181,13 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	}
 	a.taskHealthCancels[taskID] = func() { causeCancel(errStorageHealthPaused) }
 	a.runningStorage[taskID] = task.StorageID
-	a.gateMu.Lock()
-	a.intervals[task.StorageID] = task.APIInterval
-	a.gateMu.Unlock()
+	a.refreshTaskInterval(task.StorageID)
 	a.taskUpdate(taskID, func(t *Task) {
 		t.Status = "running"
 		t.Message = "正在扫描"
 		t.Processed = 0
+		t.ProgressDone, t.ProgressTotal, t.ProgressKnown = 0, 0, false
+		t.ProgressFraction = 0
 		t.CASGenerated, t.CASFailed = 0, 0
 		t.LastRun = time.Now()
 		t.NextRun = nextRun(*t, time.Now())
@@ -239,6 +237,7 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		delete(a.running, taskID)
 		delete(a.runningStorage, taskID)
 		delete(a.taskHealthCancels, taskID)
+		a.refreshTaskInterval(task.StorageID)
 		a.runMu.Unlock()
 		if done != nil {
 			done <- err
@@ -323,11 +322,45 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		}
 	}
 	generateCAS := t.Kind == "cas" && t.CASOperation != "restore"
+	sourceRel := ""
+	if (t.Kind == "strm" || generateCAS) && t.Source != "" && t.Source != "/" && t.Source != rootOf(s) {
+		sourceRel = t.SourceLabel
+		if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
+			sourceRel = path.Base(strings.TrimRight(t.Source, "/"))
+		}
+		if !safeName(sourceRel) {
+			return 0, errors.New("源目录名称缺失或无效，请重新选择源目录")
+		}
+	}
 	if t.Kind == "ed2k" && t.ED2KBindingID != "" {
 		var err error
 		binding, err = a.validateED2KBinding(t, s)
 		if err != nil {
 			return 0, err
+		}
+	}
+	var plan map[string][]File
+	total, progressDone := 0, 0
+	if t.ID != "" && (t.Kind == "strm" || generateCAS || t.Kind == "ed2k" || t.Kind == "cache") {
+		plan, total, err = a.scanTaskProgress(ctx, t, s, sourceRel, t.Kind == "cache" || cleanup != nil)
+		known := !errors.Is(err, errTaskProgressLimit)
+		if err != nil && known {
+			return 0, err
+		}
+		err = nil
+		a.taskUpdate(t.ID, func(task *Task) {
+			task.ProgressTotal, task.ProgressKnown = total, known
+			task.Message = "扫描完成，正在处理"
+			if !known {
+				task.ProgressTotal, task.Message = 0, "目录较大，继续扫描与处理"
+			}
+		})
+	}
+	progressTime := time.Time{}
+	reportProgress := func(force bool) {
+		if plan != nil && (force || time.Since(progressTime) >= 200*time.Millisecond) {
+			progressTime = time.Now()
+			a.taskUpdate(t.ID, func(task *Task) { task.ProgressDone, task.ProgressFraction = progressDone, 0 })
 		}
 	}
 	visited := map[string]bool{}
@@ -345,12 +378,18 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			return errors.New("目录嵌套超过安全上限 128 层")
 		}
 		visited[dir] = true
-		files, err := a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil)
+		files, found := plan[dir]
+		var err error
+		if !found {
+			files, err = a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil)
+		}
 		if err != nil {
 			return err
 		}
 		if t.Kind == "cache" {
 			count++
+			progressDone++
+			reportProgress(false)
 			if time.Since(lastProgress) >= time.Second && t.ID != "" {
 				lastProgress = time.Now()
 				a.taskUpdate(t.ID, func(task *Task) {
@@ -375,7 +414,16 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 		}
 		precomputed := map[string]casPrecomputed{}
+		pendingProgress := false
+		finishProgress := func() {
+			if pendingProgress {
+				progressDone++
+				pendingProgress = false
+				reportProgress(false)
+			}
+		}
 		for fileIndex, f := range files {
+			finishProgress()
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -396,6 +444,8 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				cleanup.directory(dir, f)
 				continue
 			}
+			pendingProgress = t.Kind != "cache" && !excluded(f.Name, t.ExcludeFiles) && !excludedType(f.Name, t.ExcludeTypes) &&
+				(taskMedia(t, f.Name) || excludedType(f.Name, t.MetadataExtensions) || generateCAS && (strings.EqualFold(path.Ext(f.Name), ".cas") || strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm")))
 			var info *CASInfo
 			featureSource := generateCAS && (strings.EqualFold(path.Ext(f.Name), ".cas") || strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm"))
 			metadata := excludedType(f.Name, t.MetadataExtensions) && !taskMedia(t, f.Name)
@@ -426,7 +476,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					if errors.Is(e, errCASIncomplete) {
 						reason = errCASIncomplete.Error()
 					}
-					skippedCAS = append(skippedCAS, path.Join(t.Source, child)+"（"+reason+"）")
+					skippedCAS = append(skippedCAS, path.Join(t.Source, strings.TrimPrefix(child, sourceRel+"/"))+"（"+reason+"）")
 					if len(skippedCAS) >= 50 {
 						flushSkippedCAS()
 					}
@@ -540,20 +590,34 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 						result, ok = precomputed[key]
 					}
 					if !ok {
-						result.info, result.err = a.generateCASInfo(ctx, s, f, casTaskInfoMode(t, s))
+						hashCtx := ctx
+						if s.Type == "local" && plan != nil {
+							lastHashProgress := time.Time{}
+							hashCtx = context.WithValue(ctx, taskHashProgressKey{}, func(done, size int64) {
+								if size > 0 && time.Since(lastHashProgress) >= 500*time.Millisecond {
+									lastHashProgress = time.Now()
+									a.taskUpdate(t.ID, func(task *Task) {
+										task.ProgressDone = progressDone
+										task.ProgressFraction = min(float64(done)/float64(size), 0.99)
+									})
+								}
+							})
+						}
+						result.info, result.err = a.generateCASInfo(hashCtx, s, f, casTaskInfoMode(t, s))
 					}
 					parsed, e := result.info, result.err
 					feature, err = &parsed, e
 					delete(precomputed, key)
 				}
-				if err == nil {
+				// Imported features are authoritative regardless of calculation mode.
+				if err == nil && !featureSource {
 					parsed, e := selectCASInfo(*feature, casTaskInfoMode(t, s))
 					feature, err = &parsed, e
 				}
 				if errors.Is(err, errCASMissingHash) {
 					failed++
 					delete(outputs, strings.ToLower(filename))
-					skippedCAS = append(skippedCAS, path.Join(t.Source, child)+"（CAS信息缺失，不满足cas.strm生成要求）")
+					skippedCAS = append(skippedCAS, path.Join(t.Source, strings.TrimPrefix(child, sourceRel+"/"))+"（CAS信息缺失，不满足cas.strm生成要求）")
 					if len(skippedCAS) >= 50 {
 						flushSkippedCAS()
 					}
@@ -626,22 +690,14 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			}
 			count++
 		}
+		finishProgress()
 		return nil
-	}
-	sourceRel := ""
-	if t.Kind == "strm" && t.Source != "" && t.Source != "/" && t.Source != rootOf(s) {
-		sourceRel = t.SourceLabel
-		if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
-			sourceRel = path.Base(strings.TrimRight(t.Source, "/"))
-		}
-		if !safeName(sourceRel) {
-			return 0, errors.New("源目录名称缺失或无效，请重新选择源目录")
-		}
 	}
 	err = walk(t.Source, sourceRel, 0)
 	if err == nil && cleanup != nil {
 		err = cleanup.finish(ctx, a, root)
 	}
+	reportProgress(true)
 	return count, err
 }
 

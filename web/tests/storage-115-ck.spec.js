@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test'
 const ck = 'UID=100_A1; CID=example; SEID=example-long-cookie'
 async function mockWorkspace(page, storages = []) {
   await page.route('**/api/auth/status', r => r.fulfill({ json: { initialized: true, authenticated: true } }))
+  await page.route('**/api/plugins/proxy', r => r.fulfill({ json: { enabled: false, address: '', username: '', password: '' } }))
   await page.route('**/api/state', r => r.fulfill({ json: {
     username: 'ck-test', storages, tasks: [], settings: {
       sessionDays: 15, cacheTTL: 30, cacheMaxItems: 10000, cacheMemoryMB: 128,
@@ -133,7 +134,9 @@ test('cache text and account surface remain scoped and theme aware', async ({ pa
   for (const label of ['全局缓存时间', '缓存条目上限', '缓存内存上限', '持久化快照间隔']) {
     await expect(page.getByLabel(label, { exact: true })).toHaveCSS('font-size', '16px')
   }
+  const proxyResponse = page.waitForResponse('**/api/plugins/proxy')
   await page.goto('/settings/account')
+  expect((await proxyResponse).status()).toBe(200)
   await expect(page.locator('.account-credentials')).toHaveCSS('background-color', 'rgb(250, 251, 252)')
   await expect(page.getByRole('textbox',{name:'账号',exact:true})).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
   await expect(page.locator('.account-settings .credential-input').first()).toHaveCSS('background-color','rgb(255, 255, 255)')

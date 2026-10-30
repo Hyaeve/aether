@@ -9,4 +9,9 @@ test('membership badges require an explicit supported fresh server value',()=>{
   assert.equal(storageMembership('mobile',{...value,expiresAt:'2020-01-01'}),null)
   assert.equal(storageMembership('mobile',{...value,expiresAt:'unrecognized-date'}),null)
   assert.equal(storageMembership('mobile',{total:5000000000000}),null)
+  for(const [tier,label] of [['svip','SVIP'],['88vip','88VIP'],['svip-plus','SVIP+'],['vip','VIP'],['mini','迷你VIP']]){
+    assert.equal(storageMembership('quark',{...value,tier}).label,label)
+    assert.equal(storageMembership('quark',{...value,tier,checkedAt:'2020-01-01'}),null)
+  }
+  assert.equal(storageMembership('quark',{...value,tier:'unrecognized'}),null)
 })

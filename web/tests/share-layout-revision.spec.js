@@ -26,7 +26,10 @@ test('rename virtual row frames and rule footer remain visible while both panes 
   expect(sizes[0].height).toBe(66)
   expect(sizes[1].top-sizes[0].bottom).toBe(6)
   await expect(rows.first()).toHaveCSS('border-radius','8px')
-  for(let i=0;i<18;i++)await page.getByRole('button',{name:'添加规则',exact:true}).click()
+  for(let i=0;i<18;i++){
+    await page.getByRole('button',{name:'添加规则',exact:true}).click()
+    await page.getByRole('group',{name:'可选规则'}).getByRole('button',{name:'查找替换',exact:true}).click()
+  }
   const save=page.getByRole('button',{name:'保存为规则集',exact:true}), sets=page.getByRole('button',{name:'常用规则集',exact:true})
   await expect(save).toBeVisible();await expect(sets).toBeVisible()
   const before=await save.boundingBox()

@@ -117,6 +117,10 @@ func TestTelegramMobileTransferUsesSharedWireAndReadFailureIsNotSubmitted(t *tes
 			if current.Link != "" {
 				t.Fatal("terminal job retained link")
 			}
+			records := a.store.snapshot().ShareTransfers
+			if len(records) != 1 || records[0].Source != "bot" || records[0].Provider != "mobile" || records[0].Status != current.Status {
+				t.Fatal("TG mobile outcome missing from transfer history", records)
+			}
 			logs, _ := json.Marshal(a.store.snapshot().Logs)
 			if strings.Contains(string(logs), "Ab12") || strings.Contains(string(logs), "private") || strings.Contains(string(logs), cfg.Token) {
 				t.Fatal("sensitive error log")

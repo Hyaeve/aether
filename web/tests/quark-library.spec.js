@@ -53,18 +53,24 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   expect(saves.length).toBe(0)
   await page.locator('.toast').last().getByRole('button',{name:'关闭通知',exact:true}).click()
   await dialog.getByRole('textbox',{name:'媒体扩展名',exact:true}).fill('mkv')
-  await dialog.getByRole('button',{name:'漫画扩展名',exact:true}).click()
+  await expect(dialog.getByRole('button',{name:'漫画扩展名',exact:true})).toHaveCount(0)
+  await expect(dialog.locator('.quark-extension-label').first().locator('.extension-preset')).toHaveCount(2)
+  await dialog.getByRole('textbox',{name:'媒体扩展名',exact:true}).fill('mkv;cbz;cbr;zip;rar;epub;pdf')
   await expect(dialog.getByRole('textbox',{name:'媒体扩展名',exact:true})).toHaveValue('mkv;cbz;cbr;zip;rar;epub;pdf')
   await expect(dialog.getByRole('switch',{name:'启用链接',exact:true})).toHaveCSS('height','20px')
   await expect(dialog.getByRole('switch',{name:'启用链接',exact:true})).toHaveCSS('width','35px')
   await expect(dialog.locator('.switch-label')).toHaveCSS('flex-direction','row')
   for(const input of await dialog.locator('input:not([type=checkbox])').all())expect(await input.evaluate(e=>e.getBoundingClientRect().height)).toBe(40)
   expect(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
-  for(const names of [['分享链接','分享名称'],['Cron表达式','级联清理'],['生成位置','目录名称']]){
+  const rows=[]
+  for(const names of [['分享链接','分享名称'],['生成位置','目录名称'],['Cron表达式','级联清理']]){
    const centers=[]
    for(const name of names)centers.push(await dialog.getByRole(name==='级联清理'?'button':'textbox',{name,exact:true}).evaluate(e=>{const r=e.getBoundingClientRect();return r.y+r.height/2}))
    expect(Math.abs(centers[0]-centers[1])).toBeLessThan(1)
+   rows.push(centers[0])
   }
+  expect(rows[1]).toBeGreaterThan(rows[0])
+  expect(rows[2]).toBeGreaterThan(rows[1])
   await dialog.getByRole('button',{name:'级联清理',exact:true}).click()
   await page.getByRole('option',{name:'关闭',exact:true}).click()
   await dialog.getByRole('textbox',{name:'分享链接',exact:true}).focus()
@@ -73,17 +79,21 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   await captureScreenshot(page,{path:info.outputPath(`editor-${width}-${theme}.png`)})
   await dialog.getByRole('button',{name:'保存链接',exact:true}).click()
   await expect(dialog).toHaveCount(0)
-  expect(saves[0]).toMatchObject({directory:'/media',name:'',directoryName:'',enabled:true,cascadeCleanup:'off'})
+  expect(saves[0]).toMatchObject({directory:'/media',name:'',directoryName:'',enabled:true,cascadeCleanup:'off',mediaExtensions:'mkv;cbz;cbr;zip;rar;epub;pdf'})
   await page.getByRole('button',{name:'夸克链库设置',exact:true}).click()
   await expect(page.getByRole('heading',{name:'夸克链库设置',exact:true})).toBeVisible()
   await expect(page.getByRole('button',{name:'绑定 夸克影视',exact:true})).toHaveAttribute('aria-pressed','true')
   await expect(page.getByRole('spinbutton',{name:'失效链接保留时间',exact:true})).toHaveValue('15')
   await expect(page.getByRole('spinbutton',{name:'临时转存保活期',exact:true})).toHaveValue('12')
+  await expect(page.getByRole('button',{name:'漫画扩展名',exact:true})).toHaveCount(0)
+  await expect(page.locator('.quark-extension-label').first().locator('.extension-preset')).toHaveCount(2)
+  await page.getByRole('textbox',{name:'默认媒体扩展名',exact:true}).fill('mkv;cbz;cbr;zip;rar;epub;pdf')
   await page.getByRole('button',{name:'绑定 夸克备用',exact:true}).click()
   await captureScreenshot(page,{path:info.outputPath(`settings-${width}-${theme}.png`)})
   await page.getByRole('button',{name:'保存设置',exact:true}).click()
   await expect.poll(()=>saves.length).toBe(2)
   expect(saves[1].storageIds).toEqual(['q','q2'])
+  expect(saves[1].mediaExtensions).toBe('mkv;cbz;cbr;zip;rar;epub;pdf')
   expect(await page.locator('.page-content').evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
   await page.getByRole('button',{name:'返回页面',exact:true}).click()
   await expect(page).toHaveURL(/\/virtual\/quark$/)
@@ -114,6 +124,21 @@ test('relay guard defaults on, disables for always-relay, and preserves preferen
  await dialog.getByRole('button',{name:'保存以链',exact:true}).click()
  await expect.poll(()=>links.length).toBe(1)
  expect(links[0]).toMatchObject({relayGuard:false,mode:'public'})
+})
+
+test('Quark output row is second for new and existing shares',async({page})=>{
+ await mock(page)
+ await page.goto('/virtual/quark')
+ for(const title of ['添加夸克链接','编辑夸克链接']){
+  await page.getByRole('button',{name:title==='添加夸克链接'?'添加链接':'编辑 分享目录 1',exact:true}).click()
+  const editor=page.getByRole('dialog',{name:title,exact:true})
+  const names=await editor.locator('.form-grid>label:not(.full) input').evaluateAll(els=>els.map(e=>e.getAttribute('aria-label')))
+  expect(names).toEqual(['分享链接','分享名称','生成位置','目录名称','Cron表达式'])
+  const output=await editor.getByRole('textbox',{name:'生成位置',exact:true}).boundingBox()
+  const schedule=await editor.getByRole('textbox',{name:'Cron表达式',exact:true}).boundingBox()
+  expect(output.y).toBeLessThan(schedule.y)
+  await editor.getByRole('button',{name:'取消',exact:true}).click()
+ }
 })
 
 test('background generation remains visible after reload and cleanup setting reopens',async({page})=>{

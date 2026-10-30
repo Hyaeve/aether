@@ -37,6 +37,9 @@ func TestConfigBackup(t *testing.T) {
 		st.CloudCASRecords = []cloudCASRecord{{ID: "runtime-cas", StorageID: "saved-pool", Status: "error", CAS: CASInfo{Name: "film.mp4", Size: 4}}}
 		st.Pan115SigninReceipts = map[string]pan115SigninReceipt{"proof": {Status: "pending"}}
 		st.CASPlaybackAttempts = map[string]bool{"pending-mobile-playback": true}
+		st.Rename115Attempts = map[string]bool{"pending-extension-rename": true}
+		st.ShareTransfers = []shareTransferRecord{{ID: "share-record", Link: "https://pan.quark.cn/s/private", Status: "completed"}}
+		st.ShareLiveLinks = []shareLiveLink{{ID: "share-live", Intent: "pending-write", Link: "https://pan.quark.cn/s/private"}}
 		st.BackupRules = []BackupRule{{ID: "backup-rule", Name: "备份规则", SourceID: "saved-pool", Source: "/", TargetID: "saved-pool", Target: "/other", Replace: "skip"}}
 		st.Automations = []Automation{{ID: "rule", Name: "Rule", Enabled: true, Trigger: "manual", Steps: []AutomationStep{{Kind: "refresh", Condition: "always"}}}}
 		return nil
@@ -69,6 +72,12 @@ func TestConfigBackup(t *testing.T) {
 	}
 	if len(bundle.State.CASPlaybackAttempts) != 0 {
 		t.Fatal("CAS playback write intents leaked into configuration backup")
+	}
+	if len(bundle.State.Rename115Attempts) != 0 {
+		t.Fatal("115 extension rename intents leaked into configuration backup")
+	}
+	if len(bundle.State.ShareTransfers) != 0 || len(bundle.State.ShareLiveLinks) != 0 {
+		t.Fatal("share history or live writes leaked into configuration backup")
 	}
 	if bytes.Contains(res.Body.Bytes(), []byte("admin")) {
 		t.Fatal("plaintext backup")
@@ -122,6 +131,12 @@ func TestConfigBackup(t *testing.T) {
 	}
 	if !a.store.snapshot().CASPlaybackAttempts["pending-mobile-playback"] {
 		t.Fatal("import erased CAS playback anti-replay intents")
+	}
+	if !a.store.snapshot().Rename115Attempts["pending-extension-rename"] {
+		t.Fatal("import erased 115 extension rename anti-replay intents")
+	}
+	if current := a.store.snapshot(); len(current.ShareTransfers) != 1 || len(current.ShareLiveLinks) != 1 || current.ShareLiveLinks[0].Intent != "pending-write" {
+		t.Fatal("configuration import erased live share write receipts")
 	}
 	if len(a.store.snapshot().FileFavorites) != 1 || len(a.store.snapshot().FileVisits) != 1 {
 		t.Fatal("configuration import lost existing file records")

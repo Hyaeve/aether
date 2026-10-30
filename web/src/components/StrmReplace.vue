@@ -98,8 +98,20 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
       <footer class="modal-footer"><button type="button" class="btn" @click="emit('close')">关闭</button><button type="button" class="btn preview-btn" :disabled="!loaded || busy || running || !form.directory || !form.find" @click="review(true)"><Icon name="Eye" />预览</button><button class="btn primary" :disabled="!loaded || busy || running || !form.directory || !form.find"><Icon name="Play" />执行替换</button></footer>
     </form>
   </Modal>
-  <Modal v-if="preview" title="替换预览" standard @close="preview = null">
-    <div class="modal-body replace-preview"><p>{{ preview.count }} 个 STRM 文件将被替换</p><section v-for="sample in preview.samples" :key="sample.name"><strong>{{ sample.name }}</strong><div class="replace-comparison"><div><h4>原 STRM 内容</h4><pre><template v-for="(part,i) in parts(sample.before,sample.matches)" :key="i"><mark v-if="part.mark" class="match">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></pre></div><div><h4>替换后 STRM 内容</h4><pre><template v-for="(part,i) in parts(sample.after,sample.replacements)" :key="i"><mark v-if="part.mark" class="replacement">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></pre></div></div></section></div>
+  <Modal v-if="preview" title="替换预览" compact @close="preview = null">
+    <div class="modal-body replace-preview">
+      <div class="replace-preview-summary"><p>{{ preview.count }} 个 STRM 文件将被替换</p><span v-if="preview.count > preview.samples.length">预览 {{ preview.samples.length }} 项</span></div>
+      <div class="replace-preview-table" role="table" aria-label="替换预览条目" :aria-rowcount="preview.samples.length + 1">
+        <div class="replace-preview-columns" role="row"><span role="columnheader">文件名称</span><span role="columnheader">原 STRM 内容</span><span role="columnheader">替换后 STRM 内容</span></div>
+        <div class="replace-preview-list" role="rowgroup" tabindex="0" aria-label="替换预览列表">
+          <div v-for="sample in preview.samples" :key="sample.name" class="replace-preview-row" role="row">
+            <span role="cell" tabindex="0" class="replace-preview-text replace-preview-name" :data-tooltip="sample.name" data-tooltip-stationary data-tooltip-delay="300">{{ sample.name.split(/[/\\]/).at(-1) }}</span>
+            <span role="cell" tabindex="0" class="replace-preview-text replace-preview-before" :data-tooltip="sample.before" data-tooltip-stationary data-tooltip-delay="300"><template v-for="(part,i) in parts(sample.before,sample.matches)" :key="i"><mark v-if="part.mark" class="match">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></span>
+            <span role="cell" tabindex="0" class="replace-preview-text replace-preview-after" :data-tooltip="sample.after" data-tooltip-stationary data-tooltip-delay="300"><template v-for="(part,i) in parts(sample.after,sample.replacements)" :key="i"><mark v-if="part.mark" class="replacement">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></span>
+          </div>
+        </div>
+      </div>
+    </div>
     <footer class="modal-footer"><button class="btn" @click="preview = null"><Icon name="ArrowLeft" />返回</button></footer>
   </Modal>
   <LocalDirectoryPicker v-if="picker" :initial="form.directory" @close="picker = false" @select="form.directory = $event; picker = false" />
@@ -119,10 +131,20 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
 .replace-mode :deep(.rounded-select-option[aria-selected=true]) { background:var(--primary-soft); }
 .replace-mode :deep(.rounded-select-option.focused:not([aria-selected=true])) { background:color-mix(in srgb,var(--primary-soft) 45%,var(--surface)); }
 .replace-first-row { display:grid;grid-template-columns:2fr 1fr;gap:14px;min-width:0; }
-.replace-comparison { display:grid;grid-template-columns:1fr 1fr;gap:12px; }.replace-comparison > div { min-width:0; }
-.replace-preview section { margin-top:18px; }.replace-preview strong { display:block;overflow-wrap:anywhere;font-size:13px; }
-.replace-comparison h4 { font-size:13px;color:var(--muted); }.replace-comparison pre { white-space:pre-wrap;overflow-wrap:anywhere;background:var(--input);border:1px solid var(--border);padding:12px;border-radius:8px;max-height:180px;overflow:auto; }
-.replace-comparison mark { color:inherit;border-radius:3px; }.match { background:#efab6840; }.replacement { background:#8981ed40; }
+:global(.modal:has(> .replace-preview)){width:min(960px,calc(100vw - 32px));height:min(660px,calc(var(--aether-visible-height,100dvh) - 32px));display:flex;flex-direction:column;overflow:hidden}
+.replace-preview{display:flex;flex-direction:column;gap:16px;flex:1;min-height:0;overflow:hidden}
+.replace-preview-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}
+.replace-preview-summary>span{color:var(--muted);font-size:12px;white-space:nowrap}
+.replace-preview-table{display:flex;flex-direction:column;flex:1;min-height:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--input)}
+.replace-preview-columns,.replace-preview-row{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1.4fr) minmax(0,1.4fr);gap:12px;align-items:center;padding:0 12px;flex:none}
+.replace-preview-columns{min-height:42px;background:var(--layer-frame);color:var(--muted);font-size:12px}
+.replace-preview-list{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;overscroll-behavior:contain}
+.replace-preview-list::-webkit-scrollbar{display:none}
+.replace-preview-row{height:44px;border-top:1px solid var(--border);font-size:13px}
+.replace-preview-row:hover{background:var(--primary-soft)}
+.replace-preview-text{display:block;min-width:0;max-width:100%;line-height:24px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.replace-preview mark{color:inherit;border-radius:3px}.match{background:#efab6840}.replacement{background:#8981ed40}
+@media(max-width:480px){.replace-preview-columns,.replace-preview-row{gap:8px;padding:0 8px}.replace-preview-summary{align-items:flex-start;gap:8px}.replace-preview-summary>p{min-width:0}}
 .strm-replace label { display: grid; gap: 8px; min-width: 0; }
 .strm-replace-directory { position:relative;display:block; }
 .strm-replace-directory input { padding-right:44px; }

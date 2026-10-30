@@ -10,6 +10,7 @@ async function fixture(page) {
     const r = route.request(), url = new URL(r.url()), path = url.pathname
     let json = {}
     if (path === '/api/auth/status') json = { initialized: true, authenticated: true }
+    else if (path === '/api/share-transfers' || path === '/api/share-live') json = []
     else if (path === '/api/state') json = { username: 'tg-service', storages: pools, tasks: [], settings: {}, traffic: {}, cache: {} }
     else if (path === '/api/notification-service') {
       if (r.method() === 'PUT') { const tg = r.postDataJSON().telegram; if (tg.token) secret = tg.token; config.telegram = { ...tg, token: '', hasToken: !!secret } }
@@ -108,9 +109,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`no
   await page.getByRole('button', { name: '选择当前目录', exact: true }).click()
   await edit.getByRole('button', { name: '保存', exact: true }).click()
   await expect(cards.first()).toContainText('夸克一')
-  await expect(cards.first().locator('.provider-icon')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  await expect(cards.first().locator('.provider-logo')).toHaveAttribute('src', '/providers/quark-mark.png')
-  const whitePixels = await cards.first().locator('.provider-logo').evaluate(async img => {
+  await expect(cards.first().locator('.telegram-target-avatar')).toHaveText('夸克')
+  await expect(cards.first().locator('.provider-icon,.provider-logo')).toHaveCount(0)
+  const logo = page.locator('.telegram-pool[data-provider="quark"] h2 .provider-logo')
+  await expect(logo).toHaveAttribute('src', '/providers/quark-mark.png')
+  const whitePixels = await logo.evaluate(async img => {
     await img.decode()
     const canvas = document.createElement('canvas'); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
     const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0)

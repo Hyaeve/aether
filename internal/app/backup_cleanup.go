@@ -55,8 +55,15 @@ func (a *App) cleanupBackup(ctx context.Context, r *BackupRule, items []backupCl
 	}
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
-	if len(a.running) != 0 {
-		return errors.New("有任务正在执行，源文件清理已取消")
+	nodes := []taskFileNode{}
+	for _, item := range items {
+		nodes = append(nodes, taskFileNode{storage: item.entry.source, id: item.entry.file.ID})
+	}
+	for _, entry := range entries {
+		nodes = append(nodes, taskFileNode{storage: entry.source, id: entry.file.ID})
+	}
+	if err := a.checkTaskFileNodes(ctx, nodes); err != nil {
+		return err
 	}
 	for _, item := range items {
 		if err := ctx.Err(); err != nil {

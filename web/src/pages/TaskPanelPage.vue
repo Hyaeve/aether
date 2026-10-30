@@ -10,11 +10,9 @@ import RoundedSelect from '../components/RoundedSelect.vue'
 const kinds={strm:['STRM 任务','FileVideo'],cas:['CAS 任务','Box'],ed2k:['ED2K 任务','Link'],cache:['缓存任务','Database'],organize:['目录整理','FolderTree'],scrape:['STRM 刮削','ScanSearch'],automation:['联动任务','Workflow']}
 const sources={task:'目录任务',generation:'解析生成',scrape:'媒体刮削',automation:'联动流程'}
 const items=ref([]),filter=ref('all'),query=ref(''),error=ref(''),loaded=ref(false),refreshing=ref(false)
-const active=computed(()=>items.value.filter(item=>item.status==='running').length)
-const queued=computed(()=>items.value.filter(item=>item.status==='queued').length)
 const grouped=computed(()=>Object.entries(kinds).map(([kind,[name,icon]])=>({kind,name,icon,items:items.value.filter(item=>item.kind===kind&&(filter.value==='all'||filter.value===kind)&&`${item.name} ${item.message}`.toLowerCase().includes(query.value.toLowerCase()))})).filter(group=>group.items.length))
 const pool=id=>state.storages.find(storage=>storage.id===id)
-const progress=item=>Math.max(0,Math.min(100,Math.floor(item.processed/item.total*100)))
+const progress=item=>item.total>0?Math.max(0,Math.min(100,Math.floor((item.processed+(item.fraction||0))/item.total*10000)/100)):0
 let alive=true,controller,timer,pending=false
 async function load(manual=false){
   if(!alive||pending||document.visibilityState==='hidden')return
@@ -41,11 +39,6 @@ onUnmounted(()=>{alive=false;clearInterval(timer);controller?.abort();document.r
 </script>
 <template>
   <section class="task-heading"><TaskTabs/><button class="icon-btn" aria-label="刷新任务面板" :disabled="refreshing" @click="load(true)"><Icon name="RefreshCw" :class="{spin:refreshing}"/></button></section>
-  <div class="metric-strip three task-panel-metrics">
-    <div><span class="metric-icon green"><Icon name="Activity"/></span><span><small>正在执行</small><strong>{{active}}<em>项</em></strong></span></div>
-    <div><span class="metric-icon amber"><Icon name="Clock3"/></span><span><small>排队等待</small><strong>{{queued}}<em>项</em></strong></span></div>
-    <div><span class="metric-icon"><Icon name="LayoutGrid"/></span><span><small>活跃栏目</small><strong>{{new Set(items.map(item=>item.kind)).size}}<em>个</em></strong></span></div>
-  </div>
   <div class="task-panel-toolbar"><RoundedSelect v-model="filter" label="任务类型" :options="[{value:'all',label:'全部任务'},...Object.entries(kinds).map(([value,[label]])=>({value,label}))]"/><div class="search-field"><Icon name="Search" :size="16"/><input v-model="query" aria-label="搜索运行任务" placeholder="搜索任务"/></div></div>
   <p v-if="error" class="error-message" role="alert">{{error}}</p>
   <section v-for="group in grouped" :key="group.kind" class="task-panel-group" :aria-label="group.name">

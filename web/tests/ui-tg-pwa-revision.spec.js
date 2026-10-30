@@ -8,6 +8,7 @@ async function fixture(page, count = 2) {
     const path = new URL(route.request().url()).pathname
     let json = {}
     if (path === '/api/auth/status') json = { initialized: true, authenticated: true }
+    if (path === '/api/share-transfers' || path === '/api/share-live') json = []
     if (path === '/api/state') json = { storages, tasks: [], settings: {}, traffic: {}, cache: {} }
     if (path === '/api/notification-service') json = { telegram: { enabled: false, userIds: [] }, targets }
     if (path === '/api/files') json = [{ id: 'folder', name: '完整目录', isDir: true }]
@@ -61,10 +62,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`fi
   expect(await list.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
   const logos = await page.locator('.telegram-pool h2 .provider-logo').evaluateAll(els => els.map(el => el.getBoundingClientRect().width))
   expect(Math.max(...logos) - Math.min(...logos)).toBeLessThan(1)
-  if (width > 1100) {
-    const bottom = await page.locator('.telegram-pools').evaluate(el => el.getBoundingClientRect().bottom)
-    expect(Math.abs(950 - bottom - 8)).toBeLessThan(1)
-  }
+  const bounds = await list.evaluate(el => { const box=el.getBoundingClientRect(),rows=[...el.children].map(row=>row.getBoundingClientRect());return {bottom:box.bottom,third:rows[2].bottom,fourth:rows[3].top} })
+  expect(bounds.third).toBeLessThanOrEqual(bounds.bottom+3)
+  expect(bounds.fourth).toBeGreaterThanOrEqual(bounds.bottom-3)
+  const poolBottom=await page.locator('.telegram-pools').evaluate(el=>el.getBoundingClientRect().bottom)
+  expect((await page.locator('.share-transfer-records').boundingBox()).y).toBeGreaterThan(poolBottom)
   await page.locator('.telegram-target-card').first().locator('strong').click()
   await expect(page.getByRole('dialog', { name: '编辑转存目录', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')

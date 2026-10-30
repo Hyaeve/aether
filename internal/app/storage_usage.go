@@ -119,8 +119,15 @@ func (a *App) cachedStorageUsage(ctx context.Context, s Storage) (storageUsage, 
 	}
 	a.usageMu.Unlock()
 	lookup, cancel := context.WithTimeout(ctx, 12*time.Second)
+	var memberResult chan *storageMembership
+	if s.Type != "quark" {
+		memberResult = make(chan *storageMembership, 1)
+		go func() { memberResult <- a.readStorageMembership(lookup, s) }()
+	}
 	value := a.readStorageUsage(lookup, s)
-	value.Membership = a.readStorageMembership(lookup, s)
+	if memberResult != nil {
+		value.Membership = <-memberResult
+	}
 	cancel()
 	if !usableStorageQuota(value) {
 		value.Used, value.Total = 0, 0
@@ -181,17 +188,7 @@ func (a *App) readStorageUsage(ctx context.Context, s Storage) storageUsage {
 			}
 		}
 	case "quark":
-		var member struct {
-			Code   int `json:"code"`
-			Status int `json:"status"`
-			Data   struct {
-				Total int64 `json:"total_capacity"`
-				Used  int64 `json:"use_capacity"`
-			} `json:"data"`
-		}
-		if a.waitAPI(ctx, s.ID) == nil && quarkTVJSON(ctx, "GET", "https://drive.quark.cn/1/clouddrive/member?pr=ucpro&fr=pc&fetch_subscribe=false&_ch=home&fetch_identity=false", cloudHeaders(s), nil, &member) == nil && member.Code == 0 && member.Status == 200 {
-			value.Total, value.Used = member.Data.Total, member.Data.Used
-		}
+		value = a.readQuarkMember(ctx, s)
 		if !usableStorageQuota(value) && ctx.Err() == nil && a.waitAPI(ctx, s.ID) == nil {
 			var user struct {
 				Success bool `json:"success"`

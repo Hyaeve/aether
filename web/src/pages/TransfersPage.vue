@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, bytes, notify, state } from '../lib'
 import { compactDate } from '../date-time.mjs'
@@ -21,6 +21,8 @@ selected.value=validMode(route.query.mode)?route.query.mode:readSession(state.us
 watch(()=>route.query.mode,value=>{if(validMode(value))selected.value=value})
 watch(selected,value=>writeSession(state.username,'transfer-mode',value),{immediate:true})
 const viewport=ref(null), chosen=ref([]), selecting=ref(false), actionBusy=ref(false), confirm=ref(null), filters=ref([]), filterOpen=ref(false)
+const filterTrigger=ref(null), filterMenu=ref(null), filterMaxHeight=ref(440), filterId=useId()
+const filterOptions=[{value:'',label:'所有状态',icon:'ListFilter'},...transferStates]
 let anchor=0, timer, alive=true
 const modes=[{id:'copy',name:'复制',icon:'Copy'},{id:'upload',name:'上传',icon:'Upload'},{id:'download',name:'下载',icon:'Download'}]
 function clientLocation(source) {
@@ -46,9 +48,9 @@ function choose(event,item,index){
   if(event.shiftKey){chosen.value=[...new Set([...chosen.value,...filtered.value.slice(Math.min(index,anchor),Math.max(index,anchor)+1).map(i=>i.id)])]}
   else{chosen.value=chosen.value.includes(item.id)?chosen.value.filter(id=>id!==item.id):[...chosen.value,item.id];anchor=index}
 }
-watch(selected,()=>{filters.value=[];filterOpen.value=false;confirm.value=null;clearSelection()})
+watch(selected,()=>{filters.value=[];closeFilter();confirm.value=null;clearSelection()})
 watch([selected,query,filters],()=>{reset();chosen.value=chosen.value.filter(id=>filtered.value.some(i=>i.id===id))})
-watch(()=>props.rules,()=>{clearSelection();filterOpen.value=false;filters.value=[];clearTimeout(timer);if(!props.rules)load()})
+watch(()=>props.rules,()=>{clearSelection();closeFilter();filters.value=[];clearTimeout(timer);if(!props.rules)load()})
 const actionLabel={pause:'暂停',retry:'重试',resume:'恢复',delete:'删除'}
 function control(action){
   const rows=eligible(action).map(i=>({id:i.id,name:i.name}))
@@ -82,13 +84,39 @@ async function load(){
   catch(e){if(alive)error.value=e.message}
   finally{busy.value=false;if(alive&&!props.rules)timer=setTimeout(load,2000)}
 }
-function key(event){if(event.key==='Escape'&&!confirm.value){clearSelection();filterOpen.value=false}}
+function filterChecked(value){return value?filters.value.includes(value):!filters.value.length}
+function changeFilter(value){filters.value=value?(filterChecked(value)?filters.value.filter(item=>item!==value):[...filters.value,value]):[]}
+function closeFilter(focus=false){filterOpen.value=false;if(focus)filterTrigger.value?.focus({preventScroll:true})}
+function sizeFilter(){
+  if(filterOpen.value&&filterTrigger.value)filterMaxHeight.value=Math.max(36,Math.floor((window.visualViewport?.height||innerHeight)-filterTrigger.value.getBoundingClientRect().bottom-14))
+}
+async function openFilter(last=false){
+  filterOpen.value=true
+  sizeFilter()
+  await nextTick()
+  const options=filterMenu.value?.querySelectorAll('[role=menuitemcheckbox]')
+  const option=last?options?.[options.length-1]:filterMenu.value?.querySelector('[aria-checked=true]')
+  option?.focus({preventScroll:true})
+  option?.scrollIntoView({block:'nearest'})
+}
+function filterKey(event){
+  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeFilter(true);return}
+  if(event.key==='Tab'){closeFilter(true);return}
+  if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return
+  event.preventDefault()
+  const options=[...filterMenu.value.querySelectorAll('[role=menuitemcheckbox]')]
+  const current=options.indexOf(document.activeElement)
+  const next=event.key==='Home'?0:event.key==='End'?options.length-1:(current+(event.key==='ArrowDown'?1:-1)+options.length)%options.length
+  options[next]?.focus({preventScroll:true})
+  options[next]?.scrollIntoView({block:'nearest'})
+}
+function key(event){if(event.key==='Escape'&&!confirm.value){if(filterOpen.value)closeFilter(true);else clearSelection()}}
 function outside(event){
   if(!event.target.closest('.transfer-table,.transfer-dock,.modal'))clearSelection()
-  if(!event.target.closest('.transfer-filter'))filterOpen.value=false
+  if(!event.target.closest('.transfer-filter'))closeFilter()
 }
-onMounted(()=>{if(!props.rules)load();document.addEventListener('pointerdown',outside);document.addEventListener('keydown',key);media.addEventListener('change',resize)})
-onUnmounted(()=>{alive=false;clearTimeout(timer);document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',key);media.removeEventListener('change',resize)})
+onMounted(()=>{if(!props.rules)load();document.addEventListener('pointerdown',outside);document.addEventListener('keydown',key);media.addEventListener('change',resize);window.addEventListener('resize',sizeFilter)})
+onUnmounted(()=>{alive=false;clearTimeout(timer);document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',key);media.removeEventListener('change',resize);window.removeEventListener('resize',sizeFilter)})
 </script>
 <template>
   <section class="task-heading" :class="{'backup-heading':rules}">
@@ -97,8 +125,10 @@ onUnmounted(()=>{alive=false;clearTimeout(timer);document.removeEventListener('p
       <button class="icon-btn" aria-label="清除失败记录" :disabled="!items.some(i=>['failed','error'].includes(i.status))||actionBusy" @click="clearFailed"><Icon name="Trash2" /></button>
       <button class="icon-btn" aria-label="刷新传输任务" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{spin:busy}" /></button>
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索传输任务" placeholder="搜索任务…" /></div>
-      <div class="transfer-filter"><button class="icon-btn" :class="{active:filters.length}" aria-label="筛选传输状态" :aria-expanded="filterOpen" @click="filterOpen=!filterOpen"><Icon name="ListFilter" /></button>
-        <div v-if="filterOpen" class="transfer-filter-menu" role="group" aria-label="传输状态筛选"><button type="button" @click="filters=[]">所有状态</button><label v-for="option in transferStates" :key="option.value"><input v-model="filters" type="checkbox" :value="option.value" /><Icon :name="option.icon" :size="15" /><span>{{option.label}}</span></label></div>
+      <div class="transfer-filter"><button ref="filterTrigger" type="button" class="btn transfer-filter-trigger" :class="{active:filters.length||filterOpen}" aria-label="筛选传输状态" aria-haspopup="menu" :aria-controls="filterId" :aria-expanded="filterOpen" @click="filterOpen?closeFilter():openFilter()" @keydown.down.prevent="openFilter()" @keydown.up.prevent="openFilter(true)"><Icon name="Filter" :size="20" /><span>筛选</span></button>
+        <div v-if="filterOpen" :id="filterId" ref="filterMenu" class="transfer-filter-menu" :style="{maxHeight:filterMaxHeight+'px'}" role="menu" aria-label="传输状态筛选" @keydown="filterKey">
+          <button v-for="option in filterOptions" :key="option.value" type="button" role="menuitemcheckbox" :aria-checked="filterChecked(option.value)" @click="changeFilter(option.value)"><span class="transfer-filter-icon" :class="option.tone" aria-hidden="true"><Icon :name="option.icon" :size="16" /></span><span class="transfer-filter-label">{{option.label}}</span><span class="transfer-filter-check" aria-hidden="true"><Icon v-if="filterChecked(option.value)" name="Check" :size="16" /></span></button>
+        </div>
       </div>
     </div>
     <div v-else class="transfer-actions"><button class="btn" @click="$router.push('/transfer/backup/settings')"><Icon name="Settings2" />备份设置</button><button class="btn primary" @click="backup?.open()"><Icon name="Plus" />添加规则</button></div>
@@ -141,10 +171,18 @@ onUnmounted(()=>{alive=false;clearTimeout(timer);document.removeEventListener('p
 <style scoped>
 .task-heading>.transfer-actions{align-self:center}
 .transfer-content{min-height:0;flex:1;display:flex;flex-direction:column}
-.transfer-actions{margin-left:auto;display:flex;gap:8px;align-items:center}.transfer-actions .search-field{width:200px}
+.transfer-actions{margin-left:auto;display:flex;gap:8px;align-items:center}.transfer-actions .search-field{width:200px;min-width:0}
 .transfer-filter{position:relative}.transfer-filter>.active{color:var(--primary);background:var(--primary-soft)}
-.transfer-filter-menu{position:absolute;z-index:20;right:0;top:calc(100% + 6px);min-width:160px;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);box-shadow:var(--shadow)}
-.transfer-filter-menu label,.transfer-filter-menu button{display:flex;align-items:center;gap:8px;min-height:32px;padding:5px 8px;font-size:13px;color:var(--text)}.transfer-filter-menu button{border:0;background:none;width:100%;color:var(--primary)}.transfer-filter-menu input{width:15px;height:15px;margin:0;accent-color:var(--primary)}
+.transfer-filter-trigger{width:88px;flex:none;gap:8px;padding-inline:12px}
+.transfer-filter-menu{position:absolute;z-index:20;right:0;top:calc(100% + 6px);width:180px;max-width:calc(100vw - 16px);padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);box-shadow:var(--shadow);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.transfer-filter-menu::-webkit-scrollbar{display:none}
+.transfer-filter-menu button{display:grid;grid-template-columns:18px minmax(0,1fr) 16px;align-items:center;gap:10px;min-height:36px;padding:8px;width:100%;border:0;border-radius:5px;background:transparent;font-size:13px;color:var(--text);text-align:left}
+.transfer-filter-menu button:hover,.transfer-filter-menu button:focus-visible{background:var(--primary-soft)}
+.transfer-filter-menu button:focus-visible{outline-offset:-2px}
+.transfer-filter-menu button[aria-checked=true]{color:var(--primary);background:var(--primary-soft)}
+.transfer-filter-icon,.transfer-filter-check{display:flex;align-items:center;justify-content:center;width:16px;height:16px}
+.transfer-filter-icon{color:var(--muted)}.transfer-filter-icon.blue{color:var(--transfer-blue)}.transfer-filter-icon.orange{color:var(--transfer-orange)}.transfer-filter-icon.green{color:var(--green)}.transfer-filter-icon.red{color:var(--red)}
+.transfer-filter-label{min-width:0;white-space:nowrap}
 .transfer-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:12px 0 16px;flex:none}
 .transfer-modes button{display:flex;align-items:center;gap:12px;min-height:108px;padding:16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);text-align:left}
 .transfer-modes .copy{--accent:#8872be}.transfer-modes .download{--accent:var(--transfer-download)}.transfer-modes .upload{--accent:var(--transfer-upload)}

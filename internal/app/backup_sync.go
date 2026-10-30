@@ -928,8 +928,8 @@ func (a *App) publishSyncStaged(ctx context.Context, target Storage, parent, nam
 	ctx = context.WithValue(ctx, transferAppResourceKey{}, a)
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
-	if len(a.running) != 0 {
-		return errors.New("有任务正在执行，停止同步发布")
+	if err := a.checkTaskFileNodes(ctx, []taskFileNode{{target, parent, name}}); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err

@@ -16,18 +16,19 @@ type AutomationStep struct {
 	Condition string `json:"condition"`
 }
 type Automation struct {
-	ID         string           `json:"id"`
-	Name       string           `json:"name"`
-	Enabled    bool             `json:"enabled"`
-	Trigger    string           `json:"trigger"`
-	Cron       string           `json:"cron"`
-	SourceTask string           `json:"sourceTask"`
-	Steps      []AutomationStep `json:"steps"`
-	Status     string           `json:"status"`
-	Message    string           `json:"message"`
-	LastRun    time.Time        `json:"lastRun"`
-	LastResult string           `json:"lastResult"`
-	NextRun    time.Time        `json:"nextRun"`
+	ID           string           `json:"id"`
+	Name         string           `json:"name"`
+	Enabled      bool             `json:"enabled"`
+	Trigger      string           `json:"trigger"`
+	Cron         string           `json:"cron"`
+	SourceTask   string           `json:"sourceTask"`
+	Steps        []AutomationStep `json:"steps"`
+	Status       string           `json:"status"`
+	Message      string           `json:"message"`
+	LastRun      time.Time        `json:"lastRun"`
+	LastResult   string           `json:"lastResult"`
+	ProgressDone int              `json:"progressDone,omitempty"`
+	NextRun      time.Time        `json:"nextRun"`
 }
 
 func automationNext(r Automation, now time.Time) time.Time {
@@ -262,6 +263,7 @@ func (a *App) startAutomationWithTrigger(id string, trigger string) error {
 		defer cancel()
 		success, failed := true, false
 		completed := 0
+		_ = a.automationUpdate(id, func(r *Automation) { r.ProgressDone = 0 })
 		message := "执行完成"
 		for i, step := range rule.Steps {
 			if ctx.Err() != nil {
@@ -270,6 +272,7 @@ func (a *App) startAutomationWithTrigger(id string, trigger string) error {
 				break
 			}
 			if i > 0 && (step.Condition == "success" && !success || step.Condition == "failure" && success) {
+				_ = a.automationUpdate(id, func(r *Automation) { r.ProgressDone = i + 1 })
 				continue
 			}
 			_ = a.automationUpdate(id, func(r *Automation) { r.Message = fmt.Sprintf("执行动作 %d/%d", i+1, len(rule.Steps)) })
@@ -301,6 +304,7 @@ func (a *App) startAutomationWithTrigger(id string, trigger string) error {
 				message = fmt.Sprintf("动作 %d 失败：%s", i+1, err)
 				a.store.event("warn", "tasks", rule.Name+"："+message)
 			}
+			_ = a.automationUpdate(id, func(r *Automation) { r.ProgressDone = i + 1 })
 		}
 		status := "success"
 		if failed {

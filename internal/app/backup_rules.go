@@ -495,6 +495,7 @@ func sameBackupStorage(a, b Storage) bool {
 }
 
 func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File, parent, name, replace string, digest ...*string) (resultErr error) {
+	ctx = context.WithValue(ctx, fileTransferDiagnosticKey{}, true)
 	phase := "核对传输条件"
 	defer func() { resultErr = diagnoseFileTransfer(ctx, phase, resultErr) }()
 	if ctx.Value(transferSourceKey{}) == nil {
@@ -555,8 +556,8 @@ func (a *App) copyBackupFile(ctx context.Context, source, target Storage, f File
 	phase = "核对发布条件"
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
-	if len(a.running) != 0 {
-		return rejectFileTransfer(ctx, phase, "有任务正在执行，请稍后备份")
+	if err := a.checkTaskFileNodes(ctx, []taskFileNode{{storage: source, id: f.ID}, {target, parent, name}}); err != nil {
+		return diagnoseFileTransfer(ctx, phase, err)
 	}
 	for _, original := range []Storage{source, target} {
 		current, err := a.store.storage(original.ID)

@@ -13,7 +13,7 @@ test('account credentials and security occupy separate themed panels with an inp
     Object.defineProperty(navigator,'permissions',{value:{query:async()=>({state:'granted'})}})
   })
   await accountMock(page);await page.goto('/settings/account')
-  await expect(page.locator('.account-panel')).toHaveCount(2)
+  await expect(page.locator('.account-panel')).toHaveCount(3)
   await expect(page.locator('.account-credentials').getByRole('textbox',{name:'账号',exact:true})).toBeVisible()
   await expect(page.locator('.account-security').getByRole('spinbutton',{name:'会话有效期',exact:true})).toBeVisible()
   await expect(page.locator('.account-security').getByRole('switch',{name:'剪贴板监听',exact:true})).not.toBeChecked()

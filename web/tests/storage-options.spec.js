@@ -58,7 +58,7 @@ test('single 115 directory details display CID', async ({ page }) => {
   expect(await page.evaluate(() => window.copiedCID)).toBe('1234567890')
 })
 
-test('plugin masks load asynchronously and descriptions follow the pointer', async ({ page }, info) => {
+test('plugin masks load asynchronously and descriptions require stationary hover', async ({ page }, info) => {
 	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
 	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))
 	await page.route('**/api/115-folder-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
@@ -82,7 +82,8 @@ test('plugin masks load asynchronously and descriptions follow the pointer', asy
   expect(await description.evaluate(el => getComputedStyle(el).webkitLineClamp)).toBe('2')
   const box = await description.boundingBox()
   await page.mouse.move(box.x + box.width / 2 + 10, box.y + box.height / 2 + 3)
-  // Near the right edge X is clamped; the tooltip should still follow Y.
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  await expect(page.getByRole('tooltip')).toBeVisible()
   await expect.poll(async () => (await page.getByRole('tooltip').boundingBox()).y).not.toBe(first.y)
   await page.getByRole('button', { name: 'TMDB 配置', exact: true }).click()
   await expect(page.getByLabel('API 密钥', { exact: true })).toHaveValue('*'.repeat(32))

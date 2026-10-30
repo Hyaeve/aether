@@ -36,7 +36,7 @@ function move(event) {
         <p v-if="busy" class="small-empty">正在搜索…</p>
         <p v-else-if="!items.length" class="small-empty">没有匹配的插件</p>
         <button v-for="item in items" :key="item.repository ? item.repository + ':' + item.id : item.name" class="plugin-search-result" @click="select(item)">
-          <span class="plugin-search-symbol"><Rapid115Icon v-if="item.name==='115 秒传'" /><ProviderIcon v-else-if="item.name.startsWith('115')" type="115" compact unframed /><ProviderIcon v-else-if="item.name==='夸克 STRM 接管'" type="quark" compact unframed /><template v-else><Icon :name="item.iconName || 'Puzzle'" :size="30" /><img v-if="market&&item.icon" :src="item.icon" alt="" referrerpolicy="no-referrer" @error="$event.target.hidden=true" /></template></span>
+          <span class="plugin-search-symbol"><Rapid115Icon v-if="item.name==='115 秒传中心'" /><ProviderIcon v-else-if="item.name.startsWith('115')" type="115" compact unframed /><ProviderIcon v-else-if="item.name==='夸克 STRM 接管'" type="quark" compact unframed /><template v-else><Icon :name="item.iconName || 'Puzzle'" :size="30" /><img v-if="market&&item.icon" :src="item.icon" alt="" referrerpolicy="no-referrer" @error="$event.target.hidden=true" /></template></span>
           <span class="plugin-search-copy"><span class="plugin-search-title"><strong>{{ item.name }}</strong><small v-if="item.version">v{{item.version}}</small></span><span class="plugin-search-detail"><small v-if="item.subtitle||item.source" class="plugin-search-category">{{item.subtitle||item.source}}</small><span>{{item.description||item.detail}}</span></span></span>
         </button>
       </div>

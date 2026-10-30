@@ -242,7 +242,7 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 	}
 	if err != nil {
 		n.backend.app.store.event("error", "storage", "FUSE 打开文件失败："+n.name()+"："+err.Error())
-		p := n.backend.app.beginTransfer(context.WithValue(ctx, transferSourceKey{}, "FUSE"), map[bool]string{true: "upload", false: "download"}[write], Storage{Name: n.backend.config.Name}, n.name(), 0)
+		p := n.backend.beginTransfer(map[bool]string{true: "upload", false: "download"}[write], Storage{Name: n.backend.config.Name}, n.name(), 0)
 		p.finish(err)
 		return nil, 0, fuseErr(err)
 	}
@@ -266,7 +266,7 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 		if write {
 			pair.From, pair.To = pair.To, pair.From
 		}
-		handle.progress = n.backend.app.beginTransfer(context.WithValue(ctx, transferSourceKey{}, "FUSE"), map[bool]string{true: "upload", false: "download"}[write], s, n.name(), 0, pair)
+		handle.progress = n.backend.beginTransfer(map[bool]string{true: "upload", false: "download"}[write], s, n.name(), 0, pair)
 		if !write {
 			if info, err := file.Stat(); err == nil {
 				handle.progress.setTotal(info.Size())
@@ -639,6 +639,9 @@ func (h *nativeFuseHandle) Flush(ctx context.Context) syscall.Errno {
 	}
 	if h.staged != nil {
 		f := h.staged
+		var cancel func()
+		ctx, cancel = h.node.backend.transferContext(ctx, h.progress)
+		defer cancel()
 		ctx = context.WithValue(ctx, transferUploadResourceKey{}, true)
 		err := f.publish(ctx)
 		if err != nil {

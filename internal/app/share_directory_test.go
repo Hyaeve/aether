@@ -126,15 +126,21 @@ func TestShareCustomDirectoryBatchDestinationAndReplay(t *testing.T) {
 		t.Run(fmt.Sprint(conflict), func(t *testing.T) {
 			a := testApp(t)
 			s := Storage{ID: "q", Type: "quark", Enabled: true, Config: map[string]string{"cookie": "private"}}
-			a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil })
+			a.store.update(func(st *State) error {
+				st.Storages = []Storage{s}
+				st.Notifications.Targets = []telegramTarget{{ID: "target", Provider: "quark", StorageID: s.ID, Parent: "0", Path: "/"}}
+				return nil
+			})
 			h := a.Handler(t.TempDir())
 			cookie := setupTest(t, a, h)
 			r, _ := http.NewRequest("POST", "/", nil)
 			r.AddCookie(cookie)
-			a.sharePreviews = map[string]*sharePreview{"key": {Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Expires: time.Now().Add(time.Minute), SaveDirectory: shareDirectoryPointer("Renamed"), Batches: []shareBatch{{Directory: "Renamed/Sub", Source: "original-source", Items: []shareEntry{{ID: "file", Name: "episode.mkv", Token: "secret"}}}}}}
+			a.sharePreviews = map[string]*sharePreview{"key": {Link: "https://pan.quark.cn/s/code", Items: []shareEntry{{ID: "source-root", Name: "Original", IsDir: true}}, Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Expires: time.Now().Add(time.Minute), SaveDirectory: shareDirectoryPointer("Renamed"), Batches: []shareBatch{{Directory: "Renamed/Sub", Source: "original-source", Items: []shareEntry{{ID: "file", Name: "episode.mkv", Token: "secret"}}}}}}
 			created, saves := []string{}, 0
 			shareMock(t, func(r *http.Request) string {
 				switch {
+				case strings.HasSuffix(r.URL.Path, "/task"):
+					return `{"code":0,"data":{"status":2}}`
 				case strings.HasSuffix(r.URL.Path, "/sort"):
 					id := r.URL.Query().Get("pdir_fid")
 					name, fid := "", ""
@@ -179,6 +185,13 @@ func TestShareCustomDirectoryBatchDestinationAndReplay(t *testing.T) {
 			} else {
 				if w.Code != 200 || saves != 1 || !strings.Contains(w.Body.String(), `"destination":"destination"`) {
 					t.Fatal(w.Code, w.Body.String(), saves)
+				}
+				if w := request(t, h, "POST", "/api/files/share/status", map[string]any{"storageId": s.ID, "preview": "key"}, cookie); w.Code != 200 {
+					t.Fatal(w.Code, w.Body.String())
+				}
+				current := a.store.snapshot()
+				if len(current.ShareTransfers) != 1 || current.ShareTransfers[0].Source != "browser" || current.ShareTransfers[0].Status != "completed" || len(current.ShareLiveLinks) != 1 || current.ShareLiveLinks[0].DirectoryID != "destination" || current.ShareLiveLinks[0].DirectoryName != "Renamed" {
+					t.Fatal("accepted browser transfer did not register history and live directory", current.ShareTransfers, current.ShareLiveLinks)
 				}
 			}
 			if len(created) != 0 {

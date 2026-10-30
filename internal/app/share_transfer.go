@@ -28,6 +28,8 @@ type shareEntry struct {
 }
 
 type sharePreview struct {
+	Link          string
+	Excluded      []string
 	SourceParent  string
 	Skipped       int
 	Submitted     int
@@ -509,6 +511,10 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 		session := s
 		token, items, err := a.readShareSession(ctx, &session, code, pass, "root", "")
 		if err != nil {
+			if r.PathValue("action") == "preview" {
+				_ = a.recordShareTransfer(shareTransferRecord{ID: id(), StorageID: s.ID, Provider: s.Type, Name: "分享资源",
+					Link: in.URL, Source: "browser", Status: "failed", Message: "读取分享失败，未转存"}, sharePreview{})
+			}
 			fail(w, 400, err)
 			return
 		}
@@ -551,7 +557,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 			fail(w, 429, errors.New("分享预览过多，请稍后再试"))
 			return
 		}
-		a.sharePreviews[key] = &sharePreview{Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Cookie: session.Config["cookie"], Items: items, Batches: batches, SaveDirectory: in.SaveDirectory, Expires: time.Now().Add(10 * time.Minute)}
+		a.sharePreviews[key] = &sharePreview{Link: in.URL, Excluded: append([]string(nil), in.Excluded...), Owner: authorizationOwner(r), Config: shareConfig(s), Storage: s.ID, Code: code, Pass: pass, Token: token, Cookie: session.Config["cookie"], Items: items, Batches: batches, SaveDirectory: in.SaveDirectory, Expires: time.Now().Add(10 * time.Minute)}
 		a.shareMu.Unlock()
 		batchNames := make([][]string, len(batches))
 		for i, batch := range batches {
@@ -608,7 +614,9 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 				status, message = "failed", "网盘转存失败，请检查账号权限、容量及分享有效性"
 				a.shareMu.Lock()
 				p.Failed = true
+				finished := *p
 				a.shareMu.Unlock()
+				a.recordBrowserShare(in.Preview, s, finished, "failed", "网盘转存失败，请核对云盘")
 			}
 			jsonResponse(w, 200, map[string]string{"status": status, "message": message, "taskId": task})
 			return
@@ -694,6 +702,11 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Used = true
 	a.shareMu.Unlock()
+	preview.Parent = in.Parent
+	if err := a.recordBrowserShare(in.Preview, s, preview, "running", "正在提交转存"); err != nil {
+		fail(w, 500, errors.New("转存记录保存失败，未提交"))
+		return
+	}
 	// A lost response may still have created an upstream job. Do not automatically retry.
 	taskID := ""
 	if len(chosen) > 0 {
@@ -701,6 +714,7 @@ func (a *App) shareTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	a.cache.clear()
 	if err != nil {
+		a.recordBrowserShare(in.Preview, s, preview, "failed", "转存提交结果未确认，请核对云盘")
 		fail(w, 502, fmt.Errorf("%s；如已提交请求，请先检查目标网盘，勿直接重复转存", err))
 		return
 	}

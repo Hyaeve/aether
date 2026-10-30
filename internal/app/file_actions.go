@@ -21,6 +21,7 @@ type fileActionRequest struct {
 	TargetStorage string   `json:"targetStorage"`
 	Target        string   `json:"target"`
 	emptyOnly     bool
+	renamed       *File
 }
 
 func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
@@ -37,11 +38,16 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
+	a.runMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			a.runMu.Unlock()
+		}
+	}()
 	if req.Action == "mkdir" {
-		a.runMu.Lock()
-		defer a.runMu.Unlock()
-		if len(a.running) != 0 {
-			fail(w, 409, errors.New("有任务正在执行，请等待完成后操作文件"))
+		if err := a.checkTaskFileAction(r.Context(), s, s, req); err != nil {
+			fail(w, 409, err)
 			return
 		}
 		if err := a.createDirectory(r.Context(), s, req.Source, req.Name); err != nil {
@@ -73,6 +79,14 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if target.ID != s.ID && (s.Type != "local" || target.Type != "local") {
+			release, err := a.reserveTaskFileAction(r.Context(), s, target, req)
+			if err != nil {
+				fail(w, 409, err)
+				return
+			}
+			a.runMu.Unlock()
+			locked = false
+			defer release()
 			processed, err := a.crossStorageFileAction(r.Context(), s, target, req)
 			a.cache.clear()
 			if err != nil {
@@ -83,13 +97,14 @@ func (a *App) fileAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
-	if len(a.running) != 0 {
-		fail(w, 409, errors.New("有任务正在执行，请等待完成后操作文件"))
+	if err := a.checkTaskFileAction(r.Context(), s, target, req); err != nil {
+		fail(w, 409, err)
 		return
 	}
 	if s.Type != "local" {
+		if req.Action == "rename" {
+			req.renamed = &File{}
+		}
 		var progress *transferProgress
 		if req.Action == "copy" || req.Action == "move" {
 			progress = a.beginTransfer(r.Context(), "copy", s, fmt.Sprintf("%s · %d 项", req.Action, len(req.IDs)), 0,
@@ -262,10 +277,18 @@ func (a *App) fileActionResult(s Storage, req fileActionRequest, processed int) 
 	result := map[string]any{"processed": processed}
 	if req.Action == "rename" && processed == 1 {
 		fid := req.IDs[0]
+		pick := ""
+		if req.renamed != nil && req.renamed.ID != "" {
+			fid = req.renamed.ID
+			pick = req.renamed.PickCode
+		}
 		if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
 			fid = path.Join(path.Dir(fid), req.Name)
 		}
-		result["renamed"] = map[string]string{"id": fid, "name": req.Name, "url": a.streamURL(s.ID, fid, "")}
+		result["renamed"] = map[string]string{"id": fid, "name": req.Name, "url": a.streamURL(s.ID, fid, pick)}
+		if req.renamed != nil && req.renamed.PickCode != "" {
+			result["renamed"].(map[string]string)["pickCode"] = req.renamed.PickCode
+		}
 	}
 	return result
 }

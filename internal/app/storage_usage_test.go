@@ -23,8 +23,8 @@ func TestCloudStorageUsageAndFallback(t *testing.T) {
 		calls.Add(1)
 		raw := `{"state":true,"data":{"space_info":{"all_total":{"size":"1000"},"all_use":{"size":"250"}}}}`
 		switch r.URL.Host {
-		case "drive.quark.cn":
-			raw = `{"code":0,"status":200,"data":{"total_capacity":2000,"use_capacity":500}}`
+		case "drive-pc.quark.cn":
+			raw = `{"code":0,"status":200,"data":{"total_capacity":2000,"use_capacity":500,"member_type":"EXP_SVIP"}}`
 		case "api.cloud.189.cn":
 			raw = `{"res_code":0,"cloudCapacityInfo":{"totalSize":3000,"usedSize":750}}`
 		}
@@ -51,6 +51,9 @@ func TestCloudStorageUsageAndFallback(t *testing.T) {
 				}
 			} else if value.Total == 0 || value.Used*4 != value.Total {
 				t.Fatal(value)
+			}
+			if kind == "quark" && (value.Membership == nil || value.Membership.Tier != "88vip") {
+				t.Fatal("quota response lost explicit membership", value)
 			}
 			count := calls.Load()
 			if _, err = a.cachedStorageUsage(context.Background(), s); err != nil || calls.Load() != count {

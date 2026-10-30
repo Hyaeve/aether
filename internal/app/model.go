@@ -82,6 +82,10 @@ type Task struct {
 	Status             string           `json:"status"`
 	Message            string           `json:"message"`
 	Processed          int              `json:"processed"`
+	ProgressDone       int              `json:"progressDone,omitempty"`
+	ProgressTotal      int              `json:"progressTotal,omitempty"`
+	ProgressKnown      bool             `json:"progressKnown,omitempty"`
+	ProgressFraction   float64          `json:"progressFraction,omitempty"`
 	CASGenerated       int              `json:"casGenerated,omitempty"`
 	CASFailed          int              `json:"casFailed,omitempty"`
 	LastRun            time.Time        `json:"lastRun"`
@@ -162,6 +166,8 @@ type State struct {
 	Plugins               map[string]PluginConfig         `json:"plugins,omitempty"`
 	LibraryNotices        []LibraryNotice                 `json:"libraryNotices,omitempty"`
 	ShareNotices          []ShareNotice                   `json:"shareNotices,omitempty"`
+	ShareTransfers        []shareTransferRecord           `json:"shareTransfers,omitempty"`
+	ShareLiveLinks        []shareLiveLink                 `json:"shareLiveLinks,omitempty"`
 	QuarkTV               map[string]QuarkTVBinding       `json:"quarkTV,omitempty"`
 	QuarkTVEnabled        *bool                           `json:"quarkTVEnabled,omitempty"`
 	Mounts                []MountConfig                   `json:"mounts,omitempty"`
@@ -171,6 +177,7 @@ type State struct {
 	CASPlaybackAttempts   map[string]bool                 `json:"casPlaybackAttempts,omitempty"`
 	CASStats              CASRestoreStats                 `json:"casStats"`
 	RenameHistory         []RenameDirectory               `json:"renameHistory,omitempty"`
+	Rename115Attempts     map[string]bool                 `json:"rename115Attempts,omitempty"`
 	FileFavorites         []FileFavorite                  `json:"fileFavorites,omitempty"`
 	FileVisits            []FileVisit                     `json:"fileVisits,omitempty"`
 	Storages              []Storage                       `json:"storages"`

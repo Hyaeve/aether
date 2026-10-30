@@ -38,18 +38,18 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`task cen
   await expect(page.getByText('没有匹配的运行任务',{exact:true})).toBeVisible()
 })
 
-test('CAS uses feature selector, auto-selects mobile source and preserves manual override',async({page})=>{
+test('CAS uses smart feature selector across sources and preserves manual override',async({page})=>{
   await fixture(page)
   await page.goto('/tasks/cas')
   await page.getByRole('button',{name:'添加 CAS 任务卡片',exact:true}).click()
   await expect(page.getByRole('button',{name:'生成方式',exact:true})).toHaveCount(0)
   const mode=page.getByRole('button',{name:'CAS 信息',exact:true})
-  await expect(mode).toHaveText('全计算')
+  await expect(mode).toHaveText('智能计算')
   await page.getByRole('button',{name:'选择目录',exact:true}).click()
   const picker=page.getByRole('dialog',{name:'选择存储目录',exact:true})
   await picker.locator('.source-accounts').getByRole('button',{name:'移动 移动云盘',exact:true}).click()
   await picker.getByRole('button',{name:'选择当前目录',exact:true}).click()
-  await expect(mode).toHaveText('移动CAS')
+  await expect(mode).toHaveText('智能计算')
   await mode.click()
   await page.getByRole('option',{name:'天翼CAS',exact:true}).click()
   await expect(mode).toHaveText('天翼CAS')

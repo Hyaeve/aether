@@ -25,7 +25,7 @@ test('new plugins open from tools and STRM replacement reaches activity', async 
     return r.fulfill({ json: data })
   })
   await page.goto('/tools')
-  await expect(page.locator('.plugin-card').first()).toHaveAttribute('aria-label', '115签到')
+  await expect(page.locator('.plugin-card').first()).toHaveAttribute('aria-label', '115 自动签到')
   await page.getByRole('button', { name: '115 同播复制', exact: true }).click()
   await expect(page.getByRole('heading', { name: '115 同播复制', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')

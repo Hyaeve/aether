@@ -74,7 +74,7 @@ test('history is shared across independent browsers and legacy entries migrate o
   }finally{for(const context of contexts)await context.close()}
 })
 
-test('empty history remains clickable and hover opens immediately',async({page},info)=>{
+test('empty history opens only on click and stays open until explicitly dismissed',async({page},info)=>{
   const mock=sharedHistoryMock();await mock.install(page)
   await page.goto('/files')
   const history=page.getByRole('button',{name:'历史访问',exact:true}),menu=page.locator('.file-visit-history [role=listbox]')
@@ -83,12 +83,12 @@ test('empty history remains clickable and hover opens immediately',async({page},
   await page.keyboard.press('Escape');await expect(menu).toHaveCount(0)
   await page.mouse.move(500,40)
   await page.clock.install()
-  await page.clock.pauseAt(new Date())
   await history.hover()
-  await page.clock.runFor(1);await expect(menu).toBeVisible()
-  await page.clock.resume()
+  await page.clock.runFor(1200);await expect(menu).toHaveCount(0)
+  await history.click();await expect(menu).toContainText('暂无访问记录')
   await page.screenshot({path:info.outputPath('empty-history.png')})
-  await page.mouse.move(500,40);await expect(menu).toHaveCount(0)
+  await page.mouse.move(500,40);await page.clock.fastForward(1000);await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape');await expect(menu).toHaveCount(0)
   await page.locator('.file-view').getByRole('button',{name:'A',exact:true}).dblclick()
   await page.locator('.file-view').getByRole('button',{name:'B',exact:true}).dblclick()
   await expect.poll(()=>mock.entries.length).toBe(1)

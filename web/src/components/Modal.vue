@@ -23,7 +23,7 @@ function key(event) {
   if ([...document.querySelectorAll('.modal')].at(-1) !== panel.value) return
   if (event.key === 'Escape') emit('close')
   if (event.key === 'Tab') {
-    const nodes = [...panel.value.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea,a[href]')].filter(el => el.offsetParent !== null)
+    const nodes = [...panel.value.querySelectorAll('button:enabled,input:enabled,select:enabled,textarea:enabled,a[href]')].filter(el => el.offsetParent !== null)
     if (!nodes.length) return
     if (event.shiftKey && document.activeElement === nodes[0]) { event.preventDefault(); nodes.at(-1).focus() }
     else if (!event.shiftKey && document.activeElement === nodes.at(-1)) { event.preventDefault(); nodes[0].focus() }

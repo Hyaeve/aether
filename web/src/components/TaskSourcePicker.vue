@@ -18,6 +18,8 @@ const label = ref(atRoot ? '根目录' : (initialPath ? initialPath.split('/').f
 let restorePending = !!initialPath && !atRoot && !trail.value.length
 let restore115Pending = initialStorage?.type === '115' && !atRoot && !trail.value.length && !initialPath
 let incompletePending = props.includeFullPath && initialStorage?.type !== '115' && !atRoot && !trail.value.length && !initialPath
+const pathReady = ref(!restorePending && !restore115Pending && !incompletePending)
+const canSelect = computed(() => !creating.value && (!selected.value ? props.allowAll : pathReady.value && props.storages.some(s => s.id === selected.value)))
 let generation = 0
 const creating = ref(false), createOpen = ref(false), folderName = ref(''), createError = ref(''), nameInput = ref(null)
 async function showCreate() {
@@ -67,12 +69,13 @@ async function load() {
       if (parent !== dir.value) throw new Error('已保存目录身份已变化，请从根目录重新选择')
       trail.value = restored; label.value = name
     }
+    pathReady.value = true
     const result = await api(`/files?storage=${encodeURIComponent(selected.value)}&path=${encodeURIComponent(dir.value)}`)
     if (run === generation) items.value = result.filter(f => f.isDir)
-  } catch (e) { if (run === generation) { error.value = e.message; if (restore || restore115 || incomplete) notify(e.message,true) } }
+  } catch (e) { if (run === generation) { error.value = e.message; if (!pathReady.value) { restorePending = restore; restore115Pending = restore115; incompletePending = incomplete } if (restore || restore115 || incomplete) notify(e.message,true) } }
   finally { if (run === generation) busy.value = false }
 }
-function root() { restorePending = false; restore115Pending = false; incompletePending = false; dir.value = '/'; label.value = '根目录'; trail.value = []; query.value = '' }
+function root() { restorePending = false; restore115Pending = false; incompletePending = false; pathReady.value = true; dir.value = '/'; label.value = '根目录'; trail.value = []; query.value = '' }
 function choose(id) { if (creating.value || selected.value === id) return; selected.value = id; root() }
 function enter(item) { if (creating.value) return; trail.value.push({ id: dir.value, name: label.value }); dir.value = item.id; label.value = item.name; query.value = '' }
 const crumbs = computed(() => {
@@ -87,7 +90,13 @@ const fullPath = computed(()=>'/'+crumbs.value.filter(c=>c.id!=='/').map(c=>c.na
 function jump(index) {
   const entry=crumbs.value[index]
   if (!entry || creating.value) return
+  restorePending = false; restore115Pending = false; incompletePending = false
   trail.value=crumbs.value.slice(0,index); dir.value=entry.id; label.value=entry.name; query.value=''
+  pathReady.value = true
+}
+function selectDirectory() {
+  if (!canSelect.value) return
+  emit('select', { storageId: selected.value, source: dir.value, sourceLabel: selected.value ? (wholeStorage.value ? '根目录' : label.value) : '所有存储池', sourceTrail: trail.value.map(entry => ({ ...entry })), ...(props.includeFullPath ? { sourcePath: fullPath.value } : {}) })
 }
 watch([selected, dir], () => { createOpen.value = false; createError.value = ''; load() }, { immediate: true })
 onUnmounted(() => generation++)
@@ -105,7 +114,7 @@ onUnmounted(() => generation++)
           <p v-else-if="!visible.length" class="small-empty">当前目录没有匹配的文件夹</p>
           <VirtualList v-if="!busy && !error && visible.length" :items="visible"><template #default="{ item }"><button type="button" class="source-directory" :aria-label="item.name" @click="enter(item)"><Icon name="Folder" /><span>{{ item.name }}</span><time>{{ item.modified && !item.modified.startsWith('0001') ? date(item.modified) : '-' }}</time></button></template></VirtualList>
         </div>
-        <footer class="source-footer"><button type="button" class="btn" :disabled="busy || creating" @click="load"><Icon name="RefreshCw" />刷新</button><button type="button" class="btn primary" :disabled="busy || creating || !!error || (!selected && !allowAll)" @click="emit('select', { storageId: selected, source: dir, sourceLabel: selected ? (wholeStorage ? '根目录' : label) : '所有存储池', sourceTrail: trail, ...(includeFullPath ? {sourcePath: fullPath} : {}) })">{{ !selected && allowAll ? '选择所有存储池' : wholeStorage ? '选择整个存储池' : '选择当前目录' }}</button></footer>
+        <footer class="source-footer"><button type="button" class="btn" :disabled="busy || creating" @click="load"><Icon name="RefreshCw" />刷新</button><button type="button" class="btn primary" :disabled="!canSelect" @click="selectDirectory">{{ !selected && allowAll ? '选择所有存储池' : wholeStorage ? '选择整个存储池' : '选择当前目录' }}</button></footer>
       </section>
     </div>
   </Modal>

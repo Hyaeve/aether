@@ -14,15 +14,16 @@ import (
 )
 
 type RenameRecord struct {
-	ID       string    `json:"id"`
-	FileID   string    `json:"fileId"`
-	Name     string    `json:"name"`
-	NewName  string    `json:"newName"`
-	IsDir    bool      `json:"isDir"`
-	Modified time.Time `json:"modified"`
-	Identity string    `json:"identity,omitempty"`
-	Status   string    `json:"status,omitempty"`
-	Error    string    `json:"error,omitempty"`
+	ID         string    `json:"id"`
+	FileID     string    `json:"fileId"`
+	Name       string    `json:"name"`
+	NewName    string    `json:"newName"`
+	IsDir      bool      `json:"isDir"`
+	Modified   time.Time `json:"modified"`
+	Identity   string    `json:"identity,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	previousID string
 }
 type RenameDirectory struct {
 	ID        string         `json:"id"`
@@ -102,6 +103,9 @@ func (a *App) rememberRenames(s Storage, input renameRequest, records []RenameRe
 		replaced := map[string]bool{}
 		for _, record := range records {
 			replaced[record.FileID] = true
+			if record.previousID != "" {
+				replaced[record.previousID] = true
+			}
 			if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
 				replaced[path.Join(path.Dir(record.FileID), record.Name)] = true
 			}
@@ -244,10 +248,6 @@ func (a *App) renameRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
-	if len(a.running) != 0 {
-		fail(w, 409, errors.New("任务正在执行，请稍后恢复"))
-		return
-	}
 	var directory RenameDirectory
 	for _, d := range a.store.snapshotWithLogLimit(0).RenameHistory {
 		if d.ID == input.DirectoryID {
@@ -275,6 +275,23 @@ func (a *App) renameRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s, storageErr := a.store.storage(directory.StorageID)
+	if storageErr == nil {
+		nodes := []taskFileNode{}
+		selectedIDs := map[string]bool{}
+		for _, selected := range input.IDs {
+			selectedIDs[selected] = true
+		}
+		for _, item := range directory.Items {
+			if selectedIDs[item.ID] && item.Status == "" {
+				nodes = append(nodes, taskFileNode{storage: s, id: item.FileID})
+				nodes = append(nodes, taskFileNode{s, directory.Source, item.Name})
+			}
+		}
+		if err := a.checkTaskFileNodes(r.Context(), nodes); err != nil {
+			fail(w, 409, err)
+			return
+		}
+	}
 	results := []RenameRecord{}
 	records := map[string]RenameRecord{}
 	for _, record := range directory.Items {

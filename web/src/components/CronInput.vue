@@ -3,15 +3,15 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../lib'
 import Icon from './Icon.vue'
 defineOptions({inheritAttrs:false})
-const props=defineProps({modelValue:{type:String,default:''},retry:Boolean,label:{type:String,default:'Cron表达式'}})
+const props=defineProps({modelValue:{type:String,default:''},retry:Boolean,shareLive:Boolean,label:{type:String,default:'Cron表达式'}})
 const emit=defineEmits(['update:modelValue'])
 const error=ref('')
 let timer,request=0,alive=true
-watch(()=>[props.modelValue,props.retry],()=>{
+watch(()=>[props.modelValue,props.retry,props.shareLive],()=>{
  clearTimeout(timer);const ticket=++request;error.value=''
  if(!props.modelValue.trim())return
  timer=setTimeout(async()=>{
-  try{const result=await api('/cron/validate','POST',{expression:props.modelValue,retry:props.retry});if(alive&&ticket===request)error.value=result.error||''}
+  try{const result=await api('/cron/validate','POST',{expression:props.modelValue,retry:props.retry,shareLive:props.shareLive});if(alive&&ticket===request)error.value=result.error||''}
   catch(e){if(alive&&ticket===request)error.value=e.message}
  },250)
 },{immediate:true})

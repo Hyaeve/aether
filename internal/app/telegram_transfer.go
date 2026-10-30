@@ -144,10 +144,24 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 	processed, skipped := 0, 0
 	name := "分享资源"
 	s, err := a.store.storage(target.StorageID)
+	session := s
 	storageName := s.Name
 	stamp := shareConfig(s)
 	stampText := hex.EncodeToString(stamp[:])
+	receipt := sharePreview{Link: job.Link, Config: stamp, Parent: target.Parent}
+	if receipt.Parent == "" || receipt.Parent == "/" {
+		receipt.Parent = rootOf(s)
+	}
 	finish := func(status, result string) {
+		if job.Kind == "" {
+			a.resolveShareDestination(ctx, session, &receipt)
+			record := shareTransferRecord{ID: "tg:" + job.ID, StorageID: s.ID, Provider: s.Type, Name: name, Link: job.Link,
+				DirectoryName: shareSavedName(receipt), Source: "bot", Time: time.Now(), Status: status,
+				Message: fmt.Sprintf("%s；提交%d个文件，跳过%d个文件", result, processed, skipped), Submitted: processed, Skipped: skipped}
+			if e := a.recordShareTransfer(record, receipt); e != nil {
+				a.store.event("error", "notifications", "TG转存记录保存失败")
+			}
+		}
 		message := fmt.Sprintf("%s：%s · %s · %s；已提交%d项，跳过%d项", result, storageName, target.Path, name, processed, skipped)
 		a.finishTelegram(job.ID, status, message, processed)
 		if current := a.store.snapshotWithLogLimit(0).Notifications.Telegram; telegramDigest(current) == job.Auth && telegramAllowed(current, job.ChatID, job.UserID) {
@@ -202,7 +216,6 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 		finish("failed", "分享链接无效或类型不一致")
 		return
 	}
-	session := s
 	previewCtx, previewCancel := context.WithTimeout(ctx, 2*time.Minute)
 	token, items, err := a.readShareSession(previewCtx, &session, code, pass, "root", "")
 	var batches []shareBatch
@@ -214,11 +227,17 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 		batches, err = a.planShareSession(previewCtx, &session, code, pass, token, items)
 	}
 	previewCancel()
+	receipt.Items = items
 	if err != nil {
 		finish("failed", "读取分享失败："+err.Error())
 		return
 	}
 	preview := sharePreview{Code: code, Pass: pass, Token: token}
+	if err := a.recordShareTransfer(shareTransferRecord{ID: "tg:" + job.ID, StorageID: s.ID, Provider: s.Type, Name: name,
+		Link: job.Link, DirectoryName: shareSavedName(receipt), Source: "bot", Status: "running", Message: "正在提交转存"}, sharePreview{}); err != nil {
+		finish("failed", "记录保存失败，未转存")
+		return
+	}
 	parent := target.Parent
 	if parent == "/" || parent == "" {
 		parent = rootOf(s)

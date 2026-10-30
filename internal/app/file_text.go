@@ -104,6 +104,14 @@ func (a *App) fileText(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("文本超过限制"))
 		return
 	}
+	a.runMu.Lock()
+	release, err := a.reserveTaskFileNodes(ctx, []taskFileNode{{storage: s, id: chosen.ID}})
+	a.runMu.Unlock()
+	if err != nil {
+		fail(w, 409, err)
+		return
+	}
+	defer release()
 	ctx = context.WithValue(ctx, mountPutLength{}, int64(len(input.Content)))
 	out, err := fs.OpenFile(ctx, "/"+chosen.Name, os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {

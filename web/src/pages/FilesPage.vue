@@ -372,6 +372,12 @@ async function act(action, extra = {}) {
   finally { busy.value = false; renameBusy.value = false }
 }
 function cancelEdit() { renameID.value = ''; draft.value = false; newName.value = ''; confirmRename.value = false }
+const renameRecreates115 = computed(() => {
+  const original = files.value.find(f => f.id === renameID.value)
+  const extension = name => { const dot = name.lastIndexOf('.'); return dot < 0 ? '' : name.slice(dot) }
+  return !draft.value && original && !original.isDir && state.storages.find(s => s.id === selected.value)?.type === '115' &&
+    extension(original.name) !== extension(newName.value.trim())
+})
 async function createFolder() {
   createMenu.value = false
   if (!selected.value || busy.value || renameID.value) return
@@ -385,7 +391,7 @@ function commitEdit(outside = false) {
   if (draft.value) { act('mkdir', { name }); return }
   const original = files.value.find(f => f.id === renameID.value)
   if (!original || name === original.name) { cancelEdit(); return }
-  if (outside) { confirmRename.value = true; return }
+  if (outside || renameRecreates115.value) { confirmRename.value = true; return }
   act('rename', { name, ids: [renameID.value] })
 }
 function outsideEdit(event) {
@@ -478,7 +484,7 @@ load()
   <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :source-label="'/'+history.map(item=>item.name).join('/')" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
-  <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" hover-open :hover-delay="0" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
+  <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
     <div class="search-field"><Icon :name="searching ? 'LoaderCircle' : 'Search'" :class="{ spin: searching }" :size="16" /><input v-model="searchInput" :disabled="!!renameID" @keydown.enter="deepSearch($event)" aria-label="搜索当前目录" placeholder="搜索当前目录…" /></div>
     <div class="file-create"><button class="btn primary" :disabled="!selected || busy || uploadBusy || !!renameID" aria-label="工具" aria-haspopup="menu" :aria-expanded="createMenu" @click="toolPosition = null; createMenu = !createMenu"><Icon name="Wrench" />工具<Icon name="ChevronDown" :size="14" class="tools-chevron" :class="{ expanded: createMenu }" /></button>
       <Transition name="select-popup"><div v-if="createMenu" class="file-create-menu" :style="toolPosition" role="menu"><button role="menuitem" :disabled="!!searchResults || searching" @click="createFolder"><Icon name="FolderPlus" />新建文件夹</button><button role="menuitem" @click="fileUpload.click(); createMenu = false"><Icon name="ArrowUp" />上传文件</button><button role="menuitem" @click="folderUpload.click(); createMenu = false"><Icon name="FolderInput" />上传文件夹</button><button role="menuitem" :disabled="!offlineSupported" @click="offline = true; createMenu = false"><Icon name="Download" />离线下载</button><button v-if="shareSupported" role="menuitem" @click="shareTransfer = true; createMenu = false"><Icon name="FolderInput" />分享转存</button><button role="menuitem" :disabled="!files.length || !!searchResults || searching" @click="openWorkbench"><Icon name="TextCursorInput" />命名工作台</button><button v-if="casExportSupported" role="menuitem" :disabled="busy || !!searchResults || searching || !files.length" @click="casExportOpen=true;createMenu=false"><Icon name="FileJson" />导出CAS</button></div></Transition>
@@ -523,7 +529,7 @@ load()
   <Modal v-if="extracting" title="解压压缩包" compact @close="closeExtract"><form @submit.prevent="extract"><div class="modal-body extract-form"><p class="muted">{{ extracting.name }}</p><label>解压目录<input v-model="extractFolder" required maxlength="255" :disabled="extractBusy" /></label><label>解压密码<SecretInput v-model="extractPassword" aria-label="解压密码" autocomplete="off" :disabled="extractBusy" /></label><p v-if="extractError" class="error-message" role="alert">{{ extractError }}</p><p v-if="extractBusy" class="muted" role="status">正在解压并写入存储，请保持窗口打开…</p></div><footer class="modal-footer"><button class="btn primary" :disabled="extractBusy || !extractFolder.trim()"><Icon :name="extractBusy ? 'LoaderCircle' : 'ArchiveRestore'" :class="{ spin: extractBusy }" />{{ extractBusy ? '解压中…' : '确认解压' }}</button><button class="btn" type="button" :disabled="extractBusy" @click="closeExtract">取消</button></footer></form></Modal>
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
-  <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body">将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</div><footer class="modal-footer"><button class="btn" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })">确认修改</button></footer></Modal>
+  <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body"><p>将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</p><p v-if="renameRecreates115" class="muted">修改后缀将通过秒传创建新文件，校验成功后将原文件移入115回收站；秒传失败保留原文件。</p></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })"><Icon v-if="busy" name="LoaderCircle" class="spin" />{{ busy ? '正在修改…' : '确认修改' }}</button></footer></Modal>
   <FileDetailsDrawer :open="details" :title="detailFiles.every(f => f.isDir) ? '文件夹详情' : '文件详情'" :count="detailFiles.length" @close="details = false"><div class="modal-body file-details"><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-if="detailFiles.length > 1"><dt>大小</dt><dd>{{ detailBusy ? '正在统计…' : !detailSummary.complete ? '统计未完成 · ' : '' }}{{ bytes(detailSummary.size) }}</dd><dt>包含</dt><dd>{{ detailSummary.folders }} 个文件夹，{{ detailSummary.files }} 个文件</dd><dt>所在目录</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation()">{{ detailLocation() }}<Icon name="Copy" :size="14" /></button></dd></dl><dl v-for="f in detailFiles.length === 1 ? detailFiles : []" :key="f.id">
     <dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd>
     <dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd>
@@ -547,11 +553,17 @@ load()
 .file-view .file-row:not(.selected):nth-child(even) { background:color-mix(in srgb,var(--input) 65%,var(--surface)); }
 .file-view .file-row:not(.selected):hover { background:color-mix(in srgb,var(--primary-soft) 55%,var(--input)); }
 .file-toolbar { gap:6px; }
+.file-toolbar > .icon-btn[aria-expanded=true] { background:var(--primary-soft); color:var(--primary); }
 .file-pool-select :deep(.select-label > span:last-child) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .file-visit-history :deep(.rounded-select-popup) { width:360px; right:-28px; left:auto; max-width:calc(100vw - 32px); }
 .file-visit-history :deep(.rounded-select-trigger[aria-expanded="true"]) { background:var(--primary-soft); color:var(--primary); }
 .visit-entry { display:flex; align-items:center; gap:8px; width:100%; min-width:0; font-size:13px; }.visit-entry strong { color:var(--text); max-width:120px; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
 .file-visit-history { min-width:33px; width:33px; }.file-visit-history :deep(.rounded-select-trigger) { width:33px; height:33px; padding:0; justify-content:center; border:0; background:none; border-radius:5px; color:var(--muted); }.file-visit-history :deep(.rounded-select-trigger:hover) { background:var(--primary-soft); color:var(--primary); }.file-visit-history :deep(.rounded-select-trigger svg) { width:20px; height:20px; }.file-visit-history :deep(.select-label) { width:100%; overflow:hidden; }
+@media(max-width:760px){
+  .files-heading { position:relative; }
+  .file-visit-history { position:static; }
+  .file-visit-history :deep(.rounded-select-popup) { left:0; right:auto; min-width:0; width:min(360px,100%); max-width:100%; }
+}
 .file-search-status { margin:0 0 10px; color:var(--muted); font-size:12px; }
 .file-result-path { display:block; padding:0; margin:4px 0 0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:none; color:var(--muted); font-size:11px; text-align:left; }
 .file-result-path:hover { color:var(--primary); }

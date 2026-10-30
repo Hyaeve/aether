@@ -80,6 +80,7 @@ type App struct {
 	resources      transferResources
 	traffic        trafficMeter
 	shareMu        sync.Mutex
+	shareLiveMu    sync.Mutex
 	sharePreviews  map[string]*sharePreview
 	scrapeMu       sync.Mutex
 	scrapeCancel   context.CancelFunc
@@ -106,6 +107,7 @@ type App struct {
 	runMu          sync.Mutex
 	running        map[string]context.CancelFunc
 	runningStorage map[string]string
+	taskFileUses   map[string][]taskFileNode
 	gateMu         sync.Mutex
 	gates          map[string]time.Time
 	intervals      map[string]int
@@ -240,6 +242,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.telegramWorker()
 	go a.telegramInteractionCleaner()
 	a.wg.Add(1)
+	go a.shareLiveMonitor()
+	a.wg.Add(1)
 	go a.channelNotificationWorker()
 	a.wg.Add(1)
 	go a.quarkLibraryMonitor()
@@ -359,6 +363,10 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("PUT /api/notification-service/{section}", a.protected(http.HandlerFunc(a.notificationSettings)))
 	mux.Handle("POST /api/notification-service/test", a.protected(http.HandlerFunc(a.telegramTest)))
 	mux.Handle("POST /api/notification-service/secret", a.protected(http.HandlerFunc(a.telegramSecret)))
+	mux.Handle("GET /api/share-transfers", a.protected(http.HandlerFunc(a.shareTransferHistory)))
+	mux.Handle("GET /api/share-live", a.protected(http.HandlerFunc(a.shareLiveAPI)))
+	mux.Handle("PUT /api/share-live/{id}", a.protected(http.HandlerFunc(a.shareLiveAPI)))
+	mux.Handle("POST /api/share-live/{id}/{action}", a.protected(http.HandlerFunc(a.shareLiveAPI)))
 	mux.Handle("POST /api/notification-service/wecom/secret", a.protected(http.HandlerFunc(a.wecomSecret)))
 	mux.Handle("POST /api/notification-service/wecom/test", a.protected(http.HandlerFunc(a.wecomTest)))
 	mux.Handle("POST /api/notification-service/{channel}/secret", a.protected(http.HandlerFunc(a.notificationChannelSecret)))
@@ -945,9 +953,9 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 	defer func() { <-a.casGate }()
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
-	for _, running := range a.runningStorage {
-		if running == sid {
-			fail(w, 409, errors.New("请先停止该存储池的任务"))
+	for _, task := range a.runningTasks() {
+		if task.StorageID == sid {
+			fail(w, 409, fmt.Errorf("%s正在使用该存储池，请先停止此任务再修改存储配置", taskDescription(task)))
 			return
 		}
 	}
@@ -1195,8 +1203,9 @@ func (a *App) validateTask(t *Task) error {
 			if !validCASInfoMode(t.CASInfoMode) {
 				return errors.New("CAS 信息类型无效")
 			}
-			s, _ := a.store.storage(t.StorageID)
-			t.CASInfoMode = casTaskInfoMode(*t, s)
+			if t.CASInfoMode == "" {
+				t.CASInfoMode = "auto"
+			}
 			t.Mode = "incremental"
 		}
 		t.Target = strings.TrimSpace(t.Target)
@@ -1278,7 +1287,14 @@ func (a *App) taskItem(w http.ResponseWriter, r *http.Request) {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 	if _, ok := a.running[tid]; ok {
-		fail(w, 409, errors.New("请先停止任务"))
+		task := Task{ID: tid}
+		for _, active := range a.runningTasks() {
+			if active.ID == tid {
+				task = active
+				break
+			}
+		}
+		fail(w, 409, fmt.Errorf("%s正在执行，请先停止此任务再修改或删除", taskDescription(task)))
 		return
 	}
 	err := a.store.update(func(st *State) error {

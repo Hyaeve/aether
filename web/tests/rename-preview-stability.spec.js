@@ -33,6 +33,7 @@ test('rename previews preserve scrolled rows and ignore stale responses and inco
   expect(await rows.first().evaluate(el=>el===window.stableComparisonRow)).toBe(true)
   expect(await viewport.evaluate(el=>el.scrollTop)).toBe(600)
   await page.getByRole('button',{name:'添加规则',exact:true}).click()
+  await page.getByRole('group',{name:'可选规则'}).getByRole('button',{name:'查找替换',exact:true}).click()
   await expect(page.getByLabel('替换为',{exact:true})).toHaveCount(1)
   await page.getByLabel('替换为',{exact:true}).fill('ignored')
   await page.waitForTimeout(400)

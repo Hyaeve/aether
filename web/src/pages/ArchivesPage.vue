@@ -5,6 +5,7 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import ArchiveScrapeRow from '../components/ArchiveScrapeRow.vue'
+import PageJumpInput from '../components/PageJumpInput.vue'
 import { noticeTime } from '../library-notices'
 import { archiveStatuses, archiveTriggers, archiveKinds, archiveStatusClass } from '../archive-display'
 import '../archives.css'
@@ -65,6 +66,7 @@ function toggleGroup(group) {
 }
 function changePage(page) {
   const next=Math.min(Math.max(1,Math.trunc(Number(page))||1),result.value.pages)
+  jumpPage.value=next
   groups.value={};load(next)
 }
 async function confirmRetry() {
@@ -120,7 +122,7 @@ onUnmounted(()=>{alive=false;request++;clearTimeout(timer);clearTimeout(searchTi
       <div class="archive-task-columns" aria-hidden="true"><span>任务名称 / 类型</span><span>触发来源</span><span>执行时间</span><span>执行结果</span></div>
       <article v-for="item in result.items" :key="item.id" class="archive-task-row" role="listitem"><div class="archive-task-name"><Icon name="ListTodo" /><span><strong :data-tooltip="item.taskName">{{ item.taskName }}</strong><small>{{ archiveKinds[item.taskKind] || item.taskKind }} · {{ item.processed || 0 }} {{item.taskKind==='automation'?'步':'项'}}</small></span></div><span class="archive-trigger">{{ archiveTriggers[item.trigger] || '未知来源' }}</span><span class="archive-task-time"><time :datetime="item.startedAt">{{ noticeTime(item.startedAt) }}</time><small v-if="item.finishedAt">结束 {{ noticeTime(item.finishedAt) }}</small></span><span class="archive-status" :class="archiveStatusClass(item.status)" :data-tooltip="item.message" data-tooltip-always><Icon :name="item.status==='success'?'CircleCheck':'CircleAlert'" :size="15" />{{ archiveStatuses[item.status] || '未知状态' }}</span></article>
     </div>
-    <form class="archive-pagination" aria-label="档案分页" @submit.prevent="changePage(jumpPage)"><button type="button" class="icon-btn" aria-label="第一页" :disabled="loading || result.page===1" @click="changePage(1)"><Icon name="ChevronsLeft" /></button><button type="button" class="icon-btn" aria-label="上一页" :disabled="loading || result.page===1" @click="changePage(result.page-1)"><Icon name="ChevronLeft" /></button><span>{{ result.page }} / {{ result.pages }}</span><button type="button" class="icon-btn" aria-label="下一页" :disabled="loading || result.page===result.pages" @click="changePage(result.page+1)"><Icon name="ChevronRight" /></button><button type="button" class="icon-btn" aria-label="最后一页" :disabled="loading || result.page===result.pages" @click="changePage(result.pages)"><Icon name="ChevronsRight" /></button><input v-model="jumpPage" type="number" min="1" step="1" aria-label="跳转页码" /><button class="icon-btn" aria-label="跳转到指定页" :disabled="loading"><Icon name="CornerDownLeft" /></button></form>
+    <form class="archive-pagination" aria-label="档案分页" @submit.prevent="changePage(jumpPage)"><button type="button" class="icon-btn" aria-label="第一页" :disabled="loading || result.page===1" @click="changePage(1)"><Icon name="ChevronsLeft" /></button><button type="button" class="icon-btn" aria-label="上一页" :disabled="loading || result.page===1" @click="changePage(result.page-1)"><Icon name="ChevronLeft" /></button><span>{{ result.page }} / {{ result.pages }}</span><button type="button" class="icon-btn" aria-label="下一页" :disabled="loading || result.page===result.pages" @click="changePage(result.page+1)"><Icon name="ChevronRight" /></button><button type="button" class="icon-btn" aria-label="最后一页" :disabled="loading || result.page===result.pages" @click="changePage(result.pages)"><Icon name="ChevronsRight" /></button><PageJumpInput v-model="jumpPage" :pages="result.pages" /><button class="icon-btn" aria-label="跳转到指定页" :disabled="loading"><Icon name="CornerDownLeft" /></button></form>
   </section>
   <Modal v-if="retry" title="重新识别刮削" compact confirmation @close="!submitting && (retry=null)"><div class="modal-body"><p>重新识别并刮削「{{ retry.filename }}」？元数据按当前刮削设置补缺或覆盖，原 STRM 保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="submitting" @click="confirmRetry">确认识别</button><button class="btn" :disabled="submitting" @click="retry=null">取消</button></footer></Modal>
 </template>

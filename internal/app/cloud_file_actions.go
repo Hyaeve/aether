@@ -173,6 +173,13 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 		}
 		switch req.Action {
 		case "rename":
+			if !selected[0].IsDir && path.Ext(selected[0].Name) != path.Ext(req.Name) {
+				file, err := a.rename115Extension(ctx, s, req.Source, selected[0], req.Name)
+				if err == nil && req.renamed != nil {
+					*req.renamed = file
+				}
+				return err
+			}
 			return c.Rename(req.IDs[0], req.Name)
 		case "move":
 			return c.Move(dest, req.IDs...)

@@ -156,8 +156,8 @@ func TestCASMobileDefaultManualOverrideAndResetProtection(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(task)
-	if !strings.Contains(string(raw), `"casInfoMode":"mobile"`) {
-		t.Fatal("mobile source did not select its feature mode")
+	if !strings.Contains(string(raw), `"casInfoMode":"auto"`) {
+		t.Fatal("mobile source did not keep the smart default")
 	}
 	if err := json.Unmarshal([]byte(`{"casInfoMode":"all"}`), &task); err != nil {
 		t.Fatal(err)

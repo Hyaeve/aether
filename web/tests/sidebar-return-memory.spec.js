@@ -6,7 +6,7 @@ const pages = [
   { child: '/tasks/cache/settings', parent: '/tasks/cache', module: '任务中心', open: '打开缓存设置', back: '返回缓存任务' },
   { child: '/tasks/cas/pool', parent: '/tasks/cas', module: '任务中心', open: '打开存储绑定池', back: '返回 CAS 任务' },
   { child: '/tasks/ed2k/pool', parent: '/tasks/ed2k', module: '任务中心', open: '打开存储绑定池', back: '返回 ED2K 任务' },
-  { child: '/tools/115-rapid', parent: '/tools', module: '辅助工具', open: '115 秒传', back: '返回页面' },
+  { child: '/tools/115-rapid', parent: '/tools', module: '辅助工具', open: '115 秒传中心', back: '返回页面' },
   { child: '/virtual/quark/settings', parent: '/virtual/quark', module: '虚拟链库', open: '夸克链库设置', back: '返回页面' },
   { child: '/transfer/backup/settings', parent: '/transfer/backup', module: '传输中心', open: '备份设置', back: '返回备份规则' }
 ]

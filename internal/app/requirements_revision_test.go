@@ -129,11 +129,11 @@ func TestCASMetadataKeepsRelativeHierarchy(t *testing.T) {
 	if n, err := a.executeTask(context.Background(), task, s); err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
-	data, err := os.ReadFile(filepath.Join(a.outputDir, "cas-metadata", "Season 1", "poster.nfo"))
+	data, err := os.ReadFile(filepath.Join(a.outputDir, "cas-metadata", "source", "Season 1", "poster.nfo"))
 	if err != nil || string(data) != "metadata" {
 		t.Fatal(string(data), err)
 	}
-	if _, err := os.Stat(filepath.Join(a.outputDir, "cas-metadata", "Season 1", "ignored.txt")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(a.outputDir, "cas-metadata", "source", "Season 1", "ignored.txt")); !os.IsNotExist(err) {
 		t.Fatal("unselected metadata copied", err)
 	}
 }

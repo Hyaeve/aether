@@ -193,7 +193,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
   <LoginPage v-else-if="!state.authenticated" />
   <div v-else class="app-shell">
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
-    <aside class="sidebar" :class="{ open: mobileNav }">
+    <aside class="sidebar" :class="{ open: mobileNav }" :data-theme="currentPath === '/settings/about' ? 'dark' : undefined">
       <div class="brand"><img src="/aether.svg" alt="" /><span>Aether<small>云端本地 · 以太空间</small></span></div>
       <nav aria-label="主导航">
         <div v-for="group in navigationGroups" :key="group.id" class="nav-group" role="group" :aria-labelledby="`sidebar-${group.id}`">

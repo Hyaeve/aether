@@ -74,7 +74,7 @@ test('virtual library generates previewed structure and shares the ED2K pool',as
  await page.route('**/api/local-directories**',route=>route.fulfill({json:{path:'/media',items:[]}}))
  await page.goto('/virtual/115')
  await expect(page.getByRole('navigation',{name:'虚拟链库栏目'}).getByRole('link')).toHaveCount(4)
- await page.getByText('115分享链接',{exact:true}).locator('textarea').fill('https://115.com/s/code?password=abcd')
+ await page.getByRole('textbox',{name:'115分享链接',exact:true}).fill('https://115.com/s/code?password=abcd')
  await page.getByRole('button',{name:'解析',exact:true}).click();await expect(page.locator('.virtual-results')).toContainText('Show/one.mkv.strm')
  await page.locator('.source-trigger').click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click()
  await page.getByRole('button',{name:'生成 STRM',exact:true}).click();await expect(page.locator('.toast')).toContainText('生成 1 个 STRM')

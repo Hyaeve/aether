@@ -44,6 +44,7 @@ func (a *App) cronPolicyAPI(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Expression string `json:"expression"`
 		Retry      bool   `json:"retry"`
+		ShareLive  bool   `json:"shareLive"`
 	}
 	if !decode(w, r, &input) {
 		return
@@ -55,6 +56,9 @@ func (a *App) cronPolicyAPI(w http.ResponseWriter, r *http.Request) {
 		_, err := cronParser.Parse(input.Expression)
 		if err == nil && input.Retry {
 			err = validateRapid115RetryCron(input.Expression)
+		}
+		if err == nil && input.ShareLive {
+			err = validateShareLiveCron(input.Expression)
 		}
 		if err != nil {
 			message = err.Error()

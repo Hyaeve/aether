@@ -52,7 +52,7 @@ type casPrecomputed struct {
 
 // Two workers per directory, with a shared service-wide limit across tasks.
 func (a *App) precomputeRemoteCAS(ctx context.Context, t Task, s Storage, files []File, rel, outputDir, target string) map[string]casPrecomputed {
-	if t.Kind != "cas" || t.CASOperation == "restore" || s.Type == "local" || s.Type == "mobile" && casTaskInfoMode(t, s) == "mobile" {
+	if t.Kind != "cas" || t.CASOperation == "restore" || s.Type == "local" || nativeMobile(s) && casTaskInfoMode(t, s) == "mobile" {
 		return nil
 	}
 	results := map[string]casPrecomputed{}

@@ -5,6 +5,7 @@ import './style.css'
 import { preloadLogos } from './assets-preload'
 import { tabScroll } from './tab-scroll'
 import { registerPWA } from './pwa'
+import { HanText } from './han-spacing'
 preloadLogos()
 registerPWA()
 
@@ -21,4 +22,4 @@ const router = createRouter({
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
   ]
 })
-createApp(App).directive('tab-scroll', tabScroll).use(router).mount('#app')
+createApp(App).component('AetherHanText', HanText).directive('tab-scroll', tabScroll).use(router).mount('#app')

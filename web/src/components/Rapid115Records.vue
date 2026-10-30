@@ -3,11 +3,13 @@ import { computed, ref, watch } from 'vue'
 import { bytes, date } from '../lib'
 import { compactDate } from '../date-time.mjs'
 import Icon from './Icon.vue'
+import PageJumpInput from './PageJumpInput.vue'
 const props = defineProps({ items: {type:Array,default:()=>[]}, page:Number, pages:Number, loading:Boolean, scoped:Boolean })
 const emit = defineEmits(['page'])
 const jump=ref(1)
 watch(()=>props.page,value=>jump.value=value,{immediate:true})
-const statuses={running:'处理中',failed:'秒传失败',interrupted:'已中断',deleted:'重试3次失败，已删除'}
+function submitPage(){jump.value=Math.max(1,Math.min(props.pages||1,Math.trunc(Number(jump.value))||1));emit('page',jump.value)}
+const statuses={running:'处理中',failed:'失败跳过',interrupted:'已中断',deleted:'失败删除'}
 function status(r){return r.status==='running'?(r.phase||'处理中'):r.status==='success'?(r.retries?`重试${r.retries}次成功`:'秒传成功'):r.status==='uploaded'?'传输成功':r.status==='retrying'?`等待第${(r.retries||0)+1}次重试`:statuses[r.status]||r.status}
 const statusMessage=r=>r.status==='success'&&r.retries>0&&r.message===`重试${r.retries}次秒传成功`?status(r):r.message||status(r)
 const icon=r=>({running:'LoaderCircle',success:'CircleCheck',uploaded:'Upload',retrying:'Clock',deleted:'Trash2',failed:'CircleAlert',interrupted:'CircleAlert'})[r.status]||'CircleAlert'
@@ -27,12 +29,12 @@ const columns=computed(()=>['文件名称','文件大小','PickCode',...(!props.
         <span class="rapid115-pickcode" role="cell">{{r.pickcode||'--'}}</span>
         <span v-if="!scoped" class="rapid115-source" :class="sourceKind(r)" role="cell" :data-tooltip="sourceName(r)" :data-tooltip-always="Array.from(sourceName(r)).length>5?true:undefined" data-tooltip-stationary data-tooltip-delay="300">{{sourceText(r)}}</span>
         <time role="cell" :datetime="r.time" :data-tooltip="date(r.time)" data-tooltip-always data-tooltip-stationary>{{scoped?compactDate(r.time).slice(3):compactDate(r.time)}}</time>
-        <span class="rapid115-status" role="cell" :class="r.status"><span class="rapid115-status-label" :data-tooltip="statusMessage(r)" data-tooltip-stationary data-tooltip-delay="300"><Icon :name="icon(r)" :size="14" /><span>{{status(r)}}</span></span><progress :aria-label="`${r.name}：${status(r)}`" :aria-valuetext="r.total>0?`${status(r)}，${Math.floor(progress(r)*100)}%`:status(r)" :value="progress(r)" max="1" /></span>
+        <span class="rapid115-status" role="cell" :class="r.status"><span class="rapid115-status-label" :data-tooltip="statusMessage(r)" :data-tooltip-always="statusMessage(r)!==status(r)?true:undefined" data-tooltip-stationary data-tooltip-delay="300"><Icon :name="icon(r)" :size="14" /><span>{{status(r)}}</span></span><progress :aria-label="`${r.name}：${status(r)}`" :aria-valuetext="r.total>0?`${status(r)}，${Math.floor(progress(r)*100)}%`:status(r)" :value="progress(r)" max="1" /></span>
       </article>
     </div>
     <p v-if="!items.length" class="small-empty">暂无秒传记录</p>
   </div>
-  <form class="rapid115-pagination" aria-label="秒传记录分页" @submit.prevent="emit('page',jump)"><button type="button" class="icon-btn" aria-label="第一页" :disabled="loading||page===1" @click="emit('page',1)"><Icon name="ChevronsLeft" /></button><button type="button" class="icon-btn" aria-label="上一页" :disabled="loading||page===1" @click="emit('page',page-1)"><Icon name="ChevronLeft" /></button><span>{{page}} / {{pages}}</span><button type="button" class="icon-btn" aria-label="下一页" :disabled="loading||page===pages" @click="emit('page',page+1)"><Icon name="ChevronRight" /></button><button type="button" class="icon-btn" aria-label="最后一页" :disabled="loading||page===pages" @click="emit('page',pages)"><Icon name="ChevronsRight" /></button><input v-model="jump" type="number" min="1" step="1" aria-label="跳转页码" /><button class="icon-btn" aria-label="跳转到指定页" :disabled="loading"><Icon name="CornerDownLeft" /></button></form>
+  <form class="rapid115-pagination" aria-label="秒传记录分页" @submit.prevent="submitPage"><button type="button" class="icon-btn" aria-label="第一页" :disabled="loading||page===1" @click="emit('page',1)"><Icon name="ChevronsLeft" /></button><button type="button" class="icon-btn" aria-label="上一页" :disabled="loading||page===1" @click="emit('page',page-1)"><Icon name="ChevronLeft" /></button><span>{{page}} / {{pages}}</span><button type="button" class="icon-btn" aria-label="下一页" :disabled="loading||page===pages" @click="emit('page',page+1)"><Icon name="ChevronRight" /></button><button type="button" class="icon-btn" aria-label="最后一页" :disabled="loading||page===pages" @click="emit('page',pages)"><Icon name="ChevronsRight" /></button><PageJumpInput v-model="jump" :pages="pages" /><button class="icon-btn" aria-label="跳转到指定页" :disabled="loading"><Icon name="CornerDownLeft" /></button></form>
 </template>
 <style scoped>
 .rapid115-record-frame{min-height:calc(44px + 30 * 56px);background:var(--input);border:1px solid var(--border);border-radius:6px;overflow:clip}

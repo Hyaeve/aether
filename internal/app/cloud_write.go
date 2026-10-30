@@ -420,7 +420,7 @@ func writeHTTP(ctx context.Context, method, address string, headers http.Header,
 	client := &http.Client{Transport: apiClient.Transport, Timeout: 30 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, errors.New("云端写入网络请求失败")
+		return nil, nil, &storageRequestError{message: "云端写入网络请求失败", cause: err}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
@@ -428,7 +428,7 @@ func writeHTTP(ctx context.Context, method, address string, headers http.Header,
 		return nil, nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nil, fmt.Errorf("云端写入返回 HTTP %d", resp.StatusCode)
+		return nil, nil, &storageRequestError{message: fmt.Sprintf("云端写入返回 HTTP %d", resp.StatusCode)}
 	}
 	return raw, resp.Header, nil
 }

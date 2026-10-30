@@ -28,6 +28,17 @@ type telegramTarget struct {
 	Path          string `json:"path"`
 	ShareTransfer *bool  `json:"shareTransfer,omitempty"`
 	ED2KOffline   bool   `json:"ed2kOffline"`
+	UpdateDays    *int   `json:"updateDays,omitempty"`
+}
+
+func (target telegramTarget) updateDays() int {
+	if target.Provider == "115" {
+		return 0
+	}
+	if target.UpdateDays == nil {
+		return 7
+	}
+	return *target.UpdateDays
 }
 
 func (target telegramTarget) shares() bool {
@@ -129,6 +140,9 @@ func validateNotifications(value notificationConfig, st State) error {
 	}
 	seen := map[string]bool{}
 	for _, target := range value.Targets {
+		if target.UpdateDays != nil && (*target.UpdateDays < 0 || *target.UpdateDays > 365) {
+			return errors.New("更新周期须为0至365天的整数，0表示停用")
+		}
 		if target.Provider != "115" && (target.ED2KOffline || !target.shares()) {
 			return errors.New("仅115目录支持设置分享转存和ED2K离线用途")
 		}

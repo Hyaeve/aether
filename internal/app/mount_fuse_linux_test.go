@@ -171,6 +171,38 @@ func TestNativeFuseCloudFlushAndRandomWrite(t *testing.T) {
 	}
 }
 
+func TestNativeFuseOpenRequestCancellationDoesNotCancelHandle(t *testing.T) {
+	a := testApp(t)
+	remoteRoot := t.TempDir()
+	remote := httptest.NewServer(&webdav.Handler{FileSystem: webdav.Dir(remoteRoot), LockSystem: webdav.NewMemLS()})
+	defer remote.Close()
+	s := Storage{ID: "cloud", Name: "Cloud", Type: "webdav", Enabled: true, Config: map[string]string{"address": remote.URL, "root": "/"}}
+	if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; st.TransferSettings.UploadDelay = 0; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	node := &nativeFuseNode{backend: mountFS{app: a, config: MountConfig{StorageID: s.ID, Source: "/", Mode: 0755}}}
+	fs.NewNodeFS(node, &fs.Options{})
+	openRequest, cancelOpen := context.WithCancel(a.ctx)
+	var out fuse.EntryOut
+	_, handle, _, errno := node.Create(openRequest, "book.cbz", syscall.O_RDWR, 0600, &out)
+	cancelOpen()
+	if errno != 0 {
+		t.Fatal(errno)
+	}
+	h := handle.(*nativeFuseHandle)
+	defer h.Release(a.ctx)
+	if n, errno := h.Write(a.ctx, []byte("content"), 0); errno != 0 || n != 7 {
+		t.Fatal("completed open request canceled later file write", n, errno)
+	}
+	if errno := h.Flush(a.ctx); errno != 0 {
+		t.Fatal("completed open request canceled cloud publication", errno)
+	}
+	raw, err := os.ReadFile(filepath.Join(remoteRoot, "book.cbz"))
+	if err != nil || string(raw) != "content" {
+		t.Fatal("cloud file did not match staged content", string(raw), err)
+	}
+}
+
 func TestNativeFuse115BoundedCacheCallbacks(t *testing.T) {
 	for _, diskCache := range []bool{true, false} {
 		t.Run(fmt.Sprintf("disk_cache_%t", diskCache), func(t *testing.T) {

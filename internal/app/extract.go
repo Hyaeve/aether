@@ -359,12 +359,13 @@ func (a *App) fileExtract(w http.ResponseWriter, r *http.Request) {
 	}
 	defer a.extracting.Store(0)
 	a.runMu.Lock()
-	busy := len(a.running) != 0
+	release, err := a.reserveTaskFileNodes(r.Context(), []taskFileNode{{storage: s, id: in.ID}, {s, in.Parent, in.Name}})
 	a.runMu.Unlock()
-	if busy {
-		fail(w, 409, errors.New("有任务正在执行，请等待完成后解压"))
+	if err != nil {
+		fail(w, 409, err)
 		return
 	}
+	defer release()
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 	defer cancel()
 	items, err := a.rawList(ctx, s, in.Parent)

@@ -2,6 +2,7 @@ const tiers = {
   '115':{vip:['VIP','Crown'],annual:['年费VIP','Crown'],permanent:['永久VIP','BadgeCheck']},
   mobile:{silver:['白银会员','ShieldCheck'],gold:['黄金会员','Crown'],diamond:['钻石会员','Diamond']},
   tianyi:{gold:['黄金会员','Crown'],platinum:['铂金会员','Gem']},
+  quark:{vip:['VIP','Crown'],svip:['SVIP','Crown'],'svip-plus':['SVIP+','Gem'],'88vip':['88VIP','BadgeCheck'],mini:['迷你VIP','ShieldCheck']},
 }
 export function storageMembership(type,value) {
   const tier=tiers[type]?.[value?.tier]

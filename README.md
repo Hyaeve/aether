@@ -4,7 +4,7 @@
 
 自托管的云盘与本地存储工作空间，使用 Go + Vue 构建。
 
-当前版本：**v0.7.2** · [版本说明](docs/releases/v0.7.2.md)
+当前版本：**v0.7.3** · [版本说明](docs/releases/v0.7.3.md)
 
 版本编号采用末位满10、中位满100进位，不按标准SemVer的无限补丁位递增。发布前运行 `node scripts/version.mjs --next` 计算下一个编号，运行 `node scripts/version.mjs --check` 校验各处版本一致。
 

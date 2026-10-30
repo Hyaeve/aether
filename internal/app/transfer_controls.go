@@ -146,8 +146,8 @@ func (a *App) localCopyReplay(p *transferProgress, source, target Storage, from,
 		}
 		a.runMu.Lock()
 		defer a.runMu.Unlock()
-		if len(a.running) != 0 {
-			return errors.New("有任务正在执行，请稍后重试")
+		if err := a.checkTaskFileNodes(ctx, []taskFileNode{{storage: source, id: from}, {storage: target, id: to}}); err != nil {
+			return err
 		}
 		next.controlCopy()
 		ctx = context.WithValue(ctx, copyProgressKey{}, next)

@@ -87,14 +87,23 @@ for(const [width,theme] of [[1440,'light'],[1440,'dark'],[390,'light'],[320,'dar
    }
    expect(await name.evaluate(el=>el.scrollWidth>el.clientWidth)).toBe(true)
    if(kind==='shares'){
-    await page.clock.install();await page.clock.pauseAt(new Date())
+    await page.clock.install({time:new Date('2026-10-29T00:00:00Z')});await page.clock.pauseAt(new Date('2026-10-29T00:00:01Z'))
     await name.hover();await page.clock.runFor(299);await expect(page.getByRole('tooltip')).toHaveCount(0)
     await page.clock.runFor(1);await expect(page.getByRole('tooltip')).toHaveText(longName)
     await page.keyboard.press('Escape');await page.clock.resume()
    }
    if(kind==='downloads')await expect(row.locator('progress')).toHaveCSS('height','4px')
    if(kind!=='shares'){
-    const tail=await row.locator('.cloud-path').evaluate(el=>{const bdi=el.querySelector('bdi'),text=bdi.firstChild,range=document.createRange();range.setStart(text,text.length-4);range.setEnd(text,text.length);const r=range.getBoundingClientRect(),box=el.getBoundingClientRect();return r.left>=box.left&&r.right<=box.right})
+    const tail=await row.locator('.cloud-path').evaluate(el=>{
+     const bdi=el.querySelector('bdi'),walker=document.createTreeWalker(bdi,NodeFilter.SHOW_TEXT),nodes=[]
+     while(walker.nextNode())if(walker.currentNode.length)nodes.push(walker.currentNode)
+     let remaining=4,index=nodes.length-1
+     while(index>0&&remaining>nodes[index].length){remaining-=nodes[index].length;index--}
+     const range=document.createRange(),last=nodes.at(-1)
+     range.setStart(nodes[index],Math.max(0,nodes[index].length-remaining));range.setEnd(last,last.length)
+     const r=range.getBoundingClientRect(),box=el.getBoundingClientRect()
+     return range.toString()==='最深目录'&&r.left>=box.left&&r.right<=box.right
+    })
     expect(tail).toBe(true)
    }
    if(kind==='trash')await expect(page.locator('.cloud-management-columns')).toContainText('原始路径')
@@ -166,10 +175,10 @@ test('monitor choices have concise explanations and invalid cron exposes a stati
 
 test('115 folder cleanup plugin selects only 115 folders and confirms zero-day scope',async({page},info)=>{
  const f=await fixture(page);await page.goto('/tools');const cards=page.locator('.plugin-card')
- await expect(cards.first()).toHaveAttribute('aria-label','115签到')
+ await expect(cards.first()).toHaveAttribute('aria-label','115 自动签到')
  await expect(cards.nth(2)).toHaveAttribute('aria-label','115 同播复制')
- await expect(cards.nth(3)).toHaveAttribute('aria-label','115文件夹清理')
- await page.getByRole('button',{name:'115文件夹清理',exact:true}).click()
+ await expect(cards.nth(3)).toHaveAttribute('aria-label','115 文件夹清理')
+ await page.getByRole('button',{name:'115 文件夹清理',exact:true}).click()
  await page.getByRole('button',{name:'添加文件夹',exact:true}).click()
  const editor=page.getByRole('dialog',{name:'添加清理文件夹',exact:true})
  await expect(editor.getByRole('spinbutton',{name:'清理阈值',exact:true})).toHaveValue('0')
@@ -206,8 +215,8 @@ test('the shared minimum-Cron warning is present in every scheduled editor',asyn
   if(kind==='automation'){await page.getByRole('button',{name:'添加联动',exact:true}).click();await page.getByRole('button',{name:'触发方式',exact:true}).click();await page.getByRole('option',{name:'定时触发',exact:true}).click()}
   if(kind==='backup'){await page.locator('.task-heading').getByRole('button',{name:'添加规则',exact:true}).click();await page.getByRole('dialog',{name:'添加备份规则',exact:true}).getByRole('button',{name:'扫描规则',exact:true}).click()}
   if(kind==='quark')await page.getByRole('button',{name:'添加链接',exact:true}).click()
-  if(kind==='recycle'){await page.getByRole('button',{name:'115回收站清理',exact:true}).click();await page.getByRole('button',{name:'添加清理任务',exact:true}).click()}
-  if(kind==='folder'){await page.getByRole('button',{name:'115文件夹清理',exact:true}).click();await page.getByRole('button',{name:'添加文件夹',exact:true}).click()}
+  if(kind==='recycle'){await page.getByRole('button',{name:'115 回收站清理',exact:true}).click();await page.getByRole('button',{name:'添加清理任务',exact:true}).click()}
+  if(kind==='folder'){await page.getByRole('button',{name:'115 文件夹清理',exact:true}).click();await page.getByRole('button',{name:'添加文件夹',exact:true}).click()}
   const input=page.locator('.modal').last().locator('.cron-input input')
   await input.fill('*/14 * * * *');await expect(input).toHaveAttribute('aria-invalid','true')
   await input.fill('*/15 * * * *');await expect(input).not.toHaveAttribute('aria-invalid','true')
@@ -217,7 +226,7 @@ test('the shared minimum-Cron warning is present in every scheduled editor',asyn
 test('animated statistics visibly slow down through their final ten percent',async({page})=>{
  await fixture(page)
  const now=new Date('2026-10-27T00:00:00Z')
- await page.clock.install({time:now});await page.clock.pauseAt(now)
+ await page.clock.install({time:now});await page.clock.pauseAt(new Date(now.getTime()+1000))
  await page.goto('/dashboard')
  const number=page.locator('.metric-strip .animated-number').nth(2)
  await expect(number).toHaveText('0')
@@ -228,7 +237,7 @@ test('animated statistics visibly slow down through their final ten percent',asy
  expect(first).toBeGreaterThan(3000);expect(second).toBeGreaterThan(first)
  expect(near).toBeGreaterThan(9000);expect(near).toBeLessThan(10000)
  expect(slower-near).toBeLessThan((second-first)/3)
- await page.clock.runFor(1100);await expect(number).toHaveText('10000')
+ await page.clock.runFor(400);await expect(number).toHaveText('10000')
  await page.clock.resume();await page.emulateMedia({reducedMotion:'reduce'})
  await go(page,'辅助工具');await go(page,'信息总览')
  await expect(page.locator('.metric-strip .animated-number').nth(2)).toHaveText('10000')

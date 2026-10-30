@@ -229,7 +229,9 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 		a.shareMu.Lock()
 		p.Used = true
 		p.Failed = true
+		finished := *p
 		a.shareMu.Unlock()
+		a.recordBrowserShare(key, s, finished, "failed", "转存未完成，请核对云盘及运行日志")
 		fail(w, 400, err)
 	}
 	current, err := a.store.storage(s.ID)
@@ -239,7 +241,12 @@ func (a *App) saveShareBatch(w http.ResponseWriter, r *http.Request, ctx context
 	}
 	a.shareMu.Lock()
 	p.Next++
+	running := *p
 	a.shareMu.Unlock()
+	if err := a.recordBrowserShare(key, s, running, "running", "正在提交转存"); err != nil {
+		failure(errors.New("转存记录保存失败，未提交本批次"))
+		return
+	}
 	session := shareStorageSession(s, preview)
 	directory := batch.Directory
 	if preview.SaveDirectory != nil && *preview.SaveDirectory != "" {

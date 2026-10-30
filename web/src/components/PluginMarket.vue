@@ -63,7 +63,7 @@ function imageFailed(event) { event.target.hidden = true }
     <article v-for="plugin in plugins" :key="plugin.repository + ':' + plugin.id" class="plugin-card" role="button" tabindex="0" :aria-label="plugin.name" @click="selected = plugin" @keydown.enter.self="selected = plugin" @keydown.space.prevent.self="selected = plugin">
       <span class="plugin-symbol market-symbol"><Icon name="Puzzle" :size="26" /><img v-if="plugin.icon" :src="plugin.icon" alt="" loading="lazy" referrerpolicy="no-referrer" @error="imageFailed" /></span>
       <div class="plugin-heading"><strong>{{ plugin.name }}</strong><small class="plugin-subtitle">{{ plugin.subtitle || plugin.source }} · v{{ plugin.version }}</small></div>
-      <small class="plugin-description" :data-tooltip="plugin.description">{{ plugin.description }}</small>
+      <small class="plugin-description" :data-tooltip="plugin.description" data-tooltip-always data-tooltip-stationary data-tooltip-delay="300">{{ plugin.description }}</small>
     </article>
   </div>
   <p v-if="loaded && !plugins.length" class="small-empty">暂无插件</p>

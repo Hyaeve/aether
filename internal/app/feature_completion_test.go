@@ -57,6 +57,9 @@ func TestFeatureCompletionDeletesOnlyPublishedSources(t *testing.T) {
 				}
 			}
 			for _, name := range []string{"Season 1/movie.MKV." + kind + ".strm", "Season 1/movie.nfo"} {
+				if kind == "cas" {
+					name = "A/" + name
+				}
 				if _, err := os.Stat(filepath.Join(a.outputDir, "generated", filepath.FromSlash(name))); err != nil {
 					t.Fatal(err)
 				}
@@ -71,7 +74,7 @@ func TestFeatureCompletionKeepAndIncrementalSkip(t *testing.T) {
 			a := testApp(t)
 			s := addLocal(t, a)
 			writeTest(t, filepath.Join(s.Config["root"], "A", "movie.mkv"), "media")
-			writeTest(t, filepath.Join(a.outputDir, "generated", "movie.mkv.cas.strm"), "unrelated existing output")
+			writeTest(t, filepath.Join(a.outputDir, "generated", "A", "movie.mkv.cas.strm"), "unrelated existing output")
 			task := Task{Kind: "cas", StorageID: s.ID, Source: "/A", Target: "generated", Mode: "incremental", CompletionAction: action}
 			if n, err := a.executeTask(context.Background(), task, s); err != nil || n != 0 {
 				t.Fatal(n, err)
@@ -220,11 +223,11 @@ func TestFeatureCompletionRemoteFilesKeepEmptyDirectories(t *testing.T) {
 			t.Fatal("directory delete requested", name)
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(a.outputDir, "generated", "Season 1", "movie.mkv.cas.strm"))
+	data, err := os.ReadFile(filepath.Join(a.outputDir, "generated", "A", "Season 1", "movie.mkv.cas.strm"))
 	if err != nil || generatedCASClaim(t, data).SHA256 == "" {
 		t.Fatal("missing CAS output", err)
 	}
-	data, err = os.ReadFile(filepath.Join(a.outputDir, "generated", "Season 1", "movie.nfo"))
+	data, err = os.ReadFile(filepath.Join(a.outputDir, "generated", "A", "Season 1", "movie.nfo"))
 	if err != nil || string(data) != "<movie/>" {
 		t.Fatal("missing metadata output", err)
 	}
@@ -428,9 +431,9 @@ func TestFeatureCompletionMetadataSkipAndCopyFailureKeepSources(t *testing.T) {
 			task := Task{ID: "copy", Kind: "cas", StorageID: s.ID, Source: "/A", Target: "generated", Mode: "full", CompletionAction: "delete", MetadataExtensions: "nfo"}
 			if mode == "incremental" {
 				task.Mode = "incremental"
-				writeTest(t, filepath.Join(a.outputDir, "generated", "movie.nfo"), "old metadata")
+				writeTest(t, filepath.Join(a.outputDir, "generated", "A", "movie.nfo"), "old metadata")
 			} else {
-				if err := os.MkdirAll(filepath.Join(a.outputDir, "generated", "movie.nfo"), 0700); err != nil {
+				if err := os.MkdirAll(filepath.Join(a.outputDir, "generated", "A", "movie.nfo"), 0700); err != nil {
 					t.Fatal(err)
 				}
 			}

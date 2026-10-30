@@ -8,18 +8,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
-
-type renameRule struct {
-	FindType      string `json:"findType,omitempty"`
-	Kind          string `json:"kind"`
-	Find          string `json:"find"`
-	Replace       string `json:"replace"`
-	CaseSensitive bool   `json:"caseSensitive"`
-	FirstOnly     bool   `json:"firstOnly"`
-}
 
 type renameRuleSet struct {
 	ID    string       `json:"id"`
@@ -44,57 +34,13 @@ type renameRequest struct {
 	Expected    []renameItem `json:"expected"`
 }
 
-func applyRenameRules(name string, rules []renameRule) (string, error) {
-	if len(rules) == 0 || len(rules) > 30 {
-		return "", errors.New("请添加 1–30 条规则")
-	}
-	for _, rule := range rules {
-		if rule.Kind != "replace" || rule.Find == "" || len(rule.Find) > 1024 || len(rule.Replace) > 1024 {
-			return "", errors.New("查找内容不能为空，规则内容最多 1024 字节")
-		}
-		pattern := regexp.QuoteMeta(rule.Find)
-		if rule.FindType == "regex" {
-			pattern = rule.Find
-		} else if rule.FindType != "" && rule.FindType != "literal" {
-			return "", errors.New("不支持的查找类型")
-		}
-		if !rule.CaseSensitive {
-			pattern = "(?i)" + pattern
-		}
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			return "", errors.New("正则表达式无效")
-		}
-		matches := re.FindAllStringSubmatchIndex(name, -1)
-		if rule.FirstOnly && len(matches) > 1 {
-			matches = matches[:1]
-		}
-		var out strings.Builder
-		start := 0
-		for _, match := range matches {
-			out.WriteString(name[start:match[0]])
-			if rule.FindType == "regex" {
-				out.Write(re.ExpandString(nil, rule.Replace, name, match))
-			} else {
-				out.WriteString(rule.Replace)
-			}
-			start = match[1]
-			if out.Len() > 4096 {
-				return "", errors.New("替换后名称过长")
-			}
-		}
-		out.WriteString(name[start:])
-		name = out.String()
-	}
-	if !safeName(name) || len(name) > 255 {
-		return "", errors.New("新名称为空、超过 255 字节或含非法字符")
-	}
-	return name, nil
-}
-
 func renamePlan(files []File, input renameRequest) ([]renameItem, error) {
 	if len(input.IDs) == 0 || len(input.IDs) > 20000 {
 		return nil, errors.New("请选择 1–20000 个项目")
+	}
+	rules, err := compileRenameRules(input.Rules)
+	if err != nil {
+		return nil, err
 	}
 	byID := map[string]File{}
 	occupied := map[string]string{}
@@ -110,7 +56,7 @@ func renamePlan(files []File, input renameRequest) ([]renameItem, error) {
 			return nil, errors.New("目录已变化或重复选择，请刷新后重试")
 		}
 		seen[id] = true
-		name, err := applyRenameRules(f.Name, input.Rules)
+		name, err := rules.apply(f.Name, len(items), f.IsDir)
 		item := renameItem{ID: id, Name: f.Name, NewName: name, IsDir: f.IsDir}
 		if err != nil {
 			item.Error = err.Error()
@@ -152,10 +98,6 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 	if execute {
 		a.runMu.Lock()
 		defer a.runMu.Unlock()
-		if len(a.running) != 0 {
-			fail(w, 409, errors.New("有任务正在执行，请等待完成后重命名"))
-			return
-		}
 	}
 	if input.Source == "" || input.Source == "/" {
 		input.Source = rootOf(s)
@@ -185,6 +127,14 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	nodes := make([]taskFileNode, 0, len(items)*2)
+	for _, item := range items {
+		nodes = append(nodes, taskFileNode{storage: s, id: item.ID}, taskFileNode{s, input.Source, item.NewName})
+	}
+	if err := a.checkTaskFileNodes(r.Context(), nodes); err != nil {
+		fail(w, 409, err)
+		return
+	}
 	var root *os.Root
 	if s.Type == "local" {
 		root, err = os.OpenRoot(s.Config["root"])
@@ -195,9 +145,11 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 		defer root.Close()
 	}
 	done := 0
+	renamedItems := []map[string]string{}
 	history := []RenameRecord{}
 	defer a.cache.clear()
 	for _, item := range items {
+		var renamed File
 		if item.Name == item.NewName {
 			continue
 		}
@@ -231,13 +183,27 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
-			err = a.cloudFileAction(r.Context(), s, s, fileActionRequest{Source: input.Source, Action: "rename", IDs: []string{item.ID}, Name: item.NewName})
+			err = a.cloudFileAction(r.Context(), s, s, fileActionRequest{Source: input.Source, Action: "rename", IDs: []string{item.ID}, Name: item.NewName, renamed: &renamed})
 		}
 		if err != nil {
 			break
 		}
 		done++
-		history = append(history, makeRenameRecord(s, item, identity))
+		newID := item.ID
+		if root != nil {
+			newID = path.Join(path.Dir(item.ID), item.NewName)
+		} else if renamed.ID != "" {
+			newID = renamed.ID
+		} else if s.Type == "webdav" || s.Type == "openlist" {
+			newID = path.Join(path.Dir(item.ID), item.NewName)
+		}
+		renamedItems = append(renamedItems, map[string]string{"id": item.ID, "newId": newID, "name": item.NewName, "pickCode": renamed.PickCode})
+		record := makeRenameRecord(s, item, identity)
+		if renamed.ID != "" {
+			record.FileID = renamed.ID
+			record.previousID = item.ID
+		}
+		history = append(history, record)
 	}
 	if len(history) > 0 {
 		if historyErr := a.rememberRenames(s, input, history); historyErr != nil {
@@ -247,11 +213,11 @@ func (a *App) renameWorkbench(w http.ResponseWriter, r *http.Request) {
 	message := fmt.Sprintf("批量重命名完成 %d 项", done)
 	if err != nil {
 		a.store.event("error", "files", message+"，后续失败")
-		jsonResponse(w, 200, map[string]any{"processed": done, "error": message + "：" + err.Error()})
+		jsonResponse(w, 200, map[string]any{"processed": done, "renamed": renamedItems, "error": message + "：" + err.Error()})
 		return
 	}
 	a.store.event("info", "files", message)
-	jsonResponse(w, 200, map[string]int{"processed": done})
+	jsonResponse(w, 200, map[string]any{"processed": done, "renamed": renamedItems})
 }
 
 func (a *App) renameRuleSets(w http.ResponseWriter, r *http.Request) {
@@ -285,15 +251,8 @@ func (a *App) renameRuleSets(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, errors.New("请输入规则集名称，最多保存 100 个规则集"))
 			return
 		}
-		// Validate rule structure without imposing a sample filename on its result.
-		for _, rule := range input.Rules {
-			if rule.Kind != "replace" || rule.Find == "" || len(rule.Find) > 1024 || len(rule.Replace) > 1024 {
-				fail(w, 400, errors.New("规则内容无效"))
-				return
-			}
-		}
-		if len(input.Rules) == 0 || len(input.Rules) > 30 {
-			fail(w, 400, errors.New("请添加 1–30 条规则"))
+		if _, err := compileRenameRules(input.Rules); err != nil {
+			fail(w, 400, err)
 			return
 		}
 		input.ID = id()

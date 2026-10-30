@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { captureScreenshot } from './helpers/screenshot.js'
 
 async function setup(page,count=120) {
   await page.addInitScript(()=>localStorage.setItem('aether-file-history:polish',JSON.stringify([{storage:'local',id:'/a/b',history:[{id:'/',name:'A'},{id:'/a',name:'B'}]}])))
@@ -17,18 +18,33 @@ async function setup(page,count=120) {
   await expect(page.locator('.file-row').first()).toBeVisible()
 }
 
-test('history hover tolerates the gap, dismisses on leaving and closes after a directory choice',async({page})=>{
+for (const width of [1440,390]) for (const theme of ['light','dark']) test(`history click opens and toggles without hover activation at ${width} ${theme}`,async({page},info)=>{
+  await page.setViewportSize({width,height:900})
+  await page.addInitScript(value=>localStorage.setItem('aether-theme',value),theme)
   await setup(page,4)
   const history=page.getByRole('button',{name:'历史访问',exact:true}),menu=page.locator('.file-visit-history [role=listbox]')
-  await history.hover();await expect(menu).toBeVisible()
-  const a=await history.boundingBox(),b=await menu.boundingBox()
-  await page.mouse.move(a.x+a.width/2,(a.y+a.height+b.y)/2)
-  await page.waitForTimeout(100)
+  await page.clock.install()
+  await history.hover();await page.clock.runFor(1200)
+  await expect(history).toHaveAttribute('aria-expanded','false')
+  await expect(menu).toHaveCount(0)
+  await history.click();await expect(menu).toBeVisible();await expect(menu).toBeFocused()
+  await expect(history).toHaveAttribute('aria-expanded','true')
+  await page.mouse.move(0,0);await page.clock.fastForward(1000)
   await expect(menu).toBeVisible()
-  await menu.hover();await page.waitForTimeout(300);await expect(menu).toBeVisible()
-  await page.mouse.move(500,48);await expect(menu).toHaveCount(0)
-  await history.hover();await expect(menu).toBeVisible()
-  await menu.getByRole('option').first().click()
+  await expect(menu).toHaveCSS('transform','none')
+  const menuBounds=await menu.boundingBox()
+  expect(menuBounds.x).toBeGreaterThanOrEqual(16)
+  expect(menuBounds.x+menuBounds.width).toBeLessThanOrEqual(width-16)
+  await expect(menu.locator('.visit-deepest')).toHaveText('B')
+  await captureScreenshot(page,{path:info.outputPath(`history-click-${width}-${theme}.png`)})
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  await history.click();await expect(menu).toHaveCount(0)
+  await history.click();await expect(menu).toBeVisible()
+  await page.locator('.breadcrumbs').click();await expect(menu).toHaveCount(0)
+  await history.focus();await page.keyboard.press('Enter');await expect(menu).toBeFocused()
+  await page.keyboard.press('Escape');await expect(menu).toHaveCount(0);await expect(history).toBeFocused()
+  await page.keyboard.press('ArrowDown');await expect(menu).toBeFocused()
+  await page.keyboard.press('Enter')
   await expect(menu).toHaveCount(0)
   await expect(page.locator('.path-bar')).toContainText('B')
   const buttons=page.locator('.file-toolbar > button')

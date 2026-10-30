@@ -1,6 +1,6 @@
 <script setup>
 import { compactDate } from '../date-time.mjs'
-import { computed, reactive, ref, onMounted, onUnmounted } from 'vue'
+import { computed, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { api, state, reload, notify, date, driverOf } from '../lib'
 import Icon from '../components/Icon.vue'
 import ExtensionPresets from '../components/ExtensionPresets.vue'
@@ -36,9 +36,12 @@ const modal = ref(false), busy = ref(false), error = ref(''), editing = ref(''),
 const form = reactive({})
 const tasks = computed(() => state.tasks.filter(t => t.kind === props.kind))
 const pending = ref(new Set())
+const lockedView = ref(false)
+const readOnly = computed(() => lockedView.value || !!editing.value && (pending.value.has(editing.value) || state.tasks.some(t => t.id === editing.value && t.status === 'running')))
+watch(readOnly, value => { if (value && modal.value) { lockedView.value = true; picker.value = false; targetPicker.value = false } })
 const sorting = ref(false)
 const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCardDrag({ selector: '.task-row-card', disabled: () => sorting.value, onDrop: moveTask, onStart: () => { menu.value = '' } })
-function editCard(task) { if (task.status !== 'running' && !pending.value.has(task.id)) open(task) }
+function editCard(task) { open(task) }
 function toggleMore(event) {
   more.value = !more.value
   if (more.value) revealOptions(event.currentTarget)
@@ -78,6 +81,7 @@ onUnmounted(() => { alive=false;clearInterval(generationTimer);document.removeEv
 function open(t) {
   menu.value = ''
   editing.value = t?.id || ''; error.value = ''; more.value = false
+  lockedView.value = !!t && (t.status === 'running' || pending.value.has(t.id))
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, t ? JSON.parse(JSON.stringify(t)) : { name: '', kind: props.kind, storageId: '', source: '/', target: '', mode: 'incremental', encodePath: false, apiInterval: 200, cron: '', depth: props.kind === 'cache' ? 4 : 0, interval: 60, cacheTTL: 0, excludeDirs: '', excludeFiles: '', excludeTypes: '', enabled: true })
   if (props.kind === 'strm') form.retainedExtensions ??= 'iso'
@@ -90,11 +94,12 @@ function open(t) {
     delete form.retentionHours
     form.casOperation = 'generate'
     form.mode = 'incremental'
-    form.casInfoMode ||= storage(form.storageId)?.type === 'mobile' ? 'mobile' : 'all'
+    form.casInfoMode ||= 'auto'
   }
   modal.value = true
 }
 async function save() {
+  if (readOnly.value) return
   busy.value = true; error.value = ''
   for (const [key,label] of [['mediaExtensions','媒体扩展名'],['metadataExtensions','元数据扩展名'],...(props.kind==='strm'?[['retainedExtensions','保留扩展名']]:[])]) { const invalid=extensionError(label,form[key]); if(invalid){ notify(invalid,true); busy.value=false; return } }
   try { await api(editing.value ? `/tasks/${editing.value}` : '/tasks', editing.value ? 'PUT' : 'POST', form); await reload(); modal.value = false; notify('任务已保存') }
@@ -104,7 +109,6 @@ function selectSource(value) {
   Object.assign(form, value)
   if (props.kind === 'cas') {
     form.casOperation = 'generate'
-    if (storage(value.storageId)?.type === 'mobile') form.casInfoMode = 'mobile'
   }
   picker.value = false
 }
@@ -113,7 +117,7 @@ async function action(t, action) {
   menu.value = ''
   if (pending.value.has(t.id)) return
   pending.value.add(t.id)
-  try { await api(`/tasks/${t.id}/${action}`, 'POST'); await reload(); notify(action === 'run' ? '任务已启动' : '正在停止任务') } catch (e) { notify(e.message, true) }
+  try { await api(`/tasks/${t.id}/${action}`, 'POST'); await reload(); notify(`${taskTitle.value} 任务「${t.name}」${action === 'run' ? '已启动' : '正在停止'}`) } catch (e) { notify(e.message, true) }
   finally { pending.value.delete(t.id) }
 }
 async function remove() {
@@ -138,16 +142,16 @@ async function toggle(t) {
     <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
     <div class="task-last-scan" tabindex="0" :aria-label="`最近执行：${scanTime(t.lastRun)}，${taskResult(t)}`"><time>最近执行：{{ scanTime(t.lastRun) }}</time><span class="task-result">{{ taskResult(t) }}</span></div>
     <button class="icon-btn task-run" :class="{stopping:t.status === 'running'}" :aria-label="t.healthPause ? '健康异常，暂时停止' : t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id) || !!t.healthPause" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.healthPause ? 'Pause' : t.status === 'running' ? 'Square' : 'Play'" /></button>
-    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button :disabled="t.status === 'running' || pending.has(t.id)" @click="open(t)"><Icon name="Pencil" />编辑任务</button><button v-if="!['cache','cas'].includes(kind)" :disabled="t.status === 'running' || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
+    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button @click="open(t)"><Icon :name="t.status === 'running' || pending.has(t.id) ? 'Eye' : 'Pencil'" />{{ t.status === 'running' || pending.has(t.id) ? '查看任务' : '编辑任务' }}</button><button v-if="!['cache','cas'].includes(kind)" :disabled="t.status === 'running' || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
   </article><button class="add-storage-tile add-task-tile" :aria-label="`添加 ${taskTitle} 任务卡片`" @click="open()"><Icon name="Plus" :size="25" /><strong>添加 {{taskTitle}} 任务</strong></button></div>
   <section v-if="generationJobs.length" class="generation-job-list" aria-label="解析生成队列"><article v-for="job in generationJobs" :key="job.id" :class="{running:job.status==='running',failed:job.status==='error'}"><div><strong>{{job.name}}</strong><small>{{job.processed}} / {{job.total}} · {{job.status==='queued'?'排队中':job.message}}</small></div><progress :value="job.processed" :max="job.total||1" :aria-label="`${job.name}生成进度`" /></article></section>
   <GenerationImport v-if="importer" :kind="kind" @close="importer=false" @queued="loadGeneration" />
   <Modal v-if="resetTask" title="全量重置" confirmation @close="!busy && (resetTask = null)"><div class="modal-body">将清除任务「{{ resetTask.name }}」对应的生成库及其中元数据，再重新全量生成。此操作不可撤销，不删除源文件。公共根目录和重叠任务目录不能重置。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="resetOutput">确认重置</button><button class="btn" :disabled="busy" @click="resetTask = null">取消</button></footer></Modal>
-  <Modal v-if="modal" :title="`${editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
-    <form @submit.prevent="save"><div class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />请先添加并启用一个存储池。<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
-      <div class="form-grid">
+  <Modal v-if="modal" :title="`${readOnly ? '查看' : editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
+    <form @submit.prevent="save"><div :key="readOnly ? 'view' : 'edit'" class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />请先添加并启用一个存储池。<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
+      <fieldset class="form-grid task-fields" :disabled="readOnly">
         <label>任务名称 <span class="required">*</span><input v-model="form.name" required /></label>
-        <div v-if="kind === 'cas'" class="field"><label>CAS 信息</label><RoundedSelect v-model="form.casInfoMode" label="CAS 信息" :options="[{value:'all',label:'全计算'},{value:'mobile',label:'移动CAS'},{value:'tianyi',label:'天翼CAS'}]" /></div>
+        <div v-if="kind === 'cas'" class="field"><label>CAS 信息</label><RoundedSelect v-model="form.casInfoMode" label="CAS 信息" :options="[{value:'auto',label:'智能计算'},{value:'all',label:'全计算'},{value:'mobile',label:'移动CAS'},{value:'tianyi',label:'天翼CAS'}]" /></div>
         <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source">源目录 <span class="required">*</span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '' }}</span><Icon name="FolderOpen" /></button></div>
@@ -161,19 +165,20 @@ async function toggle(t) {
           <div class="extension-heading"><label :for="field.id">{{ field.label }}</label><ExtensionPresets v-model="form[field.key]" :groups="field.groups" /></div>
           <input :id="field.id" v-model="form[field.key]" />
         </div>
-      </div>
-      <template v-if="kind !== 'cache'"><button type="button" class="disclosure" :aria-expanded="more" @click="toggleMore"><Icon :name="more ? 'ChevronDown' : 'ChevronRight'" :size="16" />更多选项</button><div v-if="more" class="form-grid more-options">
+      </fieldset>
+      <template v-if="kind !== 'cache'"><button type="button" class="disclosure" :aria-expanded="more" @click="toggleMore"><Icon :name="more ? 'ChevronDown' : 'ChevronRight'" :size="16" />更多选项</button><fieldset v-if="more" class="form-grid more-options task-fields" :disabled="readOnly">
         <div v-if="['cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>完成动作</label></div><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
         <div v-if="kind === 'strm'" class="field extension-field retained-extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><ExtensionPresets v-model="form.retainedExtensions" :groups="['video','audio','comic']" label-prefix="保留" /></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
         <div v-if="['strm', 'cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>STRM 刮削</label></div><RoundedSelect :model-value="form.scrapeExcluded ? 'exclude' : 'include'" @update:model-value="form.scrapeExcluded = $event === 'exclude'" label="STRM 刮削" :options="[{value:'include',label:'参与'},{value:'exclude',label:'不参与'}]" /></div>
-        <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div></div></template>
-      <p v-if="form.completionAction === 'delete'" class="inline-note">将删除已成功生成的媒体、已复制的元数据及其他未纳入扩展名范围的文件，只清理本地空子目录，远程空目录保留；未生成、未复制或执行期间新增及变化的文件保留。源目录不能是存储池根目录。</p><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">取消</button><button class="btn primary" :disabled="busy || !form.storageId"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>
+        <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div></fieldset></template>
+      <p v-if="form.completionAction === 'delete'" class="inline-note">将删除已成功生成的媒体、已复制的元数据及其他未纳入扩展名范围的文件，只清理本地空子目录，远程空目录保留；未生成、未复制或执行期间新增及变化的文件保留。源目录不能是存储池根目录。</p><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">{{ readOnly ? '关闭' : '取消' }}</button><button class="btn primary" :disabled="readOnly || busy || !form.storageId"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="availableStorages" :storage="form.storageId" :initial="form.source" :initial-label="form.sourceLabel" :initial-trail="form.sourceTrail" @select="selectSource" @close="picker = false" />
   <LocalDirectoryPicker v-if="targetPicker" :initial="form.target" @close="targetPicker = false" @select="form.target = $event; targetPicker = false" />
   <Modal v-if="confirmDelete" title="删除任务" @close="confirmDelete = null"><div class="modal-body">确认删除「{{ confirmDelete.name }}」？已生成的文件不会删除。</div><footer class="modal-footer"><button class="btn" @click="confirmDelete = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除任务</button></footer></Modal>
 </template>
 <style scoped>
+.task-fields{margin:0;padding:0;border:0;min-width:0}
 .task-row-card.health-paused{border-color:var(--red);background:color-mix(in srgb,var(--red) 4%,var(--surface))}.health-paused .task-result{color:var(--red)}
 .health-paused .task-last-scan time{visibility:hidden}.health-paused .task-last-scan .task-result{visibility:visible}
 .add-task-tile{min-height:72px;align-self:stretch;flex-direction:row;border-radius:8px;padding:12px 16px}.add-task-tile strong{font-size:13px;font-weight:500}@media(max-width:480px){.add-task-tile{min-height:98px}}.generation-job-list{display:grid;gap:10px;margin-top:16px}.generation-job-list article{padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.generation-job-list article.running{border-color:var(--green)}.generation-job-list article.failed{border-color:var(--red)}.generation-job-list article>div{display:flex;justify-content:space-between;gap:16px}.generation-job-list strong{font-size:14px}.generation-job-list small{color:var(--muted);font-size:12px;overflow-wrap:anywhere}.generation-job-list progress{width:100%;height:6px;margin-top:10px;accent-color:var(--primary)}
