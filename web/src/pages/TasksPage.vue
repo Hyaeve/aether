@@ -23,9 +23,15 @@ let generationTimer,alive=true
 async function loadGeneration(){if(!['cas','ed2k'].includes(props.kind))return;try{const result=await api('/generation/jobs');if(alive)generationJobs.value=Array.isArray(result)?result.filter(j=>j.kind===props.kind):[]}catch(e){if(alive)notify(e.message,true)}}
 const targetPicker = ref(false)
 const resetTask = ref(null)
+const syncTask = ref(null)
+async function syncOutput() {
+  busy.value=true
+  try{await api(`/tasks/${syncTask.value.id}/sync`,'POST',{confirm:true});syncTask.value=null;await reload();notify('STRM全量同步已启动')}
+  catch(e){notify(e.message,true)}finally{busy.value=false}
+}
 async function resetOutput() {
   busy.value = true
-  try { await api(`/tasks/${resetTask.value.id}/reset`, 'POST', { confirm: true }); resetTask.value = null; await reload(); notify('生成库已清除，全量任务已启动') } catch (e) { notify(e.message, true) } finally { busy.value = false }
+  try { await api(`/tasks/${resetTask.value.id}/reset`, 'POST', { confirm: true }); resetTask.value = null; await reload(); notify('全量重置任务已启动') } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 const props = defineProps({ kind: { default: 'strm' } })
 const taskTitle = computed(() => props.kind === 'cas' ? 'CAS' : props.kind === 'strm' ? 'STRM' : props.kind === 'ed2k' ? 'ED2K' : '缓存')
@@ -37,7 +43,8 @@ const form = reactive({})
 const tasks = computed(() => state.tasks.filter(t => t.kind === props.kind))
 const pending = ref(new Set())
 const lockedView = ref(false)
-const readOnly = computed(() => lockedView.value || !!editing.value && (pending.value.has(editing.value) || state.tasks.some(t => t.id === editing.value && t.status === 'running')))
+const checking = task => task.strmDeleteState?.state === 'checking'
+const readOnly = computed(() => lockedView.value || !!editing.value && (pending.value.has(editing.value) || state.tasks.some(t => t.id === editing.value && (t.status === 'running' || checking(t)))))
 watch(readOnly, value => { if (value && modal.value) { lockedView.value = true; picker.value = false; targetPicker.value = false } })
 const sorting = ref(false)
 const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCardDrag({ selector: '.task-row-card', disabled: () => sorting.value, onDrop: moveTask, onStart: () => { menu.value = '' } })
@@ -70,6 +77,7 @@ function scanTime(value) {
   return compactDate(value, '尚未扫描')
 }
 function taskResult(task) {
+  if (task.strmDeleteState) return task.message || '删除超限，等待源存储健康检查'
 	if (task.healthPause) return task.healthPause
   return task.message || ({ running: '正在执行', success: '执行成功', error: '执行失败', failed: '执行失败', cancelled: '已停止' }[task.status]) || '尚未执行'
 }
@@ -81,10 +89,18 @@ onUnmounted(() => { alive=false;clearInterval(generationTimer);document.removeEv
 function open(t) {
   menu.value = ''
   editing.value = t?.id || ''; error.value = ''; more.value = false
-  lockedView.value = !!t && (t.status === 'running' || pending.value.has(t.id))
+  lockedView.value = !!t && (t.status === 'running' || checking(t) || pending.value.has(t.id))
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, t ? JSON.parse(JSON.stringify(t)) : { name: '', kind: props.kind, storageId: '', source: '/', target: '', mode: 'incremental', encodePath: false, apiInterval: 200, cron: '', depth: props.kind === 'cache' ? 4 : 0, interval: 60, cacheTTL: 0, excludeDirs: '', excludeFiles: '', excludeTypes: '', enabled: true })
-  if (props.kind === 'strm') form.retainedExtensions ??= 'iso'
+  if (props.kind === 'strm') {
+    form.retainedExtensions ??= 'iso'
+    form.mode = ['incremental','incremental_missing'].includes(form.mode) && t ? 'incremental_missing' : 'incremental_update'
+    if(storage(form.storageId)?.type==='115')form.strmSource||='life'
+    else delete form.strmSource
+    form.cascadeDelete??=false
+    form.cascadeExtensions||=''
+    form.deleteThreshold??=1000
+  }
   if (['cas', 'ed2k'].includes(props.kind)) delete form.retainedExtensions
   if (['cas', 'ed2k'].includes(props.kind)) form.completionAction ||= 'keep'
   if (['strm', 'cas', 'ed2k'].includes(props.kind)) form.scrapeExcluded ??= !t && props.kind === 'cas'
@@ -106,7 +122,12 @@ async function save() {
   catch (e) { error.value = e.message } finally { busy.value = false }
 }
 function selectSource(value) {
+  const previous=storage(form.storageId)?.type
   Object.assign(form, value)
+  if(props.kind==='strm'){
+    if(storage(form.storageId)?.type==='115'){if(previous!=='115'||!form.strmSource)form.strmSource='life';form.mode='incremental_update'}
+    else delete form.strmSource
+  }
   if (props.kind === 'cas') {
     form.casOperation = 'generate'
   }
@@ -117,7 +138,7 @@ async function action(t, action) {
   menu.value = ''
   if (pending.value.has(t.id)) return
   pending.value.add(t.id)
-  try { await api(`/tasks/${t.id}/${action}`, 'POST'); await reload(); notify(`${taskTitle.value} 任务「${t.name}」${action === 'run' ? '已启动' : '正在停止'}`) } catch (e) { notify(e.message, true) }
+  try { await api(`/tasks/${t.id}/${action}`, 'POST'); await reload(); notify(`${taskTitle.value} 任务「${t.name}」${action === 'check' ? '正在检查源存储健康' : action === 'run' ? '已启动' : '正在停止'}`) } catch (e) { notify(e.message, true) }
   finally { pending.value.delete(t.id) }
 }
 async function remove() {
@@ -137,28 +158,31 @@ async function toggle(t) {
   <CacheOverview v-if="kind === 'cache'" :tasks="tasks" />
   <CASOverview v-else-if="['cas','ed2k'].includes(kind)" :kind="kind" :tasks="tasks" :jobs="generationJobs" />
   <div v-else class="metric-strip three"><div><span class="metric-icon"><Icon name="ListTodo" /></span><span><small>全部任务</small><strong>{{ tasks.length }}<em>项</em></strong></span></div><div><span class="metric-icon green"><Icon name="Activity" /></span><span><small>正在执行</small><strong>{{ tasks.filter(t => t.status === 'running').length }}<em>项</em></strong></span></div><div><span class="metric-icon amber"><Icon name="FileVideo" /></span><span><small>本次生成文件</small><strong>{{ tasks.reduce((n, t) => n + t.processed, 0) }}<em>条</em></strong></span></div></div>
-  <div class="task-list"><article v-for="t in tasks" :key="t.id" class="task-row-card" :data-id="t.id" :class="{ 'drag-armed': armed === t.id, dragging: dragging === t.id, 'drop-target': dropTarget === t.id, running: t.status === 'running' && !t.healthPause, 'health-paused': !!t.healthPause }" :draggable="false" tabindex="0" :aria-label="t.name" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown" @keydown="reorderKey($event, t)" @pointerdown="hold($event, t)" @click="cardClick($event, t, editCard)" @dragstart.prevent>
-    <button class="task-provider-toggle" :aria-label="`${t.enabled ? '停用' : '启用'}任务 ${t.name}`" :aria-pressed="t.enabled" :disabled="t.status === 'running' || pending.has(t.id)" @click="toggle(t)"><ProviderIcon :type="storage(t.storageId)?.type" /></button>
+  <div class="task-list"><article v-for="t in tasks" :key="t.id" :data-config-path="`/tasks/${t.id}`" class="task-row-card" :data-id="t.id" :class="{ 'drag-armed': armed === t.id, dragging: dragging === t.id, 'drop-target': dropTarget === t.id, running: t.status === 'running' && !t.healthPause && !t.strmDeleteState, 'health-paused': !!t.healthPause && !t.strmDeleteState, 'delete-paused': !!t.strmDeleteState }" :draggable="false" tabindex="0" :aria-label="t.name" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown" @keydown="reorderKey($event, t)" @pointerdown="hold($event, t)" @click="cardClick($event, t, editCard)" @dragstart.prevent>
+    <button class="task-provider-toggle" :aria-label="`${t.enabled ? '停用' : '启用'}任务 ${t.name}`" :aria-pressed="t.enabled" :disabled="t.status === 'running' || checking(t) || pending.has(t.id)" @click="toggle(t)"><ProviderIcon :type="storage(t.storageId)?.type" /></button>
     <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
     <div class="task-last-scan" tabindex="0" :aria-label="`最近执行：${scanTime(t.lastRun)}，${taskResult(t)}`"><time>最近执行：{{ scanTime(t.lastRun) }}</time><span class="task-result">{{ taskResult(t) }}</span></div>
-    <button class="icon-btn task-run" :class="{stopping:t.status === 'running'}" :aria-label="t.healthPause ? '健康异常，暂时停止' : t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id) || !!t.healthPause" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.healthPause ? 'Pause' : t.status === 'running' ? 'Square' : 'Play'" /></button>
-    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button @click="open(t)"><Icon :name="t.status === 'running' || pending.has(t.id) ? 'Eye' : 'Pencil'" />{{ t.status === 'running' || pending.has(t.id) ? '查看任务' : '编辑任务' }}</button><button v-if="!['cache','cas'].includes(kind)" :disabled="t.status === 'running' || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button class="danger-text" :disabled="t.status === 'running' || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
+    <button v-if="t.strmDeleteState" class="icon-btn task-run task-delete-check" aria-label="检查源存储健康" title="检查源存储健康" :aria-busy="checking(t)" :disabled="pending.has(t.id) || checking(t) || t.status==='running'" @click="action(t,'check')"><Icon :name="checking(t)?'LoaderCircle':'RefreshCw'" :class="{spin:checking(t)}" /></button>
+    <button v-else class="icon-btn task-run" :class="{stopping:t.status === 'running'}" :aria-label="t.healthPause ? '健康异常，暂时停止' : t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id) || !!t.healthPause" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.healthPause ? 'Pause' : t.status === 'running' ? 'Square' : 'Play'" /></button>
+    <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu"><button @click="open(t)"><Icon :name="t.status === 'running' || checking(t) || pending.has(t.id) ? 'Eye' : 'Pencil'" />{{ t.status === 'running' || checking(t) || pending.has(t.id) ? '查看任务' : '编辑任务' }}</button><button v-if="kind==='strm'" :disabled="t.status==='running'||!!t.strmDeleteState||pending.has(t.id)" @click="syncTask=t;menu=''"><Icon name="FolderSync" />全量同步</button><button v-if="!['cache','cas'].includes(kind)" :disabled="t.status === 'running' || !!t.strmDeleteState || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button class="danger-text" :disabled="t.status === 'running' || checking(t) || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button></div></div>
   </article><button class="add-storage-tile add-task-tile" :aria-label="`添加 ${taskTitle} 任务卡片`" @click="open()"><Icon name="Plus" :size="25" /><strong>添加 {{taskTitle}} 任务</strong></button></div>
   <section v-if="generationJobs.length" class="generation-job-list" aria-label="解析生成队列"><article v-for="job in generationJobs" :key="job.id" :class="{running:job.status==='running',failed:job.status==='error'}"><div><strong>{{job.name}}</strong><small>{{job.processed}} / {{job.total}} · {{job.status==='queued'?'排队中':job.message}}</small></div><progress :value="job.processed" :max="job.total||1" :aria-label="`${job.name}生成进度`" /></article></section>
   <GenerationImport v-if="importer" :kind="kind" @close="importer=false" @queued="loadGeneration" />
+  <Modal v-if="syncTask" title="全量同步" confirmation @close="!busy&&(syncTask=null)"><div class="modal-body">将重新读取「{{syncTask.name}}」的完整源目录树，在现有生成库上新增和更新STRM，并清理源目录已不存在的登记产物。<template v-if="syncTask.cascadeDelete">同时按配置清理同名伴随文件；作品或季度仍有STRM时保留公共刮削文件。</template>不会先清空生成库，不删除源文件。</div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="syncTask=null">取消</button><button class="btn primary" :disabled="busy" @click="syncOutput"><Icon name="FolderSync" />确认同步</button></footer></Modal>
   <Modal v-if="resetTask" title="全量重置" confirmation @close="!busy && (resetTask = null)"><div class="modal-body">将清除任务「{{ resetTask.name }}」对应的生成库及其中元数据，再重新全量生成。此操作不可撤销，不删除源文件。公共根目录和重叠任务目录不能重置。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="resetOutput">确认重置</button><button class="btn" :disabled="busy" @click="resetTask = null">取消</button></footer></Modal>
   <Modal v-if="modal" :title="`${readOnly ? '查看' : editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
-    <form @submit.prevent="save"><div :key="readOnly ? 'view' : 'edit'" class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />请先添加并启用一个存储池。<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
+    <form class="task-editor-form" @submit.prevent="save"><div :key="readOnly ? 'view' : 'edit'" class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />请先添加并启用一个存储池。<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
       <fieldset class="form-grid task-fields" :disabled="readOnly">
         <label><span>任务名称 <span class="required">*</span></span><input v-model="form.name" required /></label>
         <div v-if="kind === 'cas'" class="field"><label>CAS 信息</label><RoundedSelect v-model="form.casInfoMode" label="CAS 信息" :options="[{value:'auto',label:'智能计算'},{value:'all',label:'全计算'},{value:'mobile',label:'移动CAS'},{value:'tianyi',label:'天翼CAS'}]" /></div>
-        <div v-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="[{ value: 'full', label: '全量生成' }, { value: 'incremental', label: '增量生成' }]" /></div>
+        <div v-if="kind==='strm'&&storage(form.storageId)?.type==='115'" class="field"><label>生成方式</label><RoundedSelect v-model="form.strmSource" label="生成方式" :options="[{value:'life',label:'生活事件'},{value:'tree',label:'目录树'}]" /></div>
+        <div v-else-if="kind === 'strm' || kind === 'ed2k'" class="field"><label>生成方式</label><RoundedSelect v-model="form.mode" label="生成方式" :options="kind==='strm'?[{value:'incremental_update',label:'增量更新'},{value:'incremental_missing',label:'查漏补缺'}]:[{value:'full',label:'全量生成'},{value:'incremental',label:'增量生成'}]" /></div>
         <div v-if="kind === 'cache'" class="field"><label for="task-interval">执行间隔</label><NumberInput id="task-interval" v-model="form.interval" aria-label="执行间隔" unit="分钟" min="1" required /></div>
         <div class="field"><label for="task-source"><span>源目录 <span class="required">*</span></span></label><button id="task-source" type="button" class="source-trigger" aria-label="选择目录" @click="picker = true"><span>{{ form.storageId ? `${storage(form.storageId)?.name || '存储不可用'} · ${sourceLabel(form)}` : '' }}</span><Icon name="FolderOpen" /></button></div>
         <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" @keydown.enter.prevent /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
         <div v-else class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
-        <label v-if="kind !== 'cache'">Cron 表达式<CronInput v-model="form.cron" label="Cron 表达式" /></label>
+        <label v-if="kind !== 'cache'">Cron 表达式<CronInput v-model="form.cron" label="Cron 表达式" :required="kind==='strm'&&form.strmSource==='tree'" /></label>
         <div v-else class="field"><label for="task-cache">缓存期</label><NumberInput id="task-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
         <label v-if="kind === 'strm' && storage(form.storageId)?.type === 'openlist'" class="toggle-line full"><span>编码路径</span><input v-model="form.encodePath" type="checkbox" role="switch" class="switch" /></label>
         <div v-for="field in kind === 'cache' ? [] : [{ key: 'mediaExtensions', id: 'task-media-extensions', label: '媒体扩展名', groups: ['video', 'audio'] }, { key: 'metadataExtensions', id: 'task-metadata-extensions', label: '元数据扩展名', groups: ['image', 'data'] }]" :key="field.key" class="field full extension-field">
@@ -168,9 +192,12 @@ async function toggle(t) {
       </fieldset>
       <template v-if="kind !== 'cache'"><button type="button" class="disclosure" :aria-expanded="more" @click="toggleMore"><Icon :name="more ? 'ChevronDown' : 'ChevronRight'" :size="16" />更多选项</button><fieldset v-if="more" class="form-grid more-options task-fields" :disabled="readOnly">
         <div v-if="['cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>完成动作</label></div><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
-        <div v-if="kind === 'strm'" class="field extension-field retained-extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><ExtensionPresets v-model="form.retainedExtensions" :groups="['video','audio','comic']" label-prefix="保留" /></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
+        <div v-if="kind === 'strm'" class="field extension-field retained-extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><ExtensionPresets v-model="form.retainedExtensions" :groups="['video','audio']" label-prefix="保留" /></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
         <div v-if="['strm', 'cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>STRM 刮削</label></div><RoundedSelect :model-value="form.scrapeExcluded ? 'exclude' : 'include'" @update:model-value="form.scrapeExcluded = $event === 'exclude'" label="STRM 刮削" :options="[{value:'include',label:'参与'},{value:'exclude',label:'不参与'}]" /></div>
-        <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div></fieldset></template>
+        <div v-if="kind==='strm'" class="field delete-threshold-field"><label for="task-delete-threshold">删除阈值</label><NumberInput id="task-delete-threshold" v-model="form.deleteThreshold" aria-label="删除阈值" unit="条" min="0" step="1" required /></div>
+        <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
+        <template v-if="kind==='strm'"><label class="switch-label">级联删除<input v-model="form.cascadeDelete" class="switch" type="checkbox" role="switch" aria-label="级联删除" @change="form.cascadeDelete&&!form.cascadeExtensions&&(form.cascadeExtensions='jpg;jpeg;png;webp;nfo;srt;ass;ssa;sub;vtt')" /></label><label v-if="form.cascadeDelete">级联删除扩展名<input v-model="form.cascadeExtensions" aria-label="级联删除扩展名" /></label></template>
+        </fieldset></template>
       <p v-if="form.completionAction === 'delete'" class="inline-note">将删除已成功生成的媒体、已复制的元数据及其他未纳入扩展名范围的文件，只清理本地空子目录，远程空目录保留；未生成、未复制或执行期间新增及变化的文件保留。源目录不能是存储池根目录。</p><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">{{ readOnly ? '关闭' : '取消' }}</button><button class="btn primary" :disabled="readOnly || busy || !form.storageId"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>
   </Modal>
   <TaskSourcePicker v-if="picker" :storages="availableStorages" :storage="form.storageId" :initial="form.source" :initial-label="form.sourceLabel" :initial-trail="form.sourceTrail" @select="selectSource" @close="picker = false" />
@@ -178,12 +205,29 @@ async function toggle(t) {
   <Modal v-if="confirmDelete" title="删除任务" @close="confirmDelete = null"><div class="modal-body">确认删除「{{ confirmDelete.name }}」？已生成的文件不会删除。</div><footer class="modal-footer"><button class="btn" @click="confirmDelete = null">取消</button><button class="btn danger" :disabled="busy" @click="remove">删除任务</button></footer></Modal>
 </template>
 <style scoped>
+:global(.modal:has(>.task-editor-form)){display:flex;flex-direction:column;overflow:hidden}
+:global(.modal:has(>.task-editor-form)>.modal-header){flex:none}
+.task-editor-form{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.task-editor-form>.modal-body{min-height:0;overflow-y:auto;scrollbar-width:none}
+.task-editor-form>.modal-body::-webkit-scrollbar{display:none}
+.task-editor-form>.modal-footer{flex:none;position:static}
 .task-fields{margin:0;padding:0;border:0;min-width:0}
 .task-row-card.health-paused{border-color:var(--red);background:color-mix(in srgb,var(--red) 4%,var(--surface))}.health-paused .task-result{color:var(--red)}
+.task-row-card.delete-paused{border-color:var(--amber);background:color-mix(in srgb,var(--amber) 5%,var(--surface))}
+.task-row-card.delete-paused:not(.running):hover{border-color:var(--amber);box-shadow:0 0 0 1px color-mix(in srgb,var(--amber) 16%,transparent)}
+.delete-paused .task-result{color:var(--text)}.task-delete-check{color:var(--amber)}
+.delete-paused .task-last-scan time{visibility:hidden}.delete-paused .task-last-scan .task-result{visibility:visible}
+.delete-threshold-field{grid-column:auto;min-width:0}
+@media(hover:none){
+  .delete-threshold-field :deep(.number-control input){padding-right:66px}
+  .delete-threshold-field :deep(.number-accessory){width:60px;justify-items:start;padding-left:4px}
+  .delete-threshold-field :deep(.number-unit){opacity:1}
+  .delete-threshold-field :deep(.number-steppers){left:26px}
+}
 .health-paused .task-last-scan time{visibility:hidden}.health-paused .task-last-scan .task-result{visibility:visible}
 .add-task-tile{min-height:72px;align-self:stretch;flex-direction:row;border-radius:8px;padding:12px 16px}.add-task-tile strong{font-size:13px;font-weight:500}@media(max-width:480px){.add-task-tile{min-height:98px}}.generation-job-list{display:grid;gap:10px;margin-top:16px}.generation-job-list article{padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.generation-job-list article.running{border-color:var(--green)}.generation-job-list article.failed{border-color:var(--red)}.generation-job-list article>div{display:flex;justify-content:space-between;gap:16px}.generation-job-list strong{font-size:14px}.generation-job-list small{color:var(--muted);font-size:12px;overflow-wrap:anywhere}.generation-job-list progress{width:100%;height:6px;margin-top:10px;accent-color:var(--primary)}
 .extension-heading { display: flex; align-items: center; gap: 12px; min-height: 32px; }
 .extension-heading label { margin: 0; flex: none; white-space: nowrap; }
 .extension-heading > span { display: flex; gap: 4px; margin-left: auto; }
-@media(max-width:480px){.more-options>.retained-extension-field{grid-column:1 / -1}}
+@media(max-width:480px){.more-options>.retained-extension-field{grid-column:1 / -1}.delete-threshold-field>label{min-height:32px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start}}
 </style>

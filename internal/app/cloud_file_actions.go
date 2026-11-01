@@ -14,9 +14,37 @@ import (
 var errEmptyDirectoryUnconfirmed = errors.New("子目录无法确认仍为空，未提交删除")
 
 // Native cloud operations never transfer credentials or IDs between accounts.
-func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileActionRequest) error {
+func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileActionRequest) (resultErr error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+	if ctx.Value(shareLiveActionKey{}) == nil && (req.Action == "rename" || req.Action == "move" || req.Action == "delete") {
+		relevant := false
+		for _, link := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
+			for _, id := range req.IDs {
+				if link.StorageID == s.ID && link.DirectoryID == id {
+					relevant = true
+				}
+			}
+		}
+		if relevant {
+			if !a.shareLiveMu.TryLock() {
+				return errors.New("该目录的活动链接任务正在执行，请稍后操作")
+			}
+			defer a.shareLiveMu.Unlock()
+			for _, link := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
+				for _, id := range req.IDs {
+					if link.StorageID == s.ID && link.DirectoryID == id && (link.Status == "running" || link.Intent != "") {
+						return errors.New("该目录的活链任务正在执行或写入结果未确认")
+					}
+				}
+			}
+			defer func() {
+				if resultErr == nil {
+					resultErr = a.syncShareLiveDirectory(ctx, s, req)
+				}
+			}()
+		}
+	}
 	if s.ID != target.ID {
 		return errors.New("云端跨存储池传输尚未实现，请选择当前存储池内的目录")
 	}

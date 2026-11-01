@@ -115,7 +115,7 @@ func TestQuarkLibraryRevisionPortableRoute(t *testing.T) {
 	if _, err := a.runQuarkLibrary(context.Background(), card); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), "Movie.mkv.strm"))
+	body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), "Movie.mkv.share.strm"))
 	if err != nil || !strings.Contains(string(body), "/quark-share/sample-aB12/Movie.mkv") {
 		t.Fatalf("share/path URL not generated: %q %v", body, err)
 	}
@@ -153,7 +153,7 @@ func TestQuarkLibraryRevisionSnapshotAndCascade(t *testing.T) {
 	if err != nil || result.Generated != 1 {
 		t.Fatal(result, err)
 	}
-	for _, name := range []string{"Movie.mkv.strm", "Movie.nfo", "Movie-poster.jpg", "abandoned"} {
+	for _, name := range []string{"Movie.mkv.share.strm", "Movie.nfo", "Movie-poster.jpg", "abandoned"} {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
 			t.Fatal("stale output not reconciled", name, err)
 		}
@@ -255,7 +255,7 @@ func TestQuarkLibraryRevisionCleanupSafety(t *testing.T) {
 			case "network":
 				m.fail = true
 			case "modified":
-				writeTest(t, filepath.Join(root, "Movie.mkv.strm"), "user edited stream")
+				writeTest(t, filepath.Join(root, "Movie.mkv.share.strm"), "user edited stream")
 			case "marker":
 				writeTest(t, filepath.Join(root, quarkLibraryMarker), "wrong-owner")
 			case "expiry-user-file":
@@ -288,7 +288,7 @@ func TestQuarkLibraryRevisionCleanupSafety(t *testing.T) {
 					t.Fatal("protected scraper file removed", mode, name, err)
 				}
 			}
-			_, existsErr := os.Stat(filepath.Join(root, "Movie.mkv.strm"))
+			_, existsErr := os.Stat(filepath.Join(root, "Movie.mkv.share.strm"))
 			if mode == "cascade-off" && !os.IsNotExist(existsErr) || mode != "cascade-off" && existsErr != nil {
 				t.Fatal("incorrect STRM preservation", mode, existsErr)
 			}
@@ -321,7 +321,7 @@ func TestQuarkLibraryRevisionMissingSTRMStillCleansCompanions(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := quarkLibraryRoot(card)
-	if err := os.Remove(filepath.Join(root, "Movie.mkv.strm")); err != nil {
+	if err := os.Remove(filepath.Join(root, "Movie.mkv.share.strm")); err != nil {
 		t.Fatal(err)
 	}
 	writeTest(t, filepath.Join(root, "Movie.nfo"), "scraped")
@@ -350,14 +350,14 @@ func TestQuarkLibraryRevisionCleanupRechecksContent(t *testing.T) {
 	ctx := context.WithValue(context.Background(), quarkLibraryGuardKey{}, func() error {
 		checks++
 		if checks == 2 {
-			writeTest(t, filepath.Join(quarkLibraryRoot(card), "Movie.mkv.strm"), "changed before delete")
+			writeTest(t, filepath.Join(quarkLibraryRoot(card), "Movie.mkv.share.strm"), "changed before delete")
 		}
 		return nil
 	})
 	if _, err := a.reconcileQuarkLibrary(ctx, card, root, map[string]bool{}, false); err == nil {
 		t.Fatal("cleanup did not stop on content change")
 	}
-	if body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), "Movie.mkv.strm")); err != nil || string(body) != "changed before delete" {
+	if body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), "Movie.mkv.share.strm")); err != nil || string(body) != "changed before delete" {
 		t.Fatal("changed file removed", err)
 	}
 }
@@ -420,7 +420,7 @@ func TestQuarkLibraryRevisionNestedNamesAndAuthorization(t *testing.T) {
 	h := a.Handler(t.TempDir())
 	items := []struct{ directory, name string }{{"第一 季", "第1集 #1.mkv"}, {"第二季", "第2集 #2.mkv"}}
 	for _, item := range items {
-		body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), item.directory, item.name+".strm"))
+		body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), item.directory, item.name+".share.strm"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -442,7 +442,7 @@ func TestQuarkLibraryRevisionNestedNamesAndAuthorization(t *testing.T) {
 		t.Fatal("nested files did not retain independent source identities", m.saves)
 	}
 	for _, item := range items {
-		relative := item.directory + "/" + item.name + ".strm"
+		relative := item.directory + "/" + item.name + ".share.strm"
 		legacy := strings.TrimRight(a.currentSTRMSettings().Address, "/") + "/quark-share/sample-aB12/" + url.PathEscape(item.directory) + "/" + url.PathEscape(item.name) + "\n"
 		writeTest(t, filepath.Join(quarkLibraryRoot(card), filepath.FromSlash(relative)), legacy)
 		sum := sha256.Sum256([]byte(legacy))
@@ -465,8 +465,8 @@ func TestQuarkLibraryRevisionNestedNamesAndAuthorization(t *testing.T) {
 		t.Fatal("tracked previous-format pointers were not upgraded without retransferring media", result, err, m.saves)
 	}
 	for _, item := range items {
-		body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), item.directory, item.name+".strm"))
-		want := quarkLibraryURL(card, item.directory+"/"+item.name+".strm", a.currentSTRMSettings().Address)
+		body, err := os.ReadFile(filepath.Join(quarkLibraryRoot(card), item.directory, item.name+".share.strm"))
+		want := quarkLibraryURL(card, item.directory+"/"+item.name+".share.strm", a.currentSTRMSettings().Address)
 		if err != nil || string(body) != want {
 			t.Fatal("previous-format pointer retained a directory", string(body), err)
 		}
@@ -486,7 +486,7 @@ func TestQuarkLibraryFilenameOnlyRejectsAmbiguousNames(t *testing.T) {
 	if err := a.store.update(func(st *State) error {
 		for _, grant := range st.QuarkLibraryRuntime.Files {
 			grant.Key = id()
-			grant.Relative, grant.SourceID, grant.SourceParent = "Season2/Movie.mkv.strm", "another-video", "another-directory"
+			grant.Relative, grant.SourceID, grant.SourceParent = "Season2/Movie.mkv.share.strm", "another-video", "another-directory"
 			st.QuarkLibraryRuntime.Files[grant.Key] = grant
 			break
 		}
@@ -584,7 +584,7 @@ func TestQuarkLibraryRevisionCleanupRejectsReplacedDirectory(t *testing.T) {
 	if _, err := a.reconcileQuarkLibrary(ctx, card, root, map[string]bool{}, false); err == nil {
 		t.Fatal("copied marker authorized a different directory identity")
 	}
-	for _, name := range []string{filepath.Join(directory, "user.txt"), filepath.Join(directory+"-original", "Movie.mkv.strm")} {
+	for _, name := range []string{filepath.Join(directory, "user.txt"), filepath.Join(directory+"-original", "Movie.mkv.share.strm")} {
 		if _, err := os.Stat(name); err != nil {
 			t.Fatal("directory replacement caused deletion", name, err)
 		}

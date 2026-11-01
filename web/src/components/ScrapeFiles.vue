@@ -64,7 +64,8 @@ defineExpose({ refresh: () => load(dir.value) })
   <div class="scrape-file-shell"><div ref="viewport" class="scrape-files">
     <div v-if="top" :style="{height:`${top}px`}" />
     <article v-for="f in shown" :key="f.id" class="scrape-file-row" :class="{recognized:!!recognizedWork(f)}">
-      <button class="file-name" :aria-label="f.name" :aria-description="recognizedWork(f) ? `${recognizedWork(f).kind==='tv'?'剧集':'电影'}，${recognizedWork(f).matchedTitle || recognizedWork(f).title}，TMDB ${recognizedWork(f).tmdb}` : undefined" @click="open(f)"><Icon :name="f.isDir ? 'Folder' : documentIcon(f.name) || 'Image'" :size="24" :class="{'folder-color':f.isDir}" /><span class="scrape-file-label"><strong :data-tooltip="f.name">{{ f.name }}</strong><span v-if="recognizedWork(f)" class="scrape-folder-identity"><b>{{recognizedWork(f).kind==='tv'?'剧集':'电影'}}</b><span :data-tooltip="recognizedWork(f).matchedTitle || recognizedWork(f).title">{{recognizedWork(f).matchedTitle || recognizedWork(f).title}}</span><small>TMDB {{recognizedWork(f).tmdb}}</small></span></span></button>
+      <button class="file-name" :aria-label="f.name" :aria-description="recognizedWork(f) ? `${recognizedWork(f).kind==='tv'?'剧集':'电影'}，${recognizedWork(f).matchedTitle || recognizedWork(f).title}，TMDB ${recognizedWork(f).tmdb}` : undefined" @click="open(f)"><Icon :name="f.isDir ? 'Folder' : documentIcon(f.name) || 'Image'" :size="24" :class="{'folder-color':f.isDir}" /><span class="scrape-file-label"><strong :data-tooltip="f.name">{{ f.name }}</strong></span></button>
+      <span v-if="recognizedWork(f)" class="scrape-folder-identity"><b>{{recognizedWork(f).kind==='tv'?'剧集':'电影'}}</b><span :data-tooltip="recognizedWork(f).matchedTitle || recognizedWork(f).title">{{recognizedWork(f).matchedTitle || recognizedWork(f).title}}</span><small>TMDB {{recognizedWork(f).tmdb}}</small></span>
       <div v-if="f.isDir && work(f)" class="scrape-folder-actions"><button class="text-btn" :disabled="running" @click="emit('reset',work(f))"><Icon name="RotateCcw" />重置</button><button class="text-btn" :disabled="running" @click="emit('identify',work(f))"><Icon name="ScanSearch" />识别</button></div>
     </article>
     <div v-if="bottom" :style="{height:`${bottom}px`}" />
@@ -83,14 +84,14 @@ defineExpose({ refresh: () => load(dir.value) })
 .scrape-file-row:hover { background:var(--primary-soft); }
 .scrape-file-row .file-name { flex:1; min-width:0; }
 .scrape-file-row strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.scrape-file-label { display:grid;gap:4px;min-width:0; }.scrape-file-label>strong { display:block; }
-.scrape-folder-identity { display:flex;align-items:center;gap:8px;min-width:0;color:var(--primary);font-size:12px; }
+.scrape-file-label { flex:1;min-width:0; }.scrape-file-label>strong { display:block; }
+.scrape-folder-identity { display:flex;flex:1;align-items:center;gap:8px;min-width:0;color:var(--primary);font-size:12px; }
 .scrape-folder-identity b { font-size:12px;font-weight:500;flex:none; }.scrape-folder-identity>span { white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .scrape-folder-identity small { flex:none;color:inherit;font-size:12px; }
 .scrape-file-row.recognized { background:color-mix(in srgb,var(--primary) 8%,var(--input));box-shadow:inset 3px 0 var(--primary); }
 .scrape-file-row small { color:var(--muted); }
-.scrape-folder-actions { display:flex; gap:14px; opacity:0; }
+.scrape-folder-actions { display:flex; flex:none; gap:14px; opacity:0; }
 .scrape-file-row:hover .scrape-folder-actions,.scrape-file-row:focus-within .scrape-folder-actions { opacity:1; }
 @media(hover:none) { .scrape-folder-actions { opacity:1; } }
-@media(max-width:600px) { .scrape-folder-actions { gap:7px; }.scrape-folder-identity { gap:5px; }.scrape-folder-identity small { font-size:11px; } }
+@media(max-width:600px) { .scrape-folder-actions { gap:7px; }.scrape-folder-identity { display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 5px; }.scrape-folder-identity small { grid-column:1 / -1;font-size:11px; } }
 </style>

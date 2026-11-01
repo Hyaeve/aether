@@ -105,8 +105,21 @@ func TestSTRMRetainedSettingRoundTripAndGeneratedNames(t *testing.T) {
 			}
 		}
 		files, err := os.ReadDir(task.Target)
-		if err != nil || len(files) != 3 {
+		if err != nil || len(files) != 4 {
 			t.Fatal("unexpected generated names", files, err)
+		}
+		sync, err := reopened.beginSTRMSync(saved, s, saved.Target, "")
+		if err != nil || sync == nil {
+			t.Fatal("missing task ownership record", err)
+		}
+		root, err := os.OpenRoot(saved.Target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, markerErr := strmReadOwner(root, strmOwnerName(saved.ID))
+		root.Close()
+		if markerErr != nil || token != sync.manifest.Token {
+			t.Fatal("unexpected generated ownership marker", markerErr)
 		}
 	}
 }

@@ -19,6 +19,18 @@ import (
 
 const casLimit = 1 << 20
 
+func validCASExportFormat(format string) bool {
+	return format == "" || format == "plain" || format == "encoded"
+}
+
+func marshalCASExport(info CASInfo, format string) ([]byte, error) {
+	raw, err := marshalCASContent(info)
+	if err != nil || format != "encoded" {
+		return raw, err
+	}
+	return []byte(base64.RawURLEncoding.EncodeToString(raw)), nil
+}
+
 var errCASIncomplete = errors.New("CAS信息缺失：需要SHA256，或同时包含MD5与分片MD5，不满足cas.strm生成要求")
 
 func casRetentionHours(hours int) int {
@@ -164,6 +176,9 @@ func decodeCAS(content []byte, filename string) (CASInfo, error) {
 		raw, err = base64.StdEncoding.DecodeString(string(content))
 		if err != nil {
 			raw, err = base64.RawStdEncoding.DecodeString(string(content))
+		}
+		if err != nil {
+			raw, err = base64.RawURLEncoding.DecodeString(string(content))
 		}
 	}
 	if err != nil {

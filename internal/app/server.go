@@ -29,6 +29,11 @@ import (
 )
 
 type App struct {
+	mediaDeepDeleteMu   sync.Mutex
+	ali115Gate          sync.Mutex
+	ali115Session       *aliSession
+	ali115QRMu          sync.Mutex
+	ali115QRs           map[string]aliQR
 	archives            *executionArchives
 	folderCleanupMu     sync.Mutex
 	pan115SigninMu      sync.Mutex
@@ -39,6 +44,7 @@ type App struct {
 	notificationQueue   chan channelNotice
 	wecom               wecomService
 	quarkLibraryMu      sync.Mutex
+	mobileLibraryMu     sync.Mutex
 	quarkTemporaryMu    sync.Mutex
 	quarkPlaybackActive map[string]int
 	marketMu            sync.Mutex
@@ -247,6 +253,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.channelNotificationWorker()
 	a.wg.Add(1)
 	go a.quarkLibraryMonitor()
+	a.wg.Add(1)
+	go a.mobileLibraryMonitor()
 	go a.casExportResultMonitor()
 	a.wg.Add(1)
 	go a.storageHealthLoop()
@@ -349,6 +357,11 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/virtual-library/quark/{id}/run", a.protected(http.HandlerFunc(a.quarkLibraryRunAPI)))
 	mux.HandleFunc("/q/{key}/{name}", a.playQuarkLibrary)
 	mux.HandleFunc("/quark-share/{share}/{file...}", a.playQuarkLibraryPath)
+	mux.Handle("/api/virtual-library/mobile", a.protected(http.HandlerFunc(a.mobileLibraryAPI)))
+	mux.Handle("/api/virtual-library/mobile/{id}", a.protected(http.HandlerFunc(a.mobileLibraryAPI)))
+	mux.Handle("POST /api/virtual-library/mobile/resolve", a.protected(http.HandlerFunc(a.mobileLibraryResolve)))
+	mux.Handle("POST /api/virtual-library/mobile/{id}/run", a.protected(http.HandlerFunc(a.mobileLibraryRunAPI)))
+	mux.HandleFunc("/139-share/{share}/{file...}", a.playMobileLibrary)
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
 	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))
@@ -365,6 +378,8 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/notification-service/secret", a.protected(http.HandlerFunc(a.telegramSecret)))
 	mux.Handle("GET /api/share-transfers", a.protected(http.HandlerFunc(a.shareTransferHistory)))
 	mux.Handle("GET /api/share-live", a.protected(http.HandlerFunc(a.shareLiveAPI)))
+	mux.Handle("POST /api/share-live", a.protected(http.HandlerFunc(a.shareLiveAPI)))
+	mux.Handle("POST /api/share-live/resolve", a.protected(http.HandlerFunc(a.resolveShareLive)))
 	mux.Handle("PUT /api/share-live/{id}", a.protected(http.HandlerFunc(a.shareLiveAPI)))
 	mux.Handle("POST /api/share-live/{id}/{action}", a.protected(http.HandlerFunc(a.shareLiveAPI)))
 	mux.Handle("POST /api/notification-service/wecom/secret", a.protected(http.HandlerFunc(a.wecomSecret)))
@@ -458,6 +473,13 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/quark-takeover/{id}", a.protected(http.HandlerFunc(a.quarkTVSettings)))
 	mux.Handle("/api/quark-takeover", a.protected(http.HandlerFunc(a.quarkTVOverview)))
 	mux.Handle("/api/plugins/{kind}", a.protected(http.HandlerFunc(a.pluginConfig)))
+	mux.Handle("/api/ali115", a.protected(http.HandlerFunc(a.ali115API)))
+	mux.Handle("/api/media-deep-delete", a.protected(http.HandlerFunc(a.mediaDeepDeleteAPI)))
+	mux.Handle("DELETE /api/ali115/targets/{id}", a.protected(http.HandlerFunc(a.ali115API)))
+	mux.Handle("POST /api/ali115/account", a.protected(http.HandlerFunc(a.ali115AccountAPI)))
+	mux.Handle("/api/ali115/qr", a.protected(http.HandlerFunc(a.aliQRAPI)))
+	mux.Handle("POST /api/ali115/run", a.protected(http.HandlerFunc(a.ali115RunAPI)))
+	mux.Handle("GET /api/ali115/records", a.protected(http.HandlerFunc(a.ali115RecordsAPI)))
 	mux.Handle("POST /api/plugins/{kind}/secret", a.protected(http.HandlerFunc(a.pluginSecret)))
 	mux.Handle("POST /api/plugins/{kind}/{action}", a.protected(http.HandlerFunc(a.pluginAction)))
 	mux.HandleFunc("POST /api/emby/webhook", a.embyWebhook)
@@ -725,7 +747,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "fileFavorites": visibleFavorites(st.FileFavorites), "fileVisits": st.FileVisits, "links": redactedMediaLinks(st.Links), "libraryNotices": st.LibraryNotices, "shareNotices": st.ShareNotices, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
-		"cache": a.cache.stats(), "traffic": map[string]any{"uploaded": a.uploaded.Load(), "downloaded": a.downloaded.Load()}, "uptime": int(time.Since(a.started).Seconds()), "strmRoot": a.outputDir})
+		"scrapeLibraries": shareScrapeSources(st), "cache": a.cache.stats(), "traffic": map[string]any{"uploaded": a.uploaded.Load(), "downloaded": a.downloaded.Load()}, "uptime": int(time.Since(a.started).Seconds()), "strmRoot": a.outputDir})
 }
 
 func validateStorage(s *Storage) error {
@@ -959,6 +981,12 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	for _, job := range a.store.snapshotWithLogLimit(0).Ali115Receipts {
+		if job.Status == "running" && job.Target.StorageID == sid {
+			fail(w, 409, errors.New("阿里云盘秒传正在使用此115存储池，请等待任务结束后再修改"))
+			return
+		}
+	}
 	err := a.store.update(func(st *State) error {
 		for i, s := range st.Storages {
 			if s.ID != sid {
@@ -1013,6 +1041,13 @@ func (a *App) storageItem(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				st.Pan115Signin.Rules = signins
+				aliTargets := []ali115Target{}
+				for _, target := range st.Ali115.Targets {
+					if target.StorageID != sid {
+						aliTargets = append(aliTargets, target)
+					}
+				}
+				st.Ali115.Targets = aliTargets
 				targets := st.Notifications.Targets[:0]
 				for _, target := range st.Notifications.Targets {
 					if target.StorageID != sid {
@@ -1212,7 +1247,23 @@ func (a *App) validateTask(t *Task) error {
 		if _, err := a.outputRelative(t.Target); err != nil {
 			return err
 		}
-		if t.Mode != "full" && t.Mode != "incremental" {
+		if t.Kind == "strm" {
+			mode, err := normalizeSTRMMode(t.Mode)
+			if err != nil {
+				return err
+			}
+			t.Mode = mode
+			s, _ := a.store.storage(t.StorageID)
+			if err := validateSTRMSource(*t, s, false); err != nil {
+				return err
+			}
+			if t.STRMSource != "" {
+				t.Mode = strmUpdate
+			}
+			if t.CascadeDelete && t.CascadeExtensions == "" {
+				t.CascadeExtensions = defaultSTRMCascadeExtensions
+			}
+		} else if t.Mode != "full" && t.Mode != "incremental" {
 			return errors.New("无效的生成方式")
 		}
 		if t.Cron != "" {
@@ -1251,12 +1302,21 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created := time.Now()
+	if t.Kind == "strm" && t.STRMSource == "" {
+		if s, err := a.store.storage(t.StorageID); err == nil && s.Type == "115" {
+			t.STRMSource = "life"
+		}
+	}
 	t.Cron = strings.TrimSpace(t.Cron)
 	if err := a.validateTask(&t); err != nil {
 		fail(w, 400, err)
 		return
 	}
 	t.ID, t.Status, t.Message, t.Processed, t.LastRun = id(), "idle", "等待执行", 0, time.Time{}
+	t.STRMDeleteState = nil
+	if t.Kind == "strm" && t.STRMSource == "life" {
+		t.STRMLifeSince = created
+	}
 	t.CASGenerated, t.CASFailed = 0, 0
 	t.NextRun = nextRun(t, created)
 	a.runMu.Lock()
@@ -1307,8 +1367,16 @@ func (a *App) taskItem(w http.ResponseWriter, r *http.Request) {
 				return nil
 			}
 			in.ID, in.Status, in.Message, in.Processed, in.LastRun = tid, t.Status, t.Message, t.Processed, t.LastRun
+			in.STRMLifeSince = t.STRMLifeSince
+			in.STRMDeleteState = t.STRMDeleteState
+			if in.Kind == "strm" && in.STRMSource == "life" && (t.STRMSource != "life" || t.StorageID != in.StorageID || t.Source != in.Source || !t.Enabled && in.Enabled && t.STRMDeleteState == nil) {
+				in.STRMLifeSince = time.Now()
+			}
 			in.CASGenerated, in.CASFailed = t.CASGenerated, t.CASFailed
 			in.NextRun = nextRun(in, time.Now())
+			if in.STRMDeleteState != nil {
+				in.NextRun = in.STRMDeleteState.RetryAt
+			}
 			st.Tasks[i] = in
 			return nil
 		}
@@ -1327,6 +1395,36 @@ func (a *App) taskAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.PathValue("action") {
+	case "check":
+		if err := a.startSTRMDeleteCheck(r.PathValue("id"), false); err != nil {
+			fail(w, 409, err)
+			return
+		}
+	case "sync":
+		var in struct {
+			Confirm bool `json:"confirm"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		if !in.Confirm {
+			fail(w, 400, errors.New("请确认全量同步及按配置清理生成产物"))
+			return
+		}
+		task := Task{}
+		for _, current := range a.store.snapshotWithLogLimit(0).Tasks {
+			if current.ID == r.PathValue("id") {
+				task = current
+			}
+		}
+		if task.Kind != "strm" {
+			fail(w, 400, errors.New("仅STRM任务支持全量同步"))
+			return
+		}
+		if err := a.startTaskWithTrigger(a.ctx, task.ID, nil, "full-sync"); err != nil {
+			fail(w, 409, err)
+			return
+		}
 	case "reset":
 		var in struct {
 			Confirm bool `json:"confirm"`
@@ -1372,6 +1470,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	// Session policy changes go through the account endpoint and rotate sessions.
 	s.STRMURL, s.STRM115Format = a.store.snapshotWithLogLimit(0).Settings.STRMURL, a.store.snapshotWithLogLimit(0).Settings.STRM115Format
 	s.STRMOverwriteMode = a.store.snapshotWithLogLimit(0).Settings.STRMOverwriteMode
+	s.STRMContent = a.store.snapshotWithLogLimit(0).Settings.STRMContent
 	s.SessionDays = a.store.snapshot().Settings.SessionDays
 	if s.LogDays == 0 {
 		s.LogDays = 15
@@ -1395,6 +1494,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.update(func(st *State) error {
 		s.STRMURL, s.STRM115Format = st.Settings.STRMURL, st.Settings.STRM115Format
 		s.STRMOverwriteMode = st.Settings.STRMOverwriteMode
+		s.STRMContent = st.Settings.STRMContent
 		st.Settings = s
 		return nil
 	}); err != nil {

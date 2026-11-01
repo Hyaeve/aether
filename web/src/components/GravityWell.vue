@@ -1,11 +1,11 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
 const canvas = ref(null)
 let observer
 function draw() {
   const el = canvas.value
   const width = el.clientWidth, height = el.clientHeight
-  if (!width || !height) return
+  if (!width || !height) { el.width = el.height = 0; return }
   const scale = Math.min(devicePixelRatio || 1, 2)
   el.width = Math.round(width * scale); el.height = Math.round(height * scale)
   const ctx = el.getContext('2d')
@@ -25,7 +25,10 @@ function draw() {
   ctx.fillRect(-radius, -radius, radius * 2, radius * 2)
 }
 onMounted(() => { observer = new ResizeObserver(draw); observer.observe(canvas.value); draw() })
-onUnmounted(() => observer?.disconnect())
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  if (canvas.value) canvas.value.width = canvas.value.height = 0
+})
 </script>
 <template><canvas ref="canvas" class="gravity-well" aria-hidden="true" /></template>
 <style scoped>

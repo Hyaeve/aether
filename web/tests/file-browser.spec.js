@@ -62,6 +62,7 @@ test('file creation, rename confirmation, virtual lists and compact paths', asyn
   const readsBeforeRename = directoryReads
   await page.getByRole('button', { name: '确认修改', exact: true }).click()
   await expect(page.getByRole('button', { name: 'changed.txt', exact: true })).toBeVisible()
+  await expect(page.getByRole('status', { name: '正在同步名称' })).toHaveCount(0)
   expect(directoryReads).toBe(readsBeforeRename)
   await page.getByRole('button', { name: 'changed.txt', exact: true }).click({ button: 'right' })
   await expect(page.locator('.context-menu button').last()).toHaveText('查看详情')

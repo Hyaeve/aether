@@ -5,6 +5,9 @@ import "fmt"
 const telegramDirectoryPageSize = 5
 
 func telegramAction(kind string) string {
+	if kind == "ali-rapid" {
+		return "阿里云盘秒传"
+	}
 	if kind == "ed2k" {
 		return "ED2K 离线"
 	}

@@ -8,6 +8,8 @@ import StrmReplace from '../components/StrmReplace.vue'
 import Pan115Simulcast from '../components/Pan115Simulcast.vue'
 import RecycleCleanup from '../components/RecycleCleanup.vue'
 import FolderCleanup from '../components/FolderCleanup.vue'
+import Ali115Rapid from '../components/Ali115Rapid.vue'
+import MediaDeepDelete from '../components/MediaDeepDelete.vue'
 import Pan115Signin from '../components/Pan115Signin.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import Rapid115Icon from '../components/Rapid115Icon.vue'
@@ -54,7 +56,7 @@ async function togglePlugin(tool) {
     notify(`${current.enabled ? '已停用' : '已启用'} ${tool.name}`)
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-onMounted(() => Promise.all(['emby', 'tmdb', 'ai'].map(async kind => {
+onMounted(() => Promise.all(['emby'].map(async kind => {
   try { pluginStates.value[kind] = (await readPlugin(kind, true)).enabled } catch (e) { notify(e.message, true) }
 })))
 async function loadTakeover() {
@@ -102,14 +104,10 @@ const tools = [
   { name: '115 同播复制', icon: 'Copy', subtitle: '115 网盘 · 多客户端播放', detail: '同一文件十分钟内出现不同播放客户端时，为后续客户端复制独立文件并获取直链' },
   { name:'115 文件夹清理',icon:'FolderClock',subtitle:'115 网盘 · 文件夹清理',detail:'按Cron计划清理所选文件夹中超过阈值的文件及空子目录，保留所选文件夹' },
   { name:'115 回收站清理',icon:'Trash2',subtitle:'115 网盘 · 定时清理',detail:'按计划清理115回收站中超过保留天数的项目' },
+  { name:'阿里云盘秒传',icon:'Ali115Rapid',subtitle:'阿里云盘分享 · 秒传至115',detail:'分享文件临时转存到阿里云盘/Aether，读取SHA1后秒传到指定115目录，核验完成后清理临时副本' },
   { name: '夸克 STRM 接管', icon: 'ArrowLeftRight', subtitle: '夸克网盘 · TV 版 302 直链', detail: '接管本项目生成的夸克 STRM 播放请求，按绑定策略返回 TV 版 302 直链；画质、字幕及客户端兼容性受上游限制。' },
-  { name: '整理规则', icon: 'FolderTree', subtitle: '媒体整理 · 命名与目录', file: 'organize-rules.json', detail: '配置媒体命名、目录结构和整理规则' },
-  { name: '二级分类', icon: 'Tags', subtitle: '媒体整理 · 分类归档', file: 'categories.json', detail: '按媒体类型、地区和分类归档文件' },
-  { name: '洗版策略', icon: 'MediaUpgrade', subtitle: '媒体整理 · 版本偏好', file: 'upgrade-policies.json', detail: '根据画质与版本偏好替换已有媒体' },
-  { name: 'AI 辅助识别', kind: 'ai', icon: 'BrainCircuit', subtitle: '媒体识别 · 兼容模型接口', file: 'ai.json', detail: '通过 OpenAI 兼容模型识别媒体名称与季集信息' },
-  { name: '识别规则', icon: 'ListFilter', subtitle: '媒体识别 · 匹配规则', file: 'recognition-rules.json', detail: '最小视频、整理黑名单、自定义识别词、自定义匹配' },
-  { name: 'TMDB 配置', kind: 'tmdb', icon: 'TMDB', subtitle: '媒体元数据 · TMDB', detail: '配置影视元数据接口、图片域名与语言偏好' },
   { name: 'Emby 通知', kind: 'emby', icon: 'EmbyNotice', subtitle: '媒体服务 · 事件通知', detail: '接收 Emby 中勾选的入库、播放及系统事件' },
+  { name: '媒体深度删除', icon: 'FileX2', subtitle: '媒体服务 · 源文件联动', detail: '通过以链主动删除普通STRM后，联动删除对应真实源文件；整部作品按作品内STRM清单处理' },
   { name: '配置备份', icon: 'FileArchive', subtitle: '系统配置 · 加密备份', detail: '加密导入导出系统、存储池、以链与规则配置' }
 ]
 tools.splice(tools.length - 1, 0, { name: 'STRM 替换', icon: 'FilePenLine', subtitle: 'STRM 文件 · 内容替换', detail: '批量替换容器目录内 STRM 文件内容，保留文件名与目录结构' })
@@ -122,11 +120,13 @@ const results = computed(() => tools.filter(tool => `${tool.name} ${tool.subtitl
     <article v-for="tool in tools" :key="tool.name" class="plugin-card" role="button" tabindex="0" :aria-label="tool.name" @click="selectTool(tool)" @keydown.enter.self="selectTool(tool)" @keydown.space.prevent.self="selectTool(tool)">
       <Rapid115Icon v-if="tool.name==='115 秒传中心'" /><button v-else-if="['115 自动签到','115 文件夹清理'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 自动签到'?signin.enabled:folderCleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 自动签到'?signin.enabled:folderCleanup.enabled" :disabled="busy" @click.stop="toggleExtra115(tool.name==='115 自动签到'?'signin':'folder')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="['115 同播复制','115 回收站清理'].includes(tool.name)" class="plugin-symbol simulcast-symbol" :aria-label="`${(tool.name==='115 同播复制'?simulcastOn:cleanup.enabled)?'停用':'启用'}${tool.name}`" :aria-pressed="tool.name==='115 同播复制'?simulcastOn:cleanup.enabled" :disabled="busy" @click.stop="toggle115(tool.name==='115 同播复制'?'simulcast':'cleanup')"><ProviderIcon type="115" /><Icon :name="tool.icon" :size="15" /></button><button v-else-if="tool.name === '夸克 STRM 接管'" class="plugin-symbol quark-takeover-symbol" :aria-label="`${takeover.enabled ? '停用' : '启用'}夸克 STRM 接管`" :aria-pressed="takeover.enabled && takeover.bindings.length > 0" :disabled="busy" @click.stop="toggleTakeover"><ProviderIcon type="quark" /><Icon name="ArrowLeftRight" :size="14" /></button><button v-else-if="tool.kind" class="plugin-symbol plugin-toggle" :aria-label="`${pluginStates[tool.kind] ? '停用' : '启用'}${tool.name}`" :aria-pressed="!!pluginStates[tool.kind]" :disabled="busy" @click.stop="togglePlugin(tool)"><Icon :name="tool.icon" :size="26" /></button><span v-else class="plugin-symbol"><Icon :name="tool.icon" :size="26" /></span>
       <div class="plugin-heading"><strong>{{ tool.name }}</strong><small class="plugin-subtitle">{{ tool.subtitle }}</small></div>
-      <small class="plugin-description" :data-tooltip="tool.detail" data-tooltip-always data-tooltip-stationary data-tooltip-delay="300">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115 回收站清理', '115 文件夹清理', '115 自动签到', 'STRM 替换','115 秒传中心'].includes(tool.name)" class="status pending">待实现</span>
+      <small class="plugin-description" :data-tooltip="tool.detail" data-tooltip-stationary data-tooltip-delay="300">{{ tool.detail }}</small><span v-if="!tool.kind && !['配置备份', '夸克 STRM 接管', '115 同播复制', '115 回收站清理', '115 文件夹清理', '115 自动签到', 'STRM 替换','115 秒传中心','阿里云盘秒传','媒体深度删除'].includes(tool.name)" class="status pending">待实现</span>
     </article>
   </div>
   <PluginSearch v-if="section === 'tools'" :items="results" @search="query = $event" @select="selectTool" />
   <QuarkTakeover v-if="selected?.name === '夸克 STRM 接管'" @close="selected = null" @changed="takeover = $event" />
+  <Ali115Rapid v-else-if="selected?.name === '阿里云盘秒传'" @close="selected=null" />
+  <MediaDeepDelete v-else-if="selected?.name === '媒体深度删除'" @close="selected=null" />
   <Pan115Simulcast v-else-if="selected?.name === '115 同播复制'" @close="selected = null" />
   <FolderCleanup v-else-if="selected?.name === '115 文件夹清理'" @close="selected=null" @changed="folderCleanup=$event" />
   <Pan115Signin v-else-if="selected?.name === '115 自动签到'" @close="selected=null" @changed="signin=$event" />
@@ -147,6 +147,7 @@ const results = computed(() => tools.filter(tool => `${tool.name} ${tool.subtitl
 </template>
 <style scoped>
 .quark-takeover-symbol { position: relative; background: transparent; padding: 0; border: 0; }
+.plugin-symbol:has(.ali-rapid-icon){background:transparent}
 .plugin-card .simulcast-symbol { position:relative; background:transparent; border-radius:50%; }
 .simulcast-symbol :deep(.provider-icon) { width:44px; height:44px; background:transparent; border-radius:50%; }
 .simulcast-symbol :deep(.provider-logo) { width:100%; height:100%; }

@@ -8,8 +8,9 @@ import { transformSync } from 'esbuild'
 import * as motion from '../src/number-motion.js'
 import { numberDuration, numberEasing, numberFrameInterval } from '../src/number-motion.js'
 
-test('all counter durations have a finite 1500ms upper bound', () => {
-  for (const [input, expected] of [[0, 0], [-10, 0], [500, 500], [1500, 1500], [9000, 1500], [NaN, 1500], [Infinity, 1500]]) {
+test('all counter durations have a finite 1000ms upper bound', () => {
+  assert.equal(numberDuration(), 1000)
+  for (const [input, expected] of [[0, 0], [-10, 0], [500, 500], [1000, 1000], [1500, 1000], [9000, 1000], [NaN, 1000], [Infinity, 1000]]) {
     assert.equal(numberDuration(input), expected)
   }
 })
@@ -55,8 +56,8 @@ test('the real counter settles at its original deadline even when the value chan
   }
   let app
   try {
-    for (const value of [1, 7, 10000, 987654321012]) {
-      const root = {}, props = reactive({ value, duration: 9000 })
+    for (const duration of [undefined, 9000]) for (const value of [1, 7, 10000, 987654321012]) {
+      const root = {}, props = reactive({ value, duration })
       const started = now
       app = renderer.createApp({ render: () => h(module.exports.default, props) })
       app.mount(root)
@@ -64,8 +65,11 @@ test('the real counter settles at its original deadline even when the value chan
       await advance(300)
       props.value = value * 2
       await nextTick()
-      await advance(1200)
-      assert.equal(now - started, 1500)
+      await advance(699)
+      assert.equal(now - started, 999)
+      assert.ok(scheduled.size > 0)
+      await advance(1)
+      assert.equal(now - started, 1000)
       assert.equal(root.child.text, String(value * 2))
       assert.equal(scheduled.size, 0)
       app.unmount(); app = null

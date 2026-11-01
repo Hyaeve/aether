@@ -27,6 +27,17 @@ type strmReference struct {
 	Name    string `json:"name"`
 }
 
+func strmContentPath(value string, encoded bool) string {
+	if !encoded {
+		return shareFilenamePath(value)
+	}
+	parts := strings.Split(value, "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	return strings.Join(parts, "/")
+}
+
 func (a *App) referencePath(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(a.dataDir, "strm-index", hex.EncodeToString(sum[:])+".enc")
@@ -96,12 +107,12 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 		if config.Format == "pickcode" {
 			return base + "/d/" + key, nil
 		}
-		return base + "/d/" + key + "/" + url.PathEscape(f.Name), nil
+		return base + "/d/" + key + "/" + strmContentPath(f.Name, config.Content == "encoded"), nil
 	}
 	if s.Type == "quark" {
 		file := base64.RawURLEncoding.EncodeToString([]byte(f.ID))
 		sig := a.quarkSTRMSign(s.ID, file, f.Name)
-		return base + "/api/strm/play/" + url.PathEscape(s.ID) + "/" + file + "/t/" + sig + "/n/" + url.PathEscape(f.Name), nil
+		return base + "/api/strm/play/" + url.PathEscape(s.ID) + "/" + file + "/t/" + sig + "/n/" + strmContentPath(f.Name, config.Content == "encoded"), nil
 	}
 	return a.generatedStreamURL(streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode}), nil
 }

@@ -20,7 +20,7 @@ const validMode=value=>['copy','upload','download'].includes(value)
 selected.value=validMode(route.query.mode)?route.query.mode:readSession(state.username,'transfer-mode')||'copy'
 watch(()=>route.query.mode,value=>{if(validMode(value))selected.value=value})
 watch(selected,value=>writeSession(state.username,'transfer-mode',value),{immediate:true})
-const viewport=ref(null), chosen=ref([]), selecting=ref(false), actionBusy=ref(false), confirm=ref(null), filters=ref([]), filterOpen=ref(false)
+const viewport=ref(null), chosen=ref([]), selecting=ref(false), actionBusy=ref(false), confirm=ref(null), statusFilter=ref(''), filterOpen=ref(false)
 const filterTrigger=ref(null), filterMenu=ref(null), filterMaxHeight=ref(440), filterId=useId()
 const filterOptions=[{value:'',label:'所有状态',icon:'ListFilter'},...transferStates]
 let anchor=0, timer, alive=true
@@ -33,7 +33,7 @@ const located=computed(()=>items.value.map(item=>({...item,
   to:item.to||(item.kind==='download'?clientLocation(item.source):item.kind==='upload'?{storage:item.storage}:{})
 })))
 const summaries=computed(()=>Object.fromEntries(modes.map(mode=>[mode.id,transferSummary(items.value.filter(i=>i.kind===mode.id))])))
-const filtered=computed(()=>located.value.filter(i=>i.kind===selected.value&&(!filters.value.length||filters.value.includes(i.status))&&
+const filtered=computed(()=>located.value.filter(i=>i.kind===selected.value&&(!statusFilter.value||statusFilter.value===i.status)&&
   [i.name,i.storage,i.source,i.from.storage,i.from.directory,i.from.path,i.to.storage,i.to.directory,i.to.path,transferState(i).label].some(v=>String(v||'').toLowerCase().includes(query.value.trim().toLowerCase()))))
 const selectedRows=computed(()=>filtered.value.filter(i=>chosen.value.includes(i.id)))
 const eligible=action=>selectedRows.value.filter(i=>canControlTransfer(i,action))
@@ -48,9 +48,9 @@ function choose(event,item,index){
   if(event.shiftKey){chosen.value=[...new Set([...chosen.value,...filtered.value.slice(Math.min(index,anchor),Math.max(index,anchor)+1).map(i=>i.id)])]}
   else{chosen.value=chosen.value.includes(item.id)?chosen.value.filter(id=>id!==item.id):[...chosen.value,item.id];anchor=index}
 }
-watch(selected,()=>{filters.value=[];closeFilter();confirm.value=null;clearSelection()})
-watch([selected,query,filters],()=>{reset();chosen.value=chosen.value.filter(id=>filtered.value.some(i=>i.id===id))})
-watch(()=>props.rules,()=>{clearSelection();closeFilter();filters.value=[];clearTimeout(timer);if(!props.rules)load()})
+watch(selected,()=>{statusFilter.value='';closeFilter();confirm.value=null;clearSelection()})
+watch([selected,query,statusFilter],()=>{reset();chosen.value=chosen.value.filter(id=>filtered.value.some(i=>i.id===id))})
+watch(()=>props.rules,()=>{clearSelection();closeFilter();statusFilter.value='';clearTimeout(timer);if(!props.rules)load()})
 const actionLabel={pause:'暂停',retry:'重试',resume:'恢复',delete:'删除'}
 function control(action){
   const rows=eligible(action).map(i=>({id:i.id,name:i.name}))
@@ -84,8 +84,8 @@ async function load(){
   catch(e){if(alive)error.value=e.message}
   finally{busy.value=false;if(alive&&!props.rules)timer=setTimeout(load,2000)}
 }
-function filterChecked(value){return value?filters.value.includes(value):!filters.value.length}
-function changeFilter(value){filters.value=value?(filterChecked(value)?filters.value.filter(item=>item!==value):[...filters.value,value]):[]}
+function filterChecked(value){return value===statusFilter.value}
+function changeFilter(value){statusFilter.value=value;closeFilter(true)}
 function closeFilter(focus=false){filterOpen.value=false;if(focus)filterTrigger.value?.focus({preventScroll:true})}
 function sizeFilter(){
   if(filterOpen.value&&filterTrigger.value)filterMaxHeight.value=Math.max(36,Math.floor((window.visualViewport?.height||innerHeight)-filterTrigger.value.getBoundingClientRect().bottom-14))
@@ -94,7 +94,7 @@ async function openFilter(last=false){
   filterOpen.value=true
   sizeFilter()
   await nextTick()
-  const options=filterMenu.value?.querySelectorAll('[role=menuitemcheckbox]')
+  const options=filterMenu.value?.querySelectorAll('[role=menuitemradio]')
   const option=last?options?.[options.length-1]:filterMenu.value?.querySelector('[aria-checked=true]')
   option?.focus({preventScroll:true})
   option?.scrollIntoView({block:'nearest'})
@@ -104,7 +104,7 @@ function filterKey(event){
   if(event.key==='Tab'){closeFilter(true);return}
   if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return
   event.preventDefault()
-  const options=[...filterMenu.value.querySelectorAll('[role=menuitemcheckbox]')]
+  const options=[...filterMenu.value.querySelectorAll('[role=menuitemradio]')]
   const current=options.indexOf(document.activeElement)
   const next=event.key==='Home'?0:event.key==='End'?options.length-1:(current+(event.key==='ArrowDown'?1:-1)+options.length)%options.length
   options[next]?.focus({preventScroll:true})
@@ -125,9 +125,9 @@ onUnmounted(()=>{alive=false;clearTimeout(timer);document.removeEventListener('p
       <button class="icon-btn" aria-label="清除失败记录" :disabled="!items.some(i=>['failed','error'].includes(i.status))||actionBusy" @click="clearFailed"><Icon name="Trash2" /></button>
       <button class="icon-btn" aria-label="刷新传输任务" :disabled="busy" @click="load"><Icon name="RefreshCw" :class="{spin:busy}" /></button>
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索传输任务" placeholder="搜索任务…" /></div>
-      <div class="transfer-filter"><button ref="filterTrigger" type="button" class="btn transfer-filter-trigger" :class="{active:filters.length||filterOpen}" aria-label="筛选传输状态" aria-haspopup="menu" :aria-controls="filterId" :aria-expanded="filterOpen" @click="filterOpen?closeFilter():openFilter()" @keydown.down.prevent="openFilter()" @keydown.up.prevent="openFilter(true)"><Icon name="Filter" :size="20" /><span>筛选</span></button>
+      <div class="transfer-filter"><button ref="filterTrigger" type="button" class="btn transfer-filter-trigger" :class="{active:statusFilter||filterOpen}" aria-label="筛选传输状态" aria-haspopup="menu" :aria-controls="filterId" :aria-expanded="filterOpen" @click="filterOpen?closeFilter():openFilter()" @keydown.down.prevent="openFilter()" @keydown.up.prevent="openFilter(true)"><Icon name="Filter" :size="20" /><span>筛选</span></button>
         <div v-if="filterOpen" :id="filterId" ref="filterMenu" class="transfer-filter-menu" :style="{maxHeight:filterMaxHeight+'px'}" role="menu" aria-label="传输状态筛选" @keydown="filterKey">
-          <button v-for="option in filterOptions" :key="option.value" type="button" role="menuitemcheckbox" :aria-checked="filterChecked(option.value)" @click="changeFilter(option.value)"><span class="transfer-filter-icon" :class="option.tone" aria-hidden="true"><Icon :name="option.icon" :size="16" /></span><span class="transfer-filter-label">{{option.label}}</span><span class="transfer-filter-check" aria-hidden="true"><Icon v-if="filterChecked(option.value)" name="Check" :size="16" /></span></button>
+          <button v-for="option in filterOptions" :key="option.value" type="button" role="menuitemradio" :aria-checked="filterChecked(option.value)" @click="changeFilter(option.value)"><span class="transfer-filter-icon" :class="option.tone" aria-hidden="true"><Icon :name="option.icon" :size="16" /></span><span class="transfer-filter-label">{{option.label}}</span><span class="transfer-filter-check" aria-hidden="true"><Icon v-if="filterChecked(option.value)" name="Check" :size="16" /></span></button>
         </div>
       </div>
     </div>
@@ -157,7 +157,7 @@ onUnmounted(()=>{alive=false;clearTimeout(timer);document.removeEventListener('p
             <td class="transfer-started">{{compactDate(item.started)}}</td>
           </tr>
           <tr v-if="bottom" class="transfer-spacer" :style="{height:bottom+'px'}" aria-hidden="true"><td colspan="7" /></tr>
-        </tbody></table><p v-if="!filtered.length" class="small-empty">{{filters.length?'没有符合状态的传输任务':'暂无传输任务'}}</p></div><ScrollRail :element="viewport" :thickness="3" />
+        </tbody></table><p v-if="!filtered.length" class="small-empty">{{statusFilter?'没有符合状态的传输任务':'暂无传输任务'}}</p></div><ScrollRail :element="viewport" :thickness="3" />
       </div>
     </template>
     <BackupRules v-else ref="backup" />

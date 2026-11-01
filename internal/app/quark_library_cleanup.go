@@ -254,6 +254,10 @@ func quarkLibrarySidecar(name string) bool {
 }
 
 func quarkLibraryStem(relative string) string {
+	if isShareSTRM(relative) {
+		name := shareSTRMSourceName(relative)
+		return strings.TrimSuffix(name, path.Ext(name))
+	}
 	name := strings.TrimSuffix(relative, ".strm")
 	return strings.TrimSuffix(name, path.Ext(name))
 }
@@ -265,11 +269,15 @@ func quarkLibraryCompanion(name, media string) bool {
 	stem := strings.TrimSuffix(name, path.Ext(name))
 	plain := quarkLibraryStem(media)
 	full := strings.TrimSuffix(media, ".strm")
-	if stem == plain || stem == full {
+	original := full
+	if isShareSTRM(media) {
+		original = shareSTRMSourceName(media)
+	}
+	if stem == plain || stem == full || stem == original {
 		return true
 	}
 	for _, suffix := range []string{"-poster", "-fanart", "-thumb", "-banner", "-landscape", "-clearlogo", "-disc", "-clearart"} {
-		if stem == plain+suffix || stem == full+suffix {
+		if stem == plain+suffix || stem == full+suffix || stem == original+suffix {
 			return true
 		}
 	}

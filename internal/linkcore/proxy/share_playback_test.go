@@ -10,7 +10,7 @@ import (
 )
 
 func TestDeferredSharePlaybackFollowsGETButHEADDoesNotPrepare(t *testing.T) {
-	for _, route := range []string{"/quark-share/sample/Movie.mkv", "/115-share/sample/Movie.mkv"} {
+	for _, route := range []string{"/quark-share/sample/Movie.mkv", "/115-share/sample/Movie.mkv", "/139-share/sample/Movie.mkv"} {
 		t.Run(route, func(t *testing.T) {
 			preparations := 0
 			cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

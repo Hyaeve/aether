@@ -24,7 +24,7 @@ func TestShareSTRMBodyPreservesOriginalReadableFilename(t *testing.T) {
 		want := strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F").Replace(name)
 		for _, body := range []string{
 			virtual115FilenameURL("http://example.test", "sample", "aB12", name),
-			strings.TrimSpace(quarkLibraryURL(card, "folder/"+name+".strm", "http://example.test")),
+			strings.TrimSpace(quarkLibraryURL(card, "folder/"+name+".share.strm", "http://example.test")),
 		} {
 			if !strings.HasSuffix(body, "/"+want) {
 				t.Fatalf("body did not keep original readable text: %q", body)
@@ -129,7 +129,7 @@ func TestQuarkShareProbeDoesNotCreateCompletedDownload(t *testing.T) {
 	if _, err := a.runQuarkLibrary(a.ctx, card); err != nil {
 		t.Fatal(err)
 	}
-	u, err := url.Parse(strings.TrimSpace(quarkLibraryURL(card, mock.files[0].Name+".strm", "http://example.test")))
+	u, err := url.Parse(strings.TrimSpace(quarkLibraryURL(card, mock.files[0].Name+".share.strm", "http://example.test")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestQuarkShareLinkPlaybackPreparesTVAfterReadOnlyHEAD(t *testing.T) {
 	})
 	service := httptest.NewServer(a.Handler(t.TempDir()))
 	defer service.Close()
-	pointer := strings.TrimSpace(quarkLibraryURL(card, mock.files[0].Name+".strm", service.URL))
+	pointer := strings.TrimSpace(quarkLibraryURL(card, mock.files[0].Name+".share.strm", service.URL))
 	media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"Id": "movie", "MediaSources": []any{

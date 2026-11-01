@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -37,6 +39,43 @@ type renameRule struct {
 	CaseMode       string   `json:"caseMode,omitempty"`
 	ChineseMode    string   `json:"chineseMode,omitempty"`
 	WidthMode      string   `json:"widthMode,omitempty"`
+}
+
+func (r *renameRule) UnmarshalJSON(data []byte) error {
+	type plain renameRule
+	var value plain
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	var presence struct {
+		Start *int `json:"start"`
+	}
+	if err := json.Unmarshal(data, &presence); err != nil {
+		return err
+	}
+	// Legacy numbering omitted the default, but an explicit zero is meaningful.
+	if value.Kind == "number" && presence.Start == nil {
+		value.Start = 1
+	}
+	if value.Kind == "number" && value.NumberPosition == "" {
+		value.NumberPosition = "after"
+	}
+	*r = renameRule(value)
+	return nil
+}
+
+func (r renameRule) MarshalJSON() ([]byte, error) {
+	type plain renameRule
+	var start *int
+	if r.Kind == "number" {
+		start = &r.Start
+	}
+	return json.Marshal(struct {
+		plain
+		Start *int `json:"start,omitempty"`
+	}{plain(r), start})
 }
 
 type compiledRenameRule struct {
@@ -141,15 +180,15 @@ func compileRenameRule(rule renameRule) (compiledRenameRule, error) {
 		}
 	case "number":
 		if rule.Start < 0 || rule.Start > 1000000000 || rule.Digits < 0 || rule.Digits > 12 || !renameOption(rule.NumberPosition, "before", "after") {
-			return bad("开始序号须为 1–1000000000，最少位数须为 1–12，序号位置无效")
+			return bad("开始序号须为 0–1000000000，最少位数须为 1–12，序号位置无效")
 		}
 		result.apply = func(name string, index int) (string, error) {
 			if rule.Name != "" {
 				name = rule.Name
 			}
-			number := strconv.Itoa(renamePosition(rule.Start) + index)
+			number := strconv.Itoa(rule.Start + index)
 			number = strings.Repeat("0", max(0, renamePosition(rule.Digits)-len(number))) + number
-			if rule.NumberPosition == "after" {
+			if rule.NumberPosition != "before" {
 				return name + rule.Separator + number, nil
 			}
 			return number + rule.Separator + name, nil

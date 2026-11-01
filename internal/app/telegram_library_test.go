@@ -82,7 +82,7 @@ func TestTelegramLibraryConfiguredOutputAndNoReplay(t *testing.T) {
 	if len(st.QuarkLibraryCards) != 1 || !st.QuarkLibraryCards[0].Enabled || st.QuarkLibraryCards[0].Directory != output || len(st.QuarkLibraryRuntime.Files) != 1 || m.saves != 0 {
 		t.Fatal("configured command did not generate STRM without transferring media", st.QuarkLibraryCards)
 	}
-	if _, err := os.Stat(filepath.Join(output, "Series", "Movie.mkv.strm")); err != nil {
+	if _, err := os.Stat(filepath.Join(output, "Series", "Movie.mkv.share.strm")); err != nil {
 		t.Fatal(err)
 	}
 	a.executeTelegramTransfer(context.Background(), job)

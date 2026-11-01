@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, date, notify, state } from '../lib'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
@@ -8,7 +8,9 @@ import VisitPath from './VisitPath.vue'
 import { entryIcon } from '../file-icon'
 import { changedNameParts } from '../name-diff'
 import { useVirtualList } from '../virtual-list'
-const emit=defineEmits(['close','changed']),directories=ref([]),directoryID=ref(''),selected=ref([]),selecting=ref(false),menu=ref(false),confirm=ref(false),busy=ref(false),panel=ref(null)
+const props=defineProps({initialDirectory:String})
+const emit=defineEmits(['close','changed','directory']),directories=ref([]),directoryID=ref(''),selected=ref([]),selecting=ref(false),menu=ref(false),confirm=ref(false),busy=ref(false),panel=ref(null)
+watch(directoryID,value=>emit('directory',value))
 const directory=computed(()=>directories.value.find(d=>d.id===directoryID.value)),items=computed(()=>directory.value?.items||[])
 const {shown,top,bottom,reset}=useVirtualList(items,panel,{rowHeight:84,window:true,resetToTop:true})
 let anchor=-1,alive=true
@@ -23,7 +25,7 @@ function outside(event){if(!event.target.closest('.rename-history-panel,.history
 function key(event){if(event.key==='Escape'&&!confirm.value){clear();menu.value=false}}
 async function restore(){busy.value=true;const restoredDirectory=directory.value;try{const result=await api('/files/rename-restore','POST',{directoryId:directoryID.value,ids:selected.value});if(!alive)return;for(const item of result){const old=items.value.find(i=>i.id===item.id);if(old)Object.assign(old,item)}confirm.value=false;clear();emit('changed',result,restoredDirectory);notify(`恢复成功 ${result.filter(i=>i.status==='success').length} 项，失败 ${result.filter(i=>i.status==='failed').length} 项`,result.some(i=>i.status==='failed'))}catch(e){if(alive)notify(e.message,true)}finally{if(alive)busy.value=false}}
 function parts(item,old){return old?changedNameParts(item.newName,item.name):changedNameParts(item.name,item.newName)}
-onMounted(async()=>{document.addEventListener('click',outside);document.addEventListener('keydown',key);try{const result=await api('/files/rename-history');if(alive){directories.value=result;directoryID.value=result[0]?.id||''}}catch(e){if(alive)notify(e.message,true)}})
+onMounted(async()=>{document.addEventListener('click',outside);document.addEventListener('keydown',key);try{const result=await api('/files/rename-history');if(alive){directories.value=result;directoryID.value=result.find(d=>d.id===props.initialDirectory)?.id||result[0]?.id||''}}catch(e){if(alive)notify(e.message,true)}})
 onUnmounted(()=>{alive=false;document.removeEventListener('click',outside);document.removeEventListener('keydown',key)})
 </script>
 <template>

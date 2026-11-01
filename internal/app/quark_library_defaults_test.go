@@ -114,6 +114,11 @@ func TestQuarkLibraryDraftAPIActivationAndNoStorageEdit(t *testing.T) {
 	first := a.store.snapshot().QuarkLibraryCards[0]
 	body["url"] = "https://pan.quark.cn/s/second"
 	w = request(t, h, "POST", "/api/virtual-library/quark", body, cookie)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"field":"directoryName"`) || len(a.store.snapshot().QuarkLibraryCards) != 1 || m.saves != 0 {
+		t.Fatal("duplicate output directory draft accepted", w.Code, w.Body.String())
+	}
+	body["directoryName"] = "Second"
+	w = request(t, h, "POST", "/api/virtual-library/quark", body, cookie)
 	if w.Code != 200 || len(a.store.snapshot().QuarkLibraryCards) != 2 || m.saves != 0 {
 		t.Fatal("multiple outputless drafts overlap", w.Code, w.Body.String())
 	}
@@ -124,7 +129,7 @@ func TestQuarkLibraryDraftAPIActivationAndNoStorageEdit(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	body["url"], body["enabled"] = first.Secret, true
+	body["url"], body["enabled"], body["directoryName"] = first.Secret, true, first.DirectoryName
 	w = request(t, h, "PUT", "/api/virtual-library/quark/"+first.ID, body, cookie)
 	if w.Code != 202 {
 		t.Fatal(w.Code, w.Body.String())

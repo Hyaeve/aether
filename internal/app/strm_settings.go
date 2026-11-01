@@ -11,6 +11,7 @@ type strmSettings struct {
 	Address       string `json:"address"`
 	Format        string `json:"format"`
 	OverwriteMode string `json:"overwriteMode"`
+	Content       string `json:"content"`
 }
 
 func validSTRMOverwriteMode(mode string) bool {
@@ -18,6 +19,9 @@ func validSTRMOverwriteMode(mode string) bool {
 }
 
 func validSTRMSettings(in strmSettings) error {
+	if in.Content != "" && in.Content != "original" && in.Content != "encoded" {
+		return errors.New("STRM内容须为原始名称或编码路径")
+	}
 	u, err := url.Parse(in.Address)
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return errors.New("STRM IP 地址须为完整 HTTP(S) 地址及端口，不含路径或参数")
@@ -33,7 +37,10 @@ func validSTRMSettings(in strmSettings) error {
 
 func (a *App) currentSTRMSettings() strmSettings {
 	s := a.store.snapshotWithLogLimit(0).Settings
-	in := strmSettings{Address: s.STRMURL, Format: s.STRM115Format, OverwriteMode: s.STRMOverwriteMode}
+	in := strmSettings{Address: s.STRMURL, Format: s.STRM115Format, OverwriteMode: s.STRMOverwriteMode, Content: s.STRMContent}
+	if in.Content == "" {
+		in.Content = "original"
+	}
 	if in.Address == "" {
 		in.Address = s.PublicURL
 	}
@@ -100,6 +107,13 @@ func (a *App) strmSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		st.Settings.STRMURL, st.Settings.STRM115Format = in.Address, in.Format
 		st.Settings.STRMOverwriteMode = in.OverwriteMode
+		if in.Content == "" {
+			in.Content = st.Settings.STRMContent
+			if in.Content == "" {
+				in.Content = "original"
+			}
+		}
+		st.Settings.STRMContent = in.Content
 		return nil
 	}); err != nil {
 		fail(w, 500, err)

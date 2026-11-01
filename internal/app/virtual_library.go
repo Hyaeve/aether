@@ -9,7 +9,6 @@ import (
 	"fmt"
 	driver "github.com/SheltonZhu/115driver/pkg/driver"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -104,11 +103,11 @@ func (a *App) virtualShareParent(key string) (string, error) {
 	return "root", nil
 }
 
-func virtualShareURL(base, code, pass string, item shareEntry) (string, error) {
+func virtualShareURL(base, code, pass string, item shareEntry, encodedPath ...bool) (string, error) {
 	if _, err := virtual115ResourceKey(code, pass, item); err != nil {
 		return "", err
 	}
-	return virtual115FilenameURL(base, code, pass, item.Name), nil
+	return virtual115FilenameURL(base, code, pass, item.Name, encodedPath...), nil
 }
 
 func legacyVirtualShareURL(base, key, filename string) string {
@@ -153,12 +152,12 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 		for _, batch := range batches {
 			for _, item := range batch.Items {
 				if taskMedia(Task{}, item.Name) {
-					content, e := virtualShareURL(a.currentSTRMSettings().Address, code, pass, item)
+					content, e := virtualShareURL(a.currentSTRMSettings().Address, code, pass, item, a.currentSTRMSettings().Content == "encoded")
 					if e != nil {
 						fail(w, 400, e)
 						return
 					}
-					files = append(files, map[string]any{"path": path.Join(batch.Directory, item.Name) + ".strm", "content": content, "size": item.Size})
+					files = append(files, map[string]any{"path": path.Join(batch.Directory, item.Name) + shareSTRMSuffix, "content": content, "size": item.Size})
 				}
 			}
 		}
@@ -222,7 +221,7 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 				fail(w, 409, errors.New("存储配置已改变"))
 				return
 			}
-			content, e := virtualShareURL(a.currentSTRMSettings().Address, preview.Code, preview.Pass, item)
+			content, e := virtualShareURL(a.currentSTRMSettings().Address, preview.Code, preview.Pass, item, a.currentSTRMSettings().Content == "encoded")
 			if e != nil {
 				fail(w, 400, e)
 				return
@@ -243,26 +242,10 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 				fail(w, 400, e)
 				return
 			}
-			f, e := child.OpenFile(item.Name+".strm", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+			f, e := child.OpenFile(item.Name+shareSTRMSuffix, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 			if os.IsExist(e) {
-				changed := false
-				if grantErr == nil {
-					legacy := legacyVirtualShareURL(a.currentSTRMSettings().Address, key, item.Name) + "\n"
-					encoded := strings.TrimRight(a.currentSTRMSettings().Address, "/") + "/115-share/" +
-						url.PathEscape(virtual115SharePart(preview.Code, preview.Pass)) + "/" + url.PathEscape(item.Name) + "\n"
-					changed, e = replaceStrmFileMode(child, item.Name+".strm", `\A(?:`+regexp.QuoteMeta(legacy)+`|`+regexp.QuoteMeta(encoded)+`)\z`,
-						strings.ReplaceAll(content+"\n", "$", "$$"), "regex", nil)
-				}
 				child.Close()
-				if grantErr == nil && e != nil {
-					fail(w, 400, e)
-					return
-				}
-				if changed {
-					generated++
-				} else {
-					skipped++
-				}
+				skipped++
 				continue
 			}
 			if e != nil {
@@ -279,7 +262,7 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 				e = closeErr
 			}
 			if e != nil {
-				_ = child.Remove(item.Name + ".strm")
+				_ = child.Remove(item.Name + shareSTRMSuffix)
 				child.Close()
 				fail(w, 400, e)
 				return

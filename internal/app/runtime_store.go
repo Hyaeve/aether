@@ -10,14 +10,14 @@ import (
 )
 
 var runtimeFields = map[string][]string{
-	"tasks":       {"status", "message", "processed", "progressDone", "progressTotal", "progressKnown", "progressFraction", "lastRun", "nextRun", "casGenerated", "casFailed"},
+	"tasks":       {"status", "message", "processed", "progressDone", "progressTotal", "progressKnown", "progressFraction", "lastRun", "nextRun", "casGenerated", "casFailed", "strmDeleteState"},
 	"automations": {"status", "message", "lastRun", "nextRun", "lastResult", "progressDone"},
 	"backupRules": {"status", "message", "scanned", "copied", "skipped", "deleted", "phase", "total", "processed", "lastRun", "nextRun", "syncPending"},
 	"storages":    {"status", "lastError", "health", "usage"},
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "shareTransfers", "shareLiveLinks", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "rename115Attempts", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "shareTransfers", "shareLiveLinks", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "rename115Attempts", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "mobileLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts", "ali115Receipts"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -106,6 +106,7 @@ func (s *Store) initRuntime(dir string) error {
 	if err == nil && !s.state.RuntimeSeparated {
 		// Configuration import resets task results, not the administrator's file records.
 		var records struct {
+			MobileLibrary         mobileLibraryRuntime            `json:"mobileLibraryRuntime"`
 			QuarkLibrary          quarkLibraryRuntime             `json:"quarkLibraryRuntime"`
 			Telegram              telegramRuntime                 `json:"telegramRuntime"`
 			Favorites             []FileFavorite                  `json:"fileFavorites"`
@@ -117,6 +118,7 @@ func (s *Store) initRuntime(dir string) error {
 			CloudCASRecords       []cloudCASRecord                `json:"cloudCASRecords"`
 			FolderCleanupReceipts map[string]folderCleanupReceipt `json:"folderCleanupReceipts"`
 			Pan115SigninReceipts  map[string]pan115SigninReceipt  `json:"pan115SigninReceipts"`
+			Ali115Receipts        []ali115Receipt                 `json:"ali115Receipts"`
 			CASPlaybackAttempts   map[string]bool                 `json:"casPlaybackAttempts"`
 			ShareTransfers        []shareTransferRecord           `json:"shareTransfers"`
 			ShareLiveLinks        []shareLiveLink                 `json:"shareLiveLinks"`
@@ -136,9 +138,11 @@ func (s *Store) initRuntime(dir string) error {
 		s.state.CloudCASRecords = records.CloudCASRecords
 		s.state.FolderCleanupReceipts = records.FolderCleanupReceipts
 		s.state.Pan115SigninReceipts = records.Pan115SigninReceipts
+		s.state.Ali115Receipts = records.Ali115Receipts
 		s.state.CASPlaybackAttempts = records.CASPlaybackAttempts
 		s.state.TelegramRuntime = records.Telegram
 		s.state.QuarkLibraryRuntime = records.QuarkLibrary
+		s.state.MobileLibraryRuntime = records.MobileLibrary
 		s.state.ShareTransfers, s.state.ShareLiveLinks = records.ShareTransfers, records.ShareLiveLinks
 		s.state.Rename115Attempts = records.Rename115Attempts
 	}
@@ -204,6 +208,11 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for i := range s.state.Ali115Receipts {
+		if s.state.Ali115Receipts[i].Status == "running" {
+			s.state.Ali115Receipts[i].Status, s.state.Ali115Receipts[i].Message = "interrupted", "服务重启，秒传或清理结果未确认；请核对115与阿里/Aether目录，未自动重放"
+		}
+	}
 	for i := range s.state.ShareLiveLinks {
 		link := &s.state.ShareLiveLinks[i]
 		if link.Status == "running" || link.Intent != "" {
@@ -219,6 +228,12 @@ func (s *Store) initRuntime(dir string) error {
 		if result.Status == "running" {
 			result.Status, result.Message = "interrupted", "服务重启，生成已中断，已生成文件保留"
 			s.state.QuarkLibraryRuntime.Results[key] = result
+		}
+	}
+	for key, result := range s.state.MobileLibraryRuntime.Results {
+		if result.Status == "running" {
+			result.Status, result.Message, result.NextRun = "interrupted", "服务重启，移动链库生成已中断，已生成文件保留", time.Time{}
+			s.state.MobileLibraryRuntime.Results[key] = result
 		}
 	}
 	for i := range s.state.TelegramRuntime.Jobs {
@@ -264,11 +279,20 @@ func (s *Store) initRuntime(dir string) error {
 	}
 	for i := range s.state.Tasks {
 		t := &s.state.Tasks[i]
+		if t.STRMDeleteState != nil {
+			t.STRMDeleteState.State = "waiting"
+			t.Status, t.Message = "delete-paused", "删除超限，等待源存储健康检查"
+			t.NextRun = t.STRMDeleteState.RetryAt
+			continue
+		}
 		if t.Status == "running" {
 			t.Status, t.Message = "interrupted", "服务重启，任务已中断"
 		}
 		if t.Kind != "cache" && t.Cron == "" {
 			t.NextRun = time.Time{}
+			if t.Kind == "strm" && t.STRMSource == "life" && t.Enabled {
+				t.NextRun = nextRun(*t, time.Now())
+			}
 		}
 	}
 	for i := range s.state.Automations {

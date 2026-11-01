@@ -141,9 +141,9 @@ func TestQuarkLibraryGenerateIncrementalAndCustomExtensions(t *testing.T) {
 	if err != nil || result.Generated != 2 || result.Metadata != 0 || m.saves != 0 {
 		t.Fatal(result, err, m.saves)
 	}
-	for _, name := range []string{"Movie.mkv.strm", "Comic.pdf.strm"} {
+	for _, name := range []string{"Movie.mkv.share.strm", "Comic.pdf.share.strm"} {
 		content, err := os.ReadFile(filepath.Join(card.Directory, "Series", name))
-		if err != nil || !strings.Contains(string(content), "/quark-share/sample-aB12/"+strings.TrimSuffix(name, ".strm")) || strings.Contains(string(content), "secret-cookie") {
+		if err != nil || !strings.Contains(string(content), "/quark-share/sample-aB12/"+strings.TrimSuffix(name, ".share.strm")) || strings.Contains(string(content), "secret-cookie") {
 			t.Fatal(name, err)
 		}
 	}
@@ -163,16 +163,16 @@ func TestQuarkLibraryMigrationOnlyOwnedAndUnchangedFiles(t *testing.T) {
 			if _, err := a.runQuarkLibrary(context.Background(), old); err != nil {
 				t.Fatal(err)
 			}
-			before, _ := os.ReadFile(filepath.Join(quarkLibraryRoot(old), "Movie.mkv.strm"))
+			before, _ := os.ReadFile(filepath.Join(quarkLibraryRoot(old), "Movie.mkv.share.strm"))
 			os.WriteFile(filepath.Join(quarkLibraryRoot(old), "user.txt"), []byte("keep user data"), 0644)
 			next := old
 			next.Directory, next.DirectoryName = t.TempDir(), "Renamed"
 			switch scenario {
 			case "conflict":
 				os.MkdirAll(quarkLibraryRoot(next), 0755)
-				os.WriteFile(filepath.Join(quarkLibraryRoot(next), "Movie.mkv.strm"), []byte("user-file"), 0644)
+				os.WriteFile(filepath.Join(quarkLibraryRoot(next), "Movie.mkv.share.strm"), []byte("user-file"), 0644)
 			case "modified":
-				os.WriteFile(filepath.Join(quarkLibraryRoot(old), "Movie.mkv.strm"), []byte("user-change"), 0644)
+				os.WriteFile(filepath.Join(quarkLibraryRoot(old), "Movie.mkv.share.strm"), []byte("user-change"), 0644)
 			case "overlap":
 				next.Directory = quarkLibraryRoot(old)
 			}
@@ -191,11 +191,11 @@ func TestQuarkLibraryMigrationOnlyOwnedAndUnchangedFiles(t *testing.T) {
 			if scenario == "commit" {
 				keep, gone = next, old
 			}
-			content, err := os.ReadFile(filepath.Join(quarkLibraryRoot(keep), "Movie.mkv.strm"))
+			content, err := os.ReadFile(filepath.Join(quarkLibraryRoot(keep), "Movie.mkv.share.strm"))
 			if err != nil || string(content) != string(before) {
 				t.Fatal("migration content lost", err)
 			}
-			if _, err := os.Stat(filepath.Join(quarkLibraryRoot(gone), "Movie.mkv.strm")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(quarkLibraryRoot(gone), "Movie.mkv.share.strm")); !os.IsNotExist(err) {
 				t.Fatal("old/rolled back copy retained")
 			}
 			if content, err := os.ReadFile(filepath.Join(quarkLibraryRoot(old), "user.txt")); err != nil || string(content) != "keep user data" {
@@ -431,7 +431,7 @@ func TestQuarkLibraryCronAndCardOverrides(t *testing.T) {
 	if result := st.QuarkLibraryRuntime.Results[card.ID]; result.Generated != 1 || !result.NextRun.After(time.Now()) {
 		t.Fatal("cron/default override failed", result)
 	}
-	if _, err := os.Stat(filepath.Join(quarkLibraryRoot(card), "Movie.mkv.strm")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(quarkLibraryRoot(card), "Movie.mkv.share.strm")); !os.IsNotExist(err) {
 		t.Fatal("global media extensions overrode card")
 	}
 }

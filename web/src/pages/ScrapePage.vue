@@ -68,7 +68,7 @@ async function resetMetadata() {
     resetting.value = null; await load(); notify('作品元数据已重置')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-const tasks = computed(() => state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded).map(t => ({ value: t.id, label: t.name })))
+const tasks = computed(() => [...state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded), ...state.scrapeLibraries].map(t => ({ value: t.id, label: t.name })))
 const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', error: '失败' }
 const itemStatus = item => ['miss','doubt'].includes(item.status) || item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
@@ -158,7 +158,7 @@ watch([tasks, preferenceKey], ([options, key], previous) => {
   try { saved = localStorage.getItem(preferenceKey.value) || '' } catch {}
   if (previous?.[1] !== key || !options.some(option => option.value === task.value)) task.value = options.some(option => option.value === saved) ? saved : options[0].value
 }, { immediate: true })
-watch(() => state.tasks.find(t => t.id === task.value)?.status, (current, previous) => {
+watch(() => [...state.tasks, ...state.scrapeLibraries].find(t => t.id === task.value)?.status, (current, previous) => {
   if (previous === 'running' && current !== 'running') load()
 })
 onMounted(async () => {

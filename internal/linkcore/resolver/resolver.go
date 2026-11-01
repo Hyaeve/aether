@@ -46,7 +46,7 @@ func sharePlaybackURL(raw string) bool {
 		return false
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	return len(parts) == 3 && (parts[0] == "quark-share" || parts[0] == "115-share") && parts[1] != "" && parts[2] != ""
+	return len(parts) == 3 && (parts[0] == "quark-share" || parts[0] == "115-share" || parts[0] == "139-share") && parts[1] != "" && parts[2] != ""
 }
 
 const (

@@ -85,6 +85,7 @@ test('plugin masks load asynchronously and descriptions require stationary hover
   await expect(page.getByRole('tooltip')).toHaveCount(0)
   await expect(page.getByRole('tooltip')).toBeVisible()
   await expect.poll(async () => (await page.getByRole('tooltip').boundingBox()).y).not.toBe(first.y)
+  await page.goto('/rules/assist')
   await page.getByRole('button', { name: 'TMDB 配置', exact: true }).click()
   await expect(page.getByLabel('API 密钥', { exact: true })).toHaveValue('*'.repeat(32))
   const apiBox = await page.getByLabel('API 域名', { exact: true }).boundingBox()

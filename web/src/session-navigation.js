@@ -5,6 +5,7 @@ const jumpPageParents = {
   '/tasks/ed2k/pool': '/tasks/ed2k',
   '/tools/115-rapid': '/tools',
   '/virtual/quark/settings': '/virtual/quark',
+  '/virtual/mobile/settings': '/virtual/mobile',
   '/transfer/backup/settings': '/transfer/backup'
 }
 

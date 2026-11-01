@@ -26,7 +26,8 @@ function show(event) {
   const el = event.target.closest('[data-tooltip], .file-view th, .file-view td, .file-name strong, .file-grid-name strong, .log-message, .log-module, .playback-scroller td, .playback-scroller th, .playback-copy')
   if (!el) return
   const content = el.dataset.tooltip || el.textContent
-  const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight
+  const clipped = el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight ||
+    (el.hasAttribute('data-tooltip-fragments') && [...el.querySelectorAll('.rename-name-part')].some(part => part.scrollWidth > part.clientWidth))
   if (!content || (!clipped && !el.hasAttribute('data-tooltip-always')) || target === el) return
   const fileName = el.matches('.file-browser .file-name strong, .file-browser .file-grid-name strong')
   hide(); target = el; value = content; playback.value = !!el.closest('.playback-scroller'); rapidFile.value = el.dataset.tooltipVariant === 'rapid-file'; stationary.value = fileName || playback.value || el.hasAttribute('data-tooltip-stationary')

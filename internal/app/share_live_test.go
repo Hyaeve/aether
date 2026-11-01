@@ -313,7 +313,7 @@ func TestShareLiveRenameRemoveAndDeleteAreDistinctAndGuarded(t *testing.T) {
 			if action == "rename" {
 				url = "/api/share-live/" + link.ID
 				method = "PUT"
-				body = map[string]string{"url": link.Link, "name": "New Series", "directoryName": "Renamed", "cron": ""}
+				body = map[string]any{"url": link.Link, "name": link.Name, "directoryName": "Renamed", "cron": "", "confirm": true}
 			}
 			if action == "changed" || action == "unknown" {
 				url = "/api/share-live/" + link.ID + "/delete"
@@ -351,7 +351,7 @@ func TestTaskProgressCountsRealPlanAndCompletedSkips(t *testing.T) {
 	writeTest(t, filepath.Join(s.Config["root"], "Series", "two.mkv"), "two")
 	writeTest(t, filepath.Join(s.Config["root"], "Series", "ignore", "three.mkv"), "skip")
 	writeTest(t, filepath.Join(a.outputDir, "library", "Series", "one.strm"), "existing")
-	task := Task{ID: "task", Kind: "strm", StorageID: s.ID, Source: "/Series", Target: "library", ExcludeDirs: "ignore", Status: "running"}
+	task := Task{ID: "task", Kind: "strm", StorageID: s.ID, Source: "/Series", Target: "library", Mode: strmMissing, ExcludeDirs: "ignore", Status: "running"}
 	a.store.update(func(st *State) error { st.Tasks = []Task{task}; return nil })
 	n, err := a.executeTask(context.Background(), task, s)
 	if err != nil || n != 1 {

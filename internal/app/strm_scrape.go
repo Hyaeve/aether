@@ -22,11 +22,14 @@ import (
 )
 
 type scrapeSettings struct {
-	WriteMode string `json:"writeMode"`
-	Episodes  bool   `json:"episodes"`
-	Fanart    bool   `json:"fanart"`
-	Actors    bool   `json:"actors"`
-	Excluded  string `json:"excluded"`
+	WriteMode    string `json:"writeMode"`
+	Episodes     bool   `json:"episodes"`
+	Fanart       bool   `json:"fanart"`
+	Actors       bool   `json:"actors"`
+	Excluded     string `json:"excluded"`
+	ShareOnly    bool   `json:"-"`
+	ExcludeFiles string `json:"-"`
+	ExcludeTypes string `json:"-"`
 }
 type scrapeItem struct {
 	MatchedTitle string `json:"matchedTitle,omitempty"`
@@ -66,13 +69,7 @@ var scrapeSuffix = regexp.MustCompile(`(?i)\b(?:2160p|1080p|720p|4k|web[ .-]?dl|
 var scrapeID = regexp.MustCompile(`(?i)[{\[]tmdb[-=](\d+)[}\]]`)
 
 func recognizeSTRM(name string) scrapeItem {
-	title := strings.TrimSuffix(name, path.Ext(name))
-	if ext := strings.ToLower(path.Ext(title)); ext == ".cas" || ext == ".ed2k" {
-		title = strings.TrimSuffix(title, path.Ext(title))
-	}
-	if isVideo(title) {
-		title = strings.TrimSuffix(title, path.Ext(title))
-	}
+	title := scrapeMediaStem(name)
 	item := scrapeItem{Kind: "movie", Status: "pending"}
 	if m := scrapeID.FindStringSubmatch(title); len(m) > 0 {
 		item.TMDB, _ = strconv.Atoi(m[1])
@@ -114,7 +111,18 @@ func (a *App) scrapeIndexPath(task string) string {
 	return filepath.Join(a.dataDir, "cache", "scrape", hex.EncodeToString(sum[:])+".json")
 }
 func (a *App) scrapeRoot(taskID string) (string, error) {
-	for _, t := range a.store.snapshotWithLogLimit(0).Tasks {
+	st := a.store.snapshotWithLogLimit(0)
+	if isShareScrapeTask(taskID) {
+		card, ok := shareScrapeCard(st, taskID)
+		if !ok || !card.Enabled || !card.ScrapeEnabled || card.Directory == "" {
+			return "", errors.New("分享链库未启用或不参与 STRM 刮削")
+		}
+		if shareScrapeResult(st, taskID, card).Status == "running" {
+			return "", errors.New("分享链库「" + card.Name + "」正在生成，请稍后刮削")
+		}
+		return filepath.Abs(quarkLibraryRoot(card))
+	}
+	for _, t := range st.Tasks {
 		if t.ID == taskID && (t.Kind == "strm" || t.Kind == "cas" || t.Kind == "ed2k") && !t.ScrapeExcluded {
 			base, rel, err := a.outputLocation(t.Target)
 			if err != nil {
@@ -153,8 +161,9 @@ func (a *App) loadScrapeIndex(task, root string) scrapeIndex {
 	var old scrapeIndex
 	if err == nil && json.Unmarshal(b, &old) == nil && old.Root == root {
 		filtered := make([]scrapeItem, 0, len(old.Items))
+		cfg := a.scrapeSourceConfig(task)
 		for _, item := range old.Items {
-			if fs.ValidPath(item.Path) && strings.EqualFold(path.Ext(item.Path), ".strm") {
+			if fs.ValidPath(item.Path) && strings.EqualFold(path.Ext(item.Path), ".strm") && (!cfg.ShareOnly || scrapeIncludes(item.Path, cfg)) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -207,6 +216,9 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 			if entry.Type().IsRegular() && strings.EqualFold(path.Base(name), "tvshow.nfo") {
 				tvDirs[path.Dir(name)] = true
 			}
+			return nil
+		}
+		if !scrapeIncludes(name, cfg) {
 			return nil
 		}
 		item := recognizeSTRMPath(name)
@@ -338,6 +350,12 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	}
 	if action == "items" && r.Method == "GET" {
 		task := r.URL.Query().Get("taskId")
+		unlock, err := a.lockShareScrape(task)
+		if err != nil {
+			fail(w, 409, err)
+			return
+		}
+		defer unlock()
 		root, err := a.scrapeRoot(task)
 		if err != nil {
 			fail(w, 400, err)
@@ -356,6 +374,14 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 				index.TaskStatus = t.Status
 			}
 		}
+		st := a.store.snapshotWithLogLimit(0)
+		if card, ok := shareScrapeCard(st, task); ok {
+			revision := shareScrapeRevision(card, shareScrapeResult(st, task, card))
+			if index.TaskStatus != revision {
+				cached = false
+			}
+			index.TaskStatus = revision
+		}
 		if info, err := os.Stat(filepath.Join(a.store.dir, "organize", "strm-scrape.json")); err == nil && info.ModTime().After(index.ScannedAt) {
 			cached = false
 		}
@@ -367,7 +393,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if openErr == nil {
-				items, scanErr := scanSTRM(r.Context(), dir, index, a.scrapeConfig())
+				items, scanErr := scanSTRM(r.Context(), dir, index, a.scrapeSourceConfig(task))
 				dir.Close()
 				if scanErr != nil {
 					fail(w, 500, scanErr)
@@ -500,6 +526,16 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	shareUnlock, err := a.lockShareScrape(in.TaskID)
+	if err != nil {
+		fail(w, 409, err)
+		return
+	}
+	defer func() {
+		if shareUnlock != nil {
+			shareUnlock()
+		}
+	}()
 	rootName, err := a.scrapeRoot(in.TaskID)
 	if err != nil {
 		fail(w, 400, err)
@@ -641,7 +677,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := a.store.snapshotWithLogLimit(0)
-	cfg, tmdb := a.scrapeConfig(), pluginDefaults("tmdb", st.Plugins["tmdb"])
+	cfg, tmdb := a.scrapeSourceConfig(in.TaskID), pluginDefaults("tmdb", st.Plugins["tmdb"])
 	if (action == "run" || action == "identify") && (!tmdb.Enabled || tmdb.APIKey == "") {
 		root.Close()
 		fail(w, 400, errors.New("请配置并启用 TMDB 插件"))
@@ -651,7 +687,14 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	a.scrapeCancel = cancel
 	a.scrapeProgress = scrapeProgress{Running: true, TaskID: in.TaskID, Message: "正在扫描"}
 	a.wg.Add(1)
+	unlock := shareUnlock
+	shareUnlock = nil
 	go func() {
+		defer func() {
+			if unlock != nil {
+				unlock()
+			}
+		}()
 		defer a.wg.Done()
 		defer root.Close()
 		defer cancel()
@@ -702,6 +745,12 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 						item := &index.Items[i]
 						if !selected(*item) {
 							continue
+						}
+						if card, ok := shareScrapeCard(st, in.TaskID); ok {
+							if err := a.checkShareScrapeCard(in.TaskID, card); err != nil {
+								runErr = err
+								break
+							}
 						}
 						archiveAction := "scrape"
 						if action == "identify" && !in.Scrape {
@@ -782,6 +831,9 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 				message = "刮削已停止"
 			}
 		}
+		// Release the share gate before publishing the terminal progress state.
+		unlock()
+		unlock = nil
 		a.scrapeProgress.Running = false
 		a.scrapeProgress.Error = runErr != nil || a.scrapeProgress.Failed > 0
 		a.scrapeProgress.Message = message

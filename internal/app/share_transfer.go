@@ -302,6 +302,10 @@ func (a *App) readShareAt(ctx context.Context, s Storage, code, pass, parent str
 }
 
 func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass, parent, token string) (string, []shareEntry, error) {
+	return a.readShareSessionPages(ctx, session, code, pass, parent, token, false)
+}
+
+func (a *App) readShareSessionPages(ctx context.Context, session *Storage, code, pass, parent, token string, firstPageOnly bool) (string, []shareEntry, error) {
 	s := *session
 	items := []shareEntry{}
 	if s.Type == "quark" && token == "" {
@@ -438,6 +442,17 @@ func (a *App) readShareSession(ctx context.Context, session *Storage, code, pass
 			}
 			seen[item.ID] = true
 			items = append(items, item)
+		}
+		if firstPageOnly {
+			if total > 0 && len(batch) == 0 {
+				return "", nil, errors.New("分享栏分页不完整，请重新解析")
+			}
+			// A title lookup needs only the first page, not a complete transfer plan.
+			// Use the title rather than a sole first-page item when more items exist.
+			if total > len(items) && len(items) == 1 {
+				return token, nil, nil
+			}
+			return token, items, nil
 		}
 		if total > entryLimit || len(items) > entryLimit {
 			return "", nil, fmt.Errorf("分享根目录最多支持 %d 项", entryLimit)

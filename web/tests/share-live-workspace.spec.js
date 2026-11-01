@@ -71,6 +71,7 @@ test('target update days and live rename, remove-only and delete confirmation',a
   await page.getByRole('textbox',{name:'活链目录名称',exact:true}).fill('新目录')
   await page.getByRole('textbox',{name:'活链Cron表达式',exact:true}).fill('')
   await page.getByRole('dialog',{name:'编辑分享链接',exact:true}).getByRole('button',{name:'保存',exact:true}).click()
+  await page.getByRole('dialog',{name:'确认迁移保存目录',exact:true}).getByRole('button',{name:'确认迁移',exact:true}).click()
   await expect.poll(()=>data.saved()?.directoryName).toBe('新目录')
   expect(data.saved().cron).toBe('')
   await page.getByRole('button',{name:'执行活链 影视分享',exact:true}).click()

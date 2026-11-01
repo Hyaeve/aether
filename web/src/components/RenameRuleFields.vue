@@ -3,13 +3,19 @@ import { useId } from 'vue'
 import RoundedSelect from './RoundedSelect.vue'
 import NumberInput from './NumberInput.vue'
 import { renameDeleteTypes } from '../rename-rules'
-defineProps({ rule: { type: Object, required: true } })
+const props = defineProps({ rule: { type: Object, required: true } })
 const id = useId()
 const separators = [
-  { value: '、', label: '顿号（、）' }, { value: '-', label: '连字符（-）' },
-  { value: '_', label: '下划线（_）' }, { value: ' ', label: '空格' },
-  { value: '.', label: '点号（.）' }, { value: '', label: '无分隔符' }
+  { value: '', label: '无' }, { value: '-', label: '破折号（-）' },
+  { value: '.', label: '句号（.）' }, { value: ' ', label: '空格' },
+  { value: '_', label: '下划线（_）' }, { value: '、', label: '顿号（、）' }
 ]
+function boundedNumber(key, value, input) {
+  const min = key === 'start' ? 0 : 1, max = key === 'start' ? 1000000000 : 12
+  const n = Number(value)
+  props.rule[key] = Math.max(min, Math.min(max, Number.isFinite(n) ? Math.trunc(n) : min))
+  if (input) input.value = String(props.rule[key])
+}
 const cases = [
   { value: 'none', label: '不转换' }, { value: 'lower', label: '全部小写' },
   { value: 'upper', label: '全部大写' }, { value: 'title', label: '每个单词首字母大写' },
@@ -38,8 +44,8 @@ const widths = [
     <template v-else-if="rule.kind === 'number'">
       <label class="rename-field">名称统一修改为<input v-model="rule.name" maxlength="255" placeholder="留空保留原名称" /></label>
       <div class="rename-field"><span>序号位置</span><RoundedSelect v-model="rule.numberPosition" label="序号位置" :options="[{value:'before',label:'名称之前'},{value:'after',label:'名称之后'}]" /></div>
-      <label class="rename-field">开始序号<NumberInput v-model="rule.start" aria-label="开始序号" min="1" max="1000000000" step="1" /></label>
-      <label class="rename-field">序号最少位数<NumberInput v-model="rule.digits" aria-label="序号最少位数" min="1" max="12" step="1" /></label>
+      <label class="rename-field">开始序号<NumberInput :model-value="rule.start" aria-label="开始序号" min="0" max="1000000000" step="1" @update:model-value="boundedNumber('start',$event)" @input="boundedNumber('start',$event.target.value,$event.target)" /></label>
+      <label class="rename-field">序号最少位数<NumberInput :model-value="rule.digits" aria-label="序号最少位数" min="1" max="12" step="1" @update:model-value="boundedNumber('digits',$event)" @input="boundedNumber('digits',$event.target.value,$event.target)" /></label>
       <div class="rename-field"><span>分隔符</span><RoundedSelect v-model="rule.separator" label="分隔符" :options="separators" /></div>
     </template>
     <template v-else-if="rule.kind === 'insert'">
@@ -75,7 +81,10 @@ const widths = [
 .rename-type-fields { min-width:0; }
 .rename-field { display:grid;grid-template-columns:92px minmax(0,1fr);align-items:center;gap:8px;margin-top:10px;font-size:12px; }
 .rename-field > :last-child { min-width:0;width:100%; }
-.rename-field input, .rename-field :deep(input), .rename-field :deep(.rounded-select-trigger) { height:32px;min-height:32px;padding-top:3px;padding-bottom:3px;font-size:12px;border-radius:6px; }
+.rename-field input, .rename-field :deep(input), .rename-field :deep(.rounded-select-trigger) { height:var(--rename-control-height,36px);min-height:var(--rename-control-height,36px);padding-top:3px;padding-bottom:3px;font-size:12px;border-radius:6px; }
+.rename-type-fields .rename-field>input{height:var(--rename-control-height,36px);min-height:var(--rename-control-height,36px)}
+.rename-field :deep(.number-control){height:var(--rename-control-height,36px);min-height:var(--rename-control-height,36px)}
+.rename-field :deep(.number-control input){height:100%;min-height:0}
 .rename-field :deep(.select-label) { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .rename-field :deep(.rounded-select-popup) { width:100%;min-width:0;border-radius:8px;max-height:220px; }
 .rename-field :deep(.rounded-select-option) { white-space:normal;min-height:32px;font-size:12px; }

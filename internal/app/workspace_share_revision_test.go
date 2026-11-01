@@ -218,7 +218,7 @@ func TestVirtual115GenerateAndPortableKey(t *testing.T) {
 	}
 	json.Unmarshal(w.Body.Bytes(), &result)
 	want := "http://10.0.0.31:15151/115-share/swf1h7936et-YJFX/片名.mkv"
-	if len(result.Files) != 1 || result.Files[0].Content != want || result.Files[0].Path != "Show/片名.mkv.strm" {
+	if len(result.Files) != 1 || result.Files[0].Content != want || result.Files[0].Path != "Show/片名.mkv.share.strm" {
 		t.Fatal(result)
 	}
 	directory := t.TempDir()
@@ -227,7 +227,7 @@ func TestVirtual115GenerateAndPortableKey(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	data, err := os.ReadFile(filepath.Join(directory, "Show", "片名.mkv.strm"))
+	data, err := os.ReadFile(filepath.Join(directory, "Show", "片名.mkv.share.strm"))
 	if err != nil || strings.TrimSpace(string(data)) != want {
 		t.Fatal(string(data), err)
 	}

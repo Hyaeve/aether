@@ -178,6 +178,6 @@ func (a *App) playVirtual115Name(w http.ResponseWriter, r *http.Request) {
 	a.playVirtualShare(w, r.WithContext(context.WithValue(r.Context(), virtual115IdentityKey{}, *selected)))
 }
 
-func virtual115FilenameURL(base, code, pass, name string) string {
-	return strings.TrimRight(base, "/") + "/115-share/" + url.PathEscape(virtual115SharePart(code, pass)) + "/" + shareFilenamePath(name)
+func virtual115FilenameURL(base, code, pass, name string, encodedPath ...bool) string {
+	return strings.TrimRight(base, "/") + "/115-share/" + url.PathEscape(virtual115SharePart(code, pass)) + "/" + shareFilenamePath(name, encodedPath...)
 }

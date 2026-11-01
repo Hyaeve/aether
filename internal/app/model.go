@@ -49,6 +49,14 @@ type MountConfig struct {
 }
 
 type Task struct {
+	resetGeneration    bool
+	fullSyncGeneration bool
+	STRMSource         string           `json:"strmSource,omitempty"`
+	STRMLifeSince      time.Time        `json:"strmLifeSince,omitempty"`
+	CascadeDelete      bool             `json:"cascadeDelete,omitempty"`
+	CascadeExtensions  string           `json:"cascadeExtensions,omitempty"`
+	DeleteThreshold    *int             `json:"deleteThreshold,omitempty"`
+	STRMDeleteState    *strmDeleteState `json:"strmDeleteState,omitempty"`
 	CompletionAction   string           `json:"completionAction,omitempty"`
 	HealthPause        string           `json:"healthPause,omitempty"`
 	ScrapeExcluded     bool             `json:"scrapeExcluded,omitempty"`
@@ -101,6 +109,7 @@ type Settings struct {
 	STRMURL           string `json:"strmURL,omitempty"`
 	STRM115Format     string `json:"strm115Format,omitempty"`
 	STRMOverwriteMode string `json:"strmOverwriteMode,omitempty"`
+	STRMContent       string `json:"strmContent,omitempty"`
 	LogDays           int    `json:"logDays"`
 	LogMaxEntries     int    `json:"logMaxEntries"`
 	SessionDays       int    `json:"sessionDays"`
@@ -123,6 +132,12 @@ type LogEntry struct {
 }
 
 type State struct {
+	MediaDeepDelete       mediaDeepDeleteSettings         `json:"mediaDeepDelete"`
+	Ali115                ali115Settings                  `json:"ali115"`
+	Ali115Receipts        []ali115Receipt                 `json:"ali115Receipts,omitempty"`
+	MobileLibrary         *mobileLibrarySettings          `json:"mobileLibrary,omitempty"`
+	MobileLibraryCards    []quarkLibraryCard              `json:"mobileLibraryCards,omitempty"`
+	MobileLibraryRuntime  mobileLibraryRuntime            `json:"mobileLibraryRuntime,omitempty"`
 	QuarkLibrary          *quarkLibrarySettings           `json:"quarkLibrary,omitempty"`
 	QuarkLibraryCards     []quarkLibraryCard              `json:"quarkLibraryCards,omitempty"`
 	QuarkLibraryRuntime   quarkLibraryRuntime             `json:"quarkLibraryRuntime,omitempty"`

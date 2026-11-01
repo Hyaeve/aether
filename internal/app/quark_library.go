@@ -34,6 +34,10 @@ type quarkLibraryCard struct {
 	MediaExtensions    string `json:"mediaExtensions"`
 	MetadataExtensions string `json:"metadataExtensions"`
 	CascadeCleanup     string `json:"cascadeCleanup,omitempty"`
+	ScrapeEnabled      bool   `json:"scrapeEnabled"`
+	ExcludeDirs        string `json:"excludeDirs,omitempty"`
+	ExcludeFiles       string `json:"excludeFiles,omitempty"`
+	ExcludeTypes       string `json:"excludeTypes,omitempty"`
 	Enabled            bool   `json:"enabled"`
 }
 
@@ -178,7 +182,7 @@ func validateQuarkLibrary(st State, legacy ...bool) error {
 			}
 		}
 	}
-	return nil
+	return validateShareLibraryOutputs(st)
 }
 
 func validateQuarkLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
@@ -193,6 +197,14 @@ func validateQuarkLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
 	if pass != "" {
 		card.Secret += "?pwd=" + url.QueryEscape(pass)
 	}
+	return validateShareLibraryFields(card, legacy...)
+}
+
+func validateShareLibraryFields(card *quarkLibraryCard, legacy ...bool) error {
+	if card.CascadeCleanup != "" && card.CascadeCleanup != "on" && card.CascadeCleanup != "off" {
+		return errors.New("级联清理须选择开启或关闭")
+	}
+	var err error
 	card.Name, card.DirectoryName = strings.TrimSpace(card.Name), strings.TrimSpace(card.DirectoryName)
 	card.Cron = strings.TrimSpace(card.Cron)
 	if len(card.Name) > 255 || len(card.Secret) > 4096 || !validShareDirectory(card.DirectoryName) {
@@ -221,6 +233,15 @@ func validateQuarkLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
 	card.MetadataExtensions, err = normalizeExtensions(card.MetadataExtensions)
 	if err != nil {
 		return fmt.Errorf("元数据扩展名：%w", err)
+	}
+	card.ExcludeTypes, err = normalizeExtensions(card.ExcludeTypes)
+	if err != nil {
+		return fmt.Errorf("排除类型：%w", err)
+	}
+	for _, value := range []string{card.ExcludeDirs, card.ExcludeFiles} {
+		if len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
+			return errors.New("排除目录或排除文件过长或包含无效字符")
+		}
 	}
 	return nil
 }
@@ -299,6 +320,7 @@ func (a *App) quarkLibraryResolve(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	title, _, _, err := a.quarkLibraryRead(ctx, &s, in.URL, false)
 	if err != nil {
+		a.store.event("warn", "virtual", "夸克链库识别分享失败："+err.Error())
 		fail(w, 400, err)
 		return
 	}
@@ -327,7 +349,9 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		for _, f := range st.QuarkLibraryRuntime.Files {
 			if _, exists := quarkLibraryCardAt(st, f.CardID); exists && f.Published {
 				if f.Media {
-					mediaCount++
+					if isShareSTRM(f.Relative) {
+						mediaCount++
+					}
 				} else {
 					metadataCount++
 				}
@@ -429,6 +453,10 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		MediaExtensions    string  `json:"mediaExtensions"`
 		MetadataExtensions string  `json:"metadataExtensions"`
 		CascadeCleanup     *string `json:"cascadeCleanup"`
+		ScrapeEnabled      *bool   `json:"scrapeEnabled"`
+		ExcludeDirs        *string `json:"excludeDirs"`
+		ExcludeFiles       *string `json:"excludeFiles"`
+		ExcludeTypes       *string `json:"excludeTypes"`
 		Enabled            bool    `json:"enabled"`
 	}
 	if !decode(w, r, &in) {
@@ -443,6 +471,20 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	card := quarkLibraryCard{ID: sid, Secret: in.URL, Name: in.Name, Cron: in.Cron, Directory: in.Directory, DirectoryName: in.DirectoryName,
 		MediaExtensions: in.MediaExtensions, MetadataExtensions: in.MetadataExtensions, CascadeCleanup: cascade, Enabled: in.Enabled}
+	card.ScrapeEnabled, card.ExcludeDirs, card.ExcludeFiles, card.ExcludeTypes = old.ScrapeEnabled, old.ExcludeDirs, old.ExcludeFiles, old.ExcludeTypes
+	if in.ScrapeEnabled != nil {
+		card.ScrapeEnabled = *in.ScrapeEnabled
+	}
+	for _, field := range []struct {
+		input  *string
+		target *string
+	}{
+		{in.ExcludeDirs, &card.ExcludeDirs}, {in.ExcludeFiles, &card.ExcludeFiles}, {in.ExcludeTypes, &card.ExcludeTypes},
+	} {
+		if field.input != nil {
+			*field.target = *field.input
+		}
+	}
 	if strings.TrimSpace(card.Directory) == "" && card.Enabled {
 		card.Directory = effectiveQuarkLibrary(st).Directory
 	}
@@ -461,6 +503,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	if s.ID != "" {
 		title, _, _, err = a.quarkLibraryRead(ctx, &s, card.Secret, false)
 		if err != nil {
+			a.store.event("warn", "virtual", "夸克链库保存前校验失败："+err.Error())
 			fail(w, 400, err)
 			return
 		}
@@ -479,6 +522,10 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("分享原名称不能作为目录名，请填写目录名称"))
 		return
 	}
+	if err := shareLibraryDirectoryAvailable(st, card, old); err != nil {
+		jsonResponse(w, 409, map[string]string{"error": err.Error(), "field": "directoryName"})
+		return
+	}
 	for _, other := range st.QuarkLibraryCards {
 		if other.ID != sid && (quarkLibraryOutputsOverlap(other, card) || quarkLibraryStamp(other.Secret) == quarkLibraryStamp(card.Secret)) {
 			fail(w, 400, errors.New("该分享已存在或生成目录互相包含，请编辑已有卡片"))
@@ -487,10 +534,16 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	migration, err := a.prepareQuarkLibraryMove(ctx, old, card, st)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			err = &quarkLibraryReadError{"准备夸克生成目录", err}
+		}
 		fail(w, 400, err)
 		return
 	}
 	err = a.store.update(func(st *State) error {
+		if err := shareLibraryNamesAvailable(*st, card); err != nil {
+			return err
+		}
 		if exists {
 			current, ok := quarkLibraryCardAt(*st, sid)
 			if !ok || current != old {
@@ -521,6 +574,10 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		migration(false)
+		if errors.Is(err, errShareLibraryDirectory) {
+			jsonResponse(w, 409, map[string]string{"error": err.Error(), "field": "directoryName"})
+			return
+		}
 		fail(w, 400, err)
 		return
 	}

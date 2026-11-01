@@ -27,7 +27,7 @@ async function mock(page) {
 
 test('TMDB AI proxy and Emby plugins have working forms and actions', async ({ page }, info) => {
   const configs = await mock(page)
-  await page.goto('/tools')
+  await page.goto('/rules/assist')
   await page.getByRole('button', { name: '启用TMDB 配置', exact: true }).click()
   await page.getByRole('button', { name: 'TMDB 配置', exact: true }).click()
   await expect(page.getByLabel('API 域名', { exact: true })).toHaveValue('https://api.themoviedb.org')

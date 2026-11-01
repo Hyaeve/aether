@@ -103,7 +103,7 @@ func TestSTRMOverwriteDoesNotChangeFeatureOrMetadataPolicy(t *testing.T) {
 
 func TestSTRMOverwriteModeControlsGeneration(t *testing.T) {
 	for _, mode := range []string{"default", "skip", "overwrite"} {
-		for _, taskMode := range []string{"full", "incremental"} {
+		for _, taskMode := range []string{"full", "incremental", "incremental_update", "incremental_missing"} {
 			t.Run(mode+"/"+taskMode, func(t *testing.T) {
 				a := testApp(t)
 				s := addLocal(t, a)
@@ -123,12 +123,12 @@ func TestSTRMOverwriteModeControlsGeneration(t *testing.T) {
 				if err != nil || readErr != nil {
 					t.Fatal(err, readErr)
 				}
-				if mode == "overwrite" {
+				if taskMode == "full" || taskMode == "incremental_update" {
 					if n != 1 || strings.TrimSpace(string(body)) != filepath.Join(s.Config["root"], "movie.mkv") {
-						t.Fatal("overwrite selection did not regenerate existing STRM", n, string(body))
+						t.Fatal("task update mode did not refresh existing STRM independently of legacy settings", n, string(body))
 					}
 				} else if n != 0 || string(body) != "existing STRM\n" {
-					t.Fatal("default or explicit skip replaced an existing STRM", n, string(body))
+					t.Fatal("task missing mode replaced an existing STRM", n, string(body))
 				}
 			})
 		}

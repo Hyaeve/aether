@@ -33,6 +33,8 @@ func telegramProviderName(provider string) string {
 		return "移动云盘"
 	case "quark":
 		return "夸克"
+	case "aliyun":
+		return "阿里云盘"
 	default:
 		return "该云盘"
 	}
@@ -70,7 +72,13 @@ func telegramConfirmation(st State, job telegramTransfer) (string, [][]map[strin
 }
 
 func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m telegramMessage, links []telegramLink, library bool) error {
-	rank := map[string]int{"115": 0, "mobile": 1, "quark": 2}
+	for _, link := range links {
+		if library && link.Kind == "ali-rapid" {
+			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "阿里云盘链接用于阿里云盘秒传，请直接发送链接；不支持加入虚拟链库。", nil)
+			return err
+		}
+	}
+	rank := map[string]int{"115": 0, "mobile": 1, "quark": 2, "aliyun": 3}
 	sort.SliceStable(links, func(i, j int) bool {
 		if links[i].Provider != links[j].Provider {
 			return rank[links[i].Provider] < rank[links[j].Provider]
@@ -103,8 +111,13 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 		if library {
 			job.Kind, job.Status, job.LibraryStamp = "library", "queued", telegramLibraryStamp(st)
 		} else {
-			for _, target := range st.Notifications.Targets {
-				if target.Provider == link.Provider && target.accepts(link.Kind) {
+			targets := st.Notifications.Targets
+			if link.Kind == "ali-rapid" {
+				targets = ali115TelegramTargets(st)
+				job.LibraryStamp = ali115ConfigStamp(st.Ali115)
+			}
+			for _, target := range targets {
+				if (target.Provider == link.Provider || link.Kind == "ali-rapid") && target.accepts(link.Kind) {
 					job.Targets = append(job.Targets, target)
 					for _, storage := range st.Storages {
 						if storage.ID == target.StorageID {

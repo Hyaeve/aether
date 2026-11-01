@@ -23,6 +23,7 @@ type casExportRequest struct {
 	Extensions string   `json:"extensions"`
 	Directory  string   `json:"directory"`
 	Confirm    bool     `json:"confirm"`
+	Format     string   `json:"format"`
 }
 type casExportItem struct {
 	File File
@@ -91,6 +92,10 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 	}
 	if !v.Confirm {
 		fail(w, 400, errors.New("请二次确认导出CAS"))
+		return
+	}
+	if !validCASExportFormat(v.Format) {
+		fail(w, 400, errors.New("CAS导出格式须为编码或明文"))
 		return
 	}
 	s, err := a.store.storage(v.StorageID)
@@ -175,7 +180,7 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, errors.New("CAS特征获取失败；未输出不完整文件，请查看运行日志"))
 			return
 		}
-		raw, e := marshalCASContent(info)
+		raw, e := marshalCASExport(info, v.Format)
 		if e != nil {
 			fail(w, 500, e)
 			return

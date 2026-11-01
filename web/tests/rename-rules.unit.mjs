@@ -19,12 +19,12 @@ test('incomplete text rules do not replace stable previews or block other rules'
   assert.equal(serializedRenameRule(newRenameRule('replace')), null)
   assert.equal(serializedRenameRule(newRenameRule('insert')), null)
   assert.equal(serializedRenameRule(newRenameRule('delete')), null)
-  assert.deepEqual(serializedRenameRule(newRenameRule('number')), { kind: 'number', name: '', start: 1, digits: 1, numberPosition: 'before', separator: '、' })
+  assert.deepEqual(serializedRenameRule(newRenameRule('number')), { kind: 'number', name: '', start: 1, digits: 1, numberPosition: 'after', separator: '' })
 })
 
 test('only current rule fields are sent and false flags and empty separator survive', () => {
   const rule = newRenameRule('number', { find: 'old', name: '新', separator: '', start: 7 })
-  assert.deepEqual(serializedRenameRule(rule), { kind: 'number', name: '新', start: 7, digits: 1, numberPosition: 'before', separator: '' })
+  assert.deepEqual(serializedRenameRule(rule), { kind: 'number', name: '新', start: 7, digits: 1, numberPosition: 'after', separator: '' })
   assert.equal(serializedRenameRule(newRenameRule('delete', { text: 'a' })).firstOnly, false)
   assert.equal(serializedRenameRule({ kind: 'unknown' }), null)
 })

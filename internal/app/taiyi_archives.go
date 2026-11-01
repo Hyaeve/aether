@@ -215,6 +215,9 @@ func (a *App) newScrapeArchive(taskID, rootName, action string, root *os.Root, i
 			break
 		}
 	}
+	if card, ok := shareScrapeCard(a.store.state, taskID); ok {
+		record.TaskName = card.Name
+	}
 	a.store.mu.RUnlock()
 	return record, a.archives.put(record)
 }

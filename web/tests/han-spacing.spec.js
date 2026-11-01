@@ -92,11 +92,11 @@ for (const [width, height, theme] of [[1440, 1000, 'light'], [390, 844, 'dark'],
       expect(geometry.selected).toBe(storageName)
       expect(['0px', 'normal']).toContain(geometry.tracking)
       for (let i = 0; i < geometry.spacedMetrics.chars.length; i++) {
-        expect(Math.abs(geometry.spacedMetrics.chars[i].width - geometry.originalMetrics.chars[i].width - geometry.fontSize * .1)).toBeLessThan(.035)
+        expect(Math.abs(geometry.spacedMetrics.chars[i].width - geometry.originalMetrics.chars[i].width - geometry.fontSize * .05)).toBeLessThan(.035)
       }
       for (let i = 0; i < storageName.length - 1; i++) {
         const extra = geometry.spaced[i + 1] - geometry.spaced[i] - (geometry.original[i + 1] - geometry.original[i])
-        expect(Math.abs(extra - ([0, 5, 10].includes(i) ? geometry.fontSize * .1 : 0))).toBeLessThan(.035)
+        expect(Math.abs(extra - ([0, 5, 10].includes(i) ? geometry.fontSize * .05 : 0))).toBeLessThan(.035)
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await captureScreenshot(page, { path: info.outputPath(`han-storage-${width}-${theme}.png`) })

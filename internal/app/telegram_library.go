@@ -140,6 +140,11 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		}
 		card = quarkLibraryCard{ID: id(), Secret: job.Link, Name: title, ShareName: title, Directory: cfg.Directory,
 			DirectoryName: directoryName, Enabled: cfg.Directory != "" && readErr == nil}
+		card.DirectoryName, err = telegramLibraryDirectory(st, card, time.Now())
+		if err != nil {
+			finish("failed", err.Error(), 0)
+			return
+		}
 		if err := validateQuarkLibraryCard(&card); err != nil {
 			finish("failed", err.Error(), 0)
 			return
@@ -156,6 +161,9 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		err = a.store.update(func(st *State) error {
 			if !telegramLibraryValid(*st, job) {
 				return errors.New("TG 授权或链库默认设置已变化，未添加")
+			}
+			if err := shareLibraryNamesAvailable(*st, card); err != nil {
+				return err
 			}
 			st.QuarkLibraryCards = append(st.QuarkLibraryCards, card)
 			initQuarkLibraryRuntime(st)

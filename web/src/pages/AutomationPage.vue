@@ -44,7 +44,7 @@ const taskOptions = () => state.tasks.map(t => ({value:t.id,label:t.name}))
   <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button class="btn primary" @click="open()"><Icon name="Plus" />添加联动</button></div></section>
   <div class="automation-list">
     <header class="automation-columns"><span>联动名称</span><span>任务流程</span><span>上次结果</span><span>下次执行</span><span>操作</span></header>
-    <div class="automation-scroll"><article v-for="rule in rules" :key="rule.id" class="automation-row" :class="{disabled:!rule.enabled,running:rule.status==='running'}">
+    <div class="automation-scroll"><article v-for="rule in rules" :key="rule.id" :data-config-path="`/automations/${rule.id}`" class="automation-row" :class="{disabled:!rule.enabled,running:rule.status==='running'}">
       <button class="automation-summary" @click="open(rule)"><strong>{{rule.name}}</strong></button>
       <div class="automation-flow" tabindex="0" :aria-label="rule.steps.map(stepName).join(' → ')"><span class="workflow-chain"><template v-for="(step,index) in rule.steps" :key="index"><Icon v-if="index" name="ArrowRight" :size="14" /><span>{{stepName(step)}}</span></template></span></div>
       <span class="automation-result" :class="lastResult(rule)==='成功'?'success-text':lastResult(rule)==='失败'?'danger-text':'muted'">{{lastResult(rule)}}</span>

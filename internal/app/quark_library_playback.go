@@ -332,9 +332,9 @@ func quarkLibrarySharePath(card quarkLibraryCard) string {
 	return code
 }
 
-func quarkLibraryURL(card quarkLibraryCard, relative, address string) string {
-	name := path.Base(strings.TrimSuffix(relative, ".strm"))
-	return strings.TrimRight(address, "/") + "/quark-share/" + url.PathEscape(quarkLibrarySharePath(card)) + "/" + shareFilenamePath(name) + "\n"
+func quarkLibraryURL(card quarkLibraryCard, relative, address string, encodedPath ...bool) string {
+	name := path.Base(shareSTRMSourceName(relative))
+	return strings.TrimRight(address, "/") + "/quark-share/" + url.PathEscape(quarkLibrarySharePath(card)) + "/" + shareFilenamePath(name, encodedPath...) + "\n"
 }
 
 func (a *App) playQuarkLibraryPath(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +354,7 @@ func (a *App) playQuarkLibraryPath(w http.ResponseWriter, r *http.Request) {
 		}
 		var match *quarkLibraryFile
 		for _, grant := range st.QuarkLibraryRuntime.Files {
-			if grant.CardID == card.ID && grant.Published && grant.Media && grant.ShareStamp == quarkLibraryStamp(card.Secret) &&
+			if grant.CardID == card.ID && grant.Published && grant.Media && isShareSTRM(grant.Relative) && grant.ShareStamp == quarkLibraryStamp(card.Secret) &&
 				grant.Name == name {
 				if match != nil {
 					a.store.event("warn", "virtual", "夸克链库播放名称冲突："+card.Name+" · "+name)
@@ -383,7 +383,7 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 	st := a.store.snapshotWithLogLimit(0)
 	grant, ok := st.QuarkLibraryRuntime.Files[r.PathValue("key")]
 	card, present := quarkLibraryCardAt(st, grant.CardID)
-	if !ok || !grant.Published || !grant.Media || !present || !card.Enabled || grant.ShareStamp != quarkLibraryStamp(card.Secret) || r.PathValue("name") != grant.Name {
+	if !ok || !grant.Published || !grant.Media || !isShareSTRM(grant.Relative) || !present || !card.Enabled || grant.ShareStamp != quarkLibraryStamp(card.Secret) || r.PathValue("name") != grant.Name {
 		http.NotFound(w, r)
 		return
 	}

@@ -69,7 +69,7 @@ func mobileGenerationRequest(ctx context.Context, method string, payload, out an
 	module := "IOutLink/"
 	stage := "移动分享读取（share-kd-njs.yun.139.com）"
 	switch method {
-	case "getOutLinkGeneral", "getOutLinkInfoV6", "getContentInfoFromOutLink":
+	case "getOutLinkGeneral", "getOutLinkInfoV6", "getContentInfoFromOutLink", "dlFromOutLinkV3":
 	case "createOuterLinkBatchOprTask", "queryBatchOprTaskDetail":
 		if storage == nil || !nativeMobile(*storage) {
 			return errors.New("移动分享转存需要已授权的原生存储")

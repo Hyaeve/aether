@@ -43,7 +43,7 @@ test('TMDB opens language upward and transfer controls share colors', async ({ p
   await mock(page)
   await page.route('**/api/plugins/*', r => r.fulfill({ json: { apiURL: 'https://api.example', imageURL: 'https://image.example', language: 'zh-CN' } }))
   await page.route('**/api/quark-takeover', r => r.fulfill({ json: { bindings: [] } }))
-  await page.goto('/tools')
+  await page.goto('/rules/assist')
   await page.getByRole('button', { name: 'TMDB 配置', exact: true }).click()
   await page.getByRole('button', { name: '匹配语言', exact: true }).click()
   await expect(page.locator('.rounded-select.opens-up')).toHaveCount(1)

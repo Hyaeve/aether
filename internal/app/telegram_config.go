@@ -46,6 +46,9 @@ func (target telegramTarget) shares() bool {
 }
 
 func (target telegramTarget) accepts(kind string) bool {
+	if kind == "ali-rapid" {
+		return target.Provider == "115"
+	}
 	if kind == "ed2k" {
 		return target.Provider == "115" && target.ED2KOffline
 	}

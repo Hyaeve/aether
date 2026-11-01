@@ -17,6 +17,22 @@ import (
 
 type quarkShareUnavailable struct{ code string }
 
+type quarkLibraryReadError struct {
+	stage string
+	cause error
+}
+
+func (e *quarkLibraryReadError) Error() string {
+	if errors.Is(e.cause, context.DeadlineExceeded) {
+		return e.stage + "超时，请稍后重试，并检查该存储的任务负载、服务器网络或代理"
+	}
+	if errors.Is(e.cause, context.Canceled) {
+		return e.stage + "已取消"
+	}
+	return e.stage + "：" + e.cause.Error()
+}
+func (e *quarkLibraryReadError) Unwrap() error { return e.cause }
+
 func (e *quarkShareUnavailable) Error() string {
 	return "夸克分享已失效或被取消，请更新有效分享链接"
 }
@@ -34,18 +50,18 @@ func (a *App) quarkLibraryRead(ctx context.Context, session *Storage, secret str
 		} `json:"data"`
 	}
 	if err := a.waitAPI(ctx, session.ID); err != nil {
-		return "", "", nil, err
+		return "", "", nil, &quarkLibraryReadError{"等待夸克接口调用", err}
 	}
 	if err = shareSessionRequest(ctx, session, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/token?pr=ucpro&fr=pc",
 		map[string]string{"pwd_id": code, "passcode": pass}, &result); err != nil {
-		return "", "", nil, err
+		return "", "", nil, &quarkLibraryReadError{"获取夸克分享令牌", err}
 	}
 	if result.Data.Token == "" {
 		return "", "", nil, errors.New("未取得夸克分享令牌")
 	}
-	token, items, err := a.readShareSession(ctx, session, code, pass, "root", result.Data.Token)
+	token, items, err := a.readShareSessionPages(ctx, session, code, pass, "root", result.Data.Token, !recursive)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, &quarkLibraryReadError{"读取夸克分享根目录", err}
 	}
 	title := strings.TrimSpace(result.Data.Title)
 	if len(items) == 1 {
@@ -62,7 +78,7 @@ func (a *App) quarkLibraryRead(ctx context.Context, session *Storage, secret str
 	}
 	batches, err := a.planShareSession(ctx, session, code, pass, token, items)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, &quarkLibraryReadError{"扫描夸克分享子目录", err}
 	}
 	// The user-facing directory replaces, rather than wraps, a single root folder.
 	empty := ""
@@ -234,13 +250,13 @@ func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibrar
 		}
 		root, err := openStrmReplaceRoot(rootPath)
 		if err != nil {
-			a.store.event("warn", "virtual", "夸克链库迁移后旧文件未能清理："+old.Name)
+			a.store.event("warn", "virtual", "分享链库迁移后旧文件未能清理："+old.Name)
 			return
 		}
 		defer root.Close()
 		cleanup(root, list)
 		if committed {
-			a.store.event("info", "virtual", fmt.Sprintf("夸克链库迁移完成：%s，已核验 %d 个登记文件，目标 %s", next.Name, len(files), to))
+			a.store.event("info", "virtual", fmt.Sprintf("分享链库迁移完成：%s，已核验 %d 个登记文件，目标 %s", next.Name, len(files), to))
 		}
 	}, nil
 }
@@ -266,6 +282,10 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 	a.store.event("info", "virtual", "夸克链库开始生成："+card.Name)
 	defer func() {
 		if resultErr != nil {
+			var staged *quarkLibraryReadError
+			if !errors.As(resultErr, &staged) && (errors.Is(resultErr, context.Canceled) || errors.Is(resultErr, context.DeadlineExceeded)) {
+				resultErr = &quarkLibraryReadError{"生成夸克链库", resultErr}
+			}
 			result.Status, result.Message = "failed", resultErr.Error()
 			var unavailable *quarkShareUnavailable
 			if errors.As(resultErr, &unavailable) {
@@ -355,13 +375,16 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 	mediaPaths := map[string]bool{}
 	for _, batch := range batches {
 		for _, item := range batch.Items {
+			if quarkLibraryExcluded(card, batch.Directory, item.Name) {
+				continue
+			}
 			isMedia := taskMedia(Task{MediaExtensions: media}, item.Name)
 			if !isMedia && !excludedType(item.Name, metadata) {
 				continue
 			}
 			relative := path.Join(batch.Directory, item.Name)
 			if isMedia {
-				relative += ".strm"
+				relative += shareSTRMSuffix
 			}
 			if !quarkLibraryRelative(relative) || wanted[relative] {
 				return result, errors.New("分享包含不安全或重复的输出路径，未执行同步清理")
@@ -398,13 +421,17 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 			if err := ctx.Err(); err != nil {
 				return result, err
 			}
+			if quarkLibraryExcluded(card, batch.Directory, item.Name) {
+				result.Skipped++
+				continue
+			}
 			isMedia := taskMedia(Task{MediaExtensions: media}, item.Name)
 			if !isMedia && !excludedType(item.Name, metadata) {
 				continue
 			}
 			rel := path.Join(batch.Directory, item.Name)
 			if isMedia {
-				rel += ".strm"
+				rel += shareSTRMSuffix
 			}
 			if !wanted[rel] {
 				result.Skipped++
@@ -425,7 +452,7 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 				}
 				currentFormat := true
 				if isMedia {
-					sum := sha256.Sum256([]byte(quarkLibraryURL(card, rel, a.currentSTRMSettings().Address)))
+					sum := sha256.Sum256([]byte(quarkLibraryURL(card, rel, a.currentSTRMSettings().Address, a.currentSTRMSettings().Content == "encoded")))
 					currentFormat = previous.Digest == hex.EncodeToString(sum[:])
 				}
 				if previous.Stage != "transfer" && previous.ShareStamp == manifest.ShareStamp && previous.SourceID == manifest.SourceID && previous.SourceParent == manifest.SourceParent && previous.Size == manifest.Size && currentFormat {
@@ -444,7 +471,7 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 			}
 			var content []byte
 			if isMedia {
-				content = []byte(quarkLibraryURL(card, rel, a.currentSTRMSettings().Address))
+				content = []byte(quarkLibraryURL(card, rel, a.currentSTRMSettings().Address, a.currentSTRMSettings().Content == "encoded"))
 			} else {
 				if item.Size < 0 || item.Size > 64<<20 {
 					return result, errors.New("元数据超过64MiB或大小无效，未转存")

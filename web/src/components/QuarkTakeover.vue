@@ -169,7 +169,7 @@ onUnmounted(stop)
 <template>
   <Modal v-if="!adding" title="夸克 STRM 接管" compact wide @close="$emit('close')">
     <div class="takeover-workspace"><aside class="binding-workspace"><h3>账号绑定</h3><div class="binding-list">
-      <div v-for="binding in bindings" :key="binding.id" class="binding-row" :class="{active: editing === binding.id}">
+      <div v-for="binding in bindings" :key="binding.id" :data-config-path="`/quark-takeover/${binding.id}`" class="binding-row" :class="{active: editing === binding.id}">
         <button class="binding-toggle" :aria-label="`${binding.enabled ? '停用' : '启用'}绑定 ${binding.name}`" :aria-pressed="binding.enabled" :disabled="busy || !binding.valid" @click="toggleBinding(binding)"><ProviderIcon type="quark" /></button>
         <button class="binding-select" :aria-label="`设置绑定 ${binding.name}`" :aria-pressed="editing === binding.id" :disabled="busy" @click="edit(binding)"><strong>{{ binding.name }}</strong><small>TV · {{ binding.nickname || '已绑定' }} · {{ binding.valid ? '已授权' : '凭据已变更' }}</small></button>
         <span class="binding-status" :class="{on:binding.enabled && binding.valid}" />

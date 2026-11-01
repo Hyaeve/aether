@@ -153,7 +153,7 @@ for (const [width, height, theme] of layouts) test.describe(`CI layout ${width} 
     await dialog.getByRole('textbox', { name: '匹配内容 1', exact: true }).press('Enter')
     const colors = await dialog.evaluate(el => [el, el.querySelector('.backup-filter-frame'), el.querySelector('.backup-filter'), el.querySelector('.backup-token-input input')].map(node => getComputedStyle(node).backgroundColor))
     expect(colors).toEqual(theme === 'light'
-      ? ['rgb(237, 240, 247)', 'rgb(250, 251, 254)', 'rgb(253, 253, 255)', 'rgb(255, 255, 255)']
+      ? ['rgb(243, 245, 248)', 'rgb(250, 252, 253)', 'rgb(253, 254, 254)', 'rgb(255, 255, 255)']
       : ['rgb(19, 20, 25)', 'rgb(34, 37, 45)', 'rgb(38, 40, 49)', 'rgb(41, 44, 52)'])
     const brightness = colors.map(value => value.match(/\d+/g).map(Number).reduce((sum, n) => sum + n, 0))
     expect(brightness.every((value, i) => i === 0 || value > brightness[i - 1])).toBe(true)

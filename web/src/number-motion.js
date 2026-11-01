@@ -3,8 +3,8 @@ export function numberEasing(progress) {
   return 1 - (1 - value) ** 4
 }
 
-export function numberDuration(duration = 1500) {
-  return Number.isFinite(duration) ? Math.max(0, Math.min(1500, duration)) : 1500
+export function numberDuration(duration = 1000) {
+  return Number.isFinite(duration) ? Math.max(0, Math.min(1000, duration)) : 1000
 }
 
 export function numberFrameInterval(progress, difference) {

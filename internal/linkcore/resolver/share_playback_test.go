@@ -8,7 +8,7 @@ import (
 )
 
 func TestSharePlaybackRejectsOldPlaceholderAndLongLivedCache(t *testing.T) {
-	for _, prefix := range []string{"quark-share", "115-share"} {
+	for _, prefix := range []string{"quark-share", "115-share", "139-share"} {
 		value := &Resolution{Target: &strm.Target{Type: strm.TargetRemote, URL: "https://example.test/" + prefix + "/sample/Movie.mkv"}, ResolvedAt: time.Now()}
 		if shareCacheRemaining(value, time.Hour) != 0 {
 			t.Fatal("unprepared service URL remained a cache hit")

@@ -40,9 +40,9 @@ func (a *App) telegramResourceName(ctx context.Context, job telegramTransfer, ta
 	if err != nil || parseErr != nil || provider != s.Type {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
-	_, items, err := a.readShareSession(ctx, &s, code, pass, "root", "")
+	_, items, err := a.readShareSessionPages(ctx, &s, code, pass, "root", "", true)
 	if err != nil {
 		return ""
 	}
@@ -129,6 +129,10 @@ func (a *App) telegramExecutionValid(job telegramTransfer, target telegramTarget
 }
 
 func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer) {
+	if job.Kind == "ali-rapid" {
+		a.executeTelegramAli115(ctx, job)
+		return
+	}
 	if job.Kind == "library" {
 		a.executeTelegramLibrary(ctx, job)
 		return

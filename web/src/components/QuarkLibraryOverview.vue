@@ -5,7 +5,8 @@ import CacheHitChart from './CacheHitChart.vue'
 import SettingsEntry from './SettingsEntry.vue'
 import AnimatedNumber from './AnimatedNumber.vue'
 
-const props = defineProps({ cards: { type: Array, default: () => [] }, stats: { type: Object, default: () => ({}) }, running: { default: '' } })
+const props = defineProps({ provider: {type:String,default:'quark'}, cards: { type: Array, default: () => [] }, stats: { type: Object, default: () => ({}) }, running: { default: '' } })
+const label=computed(()=>props.provider==='mobile'?'移动':'夸克')
 const active = computed(() => props.cards.filter(card => card.result?.status === 'running' || card.id === props.running))
 const executed = computed(() => props.cards.filter(card => card.id !== props.running &&
   ['completed', 'failed', 'invalid', 'cancelled', 'interrupted'].includes(card.result?.status) &&
@@ -15,12 +16,12 @@ const invalid = computed(() => props.cards.filter(card => card.result?.invalidSi
 </script>
 
 <template>
-  <section class="quark-library-stats" aria-label="夸克链库统计">
+  <section class="quark-library-stats" :aria-label="`${label}链库统计`">
     <CacheHitChart task label="成功率" :hits="successes" :misses="executed.length-successes" title="按各分享卡片最近一次已结束执行统计成功率，未执行和执行中不计入" />
     <div class="quark-overview-progress">
       <div v-if="!active.length" class="quark-overview-item">
         <div class="quark-overview-heading"><small>暂无执行中的任务</small><span>空闲</span></div>
-        <div class="quark-overview-track"><progress value="0" max="100" aria-label="暂无执行中的夸克链库任务" /></div>
+        <div class="quark-overview-track"><progress value="0" max="100" :aria-label="`暂无执行中的${label}链库任务`" /></div>
       </div>
       <div v-for="card in active" :key="card.id" class="quark-overview-item">
         <div class="quark-overview-heading"><strong :title="card.name">{{ card.name }}</strong><span>生成中</span></div>
@@ -33,7 +34,7 @@ const invalid = computed(() => props.cards.filter(card => card.result?.invalidSi
       <div><dt><BadgeCheck :size="18" />成功</dt><dd><AnimatedNumber :value="successes" /></dd></div>
       <div><dt><FileWarning :size="18" />异常</dt><dd><AnimatedNumber :value="executed.length-successes" /></dd></div>
     </dl>
-    <SettingsEntry class="quark-library-settings-entry" to="/virtual/quark/settings" label="夸克链库设置" hint="进入夸克链库设置" />
+    <SettingsEntry class="quark-library-settings-entry" :to="`/virtual/${provider}/settings`" :label="`${label}链库设置`" :hint="`进入${label}链库设置`" />
   </section>
 </template>
 

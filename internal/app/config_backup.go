@@ -123,13 +123,19 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	b.State.Rapid115Retries = nil
 	b.State.FolderCleanupReceipts = nil
 	b.State.Pan115SigninReceipts = nil
+	b.State.Ali115Receipts = nil
 	b.State.CASPlaybackAttempts = nil
 	b.State.ShareTransfers, b.State.ShareLiveLinks = nil, nil
 	b.State.CloudCASRecords = nil
 	b.State.CASStats = CASRestoreStats{}
+	b.State.MobileLibraryRuntime = mobileLibraryRuntime{}
 	b.State.ED2KStats, b.State.ED2KTemporary, b.State.GenerationJobs = CASRestoreStats{}, nil, nil
 	b.State.ToolsRevision = ""
 	b.State.Modules = nil
+	b.State.Tasks = append([]Task(nil), b.State.Tasks...)
+	for i := range b.State.Tasks {
+		b.State.Tasks[i].STRMDeleteState = nil
+	}
 	var total int64
 	err := filepath.WalkDir(a.store.dir, func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -315,8 +321,10 @@ func applyPendingConfig(s *Store) error {
 	s.state.CloudCASRecords = before.CloudCASRecords
 	s.state.FolderCleanupReceipts = before.FolderCleanupReceipts
 	s.state.Pan115SigninReceipts = before.Pan115SigninReceipts
+	s.state.Ali115Receipts = before.Ali115Receipts
 	s.state.CASPlaybackAttempts = before.CASPlaybackAttempts
 	s.state.Rename115Attempts = before.Rename115Attempts
+	s.state.MobileLibraryRuntime = before.MobileLibraryRuntime
 	s.state.ShareTransfers, s.state.ShareLiveLinks = before.ShareTransfers, before.ShareLiveLinks
 	s.state.RenameHistory = nil
 	s.state.CASStats = CASRestoreStats{}
@@ -331,8 +339,17 @@ func applyPendingConfig(s *Store) error {
 		s.state.BackupRules[i].NextRun = backupNext(s.state.BackupRules[i], time.Now())
 	}
 	for i := range s.state.Tasks {
+		s.state.Tasks[i].STRMDeleteState = nil
+		for _, old := range before.Tasks {
+			if old.ID == s.state.Tasks[i].ID {
+				s.state.Tasks[i].STRMDeleteState = old.STRMDeleteState
+			}
+		}
 		s.state.Tasks[i].Status = "idle"
 		s.state.Tasks[i].NextRun = nextRun(s.state.Tasks[i], time.Now())
+		if s.state.Tasks[i].STRMDeleteState != nil {
+			s.state.Tasks[i].Status, s.state.Tasks[i].Message = "delete-paused", errSTRMDeletePaused.Error()
+		}
 	}
 	for i := range s.state.Automations {
 		s.state.Automations[i].Status = "idle"

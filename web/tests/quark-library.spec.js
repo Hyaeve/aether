@@ -23,6 +23,31 @@ async function mock(page) {
  return {saves,links,cards}
 }
 
+test('saving waits for the current title lookup and duplicate blur does not queue another lookup',async({page})=>{
+ const f=await mock(page)
+ let lookups=0,finish
+ await page.route('**/api/virtual-library/quark/resolve',route=>{
+  lookups++
+  return new Promise(resolve=>{finish=async()=>{await route.fulfill({json:{name:'分享原名称'}});resolve()}})
+ })
+ await page.goto('/virtual/quark')
+ await page.getByRole('button',{name:'添加链接',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'添加夸克链接',exact:true}),url=dialog.getByRole('textbox',{name:'分享链接',exact:true})
+ await url.fill('https://pan.quark.cn/s/new')
+ await dialog.getByRole('textbox',{name:'分享名称',exact:true}).focus()
+ await expect.poll(()=>lookups).toBe(1)
+ await url.focus()
+ await dialog.getByRole('textbox',{name:'生成位置',exact:true}).fill('/media')
+ expect(lookups).toBe(1)
+ await dialog.getByRole('button',{name:'保存链接',exact:true}).click()
+ await expect(dialog.getByRole('button',{name:'保存中',exact:true})).toBeDisabled()
+ expect(f.saves).toEqual([])
+ await finish()
+ await expect(dialog).toHaveCount(0)
+ expect(lookups).toBe(1)
+ expect(f.saves[0]).toMatchObject({name:'分享原名称',directoryName:'分享原名称'})
+})
+
 for(const width of [1440,390])for(const theme of ['light','dark']){
  test(`Quark library cards and settings ${width} ${theme}`,async({page},info)=>{
   const {saves}=await mock(page)
@@ -31,9 +56,10 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
   const cards=page.locator('.quark-library-card')
   await expect(cards).toHaveCount(3)
+  await expect(cards.first()).toHaveCSS('height',width===1440?'112px':'152px')
   const bounds=await cards.evaluateAll(els=>els.map(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right}}))
-  if(width===1440){expect(Math.max(...bounds.map(b=>b.y))-Math.min(...bounds.map(b=>b.y))).toBeLessThan(1);expect(bounds[2].x).toBeGreaterThan(bounds[1].x)}
-  else expect(bounds[1].y).toBeGreaterThan(bounds[0].y)
+  expect(bounds[1].y-bounds[0].y).toBe(width===1440?112:152)
+  expect(bounds[2].x).toBe(bounds[0].x)
   expect(bounds.every(b=>b.x>=0&&b.right<=width)).toBe(true)
   await expect(cards.last()).toHaveClass(/invalid/)
   await expect(page.getByRole('button',{name:'夸克链库设置',exact:true}).locator('.lucide-chevron-left-icon')).toHaveCount(1)
@@ -94,6 +120,10 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   await expect.poll(()=>saves.length).toBe(2)
   expect(saves[1].storageIds).toEqual(['q','q2'])
   expect(saves[1].mediaExtensions).toBe('mkv;cbz;cbr;zip;rar;epub;pdf')
+  const saved=page.locator('.toast').filter({hasText:'夸克链库设置已保存'})
+  await expect(saved).toBeVisible()
+  await saved.getByRole('button',{name:'关闭通知',exact:true}).click()
+  await expect(saved).toHaveCount(0)
   expect(await page.locator('.page-content').evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
   await page.getByRole('button',{name:'返回页面',exact:true}).click()
   await expect(page).toHaveURL(/\/virtual\/quark$/)

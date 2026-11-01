@@ -209,6 +209,7 @@ func telegramLinks(text string) ([]telegramLink, error) {
 		return nil, errors.New("分享内容过长")
 	}
 	indices := shareURLPattern.FindAllStringIndex(text, -1)
+	indices = append(indices, aliURLPattern.FindAllStringIndex(text, -1)...)
 	indices = append(indices, ed2kTextPattern.FindAllStringIndex(text, -1)...)
 	sort.Slice(indices, func(i, j int) bool { return indices[i][0] < indices[j][0] })
 	seen := map[string]string{}
@@ -238,6 +239,25 @@ func telegramLinks(text string) ([]telegramLink, error) {
 		}
 		raw := text[at[0]:end]
 		if !strings.HasPrefix(raw, "https://") {
+			continue
+		}
+		if aliURLPattern.MatchString(addressText) {
+			share, err := parseAliShare(raw)
+			if err != nil {
+				return nil, err
+			}
+			key := "aliyun:" + share.Code + ":" + share.Folder
+			if previous, ok := seen[key]; ok {
+				if previous != share.Password {
+					return nil, errors.New("同一分享含不同提取码，请重新检查")
+				}
+				continue
+			}
+			seen[key] = share.Password
+			result = append(result, telegramLink{Provider: "aliyun", Kind: "ali-rapid", Link: share.URL})
+			if len(result) > 50 {
+				return nil, errors.New("每次最多50条链接")
+			}
 			continue
 		}
 		provider, code, pass, err := parseShareLink(raw, "")
@@ -318,13 +338,7 @@ func (a *App) handleTelegramUpdate(ctx context.Context, cfg telegramConfig, upda
 		if callback.Message == nil || callback.From.Bot || !telegramAllowed(cfg, callback.Message.Chat.ID, callback.From.ID) {
 			return nil
 		}
-		err := a.telegramCallback(ctx, cfg, callback.Message.Chat.ID, callback.From.ID, callback.Message.ID, callback.Data)
-		text := "已处理"
-		if err != nil {
-			text = "操作已过期、配置已变化或无权操作，请重新发送链接"
-		}
-		_ = telegramRequest(ctx, cfg, "answerCallbackQuery", map[string]any{"callback_query_id": callback.ID, "text": text}, nil)
-		return err
+		return a.telegramCallbackQuery(ctx, cfg, callback.Message.Chat.ID, callback.From.ID, callback.Message.ID, callback.ID, callback.Data)
 	}
 	m := update.Message
 	if m == nil || m.From.Bot || !telegramAllowed(cfg, m.Chat.ID, m.From.ID) {
@@ -375,6 +389,17 @@ func telegramTargetCurrent(st State, job telegramTransfer, target telegramTarget
 			return false
 		}
 	}
+	if job.Kind == "ali-rapid" {
+		if job.LibraryStamp != ali115ConfigStamp(st.Ali115) || st.Ali115.RefreshToken == "" || st.Ali115.UserID == "" {
+			return false
+		}
+		for _, current := range ali115TelegramTargets(st) {
+			if sameTelegramTarget(current, target) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, current := range st.Notifications.Targets {
 		if sameTelegramTarget(current, target) {
 			return true
@@ -384,6 +409,28 @@ func telegramTargetCurrent(st State, job telegramTransfer, target telegramTarget
 }
 
 func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, user, message int64, data string) error {
+	return a.telegramCallbackQuery(ctx, cfg, chat, user, message, "", data)
+}
+
+func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, chat, user, message int64, queryID, data string) (resultErr error) {
+	answer := func(err error) {
+		if queryID == "" {
+			return
+		}
+		text := ""
+		if err != nil {
+			text = "操作已过期、配置已变化或无权操作，请重新发送链接"
+		}
+		answerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		_ = telegramRequest(answerCtx, cfg, "answerCallbackQuery", map[string]any{"callback_query_id": queryID, "text": text}, nil)
+	}
+	answered := false
+	defer func() {
+		if !answered {
+			answer(resultErr)
+		}
+	}()
 	parts := strings.Split(data, ":")
 	if len(parts) != 3 || (parts[0] != "t" && parts[0] != "c" && parts[0] != "x" && parts[0] != "p" && parts[0] != "b") {
 		return errors.New("无效操作")
@@ -456,6 +503,16 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 	})
 	if err != nil {
 		return err
+	}
+	if queryID != "" {
+		// Acknowledge only after the validated state is durable, without holding up the prompt.
+		answered = true
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			answer(nil)
+		}()
+		defer func() { <-done }()
 	}
 	action := telegramAction(selected.Kind)
 	text := "已加入" + action + "队列"

@@ -31,10 +31,7 @@ func inferScrapeSiblings(items []scrapeItem) {
 		for _, i := range indices {
 			item := items[i]
 			tv = tv || item.Kind == "tv"
-			stem := strings.TrimSuffix(path.Base(item.Path), path.Ext(item.Path))
-			if isVideo(stem) {
-				stem = strings.TrimSuffix(stem, path.Ext(stem))
-			}
+			stem := scrapeMediaStem(path.Base(item.Path))
 			stem = strings.Trim(scrapeSuffix.ReplaceAllString(stem, ""), " ._-")
 			if m := scrapeNumericEpisode.FindStringSubmatch(stem); m != nil {
 				numbers[i] = scrapeNumber(m[1])

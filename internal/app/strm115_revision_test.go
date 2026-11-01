@@ -38,8 +38,8 @@ func Test115STRMCanonicalPathAndEscapedNames(t *testing.T) {
 				t.Fatal(err)
 			}
 			u, err := url.Parse(link)
-			if err != nil || u.Path != "/d/333554321/"+f.PickCode+"/"+name || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(link, " \r\n") {
-				t.Fatal("expected bare pickcode followed by one escaped filename segment", link, err)
+			if err != nil || u.Path != "/d/333554321/"+f.PickCode+"/"+name || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(link, "\r\n") {
+				t.Fatal("expected bare pickcode followed by one readable filename segment", link, err)
 			}
 			ref, err := a.readSTRMReference("333554321/" + f.PickCode)
 			if err != nil || ref.Name != name || ref.Pick != f.PickCode || ref.Storage != s.ID {

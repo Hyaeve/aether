@@ -24,6 +24,11 @@ func (a *App) scrapeDirectories(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("无效的库目录"))
 		return
 	}
+	cfg := a.scrapeSourceConfig(r.URL.Query().Get("taskId"))
+	if cfg.ShareOnly && excluded(dir, cfg.Excluded) {
+		fail(w, 400, errors.New("目录不在分享 STRM 刮削范围"))
+		return
+	}
 	root, err := os.OpenRoot(base)
 	if err != nil {
 		fail(w, 400, errors.New("STRM库目录不可读取"))
@@ -43,7 +48,7 @@ func (a *App) scrapeDirectories(w http.ResponseWriter, r *http.Request) {
 		}
 		entries, readErr := file.ReadDir(256)
 		for _, entry := range entries {
-			if entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
+			if entry.IsDir() && entry.Type()&os.ModeSymlink == 0 && (!cfg.ShareOnly || !excluded(path.Join(dir, entry.Name()), cfg.Excluded)) {
 				dirs = append(dirs, path.Join(dir, entry.Name()))
 			}
 		}

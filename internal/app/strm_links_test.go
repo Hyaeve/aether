@@ -17,6 +17,7 @@ func TestReadableSTRMLinksAndDownloadRouting(t *testing.T) {
 	if err := a.store.update(func(st *State) error {
 		st.Storages = []Storage{pan, quark}
 		st.Settings.PublicURL = "http://10.0.0.31:15151"
+		st.Settings.STRMContent = "encoded" // This case verifies the encoded path option explicitly.
 		return nil
 	}); err != nil {
 		t.Fatal(err)

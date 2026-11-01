@@ -45,7 +45,7 @@ async function remove() {
   <section class="dav-users">
     <div class="section-label"><h2>WebDAV 用户</h2><button type="button" class="btn primary" @click="edit()"><Icon name="UserPlus" />添加用户</button></div>
     <p v-if="!users.length" class="small-empty">暂无独立用户</p>
-    <div class="dav-user-grid"><article v-for="user in users" :key="user.id" class="dav-user-card">
+    <div class="dav-user-grid"><article v-for="user in users" :key="user.id" :data-config-path="`/webdav/users/${user.id}`" class="dav-user-card">
       <header><Icon name="UserRound" :size="28" /><strong>{{ user.username }}</strong><span class="status" :class="user.enabled ? 'success' : 'muted'">{{ user.enabled ? '已启用' : '已停用' }}</span></header>
       <span class="dav-readonly">只读</span>
       <div class="dav-paths"><div v-for="grant in user.grants" :key="grant.id"><Icon name="Folder" :size="15" /><span>{{ grant.directoryLabel || grant.name }}</span></div><span v-if="!user.grants.length" class="muted">未授权目录</span></div>

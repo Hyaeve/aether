@@ -39,7 +39,7 @@ func TestQuarkLibraryRecoversMissingOwnerOnlyAfterInventory(t *testing.T) {
 			owner := a.store.snapshotWithLogLimit(0).QuarkLibraryRuntime.Roots[card.ID]
 			switch mode {
 			case "modified-file":
-				writeTest(t, filepath.Join(dir, "Movie.mkv.strm"), "modified externally")
+				writeTest(t, filepath.Join(dir, "Movie.mkv.share.strm"), "modified externally")
 			case "unrelated-file":
 				writeTest(t, filepath.Join(dir, "unrelated.txt"), "must remain")
 			case "changed-marker":
@@ -58,7 +58,7 @@ func TestQuarkLibraryRecoversMissingOwnerOnlyAfterInventory(t *testing.T) {
 						return nil
 					}
 					if mode == "late-file-change" || mode == "second-file-change" {
-						return os.WriteFile(filepath.Join(dir, "Movie.mkv.strm"), []byte("changed during adoption"), 0600)
+						return os.WriteFile(filepath.Join(dir, "Movie.mkv.share.strm"), []byte("changed during adoption"), 0600)
 					}
 					if mode == "second-directory-change" {
 						if err := os.Rename(dir, dir+"-original"); err != nil {
@@ -95,7 +95,7 @@ func TestQuarkLibraryRecoversMissingOwnerOnlyAfterInventory(t *testing.T) {
 				if _, err := a.runQuarkLibrary(context.Background(), card); err != nil {
 					t.Fatal("restored library cannot reconcile", err)
 				}
-				if _, err := os.Stat(filepath.Join(dir, "Movie.mkv.strm")); !os.IsNotExist(err) {
+				if _, err := os.Stat(filepath.Join(dir, "Movie.mkv.share.strm")); !os.IsNotExist(err) {
 					t.Fatal("obsolete registered output was not cleaned", err)
 				}
 			} else if mode == "changed-marker" || mode == "late-foreign-marker" {
@@ -132,7 +132,7 @@ func TestQuarkLibraryMissingOwnerNeverAuthorizesExpiry(t *testing.T) {
 	if err := a.expireQuarkLibraryOutput(context.Background(), card); err == nil {
 		t.Fatal("expiry adopted an unverified output directory")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "Movie.mkv.strm")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "Movie.mkv.share.strm")); err != nil {
 		t.Fatal("expiry deleted output without ownership", err)
 	}
 }

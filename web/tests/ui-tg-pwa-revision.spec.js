@@ -24,7 +24,7 @@ test('Quark summary precedes cards below tabs', async ({ page }) => {
   await page.goto('/virtual/quark')
   const tabs = await page.locator('.task-heading').boundingBox()
   const summary = await page.locator('.quark-library-stats').boundingBox()
-  const cards = await page.locator('.quark-library-grid').boundingBox()
+  const cards = await page.locator('.share-library-window').boundingBox()
   expect(summary.y).toBeGreaterThanOrEqual(tabs.y + tabs.height)
   expect(summary.y + summary.height).toBeLessThanOrEqual(cards.y)
 })

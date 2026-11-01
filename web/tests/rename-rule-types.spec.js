@@ -69,7 +69,7 @@ test('all rule controls serialize, save and restore without losing independent o
   await page.getByLabel('开始序号', { exact: true }).fill('8')
   await page.getByLabel('序号最少位数', { exact: true }).fill('3')
   await select(page, '序号位置', '名称之后')
-  await select(page, '分隔符', '连字符（-）')
+  await select(page, '分隔符', '破折号（-）')
   await page.screenshot({ path: info.outputPath('rename-number.png') })
   await add(page, '添加字符')
   await page.getByLabel('添加到第几位', { exact: true }).fill('2')

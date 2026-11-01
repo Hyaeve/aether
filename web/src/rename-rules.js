@@ -14,7 +14,7 @@ export const renameDeleteTypes = [
 ]
 const fields = {
   replace: { find: '', replace: '', findType: 'literal', caseSensitive: false, firstOnly: false },
-  number: { name: '', start: 1, digits: 1, numberPosition: 'before', separator: '、' },
+  number: { name: '', start: 1, digits: 1, numberPosition: 'after', separator: '' },
   insert: { position: 1, text: '' },
   delete: { deleteTypes: [], deleteRange: false, from: 1, to: 1, fromEnd: false, toEnd: false, text: '', firstOnly: false },
   move: { from: 1, to: 1 },

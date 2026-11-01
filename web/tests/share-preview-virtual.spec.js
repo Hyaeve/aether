@@ -70,12 +70,12 @@ test('file count appears only at list end or when no scroll is necessary',async(
 
 test('virtual library generates previewed structure and shares the ED2K pool',async({page},info)=>{
  await mock(page)
- await page.route('**/api/virtual-library/115/*',route=>route.fulfill({json:route.request().url().endsWith('/preview')?{preview:'key',files:[{path:'Show/one.mkv.strm',content:'http://host/s/code_abcd_123.mkv?/one.mkv',size:2048}]}:{generated:1,skipped:0}}))
+ await page.route('**/api/virtual-library/115/*',route=>route.fulfill({json:route.request().url().endsWith('/preview')?{preview:'key',files:[{path:'Show/one.mkv.share.strm',content:'http://host/115-share/code-abcd/one.mkv',size:2048}]}:{generated:1,skipped:0}}))
  await page.route('**/api/local-directories**',route=>route.fulfill({json:{path:'/media',items:[]}}))
  await page.goto('/virtual/115')
  await expect(page.getByRole('navigation',{name:'虚拟链库栏目'}).getByRole('link')).toHaveCount(4)
  await page.getByRole('textbox',{name:'115分享链接',exact:true}).fill('https://115.com/s/code?password=abcd')
- await page.getByRole('button',{name:'解析',exact:true}).click();await expect(page.locator('.virtual-results')).toContainText('Show/one.mkv.strm')
+ await page.getByRole('button',{name:'解析',exact:true}).click();await expect(page.locator('.virtual-results')).toContainText('Show/one.mkv.share.strm')
  await page.locator('.source-trigger').click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click()
  await page.getByRole('button',{name:'生成 STRM',exact:true}).click();await expect(page.locator('.toast')).toContainText('生成 1 个 STRM')
  await page.evaluate(()=>document.documentElement.dataset.theme='dark')

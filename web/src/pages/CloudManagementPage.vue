@@ -144,7 +144,7 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
 .cloud-management-row progress.success::-webkit-progress-value{background:var(--green)}.cloud-management-row progress.error::-webkit-progress-value,.cloud-management-row progress.interrupted::-webkit-progress-value{background:var(--red)}
 .cloud-management-row progress::-moz-progress-bar{background:var(--amber)}.cloud-management-row progress.success::-moz-progress-bar{background:var(--green)}.cloud-management-row progress.error::-moz-progress-bar,.cloud-management-row progress.interrupted::-moz-progress-bar{background:var(--red)}
 .cloud-confirm{display:grid;gap:14px}.cloud-confirm label{display:grid;gap:8px}.cloud-toolbar{align-items:center}
-.cloud-toolbar :deep(.rounded-select){width:180px;min-width:180px;max-width:180px;flex:none}
+.cloud-toolbar :deep(.rounded-select){width:135px;min-width:135px;max-width:135px;flex:none}
 .cloud-toolbar :deep(.rounded-select-trigger){width:100%}
 .cloud-toolbar :deep(.select-label){flex:1;overflow:hidden}
 .cloud-toolbar :deep(.select-label>span:last-child){min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -152,7 +152,7 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
 .cloud-target{display:flex;align-items:center;gap:6px;min-width:0;direction:ltr}.cloud-target strong{font-weight:500;max-width:40%;overflow:hidden;text-overflow:ellipsis;flex:none}.cloud-directory-tail{min-width:0;flex:1;direction:rtl;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cloud-target :deep(.provider-icon){flex:none}
 .cloud-path>span{display:block;overflow:hidden;text-overflow:ellipsis}.cloud-path .cloud-target{display:flex}
 @media(min-width:601px) and (max-width:1100px){.cloud-management-columns,.cloud-management-row{gap:6px;padding-inline:8px}.cloud-management-panel{overflow-x:auto}.cloud-management-columns,.cloud-management-row{min-width:710px}.downloads:not(.cas) .cloud-management-columns,.downloads:not(.cas) .cloud-management-row{min-width:850px}}
-@media(max-width:760px){.task-heading{flex-wrap:wrap;gap:10px}.task-heading :deep(.content-tabs){width:100%;flex:1 0 100%}.toolbar-right{width:100%;justify-content:flex-end;gap:8px;min-width:0}.cloud-toolbar :deep(.rounded-select){width:140px;min-width:140px;max-width:140px;flex:none}.toolbar-right .btn{flex:none}.cloud-management-panel{min-height:calc(100dvh - 220px)}}
+@media(max-width:760px){.task-heading{flex-wrap:wrap;gap:10px}.task-heading :deep(.content-tabs){width:100%;flex:1 0 100%}.toolbar-right{width:100%;justify-content:flex-end;gap:8px;min-width:0}.cloud-toolbar :deep(.rounded-select){width:105px;min-width:105px;max-width:105px;flex:none}.toolbar-right .btn{flex:none}.cloud-management-panel{min-height:calc(100dvh - 220px)}}
 @media(max-width:600px){
  .cloud-management-panel .cloud-management-columns,.cloud-management-panel .cloud-management-row{grid-template-columns:minmax(60px,1fr) 72px 76px;gap:4px;padding:8px;font-size:13px;min-width:0}
  .cloud-management-panel.downloads:not(.cas) .cloud-management-columns,.cloud-management-panel.downloads:not(.cas) .cloud-management-row{grid-template-columns:minmax(60px,1fr) 72px 76px}
@@ -171,7 +171,7 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
  .cloud-row-name{gap:4px}.cloud-management-row small{font-size:12px;flex:none}
 }
 @media(max-width:440px){
- .cloud-toolbar{gap:4px}.cloud-toolbar :deep(.rounded-select){width:124px;min-width:124px;max-width:124px}
+ .cloud-toolbar{gap:4px}.cloud-toolbar :deep(.rounded-select){width:93px;min-width:93px;max-width:93px}
  .cloud-toolbar>.icon-btn{width:30px}.cloud-toolbar .cloud-clean{padding:6px 8px;gap:4px;font-size:12px}.cloud-total{padding:6px 8px;font-size:12px}
 }
 </style>

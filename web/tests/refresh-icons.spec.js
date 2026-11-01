@@ -184,8 +184,8 @@ test('directory picker refresh is shared while the non-refresh media-upgrade sym
   const before = requests.filter(path => path === '/api/files').length
   await button.click()
   await expect.poll(() => requests.filter(path => path === '/api/files').length).toBeGreaterThan(before)
-  await page.goto('/tools')
-  const plugin = page.getByRole('button', { name: '洗版策略', exact: true })
+  await page.goto('/rules/upgrade')
+  const plugin = page.locator('.rule-placeholder').filter({hasText:'洗版策略'})
   await expect(plugin.locator('svg.lucide-refresh-cw-icon')).toBeVisible()
   await expect(plugin.locator('svg path')).toHaveCount(4)
   await expect(plugin.locator('.refresh-icon')).toHaveCount(0)

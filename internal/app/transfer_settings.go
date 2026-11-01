@@ -360,6 +360,23 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State, allowLegacyPIN ...bool) error {
+	if err := validateAli115(st.Ali115, *st, len(allowLegacyPIN) > 0 && allowLegacyPIN[0]); err != nil {
+		return err
+	}
+	for _, task := range st.Tasks {
+		if task.Kind == "strm" {
+			if _, err := normalizeSTRMMode(task.Mode); err != nil {
+				return err
+			}
+			for _, s := range st.Storages {
+				if s.ID == task.StorageID {
+					if err := validateSTRMSource(task, s, len(allowLegacyPIN) > 0 && allowLegacyPIN[0]); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
 	for _, storage := range st.Storages {
 		if nativeMobile(storage) {
 			if err := validateMobileClient(storage); err != nil {
@@ -401,6 +418,9 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 		return err
 	}
 	if err := validateQuarkLibrary(*st, legacySchedule); err != nil {
+		return err
+	}
+	if err := validateMobileLibrary(*st, legacySchedule); err != nil {
 		return err
 	}
 	if err := validatePluginRepositories(st.PluginRepositories); err != nil {
@@ -448,7 +468,7 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 		if format == "" {
 			format = "pickcode_name"
 		}
-		if err := validSTRMSettings(strmSettings{Address: st.Settings.STRMURL, Format: format, OverwriteMode: st.Settings.STRMOverwriteMode}); err != nil {
+		if err := validSTRMSettings(strmSettings{Address: st.Settings.STRMURL, Format: format, OverwriteMode: st.Settings.STRMOverwriteMode, Content: st.Settings.STRMContent}); err != nil {
 			return err
 		}
 	} else if st.Settings.STRM115Format != "" && st.Settings.STRM115Format != "pickcode_name" && st.Settings.STRM115Format != "pickcode" {
@@ -456,6 +476,9 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 	}
 	if !validSTRMOverwriteMode(st.Settings.STRMOverwriteMode) {
 		return errors.New("STRM覆盖模式无效")
+	}
+	if mode := st.Settings.STRMContent; mode != "" && mode != "original" && mode != "encoded" {
+		return errors.New("STRM内容须为原始名称或编码路径")
 	}
 	if st.TransferVersion != 0 && (st.TransferVersion != 1 || st.TransferSettings.Version != 1 || st.BackupResources.Version != 1) {
 		return errors.New("传输资源配置版本无效")

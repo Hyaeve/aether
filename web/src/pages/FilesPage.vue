@@ -21,6 +21,7 @@ import { copyText } from '../clipboard'
 import FileTabs from '../components/FileTabs.vue'
 import PathBreadcrumbs from '../components/PathBreadcrumbs.vue'
 import RenameWorkbench from '../components/RenameWorkbench.vue'
+import RenameName from '../components/RenameName.vue'
 import OfflineDownload from '../components/OfflineDownload.vue'
 import ShareTransfer from '../components/ShareTransfer.vue'
 import { useVirtualList } from '../virtual-list'
@@ -159,7 +160,18 @@ function blankTools(event) {
   toolPosition.value = { position: 'fixed', left: `${Math.max(8, Math.min(event.clientX, window.innerWidth - 210))}px`, top: `${Math.max(8, Math.min(event.clientY, window.innerHeight - 290))}px`, right: 'auto', zIndex: 100 }
   createMenu.value = true
 }
-const workbenchFiles = ref(null), detailBusy = ref(false), detailError = ref('')
+const rememberedWorkbench = route.query.storage ? null : readSession(state.username, 'rename-workbench')
+const rememberedFiles = rememberedWorkbench?.draft?.files
+const validWorkbench = rememberedWorkbench?.storage === selected.value && rememberedWorkbench?.source === current.value &&
+  Array.isArray(rememberedFiles) && rememberedFiles.length <= 20000 &&
+  rememberedFiles.every(f => typeof f.id === 'string' && typeof f.name === 'string')
+const workbenchFiles = ref(validWorkbench ? rememberedFiles : null), workbenchDraft = ref(validWorkbench ? rememberedWorkbench.draft : null)
+const detailBusy = ref(false), detailError = ref('')
+function rememberWorkbench(value) {
+  workbenchDraft.value = value
+  writeSession(favoritesOwner, 'rename-workbench', value ? { storage:selected.value, source:current.value, draft:value } : null)
+}
+function closeWorkbench() { workbenchFiles.value = null; rememberWorkbench(null) }
 const offlineSupported = computed(() => !!selected.value)
 const shareTransfer = ref(false)
 const shareSupported = computed(() => { const s=state.storages.find(s=>s.id===selected.value); return s && (['115','quark'].includes(s.type) || s.type==='mobile' && s.config?.mode==='native') })
@@ -203,7 +215,7 @@ const previewImages = ref([])
 const previewVideos = ref([])
 function changeVideo(file) { if (previewVideos.value.some(item => item.id === file.id && item.storage === file.storage)) preview.value = file }
 function openFile(event, file) {
-  if (renameID.value) return
+  if (renameID.value || renaming(file)) return
   if (file.isDir) return enter(file)
   if (/\.(strm|nfo|cas)$/i.test(file.name)) return openText(file, /\.cas$/i.test(file.name))
   if (file.url && (imageFile(file) || videoFile(file) || audioFile(file))) {
@@ -221,7 +233,7 @@ function openFile(event, file) {
     closeMenu(); preview.value = { ...file, storage: selected.value, parent: file.parent ?? current.value, companions: [] }
   } else context(event, file)
 }
-function openWorkbench() { if (searchResults.value) return; workbenchFiles.value = [...(selection.value.length ? detailFiles.value : files.value)]; createMenu.value = false; closeMenu() }
+function openWorkbench() { if (searchResults.value || renameBusy.value) return; workbenchDraft.value = null; workbenchFiles.value = [...(selection.value.length ? detailFiles.value : files.value)]; createMenu.value = false; closeMenu() }
 function clearSelection(event) {
   if (renameID.value || details.value || workbenchFiles.value || event.target.closest('button,input,select,textarea,a,[role=option],.file-row,.file-grid-item,.modal,.context-menu,.rename-workbench')) return
   selection.value = []; anchor.value = ''
@@ -239,7 +251,13 @@ async function showDetails() {
 }
 const fileUpload = ref(null), folderUpload = ref(null), uploadBusy = ref(false), uploadProgress = ref(''), offline = ref(false)
 const sortKey = ref(['name', 'size', 'type', 'modified'].includes(saved.sortKey) ? saved.sortKey : 'name'), ascending = ref(saved.ascending !== false), selection = ref([]), anchor = ref(''), menu = ref(null), renameID = ref(''), newName = ref(''), operation = ref(''), deleting = ref(false), folderDownload = ref(null)
-const renameBusy = ref(false), retainedOrder = ref([])
+const pendingRename = ref(null), retainedOrder = ref([])
+const renameBusy = computed(() => pendingRename.value?.storage === selected.value && pendingRename.value?.parent === current.value)
+function renaming(file) {
+  const pending = pendingRename.value
+  return !!pending && pending.storage === selected.value && pending.parent === (file.parent ?? current.value) && pending.id === file.id
+}
+function displayName(file) { return renaming(file) ? pendingRename.value.name : file.name }
 watch([favoritesOpen, selected, sortKey, ascending], () => {
   try { localStorage.setItem(preferenceKey, JSON.stringify({ ...saved, open: favoritesOpen.value, storage: selected.value, sortKey: sortKey.value, ascending: ascending.value })) } catch {}
 }, { deep: true, flush: 'sync' })
@@ -248,7 +266,8 @@ const type = f => f.isDir ? '文件夹' : f.name.split('.').at(-1).toUpperCase()
 const fileSize = f => f.isDir && !f.sizeKnown ? '—' : bytes(f.size)
 const visible = computed(() => {
   const order = new Map(retainedOrder.value.map((id, index) => [id, index]))
-  return activeFiles.value.filter(f => f.name.toLowerCase().includes(query.value.trim().toLowerCase())).sort((a, b) => {
+  const term = query.value.trim().toLowerCase()
+  return activeFiles.value.filter(f => f.name.toLowerCase().includes(term) || renaming(f) && displayName(f).toLowerCase().includes(term)).sort((a, b) => {
   if (order.has(a.id) && order.has(b.id)) return order.get(a.id) - order.get(b.id)
   if (!!a.isDir !== !!b.isDir) return a.isDir ? -1 : 1
   const value = f => sortKey.value === 'type' ? type(f) : sortKey.value === 'size' ? f.size : f[sortKey.value] || ''
@@ -329,7 +348,7 @@ function select(event, f) {
   anchor.value = f.id
 }
 async function context(event, f) {
-  if (renameID.value || f.id === '__new__') return
+  if (renameID.value || renameBusy.value || f.id === '__new__') return
   if (searchResults.value) { const found = await locate(f); if (found) context(event, found); return }
   if (!selection.value.includes(f.id)) selection.value = [f.id]
   menu.value = { x: Math.max(8,Math.min(event.clientX,window.innerWidth-160)), y: Math.max(8,Math.min(event.clientY,window.innerHeight-(extractable.value ? 302 : 260))) }
@@ -337,6 +356,7 @@ async function context(event, f) {
 function closeMenu() { menu.value = null }
 async function rename() {
   closeMenu()
+  if (busy.value || pendingRename.value) return
   const f = files.value.find(f => f.id === selection.value[0])
   if (!f || selection.value.length !== 1) return
   renameID.value = f.id; newName.value = f.name
@@ -347,17 +367,28 @@ async function rename() {
   input?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }
 async function act(action, extra = {}) {
-  if (busy.value) return
+  if (busy.value || renameBusy.value || action === 'rename' && pendingRename.value) return
   const storage = selected.value, parent = current.value, listing = requestId
   const ids = extra.ids || [...selection.value], order = visible.value.map(f => f.id)
-  renameBusy.value = action === 'rename'
+  const original = action === 'rename' ? files.value.find(f => f.id === ids[0]) : null
+  if (action === 'rename' && !original) return
   busy.value = true; closeMenu()
+  if (original) {
+    // Preview only the label; paths, IDs and media URLs remain authoritative until acknowledged.
+    pendingRename.value = { storage, parent, id: original.id, name: extra.name, originalName: original.name }
+    retainedOrder.value = order
+    cancelEdit()
+  }
   try {
     const result = await api('/files/action', 'POST', { storageId: storage, source: parent, action, ids, ...extra })
-    if (!favoritesAlive || selected.value !== storage || current.value !== parent || requestId !== listing) return
+    if (!favoritesAlive || !state.authenticated || state.username !== favoritesOwner || selected.value !== storage || current.value !== parent) return
+    if (requestId !== listing) {
+      if (original) await load(true)
+      return
+    }
     if (action === 'rename') {
       const item = files.value.find(f => f.id === ids[0])
-      if (!item || !result.renamed) throw new Error('重命名已提交，请手动刷新确认新名称')
+      if (!item || !result?.renamed?.id || !result.renamed.name) throw new Error('服务响应未包含新文件信息')
       retainedOrder.value = order.map(id => id === item.id ? result.renamed.id : id)
       const oldID = item.id
       Object.assign(item, { ...result.renamed, ...(item.isDir ? { url: '' } : {}) })
@@ -368,8 +399,14 @@ async function act(action, extra = {}) {
       await load(true)
     }
     cancelEdit(); operation.value = ''; deleting.value = false; notify('文件操作完成')
-  } catch (e) { notify(e.message, true) }
-  finally { busy.value = false; renameBusy.value = false }
+  } catch (e) {
+    if (favoritesAlive && state.authenticated && state.username === favoritesOwner) {
+      notify(original ? `「${original.name}」重命名未确认成功：${e.message}。页面暂恢复原名称，请刷新核对存储结果` : e.message, true)
+    }
+  } finally {
+    if (original) pendingRename.value = null
+    if (requestId === listing) busy.value = false
+  }
 }
 function cancelEdit() { renameID.value = ''; draft.value = false; newName.value = ''; confirmRename.value = false }
 const renameRecreates115 = computed(() => {
@@ -481,7 +518,7 @@ watch(selected, () => { clearDeepSearch(); searchInput.value = ''; query.value =
 load()
 </script>
 <template>
-  <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :source-label="'/'+history.map(item=>item.name).join('/')" :files="workbenchFiles" @close="workbenchFiles = null" @changed="selection = []; load(true)" />
+  <RenameWorkbench v-if="workbenchFiles" :storage="selected" :source="current" :source-label="'/'+history.map(item=>item.name).join('/')" :files="workbenchFiles" :draft="workbenchDraft" @remember="rememberWorkbench" @close="closeWorkbench" @changed="selection = []; load(true)" />
   <template v-else>
   <div class="files-heading"><FileTabs /><div class="files-heading-actions">
   <RoundedSelect class="file-visit-history" v-model="visitChoice" label="历史访问" icon="History" allow-empty :disabled="busy || !!renameID || uploadBusy" :options="visitOptions" @update:model-value="visitJump"><template #option="{ option }"><span class="visit-entry"><ProviderIcon :type="option.provider" compact /><strong>{{ option.pool }}</strong><VisitPath :parents="option.parents" :deepest="option.deepest" /></span></template></RoundedSelect>
@@ -504,12 +541,12 @@ load()
   <div v-else-if="!selected || !displayItems.length" class="empty-state"><span class="empty-icon"><Icon name="FolderOpen" :size="36" /></span><h3>{{ !selected ? '尚未连接存储' : searchInput ? '没有匹配结果' : '目录为空' }}</h3><button v-if="!selected" class="btn" @click="$router.push('/storage')">前往存储管理</button></div>
   <div v-else-if="mode === 'grid'" class="file-grid" :style="{ gridTemplateColumns: `repeat(${gridColumns},minmax(0,1fr))` }">
     <div v-if="top" :style="{ height: `${top}px`, gridColumn: '1 / -1' }" aria-hidden="true" />
-    <article v-for="f in shown" :key="f.id" class="file-grid-item" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><button class="file-grid-name" :aria-label="f.name"><MediaThumbnail v-if="(imageFile(f) || videoFile(f)) && f.url" :class="{'file-thumbnail':imageFile(f)}" @click.stop="imageFile(f) ? openFile($event,f) : select($event,f)" @dblclick.stop="openFile($event,f)" :type="videoFile(f) ? 'video' : 'image'" :url="f.url" :storage="selected" :id="f.id" :parent="f.parent ?? current" /><Icon v-else :name="fileIcon(f)" :size="38" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" /><strong v-if="renameID !== f.id" :data-tooltip="f.name">{{ f.name }}</strong></button><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button><small v-else>{{ f.isDir && !f.sizeKnown ? '文件夹' : bytes(f.size) }}</small></article>
+    <article v-for="f in shown" :key="f.id" class="file-grid-item" :class="{ selected: selection.includes(f.id) }" tabindex="0" :aria-busy="renaming(f)" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><button class="file-grid-name" :aria-label="displayName(f)"><MediaThumbnail v-if="(imageFile(f) || videoFile(f)) && f.url" :class="{'file-thumbnail':imageFile(f)}" @click.stop="imageFile(f) ? openFile($event,f) : select($event,f)" @dblclick.stop="openFile($event,f)" :type="videoFile(f) ? 'video' : 'image'" :url="f.url" :storage="selected" :id="f.id" :parent="f.parent ?? current" /><Icon v-else :name="fileIcon(f)" :size="38" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" /><strong v-if="renameID !== f.id" :data-tooltip="displayName(f)">{{ displayName(f) }}</strong><span v-if="renaming(f)" class="file-rename-pending" role="status" aria-label="正在同步名称"><Icon name="LoaderCircle" class="spin" :size="13" /><span>同步中</span></span></button><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button><small v-else>{{ f.isDir && !f.sizeKnown ? '文件夹' : bytes(f.size) }}</small></article>
     <div v-if="bottom" :style="{ height: `${bottom}px`, gridColumn: '1 / -1' }" aria-hidden="true" />
   </div>
   <div v-else class="table-wrap"><table><colgroup><col style="width:48%" /><col style="width:13%" /><col style="width:13%" /><col style="width:26%" /></colgroup><thead><tr><th v-for="col in columns" :key="col.key" :aria-sort="sortKey === col.key ? ascending ? 'ascending' : 'descending' : 'none'"><button class="file-sort" :disabled="!!renameID" @click="sort(col.key)">{{ col.label }}<span class="sort-triangles" :class="{ ascending: sortKey === col.key && ascending, descending: sortKey === col.key && !ascending }"><i /><i /></span></button></th></tr></thead><tbody>
     <tr v-if="top" class="file-spacer" :style="{ height: `${top}px` }" aria-hidden="true"><td colspan="4" /></tr>
-    <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name"><Icon :name="fileIcon(f)" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" :size="21" /><strong :data-tooltip="f.name">{{ f.name }}</strong></button><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
+    <tr v-for="f in shown" :key="f.id" class="file-row" :class="{ selected: selection.includes(f.id) }" tabindex="0" :aria-busy="renaming(f)" @click="select($event,f)" @dblclick.stop="openFile($event, f)" @contextmenu.prevent.stop="context($event,f)" @keydown.enter="openFile($event, f)"><td><input v-if="renameID === f.id" v-model="newName" class="file-rename" aria-label="新名称" @keydown.enter.stop.prevent="commitEdit()" /><button v-else class="file-name" :aria-label="displayName(f)"><Icon :name="fileIcon(f)" :class="{ 'folder-color': f.isDir, 'audio-file-icon': audioFile(f) }" :size="21" /><strong :data-tooltip="displayName(f)">{{ displayName(f) }}</strong><span v-if="renaming(f)" class="file-rename-pending" role="status" aria-label="正在同步名称"><Icon name="LoaderCircle" class="spin" :size="13" /><span>同步中</span></span></button><button v-if="searchResults" class="file-result-path" :data-tooltip="resultPath(f)" @click.stop="locate(f)">{{ resultPath(f) }}</button></td><td>{{ fileSize(f) }}</td><td>{{ type(f) }}</td><td>{{ !f.modified || f.modified.startsWith('0001') ? '—' : new Date(f.modified).toLocaleString('zh-CN') }}</td></tr>
     <tr v-if="bottom" class="file-spacer" :style="{ height: `${bottom}px` }" aria-hidden="true"><td colspan="4" /></tr>
   </tbody></table></div>
   </section></div><footer v-show="countVisible" class="file-item-count">{{ visible.length }} 项</footer></div>
@@ -529,7 +566,7 @@ load()
   <Modal v-if="extracting" title="解压压缩包" compact @close="closeExtract"><form @submit.prevent="extract"><div class="modal-body extract-form"><p class="muted">{{ extracting.name }}</p><label>解压目录<input v-model="extractFolder" required maxlength="255" :disabled="extractBusy" /></label><label>解压密码<SecretInput v-model="extractPassword" aria-label="解压密码" autocomplete="off" :disabled="extractBusy" /></label><p v-if="extractError" class="error-message" role="alert">{{ extractError }}</p><p v-if="extractBusy" class="muted" role="status">正在解压并写入存储，请保持窗口打开…</p></div><footer class="modal-footer"><button class="btn primary" :disabled="extractBusy || !extractFolder.trim()"><Icon :name="extractBusy ? 'LoaderCircle' : 'ArchiveRestore'" :class="{ spin: extractBusy }" />{{ extractBusy ? '解压中…' : '确认解压' }}</button><button class="btn" type="button" :disabled="extractBusy" @click="closeExtract">取消</button></footer></form></Modal>
   <TaskSourcePicker v-if="operation" :storages="targetPools" :storage="selected" @close="operation = ''" @select="act(operation, { targetStorage: $event.storageId, target: $event.source })" />
   <Modal v-if="deleting" title="删除文件" confirmation @close="deleting = false"><div class="modal-body">确认删除选中的 {{ selection.length }} 项？将按存储池的删除模式处理。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="act('delete')">确认删除</button><button class="btn" @click="deleting = false">取消</button></footer></Modal>
-  <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body"><p>将「{{ files.find(f => f.id === renameID)?.name }}」改为「{{ newName.trim() }}」？</p><p v-if="renameRecreates115" class="muted">修改后缀将通过秒传创建新文件，校验成功后将原文件移入115回收站；秒传失败保留原文件。</p></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })"><Icon v-if="busy" name="LoaderCircle" class="spin" />{{ busy ? '正在修改…' : '确认修改' }}</button></footer></Modal>
+  <Modal v-if="confirmRename" title="确认修改名称" @close="confirmRename = false"><div class="modal-body"><div class="rename-confirmation"><div class="rename-confirm-old"><small>原名称</small><RenameName :name="files.find(f => f.id === renameID)?.name" :other="newName.trim()" /></div><Icon name="ArrowDown" :size="18" /><div class="rename-confirm-new"><small>新名称</small><RenameName :name="newName.trim()" :other="files.find(f => f.id === renameID)?.name" /></div></div><p v-if="renameRecreates115" class="muted">修改后缀将通过秒传创建新文件，校验成功后将原文件移入115回收站；秒传失败保留原文件。</p></div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="cancelEdit">放弃修改</button><button class="btn primary" :disabled="busy" @click="act('rename', { name: newName.trim(), ids: [renameID] })"><Icon v-if="busy" name="LoaderCircle" class="spin" />{{ busy ? '正在修改…' : '确认修改' }}</button></footer></Modal>
   <FileDetailsDrawer :open="details" :title="detailFiles.every(f => f.isDir) ? '文件夹详情' : '文件详情'" :count="detailFiles.length" @close="details = false"><div class="modal-body file-details"><p v-if="detailError" class="error-message">{{ detailError }}</p><dl v-if="detailFiles.length > 1"><dt>大小</dt><dd>{{ detailBusy ? '正在统计…' : !detailSummary.complete ? '统计未完成 · ' : '' }}{{ bytes(detailSummary.size) }}</dd><dt>包含</dt><dd>{{ detailSummary.folders }} 个文件夹，{{ detailSummary.files }} 个文件</dd><dt>所在目录</dt><dd><button class="text-btn" aria-label="复制位置" @click="copyLocation()">{{ detailLocation() }}<Icon name="Copy" :size="14" /></button></dd></dl><dl v-for="f in detailFiles.length === 1 ? detailFiles : []" :key="f.id">
     <dt>名称</dt><dd>{{ f.name }}</dd><dt>类型</dt><dd>{{ type(f) }}</dd>
     <dt>大小</dt><dd>{{ f.isDir && !f.sizeKnown ? (detailBusy ? '正在计算…' : '未完成统计') : bytes(f.size) }}</dd>
@@ -546,6 +583,14 @@ load()
 <CASExport v-if="casExportOpen" :storage="selected" :source="current" :source-label="history.map(h=>h.name).join(' / ')" :files="files" :selected="selection" @close="casExportOpen=false" />
 </template>
 <style scoped>
+.file-rename-pending{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;color:var(--muted);font-size:11px;line-height:16px;white-space:nowrap}
+.file-grid-item{position:relative}
+.file-grid-item .file-rename-pending{position:absolute;right:8px;bottom:6px}
+.rename-confirmation{display:grid;gap:10px;min-width:0;margin-bottom:16px}
+.rename-confirmation>svg{margin-left:4px;color:var(--muted)}
+.rename-confirmation>div{display:grid;grid-template-columns:48px minmax(0,1fr);align-items:baseline;gap:10px}
+.rename-confirmation small{font-size:12px;color:var(--muted);white-space:nowrap}
+.rename-confirm-old{color:var(--muted)}.rename-confirm-new{color:var(--text)}
 .file-browser { position:relative; }
 .file-browser { background:var(--bg); }
 .file-view { background:var(--input); }

@@ -315,11 +315,11 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   await expect(page.locator('.toast').filter({ hasText: '当前版本已是最新' })).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
-  await expect(page.locator('.plugin-card')).toHaveCount(15)
+  await expect(page.locator('.plugin-card')).toHaveCount(11)
   expect(await page.locator('.plugin-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4)
   await page.screenshot({ path: testInfo.outputPath('plugins-desktop.png'), fullPage: true })
-  await page.getByRole('button', { name: /^识别规则/ }).click()
-  await expect(page.getByRole('dialog')).toContainText('最小视频、整理黑名单、自定义识别词、自定义匹配')
+  await page.getByRole('link', { name: '以太识律', exact: true }).click()
+  await expect(page.locator('.rule-placeholder').filter({hasText:'识别规则'})).toContainText('最小视频、整理黑名单、自定义识别词、自定义匹配')
 })
 
 test('native mobile CAS task creation and persistence', async ({ page }, testInfo) => {
@@ -512,7 +512,7 @@ test('WebDAV users and scoped directories', async ({ page }, testInfo) => {
   await expect(page.getByRole('button', { name: '刷新目录', exact: true })).toHaveText('')
   expect(await page.getByRole('button',{name:'当前列表视图，切换网格',exact:true}).evaluate(el => el.previousElementSibling.getAttribute('aria-label'))).toBe('刷新目录')
   await page.getByRole('link', { name: '辅助工具', exact: true }).click()
-  await expect(page.locator('.plugin-description')).toHaveCount(15)
+  await expect(page.locator('.plugin-description')).toHaveCount(11)
   await expect(page.locator('.plugin-description').first()).toHaveCSS('-webkit-line-clamp', '2')
   await page.screenshot({ path: testInfo.outputPath('tools-descriptions.png'), fullPage: true })
 })

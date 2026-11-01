@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -221,6 +220,10 @@ func (a *App) verifyShareLiveDirectory(ctx context.Context, s Storage, link shar
 
 func (a *App) shareLiveAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodPost && r.PathValue("id") == "" {
+		a.createShareLive(w, r)
+		return
+	}
 	if r.Method == http.MethodGet {
 		items := []map[string]any{}
 		for _, link := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
@@ -228,6 +231,7 @@ func (a *App) shareLiveAPI(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			items = append(items, map[string]any{"id": link.ID, "targetId": link.TargetID, "provider": link.Provider, "name": link.Name,
+				"storageId": link.StorageID, "parent": link.Parent,
 				"url": link.Link, "directoryName": link.DirectoryName, "cron": link.Cron, "intervalDays": link.IntervalDays,
 				"lastRun": link.LastRun, "nextRun": link.NextRun, "status": link.Status, "message": link.Message})
 		}
@@ -273,80 +277,7 @@ func (a *App) shareLiveAPI(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	if r.Method == http.MethodPut {
-		var input struct{ URL, Name, Cron, DirectoryName string }
-		if !decode(w, r, &input) {
-			return
-		}
-		provider, _, _, err := parseShareLink(input.URL, "")
-		if err != nil || provider != link.Provider || len(input.Name) > 300 || !validShareDirectory(input.DirectoryName) || input.DirectoryName == "" {
-			fail(w, 400, errors.New("分享链接、名称或目录名称无效"))
-			return
-		}
-		if err := validateShareLiveCron(strings.TrimSpace(input.Cron)); err != nil {
-			fail(w, 400, err)
-			return
-		}
-		s, err := a.shareLiveGuard(link)
-		if err == nil && link.Intent != "" {
-			err = errors.New("上次写入结果未确认，请核对云盘后手动执行，不可改名")
-		}
-		if err == nil && input.DirectoryName != link.DirectoryName {
-			for _, other := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
-				if other.ID != key && other.StorageID == link.StorageID && other.DirectoryID == link.DirectoryID {
-					err = errors.New("此目录被其他活链共用，不可单独改名")
-				}
-			}
-		}
-		if err == nil && input.DirectoryName != link.DirectoryName {
-			err = a.verifyShareLiveDirectory(ctx, s, link)
-			if err == nil {
-				err = a.setShareLiveIntent(key, "rename:"+input.DirectoryName)
-			}
-			if err == nil {
-				_, err = a.shareLiveGuard(link)
-			}
-			if err == nil {
-				err = a.cloudFileAction(ctx, s, s, fileActionRequest{Action: "rename", Source: link.Parent, IDs: []string{link.DirectoryID}, Name: input.DirectoryName})
-			}
-			if err == nil {
-				renamed := link
-				renamed.DirectoryName = input.DirectoryName
-				err = a.verifyShareLiveDirectory(ctx, s, renamed)
-			}
-		}
-		if err != nil {
-			fail(w, 409, err)
-			return
-		}
-		link.Link, link.Name, link.Cron, link.DirectoryName = input.URL, strings.TrimSpace(input.Name), strings.TrimSpace(input.Cron), input.DirectoryName
-		if link.Name == "" {
-			link.Name = link.OriginalName
-			if link.Name == "" {
-				link.Name = input.DirectoryName
-			}
-		}
-		link.IntervalDays, link.Intent = 0, ""
-		link.NextRun = shareLiveNext(link, time.Now())
-		err = a.store.update(func(st *State) error {
-			for i := range st.ShareLiveLinks {
-				if st.ShareLiveLinks[i].ID == key {
-					st.ShareLiveLinks[i] = link
-				}
-			}
-			for i := range st.ShareTransfers {
-				if st.ShareTransfers[i].LiveID == key {
-					st.ShareTransfers[i].DirectoryName = link.DirectoryName
-					st.ShareTransfers[i].Name = link.Name
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			fail(w, 500, err)
-		} else {
-			a.cache.clear()
-			jsonResponse(w, 200, map[string]bool{"ok": true})
-		}
+		a.editShareLive(w, r.WithContext(ctx), link)
 		return
 	}
 	if r.PathValue("action") != "delete" {
@@ -379,7 +310,7 @@ func (a *App) shareLiveAPI(w http.ResponseWriter, r *http.Request) {
 		_, err = a.shareLiveGuard(link)
 	}
 	if err == nil {
-		err = a.cloudFileAction(ctx, s, s, fileActionRequest{Action: "delete", Source: link.Parent, IDs: []string{link.DirectoryID}})
+		err = a.cloudFileAction(context.WithValue(ctx, shareLiveActionKey{}, link.ID), s, s, fileActionRequest{Action: "delete", Source: link.Parent, IDs: []string{link.DirectoryID}})
 	}
 	if err == nil {
 		var files []File
@@ -476,7 +407,7 @@ func (a *App) startShareLive(key, source string) error {
 
 func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record shareTransferRecord) {
 	s, err := a.shareLiveGuard(link)
-	if err == nil {
+	if err == nil && link.DirectoryID != "" {
 		err = a.verifyShareLiveDirectory(ctx, s, link)
 	}
 	var batches []shareBatch
@@ -518,6 +449,9 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 	guard := func() error {
 		_, err := a.shareLiveGuard(link)
 		return err
+	}
+	if err == nil && link.DirectoryID == "" {
+		err = a.initializeShareLiveDirectory(ctx, s, &link)
 	}
 	for i, batch := range batches {
 		if err != nil {

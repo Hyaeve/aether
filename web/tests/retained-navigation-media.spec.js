@@ -18,7 +18,7 @@ async function setup(page){
  await page.route('**/missing-film.mp4',route=>route.fulfill({status:404}))
 }
 
-for(const width of [1440,390,375])for(const theme of ['light','dark'])test(`STRM retained extensions save empty and expose comic toggle ${width} ${theme}`,async({page},info)=>{
+for(const width of [1440,390,375])for(const theme of ['light','dark'])test(`STRM retained extensions save empty and preserve custom comics without shortcuts ${width} ${theme}`,async({page},info)=>{
  await setup(page)
  await page.setViewportSize({width,height:1000})
  await page.goto('/tasks/strm')
@@ -29,8 +29,9 @@ for(const width of [1440,390,375])for(const theme of ['light','dark'])test(`STRM
  const input=dialog.getByRole('textbox',{name:'保留扩展名',exact:true})
  await expect(input).toHaveValue('iso')
  const comic=dialog.getByRole('button',{name:'保留漫画扩展名',exact:true})
- await comic.click();await expect(input).toHaveValue('iso;cbz;cbr;zip;rar;epub;pdf')
- await expect(comic.locator('svg')).toHaveClass(/lucide-book-open/)
+ await expect(comic).toHaveCount(0)
+ await input.fill('iso;cbz;cbr;zip;rar;epub;pdf')
+ await expect(input).toHaveValue('iso;cbz;cbr;zip;rar;epub;pdf')
  const heading=input.locator('..').locator('.extension-heading')
  const geometry=await heading.evaluate(el=>{
   const label=el.querySelector('label'),presets=el.querySelector('.extension-presets')
@@ -40,7 +41,7 @@ for(const width of [1440,390,375])for(const theme of ['light','dark'])test(`STRM
  expect(geometry.labelHeight).toBeLessThanOrEqual(geometry.lineHeight)
  expect(geometry.overlap).toBe(false);expect(geometry.overflow).toBe(false)
  await captureScreenshot(page,{path:info.outputPath(`retained-comic-${width}-${theme}.png`)})
- await comic.click();await expect(input).toHaveValue('iso')
+ await input.fill('iso');await expect(input).toHaveValue('iso')
  await input.fill('');await expect(input).toHaveValue('')
  await dialog.getByRole('textbox',{name:/^任务名称/}).fill('保留扩展测试')
  await dialog.getByRole('button',{name:'选择目录',exact:true}).click()

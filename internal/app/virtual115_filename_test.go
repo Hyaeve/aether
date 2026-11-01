@@ -115,7 +115,7 @@ func TestVirtual115FilenameNestedLookupAndPersistence(t *testing.T) {
 				t.Fatal(w.Code, w.Body.String())
 			}
 			for _, item := range []struct{ directory, name, parent string }{{"第一季", "第1集 #1.mkv", "10"}, {"第二季", "第2集.mkv", "20"}} {
-				body, err := os.ReadFile(filepath.Join(directory, "Show", item.directory, item.name+".strm"))
+				body, err := os.ReadFile(filepath.Join(directory, "Show", item.directory, item.name+".share.strm"))
 				want := "http://example.test/115-share/" + virtual115SharePart("sample", f.pass) + "/" + strings.ReplaceAll(item.name, "#", "%23") + "\n"
 				if err != nil || string(body) != want {
 					t.Fatal("directory should remain only in the generated tree", string(body), err)
@@ -163,7 +163,7 @@ func TestVirtual115FilenameConflictHasNoCloudSideEffects(t *testing.T) {
 	}
 }
 
-func TestVirtual115FilenameLegacyMigrationPreservesOtherContent(t *testing.T) {
+func TestVirtual115FilenameOldFormatIsNotReused(t *testing.T) {
 	for _, mode := range []string{"registered", "encoded", "encoded-modified", "unregistered", "modified", "current", "unrelated"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newVirtual115NameFixture(t, "aB12")
@@ -202,23 +202,20 @@ func TestVirtual115FilenameLegacyMigrationPreservesOtherContent(t *testing.T) {
 			if w.Code != 200 {
 				t.Fatal(w.Code, w.Body.String())
 			}
-			if mode == "registered" || mode == "encoded" {
-				body = "http://example.test/115-share/sample-aB12/第1集 %231.mkv\n"
-			}
 			raw, err := os.ReadFile(filename)
 			if err != nil || string(raw) != body {
 				t.Fatal("unexpected existing STRM rewrite", string(raw), err)
+			}
+			current, err := os.ReadFile(strings.TrimSuffix(filename, ".strm") + shareSTRMSuffix)
+			if err != nil || string(current) != "http://example.test/115-share/sample-aB12/第1集 %231.mkv\n" {
+				t.Fatal("new share format not generated independently", string(current), err)
 			}
 			var result struct{ Generated, Skipped int }
 			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 				t.Fatal(err)
 			}
-			wantGenerated := 1
-			if mode == "registered" || mode == "encoded" {
-				wantGenerated = 2
-			}
-			if result.Generated != wantGenerated || result.Generated+result.Skipped != 2 {
-				t.Fatal("migration count mismatch", result)
+			if result.Generated != 2 || result.Skipped != 0 {
+				t.Fatal("new-format generation count mismatch", result)
 			}
 		})
 	}

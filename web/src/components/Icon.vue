@@ -21,7 +21,12 @@ import {
 import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 import RefreshIcon from './RefreshIcon.vue'
+import Ali115Icon from './Ali115Icon.vue'
+import {LogIn,QrCode} from 'lucide-vue-next'
 const icons = {
+	Ali115Rapid: Ali115Icon,
+	LogIn,
+	QrCode,
   Crown, Diamond, Gem, BadgeCheck, CalendarCheck2,
   Blocks, Archive, Building2, Bot, Feather, CircleHelp, MessageSquareText,
   Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,

@@ -28,6 +28,7 @@ import DashboardPage from './pages/DashboardPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import PlannedPage from './pages/PlannedPage.vue'
 import ToolsPage from './pages/ToolsPage.vue'
+import RulesPage from './pages/RulesPage.vue'
 import LinksPage from './pages/LinksPage.vue'
 import OverflowTooltip from './components/OverflowTooltip.vue'
 import MountsPage from './pages/MountsPage.vue'
@@ -72,6 +73,7 @@ const navigationGroups = [
     { path: '/storage', label: '存储管理', icon: 'HardDrive' }
   ] },
   { id: 'workshop', label: '以太工坊', items: [
+    { path: '/rules', label: '以太识律', icon: 'Braces' },
     { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
     { path: '/tasks', label: '任务中心', icon: 'ListTodo' },
     { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' },
@@ -90,6 +92,7 @@ const currentPath = computed(() => route.path === '/' ? '/storage' : route.path 
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
 const title = computed(() => activeNav.value?.label || '以太')
 const sectionTitles = {
+  '/rules/naming':['命名规则'], '/rules/categories':['二级分类'], '/rules/upgrade':['洗版策略'], '/rules/assist':['辅助配置'],
   '/files':['文件管理'], '/files/webdav':['WebDAV'], '/files/mounts':['本地挂载'],
   '/storage':['存储池'], '/storage/shares':['分享栏'], '/storage/downloads':['云下载'], '/storage/trash':['回收站'],
   '/transfer':['传输任务'], '/transfer/backup':['备份规则'], '/transfer/backup/settings':['备份规则','备份设置'],
@@ -98,7 +101,7 @@ const sectionTitles = {
   '/tasks/cache':['缓存任务'], '/tasks/cache/settings':['缓存任务','缓存设置'],
   '/tasks/organize':['目录整理'], '/tasks/scrape':['STRM 刮削'], '/tasks/automation':['联动任务'],
   '/virtual':['115链库'], '/virtual/115':['115链库'], '/virtual/mobile':['移动链库'], '/virtual/quark':['夸克链库'],
-  '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/cas':['CAS链库'],
+  '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/mobile/settings':['移动链库','链库设置'], '/virtual/cas':['CAS链库'],
   '/links/manage':['以链管理'], '/links/cache':['直链缓存'],
   '/tools':['我的插件'], '/tools/market':['插件市场'], '/tools/115-rapid':['115秒传中心'],
   '/archives':['整理档案'], '/archives/organize':['整理档案'], '/archives/scrape':['刮削档案'], '/archives/tasks':['任务档案'],
@@ -255,6 +258,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : currentPath.endsWith('strm')?'strm':'account'" />
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
+        <RulesPage v-else-if="['/rules/naming','/rules/categories','/rules/upgrade','/rules/assist'].includes(currentPath)" :section="currentPath.split('/').at(-1)" />
         <ToolsPage v-else-if="currentPath === '/tools' || currentPath === '/tools/market'" :section="currentPath.endsWith('/market') ? 'market' : 'tools'" />
         <Rapid115Page v-else-if="currentPath === '/tools/115-rapid'" />
         <NotificationPage v-else-if="currentPath.startsWith('/notifications')" :section="currentPath.endsWith('transfers') ? 'transfers' : 'telegram'" />

@@ -1,12 +1,18 @@
 package app
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // Keep display text in STRM bodies. Only URL delimiters and literal percent
 // signs must be escaped so the HTTP client can reconstruct the exact name.
 var shareFilenameEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
 
-func shareFilenamePath(name string) string {
+func shareFilenamePath(name string, encodedPath ...bool) string {
+	if len(encodedPath) > 0 && encodedPath[0] {
+		return url.PathEscape(name)
+	}
 	encoded := shareFilenameEscaper.Replace(name)
 	var out strings.Builder
 	const digits = "0123456789ABCDEF"

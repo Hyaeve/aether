@@ -35,6 +35,12 @@ func (a *App) scrapeFiles(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, errors.New("刮削执行中，暂不可编辑"))
 			return
 		}
+		unlock, err := a.lockShareScrape(r.URL.Query().Get("taskId"))
+		if err != nil {
+			fail(w, 409, err)
+			return
+		}
+		defer unlock()
 	}
 	base, err := a.scrapeRoot(r.URL.Query().Get("taskId"))
 	if err != nil {
@@ -47,6 +53,11 @@ func (a *App) scrapeFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	if !fs.ValidPath(name) {
 		fail(w, 400, errors.New("无效的库文件路径"))
+		return
+	}
+	cfg := a.scrapeSourceConfig(r.URL.Query().Get("taskId"))
+	if cfg.ShareOnly && strings.EqualFold(path.Ext(name), ".strm") && !scrapeIncludes(name, cfg) {
+		fail(w, 400, errors.New("文件不在分享 STRM 刮削范围"))
 		return
 	}
 	root, err := os.OpenRoot(base)
@@ -66,6 +77,14 @@ func (a *App) scrapeFiles(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("读取库文件信息失败"))
 		return
 	}
+	directory := path.Dir(name)
+	if info.IsDir() {
+		directory = name
+	}
+	if cfg.ShareOnly && excluded(directory, cfg.Excluded) {
+		fail(w, 400, errors.New("目录不在分享 STRM 刮削范围"))
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if info.IsDir() && r.Method == "GET" {
@@ -81,6 +100,9 @@ func (a *App) scrapeFiles(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				p := path.Join(name, entry.Name())
+				if cfg.ShareOnly && (entry.IsDir() && excluded(p, cfg.Excluded) || strings.EqualFold(path.Ext(p), ".strm") && !scrapeIncludes(p, cfg)) {
+					continue
+				}
 				q := url.Values{"taskId": {r.URL.Query().Get("taskId")}, "path": {p}}
 				entries = append(entries, map[string]any{"id": p, "name": entry.Name(), "isDir": entry.IsDir(), "size": meta.Size(), "modified": meta.ModTime(), "url": "/api/strm-scrape/files?" + q.Encode()})
 			}

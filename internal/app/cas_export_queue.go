@@ -47,6 +47,10 @@ func (a *App) casExportJobAPI(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &v) {
 		return
 	}
+	if !validCASExportFormat(v.Format) {
+		fail(w, 400, errors.New("CAS导出格式须为编码或明文"))
+		return
+	}
 	s, err := a.store.storage(v.StorageID)
 	if err != nil || !s.Enabled || s.Type != "local" && s.Type != "mobile" || !v.Confirm || len(v.IDs) == 0 || len(v.IDs) > 10000 {
 		fail(w, 400, errors.New("请确认有效CAS导出范围"))

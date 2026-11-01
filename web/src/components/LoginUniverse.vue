@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { drivers } from '../lib'
 import ProviderIcon from './ProviderIcon.vue'
 import GravityWell from './GravityWell.vue'
@@ -12,12 +12,21 @@ const reducedMotion = ref(false)
 const rings = [0.29, 0.36, 0.44]
 const ringByProvider = [0, 2, 1, 2, 1, 2, 2]
 const satellites = []
-let observer, motionPreference, frame = 0, elapsed = 0, previous = 0
+let observer, motionPreference, frame = 0, elapsed = 0, previous, lastPaint
 let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
 let stars = []
 let galaxy, spiral, moon, rocks = [], nebula, spiralPositions=[]
 let meteorCycle = -1, meteors = []
 const tilt = -18 * Math.PI / 180
+const frameInterval = 1000 / 30
+
+function releaseTextures() {
+  for (const texture of [canvas.value, galaxy, nebula, spiral, moon, ...rocks]) {
+    if (texture) texture.width = texture.height = 0
+  }
+  ctx = galaxy = nebula = spiral = moon = null
+  rocks = []; stars = []
+}
 
 function randomGenerator() {
   let seed = 15151
@@ -25,28 +34,43 @@ function randomGenerator() {
 }
 
 function resize() {
-  if (!canvas.value || !scene.value) return
-  width = universe.value.clientWidth
-  height = universe.value.clientHeight
+  if (!canvas.value || !scene.value) return false
+  const nextWidth = universe.value.clientWidth, nextHeight = universe.value.clientHeight
+  const sceneChanged = sceneWidth !== scene.value.clientWidth || sceneHeight !== scene.value.clientHeight
   sceneWidth = scene.value.clientWidth
   sceneHeight = scene.value.clientHeight
-  const scale = Math.min(window.devicePixelRatio || 1, 2)
-  canvas.value.width = Math.round(width * scale)
-  canvas.value.height = Math.round(height * scale)
+  if (!nextWidth || !nextHeight) {
+    const changed = !!(width || height || ctx)
+    width = height = 0
+    if (changed) releaseTextures()
+    return changed
+  }
+  // Bound backing-store pixels independently of CSS size and screen density.
+  const scale = Math.min(window.devicePixelRatio || 1, 1.5, Math.sqrt(3000000 / (nextWidth * nextHeight)))
+  const pixelWidth = Math.max(1, Math.floor(nextWidth * scale)), pixelHeight = Math.max(1, Math.floor(nextHeight * scale))
+  if (width === nextWidth && height === nextHeight && canvas.value.width === pixelWidth && canvas.value.height === pixelHeight) {
+    if (sceneChanged) positionSatellites(elapsed)
+    return false
+  }
+  width = nextWidth; height = nextHeight
+  canvas.value.width = pixelWidth
+  canvas.value.height = pixelHeight
   ctx = canvas.value.getContext('2d')
-  if (!ctx) return
-  ctx.setTransform(scale, 0, 0, scale, 0, 0)
+  if (!ctx) return false
+  ctx.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0)
   const random = randomGenerator()
   stars = Array.from({ length: Math.min(850, Math.floor(width * height / 1000)) }, () => ({
     x: random(), y: random(), radius: .35 + random() ** 4 * 1.3,
     opacity: .2 + random() * .7, phase: random() * Math.PI * 2,
     speed: .45 + random() * 1.1, warm: random() > .89
   }))
-  buildGalaxy(random, scale)
+  buildGalaxy(random)
+  if (!spiral) buildSpiral(random)
   if(!spiralPositions.length)spiralPositions=createSpiralPair()
-  buildMoon(random)
-  buildRocks(random)
+  if (!moon) buildMoon(random)
+  if (!rocks.length) buildRocks(random)
   paint(elapsed)
+  return true
 }
 
 function buildMoon(random) {
@@ -65,16 +89,18 @@ function buildMoon(random) {
   m.restore()
 }
 
-function buildGalaxy(random, scale) {
-  nebula=document.createElement('canvas');nebula.width=canvas.value.width;nebula.height=canvas.value.height
-  const cloud=nebula.getContext('2d');cloud.scale(scale,scale)
+function buildGalaxy(random) {
+  const scale = Math.min(1, Math.sqrt(1500000 / (width * height)))
+  const textureWidth = Math.max(1, Math.floor(width * scale)), textureHeight = Math.max(1, Math.floor(height * scale))
+  nebula ||= document.createElement('canvas'); nebula.width = textureWidth; nebula.height = textureHeight
+  const cloud=nebula.getContext('2d');cloud.scale(textureWidth / width, textureHeight / height)
   for(let i=0;i<12000;i++) {const t=random(),spread=Math.sqrt(-2*Math.log(Math.max(random(),.0001)))*Math.cos(random()*Math.PI*2),x=width*(.08+t*.86),y=height*(.88+.045*Math.sin(t*18))+spread*height*.045,alpha=.035*Math.exp(-spread*spread*.4);cloud.fillStyle=i%3===0?`rgba(179,137,201,${alpha})`:`rgba(113,164,211,${alpha})`;cloud.fillRect(x,y,1+random()*3,1+random()*2)}
-  galaxy = document.createElement('canvas')
-  galaxy.width = canvas.value.width
-  galaxy.height = canvas.value.height
+  galaxy ||= document.createElement('canvas')
+  galaxy.width = textureWidth
+  galaxy.height = textureHeight
   const dust = galaxy.getContext('2d')
   if (!dust) return
-  dust.scale(scale, scale)
+  dust.scale(textureWidth / width, textureHeight / height)
   // A cached band of tiny stellar particles forms a textured galaxy, not blurred blobs.
   const count = Math.min(76000, Math.floor(width * height / 10))
   for (let i = 0; i < count; i++) {
@@ -90,7 +116,10 @@ function buildGalaxy(random, scale) {
     const radius = .4 + random() * 1.1
     dust.fillRect(x, y, radius, radius)
   }
-  // One cached face-on stellar disk rotates within a fixed inclined projection.
+}
+
+function buildSpiral(random) {
+  // Fixed-size textures survive changes to the surrounding viewport.
   spiral = document.createElement('canvas')
   spiral.width = spiral.height = 640
   const disk = spiral.getContext('2d')
@@ -259,19 +288,22 @@ function paint(time) {
 }
 
 function tick(now) {
-  if (!previous) previous = now
-  elapsed += Math.min(now - previous, 100) / 1000
+  if (previous !== undefined) elapsed += Math.min(now - previous, 100) / 1000
   previous = now
-  paint(elapsed)
+  if (lastPaint === undefined || now - lastPaint >= frameInterval - .01) {
+    paint(elapsed)
+    lastPaint = now
+  }
   frame = requestAnimationFrame(tick)
 }
 
 function syncMotion() {
   cancelAnimationFrame(frame)
-  previous = 0
+  frame = 0
+  previous = lastPaint = undefined
   const hidden = document.hidden || !universe.value?.clientWidth
   if (!reducedMotion.value && !hidden) frame = requestAnimationFrame(tick)
-  else paint(elapsed)
+  else if (!hidden) paint(elapsed)
 }
 function preferenceChanged() {
   reducedMotion.value = motionPreference.matches
@@ -283,15 +315,16 @@ onMounted(() => {
   reducedMotion.value = motionPreference.matches
   motionPreference.addEventListener('change', preferenceChanged)
   document.addEventListener('visibilitychange', syncMotion)
-  observer = new ResizeObserver(() => { resize(); syncMotion() })
+  observer = new ResizeObserver(() => { if (resize()) syncMotion() })
   observer.observe(universe.value)
   observer.observe(scene.value)
 })
-onUnmounted(() => {
+onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
   observer?.disconnect()
   motionPreference?.removeEventListener('change', preferenceChanged)
   document.removeEventListener('visibilitychange', syncMotion)
+  releaseTextures()
 })
 </script>
 

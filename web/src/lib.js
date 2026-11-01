@@ -1,17 +1,20 @@
 import { reactive, watch } from 'vue'
+import {prepareConfigRemoval,cancelCardRemovals} from './config-card-removal.js'
 
 export const state = reactive({
-  loaded: false, initialized: false, authenticated: false, storages: [], tasks: [],
+  loaded: false, initialized: false, authenticated: false, storages: [], tasks: [], scrapeLibraries: [],
   settings: {}, logs: [], links: [], fileFavorites: [], fileVisits: [], libraryNotices: [], shareNotices: [], cache: {}, traffic: {}, username: '', strmRoot: '', uptime: 0
 })
 let linksRequest, linksGeneration = 0
 watch(() => state.authenticated, authenticated => {
+	if(!authenticated)cancelCardRemovals()
   linksGeneration++
   linksRequest = null
   state.links = []
   state.shareNotices = []
   state.fileFavorites = []
   state.fileVisits = []
+  state.scrapeLibraries = []
 }, { flush: 'sync' })
 // Memory-only, redacted cards survive route changes, never logout or another session.
 export function loadLinks() {
@@ -30,6 +33,7 @@ export function notify(message, error = false) {
   setTimeout(() => { const i = notices.findIndex(n => n.id === id); if (i >= 0) notices.splice(i, 1) }, 5000)
 }
 export async function api(url, method = 'GET', body) {
+	const removed=prepareConfigRemoval(url,method,body)
   const response = await fetch('/api' + url, {
     method, credentials: 'same-origin',
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
@@ -41,14 +45,16 @@ export async function api(url, method = 'GET', body) {
     if (response.status === 401 && !url.startsWith('/auth/')) state.authenticated = false
     const error = new Error(data.error || '请求失败')
     error.status = response.status
+    error.field = data.field
     throw error
   }
+  removed()
   return data
 }
 export async function reload() {
   if (!state.authenticated) return
   const data = await api('/state')
-  Object.assign(state, { shareNotices: [] }, data)
+  Object.assign(state, { shareNotices: [], scrapeLibraries: [] }, data)
 }
 export const drivers = [
   { id: '115', name: '115 网盘', subtitle: '115driver', icon: '115', color: '#2389dc', kind: '云端存储', auth: 'CK', root: '0', tags: ['Cookie', '直连接入'] },

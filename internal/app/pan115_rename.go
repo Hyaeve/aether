@@ -225,6 +225,10 @@ func same115RenameFile(a, b *driver.File) bool {
 // Match the pinned 115driver v1.3.5 upload protocol, but bound responses and
 // challenges instead of the SDK's unbounded status-7 loop. Never fall back to OSS.
 func (a *App) submit115Rename(ctx context.Context, s Storage, c *driver.Pan115Client, original *driver.File, name string) (string, bool, error) {
+	return a.submit115Hash(ctx, s, c, original, name, func(spec string) (string, error) { return a.rename115RangeSHA1(ctx, s, original, spec) })
+}
+
+func (a *App) submit115Hash(ctx context.Context, s Storage, c *driver.Pan115Client, original *driver.File, name string, checksum func(string) (string, error)) (string, bool, error) {
 	account, err := account115(s)
 	if err != nil {
 		return "", true, err
@@ -289,7 +293,7 @@ func (a *App) submit115Rename(ctx context.Context, s Storage, c *driver.Pan115Cl
 		}
 		return &result, false, nil
 	}
-	return complete115RenameUpload(exchange, func(spec string) (string, error) { return a.rename115RangeSHA1(ctx, s, original, spec) })
+	return complete115RenameUpload(exchange, checksum)
 }
 
 func complete115RenameUpload(exchange func(string, string) (*driver.UploadInitResp, bool, error), checksum func(string) (string, error)) (string, bool, error) {

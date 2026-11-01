@@ -25,8 +25,14 @@ func nextRun(t Task, now time.Time) time.Time {
 	if !t.Enabled {
 		return time.Time{}
 	}
+	if t.STRMDeleteState != nil {
+		return t.STRMDeleteState.RetryAt
+	}
 	if t.Kind == "cache" {
 		return now.Add(time.Duration(t.Interval) * time.Minute)
+	}
+	if t.Kind == "strm" && t.STRMSource == "life" && t.Cron == "" {
+		return now.Add(5 * time.Second)
 	}
 	if t.Cron == "" {
 		return time.Time{}
@@ -125,6 +131,9 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	if task.ID == "" {
 		return errors.New("任务不存在")
 	}
+	if task.STRMDeleteState != nil {
+		return fmt.Errorf("STRM任务「%s」删除超限保护中，请先检查源存储健康", task.Name)
+	}
 	if reason := taskHealthPause(a.store.snapshotWithLogLimit(0), task); reason != "" {
 		return errors.New(reason)
 	}
@@ -145,11 +154,15 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		return err
 	}
 	resetOutput := len(reset) > 0 && reset[0]
+	fullSync := trigger == "full-sync"
 	if resetOutput && task.Kind == "cas" {
 		return errors.New("CAS 任务仅增量生成，不支持清除生成库后全量重置")
 	}
 	if resetOutput {
 		if err := a.validateTask(&task); err != nil {
+			return err
+		}
+		if err := a.resetTaskOutputContext(parent, task, s, false); err != nil {
 			return err
 		}
 	}
@@ -159,19 +172,16 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	}}
 	if resetOutput {
 		record.Action = "reset-run"
+	} else if fullSync {
+		record.Action = "full-sync"
+		task.fullSyncGeneration = true
+		task.Mode = strmUpdate
 	}
-	if err := a.archives.put(record); err != nil {
-		return errors.New("无法保存任务档案，任务未启动")
-	}
-	if resetOutput {
-		if err := a.resetTaskOutput(task, s); err != nil {
-			record.Status, record.Message, record.FinishedAt = "failed", "重置生成目录未完成，任务未启动", time.Now()
-			if archiveErr := a.archives.put(record); archiveErr != nil {
-				a.store.event("warn", "tasks", "太一档案：重置失败结果保存失败，请检查数据目录")
-			}
-			return err
+	quietMonitor := trigger == "life-monitor"
+	if !quietMonitor {
+		if err := a.archives.put(record); err != nil {
+			return errors.New("无法保存任务档案，任务未启动")
 		}
-		task.Mode = "full"
 	}
 	ctx, causeCancel := context.WithCancelCause(parent)
 	cancel := func() { causeCancel(context.Canceled) }
@@ -196,7 +206,35 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	go func() {
 		defer a.wg.Done()
 		defer cancel()
-		count, err := a.executeTask(ctx, task, s)
+		activity := !quietMonitor
+		ctx := context.WithValue(ctx, strmLifeWorkKey{}, func() error {
+			if activity {
+				return nil
+			}
+			if err := a.archives.put(record); err != nil {
+				return errors.New("无法保存生活事件任务档案，未执行产物写入")
+			}
+			activity = true
+			return nil
+		})
+		var count int
+		var err error
+		if resetOutput {
+			err = a.resetTaskOutputContext(ctx, task, s, true)
+			if err == nil {
+				task.Mode, task.resetGeneration = "full", true
+				if task.Kind == "strm" {
+					task.Mode = strmUpdate
+				}
+			}
+		}
+		if err != nil {
+			// A failed reset must not run generation against a partially cleared library.
+		} else if task.Kind == "strm" && task.STRMSource == "life" && !task.fullSyncGeneration && !task.resetGeneration {
+			count, err = a.executeSTRMLife(ctx, task, s)
+		} else {
+			count, err = a.executeTask(ctx, task, s)
+		}
 		status, message := "success", fmt.Sprintf("执行完成，处理 %d 项", count)
 		if err != nil {
 			status, message = "error", err.Error()
@@ -210,17 +248,32 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		if persistErr := a.store.update(func(st *State) error {
 			for i := range st.Tasks {
 				if st.Tasks[i].ID == taskID {
+					if guard := st.Tasks[i].STRMDeleteState; guard != nil {
+						copy := *guard
+						copy.State = "waiting"
+						st.Tasks[i].STRMDeleteState = &copy
+						status, message, err = "delete-paused", errSTRMDeletePaused.Error(), errSTRMDeletePaused
+						st.Tasks[i].NextRun = guard.RetryAt
+					}
 					if status == "health-paused" && taskHealthPause(*st, st.Tasks[i]) == "" {
 						status, message = "idle", "健康已恢复，等待执行"
 					}
 					st.Tasks[i].Status, st.Tasks[i].Message, st.Tasks[i].Processed = status, message, count
+					if st.Tasks[i].STRMDeleteState == nil && task.Kind == "strm" && task.STRMSource == "life" && task.Cron == "" {
+						st.Tasks[i].NextRun = nextRun(st.Tasks[i], time.Now())
+						if err != nil {
+							st.Tasks[i].NextRun = time.Now().Add(time.Minute)
+						}
+					}
 				}
 			}
 			return nil
 		}); persistErr != nil {
 			a.logger.Printf("persist task: %v", persistErr)
 		}
-		a.store.event(status, "tasks", task.Name+"："+message)
+		if activity || err != nil {
+			a.store.event(status, "tasks", task.Name+"："+message)
+		}
 		record.Status, record.Processed, record.FinishedAt = status, count, time.Now()
 		if status == "error" {
 			record.Status = "failed"
@@ -229,10 +282,12 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		if err != nil {
 			record.Message = transferFailureReason(err)
 		}
-		if archiveErr := a.archives.put(record); archiveErr != nil {
-			a.store.event("warn", "tasks", "太一档案：任务结果保存失败，请检查数据目录")
+		if activity || err != nil {
+			if archiveErr := a.archives.put(record); archiveErr != nil {
+				a.store.event("warn", "tasks", "太一档案：任务结果保存失败，请检查数据目录")
+			}
+			a.queueResultNotification("任务", task.Name, status, count)
 		}
-		a.queueResultNotification("任务", task.Name, status, count)
 		a.runMu.Lock()
 		delete(a.running, taskID)
 		delete(a.runningStorage, taskID)
@@ -241,7 +296,7 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		a.runMu.Unlock()
 		if done != nil {
 			done <- err
-		} else if err == nil {
+		} else if err == nil && activity {
 			a.triggerAutomations(taskID)
 		}
 	}()
@@ -266,7 +321,17 @@ func (a *App) outputLocation(target string) (string, string, error) {
 	return a.outputDir, rel, nil
 }
 
-func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
+func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, runErr error) {
+	if t.Kind == "strm" {
+		mode, err := normalizeSTRMMode(t.Mode)
+		if err != nil {
+			return 0, err
+		}
+		t.Mode = mode
+		if t.STRMSource != "" {
+			t.Mode = strmUpdate
+		}
+	}
 	if t.Kind == "cas" && t.CASOperation != "restore" {
 		if !validCASInfoMode(t.CASInfoMode) {
 			return 0, errors.New("CAS 信息类型无效")
@@ -275,7 +340,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	}
 	skipOutput := t.Mode == "incremental"
 	if t.Kind == "strm" {
-		skipOutput = a.currentSTRMSettings().OverwriteMode != "overwrite"
+		skipOutput = t.Mode == strmMissing
 	}
 	cleanup, err := a.newFeatureCleanup(t, s)
 	if err != nil {
@@ -297,7 +362,6 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			_ = root.Close()
 		}
 	}()
-	count := 0
 	generated, failed := 0, 0
 	defer func() {
 		if t.Kind == "cas" || t.Kind == "ed2k" {
@@ -332,6 +396,26 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 			return 0, errors.New("源目录名称缺失或无效，请重新选择源目录")
 		}
 	}
+	sync, err := a.beginSTRMSync(t, s, outputDir, path.Join(target, sourceRel))
+	if err != nil {
+		return 0, err
+	}
+	completed := false
+	if sync != nil {
+		defer func() { runErr = errors.Join(runErr, sync.finish(ctx, completed && runErr == nil)) }()
+		if s.Type == "115" {
+			sync.sourcesPending, sync.lifeBefore = true, sync.manifest.Life
+			sync.manifest.Sources = map[string]strmLifeSource{}
+		}
+		if t.STRMSource == "life" && (t.fullSyncGeneration || t.resetGeneration) {
+			cursor, err := a.latestSTRMLifeCursor(ctx, s, t.STRMLifeSince)
+			if err != nil {
+				a.store.event("warn", "tasks", "STRM任务「"+t.Name+"」未取得生活事件基线；仍执行目录树全量同步，原游标保留")
+			} else {
+				sync.lifeAfterTree = &cursor
+			}
+		}
+	}
 	if t.Kind == "ed2k" && t.ED2KBindingID != "" {
 		var err error
 		binding, err = a.validateED2KBinding(t, s)
@@ -342,7 +426,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 	var plan map[string][]File
 	total, progressDone := 0, 0
 	if t.ID != "" && (t.Kind == "strm" || generateCAS || t.Kind == "ed2k" || t.Kind == "cache") {
-		plan, total, err = a.scanTaskProgress(ctx, t, s, sourceRel, t.Kind == "cache" || cleanup != nil)
+		plan, total, err = a.scanTaskProgress(ctx, t, s, sourceRel, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration || t.STRMSource == "tree")
 		known := !errors.Is(err, errTaskProgressLimit)
 		if err != nil && known {
 			return 0, err
@@ -381,7 +465,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		files, found := plan[dir]
 		var err error
 		if !found {
-			files, err = a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil)
+			files, err = a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration || t.STRMSource == "tree")
 		}
 		if err != nil {
 			return err
@@ -431,6 +515,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				continue
 			}
 			child := path.Join(rel, f.Name)
+			if sync != nil {
+				sync.rememberSource(f, dir, child)
+			}
 			if f.IsDir {
 				if excluded(child, t.ExcludeDirs) {
 					continue
@@ -504,13 +591,32 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 					return fmt.Errorf("输出文件名冲突：%s", metadataPath)
 				}
 				outputs[strings.ToLower(metadataPath)] = true
-				if t.Mode == "incremental" {
+				if sync != nil {
+					if err := sync.observe(metadataPath); err != nil {
+						return err
+					}
+				}
+				if t.Mode == "incremental" || t.Kind == "strm" && skipOutput {
 					if existing, err := root.Lstat(metadataPath); err == nil {
 						if !existing.Mode().IsRegular() {
 							return fmt.Errorf("元数据目标不是普通文件：%s", metadataPath)
 						}
 						continue
 					}
+				}
+				if t.Kind == "strm" {
+					content, err := a.readSTRMMetadata(ctx, s, f)
+					if err != nil {
+						return err
+					}
+					changed, err := publishSTRMOutput(ctx, sync, root, metadataPath, content, skipOutput)
+					if err != nil {
+						return err
+					}
+					if changed {
+						count++
+					}
+					continue
 				}
 				if err := a.copyTaskMetadata(ctx, s, f, root, metadataPath, t.Mode == "incremental"); err != nil {
 					return err
@@ -536,6 +642,11 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				return fmt.Errorf("输出文件名冲突：%s", filename)
 			}
 			outputs[strings.ToLower(filename)] = true
+			if sync != nil {
+				if err := sync.observe(filename); err != nil {
+					return err
+				}
+			}
 			if skipOutput {
 				if existing, err := root.Lstat(filename); err == nil {
 					if !existing.Mode().IsRegular() {
@@ -671,7 +782,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				u.User = nil
 				u.RawQuery = ""
 				u.Fragment = ""
-				link = u.String()
+				link = u.Scheme + "://" + u.Host + strmContentPath(u.Path, a.currentSTRMSettings().Content == "encoded")
 			}
 			if t.Kind == "strm" && (s.Type == "115" || s.Type == "quark") {
 				link, err = a.publicSTRMURL(s, f)
@@ -680,15 +791,25 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 				}
 			}
 			if t.Kind == "strm" && s.Type == "openlist" {
-				link, err = openlistSTRM(s, f.ID, t.EncodePath)
+				link, err = openlistSTRM(s, f.ID, a.currentSTRMSettings().Content == "encoded")
 				if err != nil {
 					return err
 				}
 			}
-			if err := writeCASOutput(root, filename, []byte(link+"\n"), skipOutput); err != nil {
-				return err
+			if t.Kind == "strm" {
+				changed, err := publishSTRMOutput(ctx, sync, root, filename, []byte(link+"\n"), skipOutput)
+				if err != nil {
+					return err
+				}
+				if changed {
+					count++
+				}
+			} else {
+				if err := writeCASOutput(root, filename, []byte(link+"\n"), skipOutput); err != nil {
+					return err
+				}
+				count++
 			}
-			count++
 		}
 		finishProgress()
 		return nil
@@ -698,6 +819,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (int, error) {
 		err = cleanup.finish(ctx, a, root)
 	}
 	reportProgress(true)
+	completed = err == nil
 	return count, err
 }
 
@@ -817,6 +939,12 @@ func (a *App) scheduler() {
 				}
 			}
 			for _, t := range st.Tasks {
+				if t.STRMDeleteState != nil {
+					if t.Enabled && !t.STRMDeleteState.RetryAt.IsZero() && !now.Before(t.STRMDeleteState.RetryAt) {
+						_ = a.startSTRMDeleteCheck(t.ID, true)
+					}
+					continue
+				}
 				if t.Kind != "cache" && t.Cron != "" {
 					if _, err := cronParser.Parse(t.Cron); err != nil {
 						continue
@@ -826,6 +954,8 @@ func (a *App) scheduler() {
 					trigger := "scheduled"
 					if t.Kind == "cache" {
 						trigger = "monitor"
+					} else if t.Kind == "strm" && t.STRMSource == "life" && t.Cron == "" {
+						trigger = "life-monitor"
 					}
 					if err := a.startTaskWithTrigger(a.ctx, t.ID, nil, trigger); err != nil {
 						a.taskUpdate(t.ID, func(t *Task) { t.NextRun = now.Add(time.Minute) })

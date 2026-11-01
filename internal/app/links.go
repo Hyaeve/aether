@@ -107,7 +107,7 @@ func (a *App) buildLink(link MediaLink) (*linkService, error) {
 	// Old snapshots may contain unprobed STRM URLs instead of resolved download URLs.
 	r := resolver.NewWithPersistence(cfg.Cache, cfg.Redirect, filepath.Join(a.dataDir, "cache", "link", link.ID+"-direct-v2.json"))
 	handler := proxy.NewWithAudioCache(provider, r, a.links.stats, cfg.Redirect, a.links.audio)
-	authorized := authorizeLinkPlayer(provider, handler)
+	authorized := a.withMediaDeepDelete(link, provider, authorizeLinkPlayer(provider, handler))
 	metered := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		_, media := provider.Match(request)
 		if media && request.Method == http.MethodGet {
