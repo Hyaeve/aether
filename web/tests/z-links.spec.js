@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { createServer } from 'node:net'
+import { ensureWorkspaceAccount, ensureWorkspaceMedia } from './helpers/workspace.js'
 
 async function port() {
   const server = createServer()
@@ -9,6 +10,7 @@ async function port() {
   return value
 }
 test('link configuration, modes, activation, playback and log preferences', async ({ page }, info) => {
+  await ensureWorkspaceAccount(page.request)
   let playbackRequests = 0
   page.on('request', request => { if (request.url().endsWith('/api/link-playback')) playbackRequests++ })
   await page.goto('/')
@@ -16,6 +18,7 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   await page.getByLabel('密码', { exact: true }).fill('a1')
   await page.getByRole('button', { name: '登录工作空间', exact: true }).click()
   await expect(page.locator('.sidebar')).toBeVisible()
+  const mediaStorage = await ensureWorkspaceMedia(page)
   await page.getByRole('link', { name: '以太链接', exact: true }).click()
   await page.getByRole('button', { name: '添加以太链接', exact: true }).click()
   await expect(page.locator('.link-type-picker button')).toHaveCount(3)
@@ -142,7 +145,7 @@ test('link configuration, modes, activation, playback and log preferences', asyn
   await expect(page.locator('.toast').filter({ hasText: '设置已保存' })).toBeVisible()
   await page.reload()
   await expect(page.getByLabel('日志保留天数', { exact: true })).toHaveValue('20')
-  await page.goto('/files')
+  await page.goto(`/files?storage=${mediaStorage.id}`)
   await expect(page.getByRole('button', { name: 'Movies', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Movies', exact: true }).dblclick()
   await page.getByLabel('搜索当前目录', { exact: true }).fill('Arrival')

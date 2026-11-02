@@ -108,7 +108,7 @@ test('task menu order and editor disclosures share link typography and reveal co
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/tasks/strm')
   await page.getByRole('button', { name: '任务操作 任务1', exact: true }).click()
-  await expect(page.locator('.task-menu button')).toHaveText(['编辑任务', '全量重置', '删除任务'])
+  await expect(page.locator('.task-menu button')).toHaveText(['编辑任务', '全量同步', '全量重置', '删除任务'])
   await expect(page.locator('.task-menu button').first()).toHaveCSS('font-size', '14px')
   await page.getByRole('button', { name: '编辑任务', exact: true }).click()
   const disclosure = page.getByRole('button', { name: '更多选项', exact: true })

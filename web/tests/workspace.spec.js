@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import { createMeteorBatch, meteorOpacity } from '../src/meteor.js'
+import { ensureWorkspaceAccount, ensureWorkspaceMedia } from './helpers/workspace.js'
 
 test('meteor batches contain two to five upper-right to lower-left trails', () => {
   for (const value of [0, .25, .5, .999999]) {
@@ -44,7 +45,7 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.getByLabel('密码', { exact: true }).fill('a1')
   await page.getByRole('button', { name: '创建管理员账号' }).click()
   await expect(page.locator('.breadcrumbs strong')).toHaveText('存储管理')
-  await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link')).toHaveText(['信息总览', '文件服务', '存储管理', '传输中心', '任务中心', '虚拟链库', '以太链接', '辅助工具', '档案中心', '通知服务', '运行日志', '系统设置'])
+  await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link')).toHaveText(['信息总览', '文件服务', '存储管理', '以太识律', '传输中心', '任务中心', '虚拟链库', '以太链接', '辅助工具', '档案中心', '通知服务', '运行日志', '系统设置'])
   await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '虚拟链库', exact: true })).toBeVisible()
   await expect(page.locator('.sidebar a[href]')).toHaveCount(0)
   await expect(page.locator('.storage-actions')).toHaveCount(0)
@@ -456,11 +457,13 @@ test('native Tianyi account storage and CAS task', async ({ page }, testInfo) =>
 })
 
 test('WebDAV users and scoped directories', async ({ page }, testInfo) => {
+  await ensureWorkspaceAccount(page.request)
   await page.goto('/')
   await page.getByLabel('账号', { exact: true }).fill('my-aether-owner')
   await page.getByLabel('密码', { exact: true }).fill('a1')
   await page.getByRole('button', { name: '登录工作空间', exact: true }).click()
   await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
+  await ensureWorkspaceMedia(page)
   await expect(page.getByRole('link', { name: '信息总览', exact: true }).locator('svg')).toHaveClass(/lucide-gauge/)
   await page.getByRole('link', { name: '文件服务', exact: true }).click()
   await expect(page.getByRole('navigation', { name: '文件服务栏目' }).getByRole('link')).toHaveCount(3)

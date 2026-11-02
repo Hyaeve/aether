@@ -2,12 +2,16 @@ import { test, expect } from '@playwright/test'
 import { readFileSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import { ensureWorkspaceAccount, ensureWorkspaceMedia } from './helpers/workspace.js'
 
 test('local CAS generation and persisted named directory navigation', async ({ page }, testInfo) => {
+  await ensureWorkspaceAccount(page.request)
   await page.goto('/')
   await page.getByLabel('账号', { exact: true }).fill('my-aether-owner')
   await page.getByLabel('密码', { exact: true }).fill('a1')
   await page.getByRole('button', { name: '登录工作空间', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
+  await ensureWorkspaceMedia(page)
   await page.getByRole('link', { name: '任务中心', exact: true }).click()
   await page.getByRole('link', { name: 'CAS 任务', exact: true }).click()
   await page.getByRole('button', { name: '添加 CAS 任务卡片', exact: true }).click()

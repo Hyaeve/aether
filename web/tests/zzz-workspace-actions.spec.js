@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
+import { ensureWorkspaceAccount, ensureWorkspaceMedia, prepareWorkspaceMenuLink } from './helpers/workspace.js'
 
 test('compact desktop, card menus, file actions and encrypted import', async ({ page }, info) => {
   test.setTimeout(150000)
+  await ensureWorkspaceAccount(page.request)
   await page.goto('/')
   for (const [width, height] of [[1920,1080],[1366,768],[1280,600],[1024,600],[800,480]]) {
     await page.setViewportSize({ width, height })
@@ -25,6 +27,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
     await page.getByRole('button', { name: '登录工作空间', exact: true }).click()
   }
   await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
+  const mediaStorage = await ensureWorkspaceMedia(page)
   await page.locator('.brand').click()
   await expect(page).not.toHaveURL(/dashboard/)
   await page.goto('/tasks/strm')
@@ -138,7 +141,9 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
     const pools = (await (await page.request.get('/api/state')).json()).storages
     await page.request.delete(`/api/storages/${pools.find(s => s.name === config.name).id}`)
   }
+  await prepareWorkspaceMenuLink(page.request)
   await page.goto('/links')
+  await expect(page.locator('.link-card').first()).toContainText('菜单测试以链')
   await page.locator('.link-card').first().click({ button:'right' })
   await expect(page.locator('.context-menu button')).toHaveText(['编辑以链','测试连接','启用链接','删除链接'])
   await page.keyboard.press('Escape')
@@ -186,7 +191,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   mkdirSync(path.join(media,'Operations'),{recursive:true})
   writeFileSync(path.join(media,'Operations','one.txt'),'one')
   writeFileSync(path.join(media,'Operations','two.txt'),'two')
-  await page.goto('/files')
+  await page.goto(`/files?storage=${mediaStorage.id}`)
   await page.getByRole('button', { name:'刷新目录',exact:true }).click()
   if (await page.getByRole('button', { name:'当前网格视图，切换列表',exact:true }).isVisible()) await page.getByRole('button', { name:'当前网格视图，切换列表',exact:true }).click()
   await page.getByRole('button',{name:'Operations',exact:true}).dblclick()
