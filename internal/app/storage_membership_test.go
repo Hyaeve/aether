@@ -30,6 +30,8 @@ func TestStorageMembershipReadOnlyAndExplicitTiers(t *testing.T) {
 		{"mobile", "silver", `{"success":true,"data":{"userSubMemberList":[{"memberLvName":"白银会员"}]}}`},
 		{"mobile", "", `{"success":true,"data":{"userSubMemberList":[{"memberLevel":3,"memberLvName":"未知等级"}]}}`},
 		{"tianyi", "platinum", `{"res_code":0,"data":{"vipInfoList":[{"memberLevel":2000,"endTime":"2099-01-01 00:00:00"}]}}`},
+		{"tianyi", "gold", `{"res_code":0,"vipInfoList":[{"memberLevel":"1000","endTime":4070908800000}]}`},
+		{"tianyi", "platinum", `{"res_code":0,"data":{"vipInfoList":[{"memberLevel":"2000","endTime":"4070908800"}]}}`},
 		{"tianyi", "gold", `{"res_code":0,"data":{"vipInfoList":[{"memberLevel":1000,"endTime":"2099-01-01 00:00:00"},{"memberLevel":2000,"endTime":"2020-01-01 00:00:00"}]}}`},
 		{"tianyi", "", `{"res_code":0,"data":{"vipInfoList":[{"memberLevel":3000,"endTime":"2099-01-01 00:00:00"}]}}`},
 	} {

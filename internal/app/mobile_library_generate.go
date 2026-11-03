@@ -185,7 +185,7 @@ func (a *App) checkMobileLibraryRoot(card quarkLibraryCard, root *os.Root) error
 
 func (a *App) publishMobileLibrary(ctx context.Context, card quarkLibraryCard, storage Storage, root *os.Root, grant quarkLibraryFile, content []byte, old *quarkLibraryFile) error {
 	check := func() error {
-		if err := ctx.Err(); err != nil {
+		if err := generationWorkCheck(ctx); err != nil {
 			return err
 		}
 		if err := a.mobileLibraryCheck(card, &storage); err != nil {
@@ -263,6 +263,9 @@ func (a *App) publishMobileLibrary(ctx context.Context, card quarkLibraryCard, s
 }
 
 func (a *App) reconcileMobileLibrary(ctx context.Context, card quarkLibraryCard, root *os.Root, wanted map[string]bool) (int, error) {
+	if err := generationWorkCheck(ctx); err != nil {
+		return 0, err
+	}
 	st := a.store.snapshotWithLogLimit(0)
 	record := st.MobileLibraryRuntime.Roots[card.ID]
 	if record.Directory != quarkLibraryRoot(card) {
@@ -305,6 +308,10 @@ func (a *App) reconcileMobileLibrary(ctx context.Context, card quarkLibraryCard,
 			parent.Close()
 			continue
 		}
+		if err = generationWorkCheck(ctx); err != nil {
+			parent.Close()
+			return removed, err
+		}
 		if err = a.checkMobileLibraryRoot(card, root); err == nil {
 			err = parent.Remove(name)
 		}
@@ -321,12 +328,15 @@ func (a *App) reconcileMobileLibrary(ctx context.Context, card quarkLibraryCard,
 }
 
 func (a *App) runMobileLibrary(ctx context.Context, card quarkLibraryCard) (result quarkLibraryResult, runErr error) {
+	if err := generationWorkCheck(ctx); err != nil {
+		return result, err
+	}
 	if !card.Enabled || card.Directory == "" {
 		return result, errors.New("请设置移动链库生成位置并启用链接")
 	}
 	st := a.store.snapshotWithLogLimit(0)
 	cfg := effectiveMobileLibrary(st)
-	result = quarkLibraryResult{Status: "running", Message: "正在读取移动分享", LastRun: time.Now(), NextRun: quarkLibraryNext(card, time.Now())}
+	result = quarkLibraryResult{Status: "running", Message: "正在读取移动分享", LastRun: time.Now(), NextRun: quarkLibraryNext(card, time.Now()), InvalidSince: st.MobileLibraryRuntime.Results[card.ID].InvalidSince}
 	if err := a.store.update(func(st *State) error {
 		initMobileLibrary(st)
 		st.MobileLibraryRuntime.Results[card.ID] = result
@@ -337,7 +347,15 @@ func (a *App) runMobileLibrary(ctx context.Context, card quarkLibraryCard) (resu
 	defer func() {
 		if runErr != nil {
 			result.Status, result.Message = "failed", mobileLibraryFailure(runErr)
+			var unavailable *mobileLibraryUnavailable
+			if errors.As(runErr, &unavailable) {
+				result.Status = "invalid"
+				if result.InvalidSince.IsZero() {
+					result.InvalidSince = time.Now()
+				}
+			}
 		} else {
+			result.InvalidSince = time.Time{}
 			result.Status, result.Message = "completed", fmt.Sprintf("新增STRM %d 条，元数据 %d 个，跳过 %d 个，清理 %d 个", result.Generated, result.Metadata, result.Skipped, result.Removed)
 		}
 		err := a.store.update(func(st *State) error {
@@ -392,7 +410,7 @@ func (a *App) runMobileLibrary(ctx context.Context, card quarkLibraryCard) (resu
 		wanted[plan.Relative] = true
 	}
 	for _, plan := range plans {
-		if err := ctx.Err(); err != nil {
+		if err := generationWorkCheck(ctx); err != nil {
 			return result, err
 		}
 		if err := a.mobileLibraryCheck(card, &storage); err != nil {

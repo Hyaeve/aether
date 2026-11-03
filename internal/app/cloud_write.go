@@ -37,6 +37,7 @@ func (b *mountRequestBody) Read(p []byte) (int, error) {
 // provider confirms publication. Failed files remain private for recovery.
 type cloudWriteFile struct {
 	*os.File
+	temp         *transferTempFile
 	app          *App
 	ctx          context.Context
 	storage      Storage
@@ -45,6 +46,33 @@ type cloudWriteFile struct {
 	closed       bool
 	writeErr     error
 }
+
+func (f *cloudWriteFile) WriteAt(p []byte, offset int64) (int, error) {
+	var n int
+	var err error
+	if f.temp != nil {
+		n, err = f.temp.WriteAt(p, offset)
+	} else {
+		n, err = f.File.WriteAt(p, offset)
+	}
+	if err != nil {
+		f.writeErr = err
+	}
+	return n, err
+}
+func (f *cloudWriteFile) Truncate(size int64) error {
+	var err error
+	if f.temp != nil {
+		err = f.temp.Truncate(size)
+	} else {
+		err = f.File.Truncate(size)
+	}
+	if err != nil {
+		f.writeErr = err
+	}
+	return err
+}
+func (f *cloudWriteFile) WriteString(s string) (int, error) { return f.Write([]byte(s)) }
 
 func (f *cloudWriteFile) Write(data []byte) (int, error) {
 	if mobilePCClient(f.storage) {
@@ -57,7 +85,13 @@ func (f *cloudWriteFile) Write(data []byte) (int, error) {
 			return 0, err
 		}
 	}
-	n, err := f.File.Write(data)
+	var n int
+	var err error
+	if f.temp != nil {
+		n, err = f.temp.Write(data)
+	} else {
+		n, err = f.File.Write(data)
+	}
 	if err != nil {
 		f.writeErr = err
 	}
@@ -84,7 +118,12 @@ func (f *cloudWriteFile) Close() error {
 	if err == nil {
 		err = f.File.Sync()
 	}
-	closeErr := f.File.Close()
+	var closeErr error
+	if f.temp != nil {
+		closeErr = f.temp.Close()
+	} else {
+		closeErr = f.File.Close()
+	}
 	if err == nil {
 		err = closeErr
 	}
@@ -185,15 +224,15 @@ func (d mountFS) openCloudWrite(ctx context.Context, s Storage, source, rel stri
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	f, err := os.CreateTemp(dir, "pending-*")
-	if err != nil {
-		return nil, err
-	}
 	expected := int64(-1)
 	if n, ok := ctx.Value(mountPutLength{}).(int64); ok {
 		expected = n
 	}
-	return &cloudWriteFile{File: f, app: d.app, ctx: ctx, storage: s, parent: parent, name: path.Base(rel), expected: expected}, nil
+	f, err := d.app.newTransferTemp(dir, "pending-*", expected)
+	if err != nil {
+		return nil, err
+	}
+	return &cloudWriteFile{File: f.File, temp: f, app: d.app, ctx: ctx, storage: s, parent: parent, name: path.Base(rel), expected: expected}, nil
 }
 
 func (a *App) cloudByName(ctx context.Context, s Storage, parent, name string) (*File, error) {

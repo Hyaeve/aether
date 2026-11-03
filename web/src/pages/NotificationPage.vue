@@ -22,6 +22,7 @@ const liveTarget = ref(null)
 const maskedTelegram = value => ({ ...value, token: value.hasToken ? '********' : '' })
 const providers = [{ id: '115', name: '115 云盘' }, { id: 'mobile', name: '移动云盘' }, { id: 'quark', name: '夸克云盘' }]
 const storage = id => state.storages.find(s => s.id === id)
+const directoryInitials = target => [...(target.path?.split('/').filter(part => part && part !== '.' && part !== '..').at(-1) || '根目录')].slice(0, 2).join('')
 const available = computed(() => state.storages.filter(s => s.enabled && s.type === editing.value?.provider && (s.type !== 'mobile' || s.config?.mode === 'native')))
 let alive = true, resolveGeneration = 0
 onUnmounted(() => { alive = false; resolveGeneration++ })
@@ -141,14 +142,14 @@ const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCar
     </div>
     <div v-else class="telegram-pools">
       <section v-for="provider in providers" :key="provider.id" class="telegram-pool" :data-provider="provider.id" :style="{'--pool-accent':driverOf(provider.id).color}" :aria-label="provider.name + '转存目录池'">
-        <header><h2><ProviderIcon :type="provider.id" compact unframed />{{ provider.name }}</h2><button class="icon-btn" :aria-label="'添加' + provider.name + '转存目录'" :disabled="!loaded || busy" @click="edit(provider.id)"><Icon name="Plus" /></button></header>
+        <header><h2><ProviderIcon :type="provider.id" compact unframed />{{ provider.name }}</h2></header>
         <div class="telegram-target-list">
           <article v-for="target in targets.filter(item => item.provider === provider.id)" :key="target.id" data-config-collection="/notification-service/targets" data-config-list="targets" :data-config-id="target.id" :data-config-deleting="deleting?.id===target.id" class="telegram-target-card" :data-id="target.id" :class="{ 'drag-armed': armed === target.id, dragging: dragging === target.id, 'drop-target': dropTarget === target.id }" :aria-label="'转存目录 ' + (storage(target.storageId)?.name || '存储已移除') + ' ' + target.path" tabindex="0" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown" @pointerdown="hold($event, target)" @keydown="reorder($event, target)" @click="cardClick($event, target, item => edit(provider.id, item))" @dragstart.prevent>
-            <span class="telegram-target-avatar" aria-hidden="true">{{[...(storage(target.storageId)?.name||'已移除')].slice(0,2).join('')}}</span><div><strong>{{ storage(target.storageId)?.name || '存储已移除' }}</strong><span :data-tooltip="target.path" data-tooltip-stationary>{{ target.path }}</span><div v-if="provider.id === '115'" class="telegram-purposes"><span v-if="target.shareTransfer !== false" class="telegram-purpose-share"><Icon name="Share2" :size="12" />分享转存</span><span v-if="target.ed2kOffline" class="telegram-purpose-offline"><Icon name="CloudDownload" :size="12" />ED2K离线</span><span v-if="target.shareTransfer === false && !target.ed2kOffline" class="telegram-purpose-disabled">未启用</span></div></div>
+            <span class="telegram-target-avatar" aria-hidden="true">{{directoryInitials(target)}}</span><div class="telegram-target-info"><div class="telegram-target-title"><strong :data-tooltip="storage(target.storageId)?.name || '存储已移除'" data-tooltip-stationary>{{ storage(target.storageId)?.name || '存储已移除' }}</strong><div v-if="provider.id === '115'" class="telegram-purposes"><span v-if="target.shareTransfer !== false" class="telegram-purpose-share" role="img" aria-label="分享转存" data-tooltip="分享转存" data-tooltip-always><Icon name="Share2" :size="14" /></span><span v-if="target.ed2kOffline" class="telegram-purpose-offline" role="img" aria-label="ED2K离线" data-tooltip="ED2K离线" data-tooltip-always><Icon name="CloudDownload" :size="14" /></span><span v-if="target.shareTransfer === false && !target.ed2kOffline" class="telegram-purpose-disabled" role="img" aria-label="未启用" data-tooltip="未启用" data-tooltip-always><Icon name="Pause" :size="14" /></span></div></div><span :data-tooltip="target.path" data-tooltip-stationary>{{ target.path }}</span></div>
             <button v-if="provider.id!=='115'" class="icon-btn" :aria-label="'活动链接 '+target.path" :disabled="busy" @click.stop="liveTarget=target" data-tooltip="活动链接" data-tooltip-always><Icon name="Link" :size="16"/></button><button class="icon-btn" :aria-label="'编辑转存目录 ' + target.path" :disabled="busy" @click.stop="edit(provider.id, target)"><Icon name="Pencil" :size="16" /></button><button class="icon-btn danger-text" :aria-label="'删除转存目录 ' + target.path" :disabled="busy" @click.stop="deleting = target"><Icon name="Trash2" :size="16" /></button>
           </article>
+          <button class="add-storage-tile telegram-add" :aria-label="'添加' + provider.name + '转存目录'" :disabled="!loaded || busy" @click="edit(provider.id)"><Icon name="Plus" /><span>添加转存目录</span></button>
         </div>
-        <button class="add-storage-tile telegram-add" :aria-label="'添加' + provider.name + '目录卡片'" :disabled="!loaded || busy" @click="edit(provider.id)"><Icon name="Plus" /><span>添加转存目录</span></button>
       </section>
     </div>
     <ShareTransferRecords v-if="section==='transfers'" :target="liveTarget" @close="liveTarget=null"/>
@@ -181,4 +182,11 @@ const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCar
 :global(.modal:has(.telegram-target-form)){scrollbar-width:none}
 :global(.modal:has(.telegram-target-form)::-webkit-scrollbar){display:none}
 @media(max-width:680px){.telegram-target-fields.has-cycle{grid-template-columns:minmax(0,1fr) 110px}.telegram-pool{height:auto;min-height:0}}
+.telegram-pool{background:color-mix(in srgb,var(--pool-accent) 7%,var(--layer-frame))}
+.telegram-target-card{background:var(--input)}
+.telegram-target-title{display:flex;align-items:center;gap:6px;min-width:0}.telegram-target-title>strong{flex:0 1 auto;min-width:0}
+.telegram-purposes{flex:none;flex-wrap:nowrap;gap:4px}.telegram-purposes>span{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;border-radius:5px}
+.telegram-target-list>.telegram-add{height:88px;min-height:88px;margin:0;width:100%;background:transparent;border:1px dashed color-mix(in srgb,var(--pool-accent) 35%,var(--border));border-radius:8px;box-sizing:border-box}
+.telegram-target-list>.telegram-add:hover{background:color-mix(in srgb,var(--pool-accent) 5%,var(--input));border-color:var(--pool-accent)}
+:global(.modal:has(.telegram-target-form)){background:var(--layer-frame)}
 </style>

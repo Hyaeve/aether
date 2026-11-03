@@ -131,7 +131,7 @@ test('about sidebar stays night through theme controls and system scheme changes
   await page.getByRole('link', { name: '账号与安全', exact: true }).click()
   await page.emulateMedia({ colorScheme: 'light' })
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-  await expect(page.locator('.sidebar')).toHaveCSS('color', 'rgb(65, 75, 104)')
+  await expect(page.locator('.sidebar')).toHaveCSS('color', 'rgb(0, 0, 0)')
   expect(await page.evaluate(() => localStorage.getItem('aether-theme'))).toBe('system')
   await page.goBack()
   await expect(page.locator('.about-page')).toBeVisible()

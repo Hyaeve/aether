@@ -149,7 +149,7 @@ func (a *App) casExport(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, errors.New("无法创建导出暂存目录"))
 		return
 	}
-	temp, err := os.CreateTemp(tempDir, "aether-cas-export-*")
+	temp, err := a.newTransferTemp(tempDir, "aether-cas-export-*", -1)
 	if err != nil {
 		fail(w, 500, errors.New("无法创建导出暂存"))
 		return

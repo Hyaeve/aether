@@ -45,7 +45,7 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.getByLabel('密码', { exact: true }).fill('a1')
   await page.getByRole('button', { name: '创建管理员账号' }).click()
   await expect(page.locator('.breadcrumbs strong')).toHaveText('存储管理')
-  await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link')).toHaveText(['信息总览', '文件服务', '存储管理', '以太识律', '传输中心', '任务中心', '虚拟链库', '以太链接', '辅助工具', '档案中心', '通知服务', '运行日志', '系统设置'])
+  await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link')).toHaveText(['信息总览', '文件服务', '存储管理', '传输中心', '以太识律', '任务中心', '虚拟链库', '以太链接', '辅助工具', '档案中心', '通知服务', '运行日志', '系统设置'])
   await expect(page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '虚拟链库', exact: true })).toBeVisible()
   await expect(page.locator('.sidebar a[href]')).toHaveCount(0)
   await expect(page.locator('.storage-actions')).toHaveCount(0)
@@ -320,7 +320,7 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   expect(await page.locator('.plugin-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4)
   await page.screenshot({ path: testInfo.outputPath('plugins-desktop.png'), fullPage: true })
   await page.getByRole('link', { name: '以太识律', exact: true }).click()
-  await expect(page.locator('.rule-placeholder').filter({hasText:'识别规则'})).toContainText('最小视频、整理黑名单、自定义识别词、自定义匹配')
+  await expect(page.getByRole('region',{name:'识别规则',exact:true})).toContainText('最小视频、整理黑名单、自定义识别词、自定义匹配')
 })
 
 test('native mobile CAS task creation and persistence', async ({ page }, testInfo) => {

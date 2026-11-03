@@ -109,6 +109,9 @@ func (a *App) generationReceipt(job string, index int, fn func(*GenerationTempor
 }
 
 func (a *App) generationCreateFolder(ctx context.Context, s Storage, host, parent, name string) (string, error) {
+	if err := generationWorkCheck(ctx); err != nil {
+		return "", err
+	}
 	items, err := a.mobileListAt(ctx, s, host, parent)
 	if err != nil {
 		return "", err
@@ -120,6 +123,9 @@ func (a *App) generationCreateFolder(ctx context.Context, s Storage, host, paren
 	}
 	var data struct {
 		ID string `json:"fileId"`
+	}
+	if err := generationWorkCheck(ctx); err != nil {
+		return "", err
 	}
 	if err := a.mobilePost(ctx, s, host+"/file/create", map[string]any{"parentFileId": parent, "name": name, "description": "", "type": "folder", "fileRenameMode": "force_rename"}, false, &data); err != nil {
 		return "", err
@@ -151,6 +157,9 @@ func (a *App) generationCreateFolder(ctx context.Context, s Storage, host, paren
 }
 
 func (a *App) generationTransfer(ctx context.Context, s Storage, entries []GenerationEntry, folder string) (string, error) {
+	if err := generationWorkCheck(ctx); err != nil {
+		return "", err
+	}
 	if len(entries) < 1 || len(entries) > shareTransferBatchLimit {
 		return "", errors.New("临时转存批次大小无效")
 	}
@@ -176,6 +185,9 @@ func (a *App) generationTransfer(ctx context.Context, s Storage, entries []Gener
 		} `json:"createOuterLinkBatchOprTaskRes"`
 	}
 	if err := a.waitAPI(ctx, s.ID); err != nil {
+		return "", err
+	}
+	if err := generationWorkCheck(ctx); err != nil {
 		return "", err
 	}
 	err = mobileGenerationRequest(ctx, "createOuterLinkBatchOprTask", map[string]any{"createOuterLinkBatchOprTaskReq": map[string]any{
@@ -292,6 +304,9 @@ func (a *App) executeMobileGeneration(ctx context.Context, job GenerationJob, m 
 }
 
 func (a *App) runMobileGeneration(ctx context.Context, job GenerationJob, m generationManifest, base, rel string, success *int) error {
+	if err := generationWorkCheck(ctx); err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(base)
 	if err != nil {
 		return err
@@ -352,7 +367,7 @@ func (a *App) runMobileGeneration(ctx context.Context, job GenerationJob, m gene
 	}
 	for _, entry := range m.Entries {
 		if entry.Mobile == nil {
-			if err := a.generationPublish(root, rel, entry, job.ID, success); err != nil {
+			if err := a.generationPublish(ctx, root, rel, entry, job.ID, success); err != nil {
 				return err
 			}
 		}
@@ -442,7 +457,7 @@ func (a *App) runMobileGeneration(ctx context.Context, job GenerationJob, m gene
 			}
 			info := CASInfo{Name: f.Name, Size: f.Size, SHA256: f.SHA256}
 			entry := GenerationEntry{Path: f.Output, Size: f.Size, CAS: &info}
-			if err := a.generationPublish(root, rel, entry, job.ID, success); err != nil {
+			if err := a.generationPublish(ctx, root, rel, entry, job.ID, success); err != nil {
 				a.casFailureLog(s, f.Name, "分享STRM发布", err)
 				return err
 			}
@@ -466,7 +481,10 @@ func (a *App) runMobileGeneration(ctx context.Context, job GenerationJob, m gene
 	return a.generationReceipt(job.ID, 0, func(r *GenerationTemporary) { r.Phase = "cleaned" })
 }
 
-func (a *App) generationPublish(root *os.Root, rel string, entry GenerationEntry, job string, success *int) error {
+func (a *App) generationPublish(ctx context.Context, root *os.Root, rel string, entry GenerationEntry, job string, success *int) error {
+	if err := generationWorkCheck(ctx); err != nil {
+		return err
+	}
 	if entry.CAS == nil || validateCAS(*entry.CAS) != nil {
 		return errors.New("缺少有效 CAS 特征，未生成")
 	}
@@ -487,6 +505,9 @@ func (a *App) generationPublish(root *os.Root, rel string, entry GenerationEntry
 }
 
 func (a *App) generationCleanup(ctx context.Context, s Storage, host, folder string, root *os.Root, rel string, entry GenerationEntry, f GenerationTemporaryFile, plan generationMobilePlan) error {
+	if err := generationWorkCheck(ctx); err != nil {
+		return err
+	}
 	if _, err := a.generationMobileCurrent(plan); err != nil {
 		return err
 	}
@@ -513,6 +534,9 @@ func (a *App) generationCleanup(ctx context.Context, s Storage, host, folder str
 	raw, err = readGenerationOutput(root, path.Join(rel, entry.Path))
 	if err != nil || string(raw) != a.generatedStreamURL(streamClaim{CAS: entry.CAS, Redirect: true})+"\n" {
 		return errors.New("STRM 已变化，未删除临时源")
+	}
+	if err := generationWorkCheck(ctx); err != nil {
+		return err
 	}
 	if err := a.removeCASTemporary(ctx, s, host, f.ID); err != nil {
 		return err

@@ -132,9 +132,16 @@ type LogEntry struct {
 }
 
 type State struct {
+	RecognitionRules      *recognitionSettings            `json:"recognitionRules,omitempty"`
+	RulePresets           []rulePreset                    `json:"rulePresets,omitempty"`
+	OrganizeTasks         []organizeTaskDefinition        `json:"organizeTasks,omitempty"`
 	MediaDeepDelete       mediaDeepDeleteSettings         `json:"mediaDeepDelete"`
 	Ali115                ali115Settings                  `json:"ali115"`
 	Ali115Receipts        []ali115Receipt                 `json:"ali115Receipts,omitempty"`
+	CASLibrary            *casLibrarySettings             `json:"casLibrary,omitempty"`
+	Virtual115            *virtual115Defaults             `json:"virtual115,omitempty"`
+	CASLibraryCards       []quarkLibraryCard              `json:"casLibraryCards,omitempty"`
+	CASLibraryRuntime     casLibraryRuntime               `json:"casLibraryRuntime,omitempty"`
 	MobileLibrary         *mobileLibrarySettings          `json:"mobileLibrary,omitempty"`
 	MobileLibraryCards    []quarkLibraryCard              `json:"mobileLibraryCards,omitempty"`
 	MobileLibraryRuntime  mobileLibraryRuntime            `json:"mobileLibraryRuntime,omitempty"`

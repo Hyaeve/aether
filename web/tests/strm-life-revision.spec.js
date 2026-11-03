@@ -30,6 +30,7 @@ async function fixture(page){
       else json={cards:cards(p.split('/').at(-1)),settings:{storageIds:[p.endsWith('quark')?'q':'m'],directory:'/output',invalidDays:15,retentionHours:12,mediaExtensions:'mkv',metadataExtensions:'nfo'},stats:{}}
     }
     else if(p==='/api/files')json=[{id:'/film.mp4',name:'film.mp4',size:5},{id:'/second.mkv',name:'second.mkv',size:5}]
+    else if(p==='/api/files/directory-trail')json={path:'/剧集',label:'剧集',trail:[{id:'/',name:'根目录'}]}
     else if(p==='/api/files/cas-export')json={directory:''}
     else if(p==='/api/files/cas-export/jobs'){writes.push({p,body:r.postDataJSON()});json={id:'export',status:'queued'}}
     else if(p==='/api/files/cas-export/jobs/export')json={id:'export',status:'running',processed:0,total:1,download:false}
@@ -39,8 +40,8 @@ async function fixture(page){
   return{writes,unexpected,tasks,settings}
 }
 
-for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[844,390,'dark']]){
-  test(`115 life/tree source and cascade controls ${width}`,async({page},info)=>{
+for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[375,812,'light'],[844,390,'dark']]){
+  test(`115 pickcode source and cascade controls ${width}`,async({page},info)=>{
     const f=await fixture(page)
     await page.setViewportSize({width,height});await page.goto('/tasks/strm')
     await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
@@ -48,11 +49,20 @@ for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[844,390
     const dialog=page.getByRole('dialog',{name:'编辑 STRM 任务',exact:true})
     await expect(dialog.getByRole('button',{name:'生成方式',exact:true})).toHaveText('生活事件')
     await dialog.getByRole('button',{name:'生成方式',exact:true}).click()
-    await expect(page.getByRole('option')).toHaveCount(2)
-    await page.getByRole('option',{name:'目录树',exact:true}).click()
-    await expect(dialog.getByRole('textbox',{name:'Cron 表达式',exact:true})).toHaveAttribute('required','')
+    await expect(page.getByRole('option')).toHaveText(['增量更新','查漏补缺','生活事件'])
+    await page.getByRole('option',{name:'增量更新',exact:true}).click()
+    await expect(dialog.getByRole('textbox',{name:'Cron 表达式',exact:true})).not.toHaveAttribute('required','')
     await dialog.getByRole('textbox',{name:'Cron 表达式',exact:true}).fill('*/15 * * * *')
     await dialog.getByRole('button',{name:'更多选项',exact:true}).click()
+    await expect(dialog.getByRole('spinbutton',{name:'API 间隔',exact:true})).toHaveCount(0)
+    const interval=dialog.getByRole('spinbutton',{name:'请求间隔',exact:true})
+    await expect(interval).toHaveValue('200')
+    await expect(dialog.locator('.request-interval-field .number-unit')).toHaveText('ms')
+    await expect(dialog.locator('.request-interval-field .number-unit')).toHaveCSS('opacity','1')
+    await interval.fill('1500')
+    await dialog.locator('.field:has(#strm-api-interval)').scrollIntoViewIfNeeded()
+    expect(await interval.evaluate(el=>{const field=el.closest('.field'),cache=document.querySelector('#strm-cache').closest('.field'),r=field.getBoundingClientRect(),c=cache.getBoundingClientRect();return field.previousElementSibling===cache&&Math.abs(r.top-c.top)<1&&r.width<el.closest('fieldset').getBoundingClientRect().width*.6})).toBe(true)
+    await captureScreenshot(page,{path:info.outputPath(`115-request-interval-${width}-${theme}.png`)})
     await dialog.getByRole('switch',{name:'级联删除',exact:true}).check()
     const extensions=dialog.getByRole('textbox',{name:'级联删除扩展名',exact:true})
     await expect(extensions).toHaveValue('jpg;jpeg;png;webp;nfo;srt;ass;ssa;sub;vtt')
@@ -61,10 +71,58 @@ for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[844,390
     await captureScreenshot(page,{path:info.outputPath(`life-editor-${width}-${theme}.png`)})
     await dialog.getByRole('button',{name:'保存任务',exact:true}).click()
     await expect(dialog).toHaveCount(0)
-    expect(f.writes.at(-1).body).toMatchObject({strmSource:'tree',cascadeDelete:true,cron:'*/15 * * * *'})
+    expect(f.writes.at(-1).body).toMatchObject({strmSource:'scan',apiInterval:1500,cascadeDelete:true,cron:'*/15 * * * *'})
     expect(f.unexpected).toEqual([])
   })
 }
+
+test('115 retains both normal generation modes through save and reopen, with life as default',async({page})=>{
+  const f=await fixture(page);await page.goto('/tasks/strm')
+  for(const [label,mode] of [['查漏补缺','incremental_missing'],['增量更新','incremental_update']]){
+    await page.locator('.task-row-copy').click()
+    const dialog=page.getByRole('dialog',{name:'编辑 STRM 任务',exact:true})
+    await dialog.getByRole('button',{name:'生成方式',exact:true}).click()
+    await page.getByRole('option',{name:label,exact:true}).click()
+    await expect(dialog.getByRole('textbox',{name:'Cron 表达式',exact:true})).not.toHaveAttribute('required','')
+    await dialog.getByRole('button',{name:'保存任务',exact:true}).click();await expect(dialog).toHaveCount(0)
+    expect(f.writes.at(-1).body).toMatchObject({strmSource:'scan',mode,cron:''})
+    await page.locator('.task-row-copy').click();await expect(dialog.getByRole('button',{name:'生成方式',exact:true})).toHaveText(label)
+    await dialog.getByRole('button',{name:'选择目录',exact:true}).click()
+    const picker=page.getByRole('dialog',{name:'选择存储目录',exact:true})
+    await picker.locator('.source-accounts button').filter({hasText:'本地'}).click()
+    await picker.locator('.source-accounts button').filter({hasText:'115影视'}).click()
+    await picker.getByRole('button',{name:'选择当前目录',exact:true}).click()
+    await expect(dialog.getByRole('button',{name:'生成方式',exact:true})).toHaveText(label)
+    await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0)
+  }
+  await page.locator('.task-row-copy').click()
+  const dialog=page.getByRole('dialog',{name:'编辑 STRM 任务',exact:true})
+  await dialog.getByRole('button',{name:'生成方式',exact:true}).click();await page.getByRole('option',{name:'生活事件',exact:true}).click()
+  await expect(dialog).toContainText('留空则持续监控所选目录')
+  await dialog.getByRole('button',{name:'保存任务',exact:true}).click();await expect(dialog).toHaveCount(0)
+  expect(f.writes.at(-1).body).toMatchObject({strmSource:'life',mode:'incremental_update',cron:''})
+  await page.getByRole('button',{name:'添加 STRM 任务卡片',exact:true}).click()
+  const fresh=page.getByRole('dialog',{name:'添加 STRM 任务',exact:true})
+  await fresh.getByRole('button',{name:'选择目录',exact:true}).click()
+  const picker=page.getByRole('dialog',{name:'选择存储目录',exact:true})
+  await picker.locator('.source-accounts button').filter({hasText:'115影视'}).click();await picker.getByRole('button',{name:'选择当前目录',exact:true}).click()
+  await expect(fresh.getByRole('button',{name:'生成方式',exact:true})).toHaveText('生活事件')
+  await fresh.getByRole('button',{name:'更多选项',exact:true}).click()
+  await expect(fresh.getByRole('spinbutton',{name:'请求间隔',exact:true})).toHaveValue('0')
+  expect(f.unexpected).toEqual([])
+})
+
+test('old 115 tree tasks open as ordinary update and preserve saved cooldown',async({page})=>{
+  const f=await fixture(page);Object.assign(f.tasks[0],{strmSource:'tree',mode:'incremental_missing',apiInterval:1750,cron:'*/15 * * * *'})
+  await page.goto('/tasks/strm');await page.locator('.task-row-copy').click()
+  const dialog=page.getByRole('dialog',{name:'编辑 STRM 任务',exact:true})
+  await expect(dialog.getByRole('button',{name:'生成方式',exact:true})).toHaveText('增量更新')
+  await dialog.getByRole('button',{name:'更多选项',exact:true}).click()
+  await expect(dialog.getByRole('spinbutton',{name:'请求间隔',exact:true})).toHaveValue('1750')
+  await dialog.getByRole('button',{name:'保存任务',exact:true}).click();await expect(dialog).toHaveCount(0)
+  expect(f.writes.at(-1).body).toMatchObject({strmSource:'scan',mode:'incremental_update',apiInterval:1750,cron:'*/15 * * * *'})
+  expect(f.unexpected).toEqual([])
+})
 
 test('full sync is above reset, confirmed and does not clear the library first',async({page})=>{
   const f=await fixture(page);await page.goto('/tasks/strm')

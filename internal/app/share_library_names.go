@@ -26,7 +26,7 @@ func shareLibraryDirectoryAvailable(st State, card, old quarkLibraryCard) error 
 }
 
 func shareLibraryNamesAvailable(st State, card quarkLibraryCard) error {
-	for _, group := range [][]quarkLibraryCard{st.QuarkLibraryCards, st.MobileLibraryCards} {
+	for _, group := range [][]quarkLibraryCard{st.QuarkLibraryCards, st.MobileLibraryCards, st.CASLibraryCards} {
 		for _, other := range group {
 			if other.ID != card.ID && strings.EqualFold(filepath.Clean(other.Directory), filepath.Clean(card.Directory)) &&
 				strings.EqualFold(other.DirectoryName, card.DirectoryName) {

@@ -8,13 +8,13 @@ import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
 import NumberInput from './NumberInput.vue'
 import { readPlugin, invalidatePlugin } from '../plugin-config'
-const props = defineProps({ kind: String, title: String })
+const props = defineProps({ kind: String, title: String, embedded: Boolean })
 const emit = defineEmits(['close', 'changed'])
 const form = reactive({ enabled: false, apiURL: '', imageURL: '', apiKey: '', language: 'zh-CN', requestInterval: 250, username: '', password: '', model: '', address: '', token: '' })
 const loaded = ref(false), busy = ref(false), error = ref('')
 const webhook = computed(() => `${location.origin}/api/emby/webhook?token=${encodeURIComponent(form.token)}`)
 async function load() {
-  try { Object.assign(form, await readPlugin(props.kind)); loaded.value = true }
+  try { Object.assign(form, await readPlugin(props.kind, props.embedded)); loaded.value = true }
   catch (e) { error.value = e.message }
 }
 async function save() {
@@ -32,16 +32,33 @@ async function action(name) {
     notify(props.kind === 'proxy' ? '代理连接成功' : '连接成功')
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
+async function toggleEnabled() {
+  if (busy.value || !loaded.value) return
+  busy.value = true; error.value = ''
+  try {
+    const current = await readPlugin(props.kind, true)
+    await api(`/plugins/${props.kind}`, 'PUT', { ...current, enabled: !current.enabled })
+    invalidatePlugin(props.kind)
+    form.enabled = !current.enabled
+    emit('changed', { kind: props.kind, enabled: form.enabled })
+    notify(`${form.enabled ? '已启用' : '已停用'} ${props.title}`)
+  } catch (e) { error.value = e.message; notify(e.message, true) }
+  finally { busy.value = false }
+}
 async function copy() {
   try { await copyText(webhook.value); notify('Webhook 地址已复制') } catch { notify('复制失败', true) }
 }
 onMounted(load)
 </script>
 <template>
-  <Modal :title="title" compact wide @close="$emit('close')">
+  <component :is="embedded ? 'section' : Modal" v-bind="embedded ? { class: 'plugin-settings-panel', 'aria-label': title } : { title, compact: true, wide: true }" @close="$emit('close')">
+    <header v-if="embedded" class="plugin-settings-heading">
+      <button type="button" class="plugin-symbol" :aria-label="`${form.enabled ? '停用' : '启用'}${title}`" :aria-pressed="form.enabled" :disabled="busy || !loaded" @click="toggleEnabled"><Icon :name="kind==='tmdb' ? 'TMDB' : 'BrainCircuit'" :size="28" /></button>
+      <h2>{{ title }}</h2><span class="muted">{{ loaded ? (form.enabled ? '已启用' : '未启用') : '未读取' }}</span>
+    </header>
     <form @submit.prevent="save">
       <div class="modal-body plugin-settings">
-        <p v-if="!loaded" role="status">正在读取配置…</p>
+        <p v-if="!loaded && !error" role="status">正在读取配置…</p>
         <template v-if="loaded">
         <template v-if="kind === 'tmdb'">
           <div class="form-grid">
@@ -71,12 +88,26 @@ onMounted(load)
         </template>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       </div>
-      <footer class="modal-footer"><button v-if="kind !== 'emby'" type="button" class="btn plugin-test" :disabled="busy || !loaded" @click="action('test')"><Icon name="Activity" />测试连接</button><button class="btn primary" :disabled="busy || !loaded"><Icon name="Save" />保存配置</button></footer>
+      <footer :class="embedded ? 'plugin-settings-actions' : 'modal-footer'"><button v-if="kind !== 'emby'" type="button" class="btn plugin-test" :disabled="busy || !loaded" @click="action('test')"><Icon name="Activity" />测试连接</button><button class="btn primary" :disabled="busy || !loaded"><Icon name="Save" />保存配置</button></footer>
     </form>
-  </Modal>
+  </component>
 </template>
 <style scoped>
 .plugin-settings { display: grid; gap: 16px; }
+.plugin-settings-panel{display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden}
+.plugin-settings-heading{display:flex;align-items:center;gap:12px;padding:20px;border-bottom:1px solid var(--border);flex:none}
+.plugin-settings-heading h2{font-size:16px;line-height:24px;margin:0;flex:1;min-width:0}
+.plugin-settings-heading>span{font-size:12px;flex:none}
+.plugin-settings-heading .plugin-symbol{width:44px;height:44px;padding:0;border:0;flex:none;cursor:pointer}
+.plugin-settings-heading .plugin-symbol[aria-pressed=false]{opacity:.55}
+.plugin-settings-heading .plugin-symbol:disabled{cursor:wait}
+.plugin-settings-panel>form{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.plugin-settings-panel .plugin-settings{padding:20px;align-content:start;flex:1;overflow:auto;scrollbar-width:none}
+.plugin-settings-panel .plugin-settings::-webkit-scrollbar{display:none}
+.plugin-settings-panel :deep(input:not([type=checkbox])),.plugin-settings-panel :deep(.rounded-select-trigger),.plugin-settings-panel :deep(.number-control),.plugin-settings-panel :deep(.secret-input){height:40px;min-height:40px;border-radius:10px}
+.plugin-settings-actions{display:flex;gap:10px;align-items:center;padding:16px 20px;border-top:1px solid var(--border);flex:none}
+@media(min-width:761px) and (max-height:600px){.plugin-settings-heading{padding:6px 12px}.plugin-settings-panel .plugin-settings{padding:10px 12px;gap:12px}.plugin-settings-actions{padding:6px 12px}}
+@media(max-width:760px){.plugin-settings-heading{padding:16px}.plugin-settings-panel .plugin-settings{padding:16px;overflow:visible}.plugin-settings-actions{padding:16px}.plugin-settings-panel .form-grid{grid-template-columns:minmax(0,1fr)}}
 .plugin-test { margin-right: auto; }
 .plugin-query { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: end; border-top: 1px solid var(--border); padding-top: 16px; }
 .plugin-query small { grid-column: 1 / -1; color: var(--muted); }

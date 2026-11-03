@@ -20,6 +20,7 @@ import LoginPage from './pages/LoginPage.vue'
 import StoragePage from './pages/StoragePage.vue'
 import CloudManagementPage from './pages/CloudManagementPage.vue'
 import TasksPage from './pages/TasksPage.vue'
+import OrganizePage from './pages/OrganizePage.vue'
 import TaskPanelPage from './pages/TaskPanelPage.vue'
 import AutomationPage from './pages/AutomationPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -70,11 +71,11 @@ const navigationGroups = [
   { id: 'overview', label: '以太视界', items: [
     { path: '/dashboard', label: '信息总览', icon: 'Gauge' },
     { path: '/files', label: '文件服务', icon: 'FolderOpen' },
-    { path: '/storage', label: '存储管理', icon: 'HardDrive' }
+    { path: '/storage', label: '存储管理', icon: 'HardDrive' },
+    { path: '/transfer', label: '传输中心', icon: 'FolderSync' }
   ] },
   { id: 'workshop', label: '以太工坊', items: [
-    { path: '/rules', label: '以太识律', icon: 'Braces' },
-    { path: '/transfer', label: '传输中心', icon: 'FolderSync' },
+    { path: '/rules', label: '以太识律', icon: 'RecognitionRules' },
     { path: '/tasks', label: '任务中心', icon: 'ListTodo' },
     { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' },
     { path: '/links', label: '以太链接', icon: 'Waypoints' },
@@ -92,16 +93,16 @@ const currentPath = computed(() => route.path === '/' ? '/storage' : route.path 
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
 const title = computed(() => activeNav.value?.label || '以太')
 const sectionTitles = {
-  '/rules/naming':['命名规则'], '/rules/categories':['二级分类'], '/rules/upgrade':['洗版策略'], '/rules/assist':['辅助配置'],
+  '/rules/recognition':['识别规则'], '/rules/naming':['命名规则'], '/rules/categories':['媒体分类'], '/rules/upgrade':['洗版策略'], '/rules/assist':['辅助配置'],
   '/files':['文件管理'], '/files/webdav':['WebDAV'], '/files/mounts':['本地挂载'],
   '/storage':['存储池'], '/storage/shares':['分享栏'], '/storage/downloads':['云下载'], '/storage/trash':['回收站'],
   '/transfer':['传输任务'], '/transfer/backup':['备份规则'], '/transfer/backup/settings':['备份规则','备份设置'],
   '/tasks/panel':['任务面板'], '/tasks/strm':['STRM 任务'], '/tasks/cas':['CAS 任务'], '/tasks/cas/pool':['CAS 任务','存储绑定池'],
   '/tasks/ed2k':['ED2K 任务'], '/tasks/ed2k/pool':['ED2K 任务','存储绑定池'],
   '/tasks/cache':['缓存任务'], '/tasks/cache/settings':['缓存任务','缓存设置'],
-  '/tasks/organize':['目录整理'], '/tasks/scrape':['STRM 刮削'], '/tasks/automation':['联动任务'],
+  '/tasks/organize':['整理归档'], '/tasks/scrape':['STRM 刮削'], '/tasks/automation':['联动任务'],
   '/virtual':['115链库'], '/virtual/115':['115链库'], '/virtual/mobile':['移动链库'], '/virtual/quark':['夸克链库'],
-  '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/mobile/settings':['移动链库','链库设置'], '/virtual/cas':['CAS链库'],
+  '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/mobile/settings':['移动链库','链库设置'], '/virtual/cas':['CAS链库'], '/virtual/cas/settings':['CAS链库','链库设置'],
   '/links/manage':['以链管理'], '/links/cache':['直链缓存'],
   '/tools':['我的插件'], '/tools/market':['插件市场'], '/tools/115-rapid':['115秒传中心'],
   '/archives':['整理档案'], '/archives/organize':['整理档案'], '/archives/scrape':['刮削档案'], '/archives/tasks':['任务档案'],
@@ -114,7 +115,6 @@ const planned = computed(() => ({
   '/backup': { title: '备份中心', icon: 'ArchiveRestore', items: ['备份计划', '备份历史', '恢复与校验'] },
   '/files/mounts': { title: '本地挂载', icon: 'CloudDownload', items: ['FUSE 挂载管理', '挂载点状态'] },
   '/links': { title: '以太链接', icon: 'Waypoints', items: ['Audiobookshelf 反向代理', 'Emby 反向代理', '飞牛影视反向代理'] },
-  '/tasks/organize': { title: '目录整理', icon: 'FolderTree', items: ['目录整理任务', '整理规则与预览'] },
   '/tasks/scrape': { title: 'STRM 刮削', icon: 'ScanSearch', items: ['媒体识别', 'TMDB 元数据', 'NFO 与封面'] }
 }[currentPath.value]))
 const dismissedKeys = ref([])
@@ -240,7 +240,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
       <main class="page-content">
         <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />
-        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/panel','/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k','/tasks/ed2k/pool', '/tasks/cache', '/tasks/cache/settings', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
+        <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/panel','/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k','/tasks/ed2k/pool', '/tasks/cache', '/tasks/cache/settings', '/tasks/organize', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />
         <CloudManagementPage v-else-if="['/storage/shares','/storage/downloads','/storage/trash'].includes(currentPath)" :key="currentPath" :kind="currentPath.split('/').at(-1)" />
         <template v-else-if="currentPath === '/transfer/backup/settings'"><section class="task-heading"><button class="btn" @click="router.push('/transfer/backup')"><Icon name="ArrowLeft" />返回备份规则</button></section><TransferSettings mode="backup" /></template>
@@ -250,6 +250,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <MountsPage v-else-if="currentPath === '/files/mounts'" />
         <TaskPanelPage v-else-if="currentPath === '/tasks/panel'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas', '/tasks/ed2k'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
+        <OrganizePage v-else-if="currentPath === '/tasks/organize'" />
         <ScrapePage v-else-if="currentPath === '/tasks/scrape'" />
         <AutomationPage v-else-if="currentPath === '/tasks/automation'" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
@@ -258,7 +259,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <SettingsPage v-else-if="currentPath === '/files/webdav'" section="webdav" />
         <SettingsPage v-else-if="currentPath.startsWith('/settings')" :section="currentPath.endsWith('about') ? 'about' : currentPath.endsWith('logs') ? 'logs' : currentPath.endsWith('transfer') ? 'transfer' : currentPath.endsWith('strm')?'strm':'account'" />
         <LinksPage v-else-if="['/links/manage', '/links/cache'].includes(currentPath)" />
-        <RulesPage v-else-if="['/rules/naming','/rules/categories','/rules/upgrade','/rules/assist'].includes(currentPath)" :section="currentPath.split('/').at(-1)" />
+        <RulesPage v-else-if="['/rules/recognition','/rules/naming','/rules/categories','/rules/upgrade','/rules/assist'].includes(currentPath)" :section="currentPath.split('/').at(-1)" />
         <ToolsPage v-else-if="currentPath === '/tools' || currentPath === '/tools/market'" :section="currentPath.endsWith('/market') ? 'market' : 'tools'" />
         <Rapid115Page v-else-if="currentPath === '/tools/115-rapid'" />
         <NotificationPage v-else-if="currentPath.startsWith('/notifications')" :section="currentPath.endsWith('transfers') ? 'transfers' : 'telegram'" />

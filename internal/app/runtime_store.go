@@ -17,7 +17,7 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
-var runtimeRootFields = []string{"libraryNotices", "shareNotices", "shareTransfers", "shareLiveLinks", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "rename115Attempts", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "mobileLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts", "ali115Receipts"}
+var runtimeRootFields = []string{"libraryNotices", "shareNotices", "shareTransfers", "shareLiveLinks", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "rename115Attempts", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "mobileLibraryRuntime", "casLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts", "ali115Receipts"}
 
 func stripRuntimeRecords(value any, fields []string) any {
 	raw, _ := json.Marshal(value)
@@ -107,6 +107,7 @@ func (s *Store) initRuntime(dir string) error {
 		// Configuration import resets task results, not the administrator's file records.
 		var records struct {
 			MobileLibrary         mobileLibraryRuntime            `json:"mobileLibraryRuntime"`
+			CASLibrary            casLibraryRuntime               `json:"casLibraryRuntime"`
 			QuarkLibrary          quarkLibraryRuntime             `json:"quarkLibraryRuntime"`
 			Telegram              telegramRuntime                 `json:"telegramRuntime"`
 			Favorites             []FileFavorite                  `json:"fileFavorites"`
@@ -143,6 +144,7 @@ func (s *Store) initRuntime(dir string) error {
 		s.state.TelegramRuntime = records.Telegram
 		s.state.QuarkLibraryRuntime = records.QuarkLibrary
 		s.state.MobileLibraryRuntime = records.MobileLibrary
+		s.state.CASLibraryRuntime = records.CASLibrary
 		s.state.ShareTransfers, s.state.ShareLiveLinks = records.ShareTransfers, records.ShareLiveLinks
 		s.state.Rename115Attempts = records.Rename115Attempts
 	}
@@ -234,6 +236,12 @@ func (s *Store) initRuntime(dir string) error {
 		if result.Status == "running" {
 			result.Status, result.Message, result.NextRun = "interrupted", "服务重启，移动链库生成已中断，已生成文件保留", time.Time{}
 			s.state.MobileLibraryRuntime.Results[key] = result
+		}
+	}
+	for key, result := range s.state.CASLibraryRuntime.Results {
+		if result.Status == "running" {
+			result.Status, result.Message, result.NextRun = "interrupted", "服务重启，CAS生成已中断；请核对生成队列和临时回执", time.Time{}
+			s.state.CASLibraryRuntime.Results[key] = result
 		}
 	}
 	for i := range s.state.TelegramRuntime.Jobs {

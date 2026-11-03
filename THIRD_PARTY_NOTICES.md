@@ -1,5 +1,37 @@
 # Protocol References
 
+## Naming and version scoring workflow comparison (2026-11-03)
+
+The local115-station `RenameTab.vue`, `utils/rename.ts` and `WashTab.vue`, and
+MoviePilot-Frontend V3 commit `55db2eaad425406daa6f2ed90b70cd85c6772349`
+(`FileRenameDialog.vue`, `FilterRuleGroupInfoDialog.vue`, `AccountSettingRule.vue`)
+were read for naming and ordered-rule interaction context. The user's screenshots
+define Aether's restricted variable set, chip styles and scoring-group catalog.
+Aether independently implements a bounded placeholder parser, source/visual
+editor, pointer/keyboard sorting and the user-selected linear weighted total.
+No upstream code, algorithms, components, styles, assets, preset packages or new
+dependencies are copied or distributed with this change.
+
+## Media classification workflow comparison (2026-11-03)
+
+MoviePilot-Frontend V3 commit `55db2eaad425406daa6f2ed90b70cd85c6772349`
+was read for its category, ordered rule and condition editor structure, alongside
+MoviePilot's official classification design and schema documentation. Aether
+independently implements its existing preset-card integration, television/movie
+scope, relative directory validation, typed conditions and pure evaluator.
+No upstream components, source code, styles, resources, metadata fetchers or
+Vuetify dependencies are copied or distributed with this implementation.
+
+## Recognition workflow comparison (2026-11-03)
+
+The local `pancras-loe/115-station` files `RecognizeTab.vue`, `recognize.ts`
+and `internal/api/organize.go` were read to compare ordered recognition-only
+text/regex replacements and release-group configuration. Aether independently
+uses its existing Go name-replacement compiler for both validated preview and
+configuration, and implements its own blacklist, post-naming and suffix rules.
+No source code, styles, preset corpus, assets or dependencies from that project
+are copied or distributed as part of this change.
+
 ## Rename Workbench Chinese Conversion
 
 Aether links `github.com/yanmingcao/opencc-go` v1.0.0, unmodified, for
@@ -228,6 +260,41 @@ Aether independently implements the protocol using its existing Go transport,
 signatures, staged files and publication checks; no OpenList source or runtime
 is bundled. Client selection does not grant account membership or capacity,
 and simulated 500 GB boundaries do not verify a real 500 GB cloud upload.
+
+## Mobile share playback protocol comparison (2026-11-02)
+
+The user-supplied local `share139-proxy` checkout (AGPL-3.0-only) was read
+again for mobile-library playback: share list playback URL fields and the
+separate `dlFromOutLinkV3` download-redirect protocol. Aether independently
+selects those protocol fields, uses its existing native transfer/client code,
+and implements its own durable receipts, rotation and cleanup. No JavaScript
+service, HLS proxy/playlist rewriter, assets or runtime from that checkout is
+copied or bundled. Its download-redirect mode is distinct from its HLS mode.
+
+## 115 STRM bulk enumeration protocol comparison (2026-11-02)
+
+The local snapshots of `pancras-loe/115-station` (`internal/api/fast115.go`)
+and `indown/openStrm` (`services/cloud-115/client.ts`, `services/task/tree.ts`)
+were read to compare recursive file/directory listings with exported path trees.
+Aether independently requests the existing Cookie read-only `/files?show_dir=0`
+and `/app/chrome/downfolders` protocols, validates complete subtree identities and
+retains its own pickcode playback index, authenticated internal directory identity
+and deletion guards, without marker files in STRM output directories.
+Directory pickcodes come from the unmodified 115driver file-detail API; no
+reference pickcode-conversion algorithm, server source, export parser or runtime
+is copied or bundled. No cloud tree-export artifact is created or deleted.
+
+The full-generation configuration and batching approach of
+`DDSRem-Dev/MoviePilot-Plugins`, commit
+`3d8c516084c3adcd60b29e24dbcf35fc3effbee7`, were also read for comparison
+(`plugins.v3/p115strmhelper/core/config.py` and `helper/strm/full/__init__.py`).
+Its default skim iterator inherits the zero-second cooldown in
+`ChenyangGao/p115client/tool/iterdir.py` (inspected blob
+`26e893bac2acba070da82321e0ecd7fee710dafb`); its other iterator explicitly
+uses 1.5 seconds. Aether independently extends its existing validated bulk
+reader to normal STRM modes and exposes its own per-task request interval.
+No GPL Python/Rust implementation, worker pool, pickcode conversion, package
+or asset from these repositories is copied or distributed with Aether.
 
 ## QQ Official Bot and Feishu Custom Bot
 

@@ -21,9 +21,10 @@ type fuseMountServer interface {
 }
 
 type mountProcess struct {
-	server fuseMountServer
-	done   chan struct{}
-	point  string
+	server   fuseMountServer
+	done     chan struct{}
+	point    string
+	stopping bool
 }
 
 type mountManager struct {
@@ -225,7 +226,9 @@ func (m *mountManager) start(key string) (err error) {
 	}
 	point := mountTarget(mount)
 	if mountedAt(point) {
-		return errors.New("挂载点已被占用")
+		if err := recoverDisconnectedFuse(mount); err != nil {
+			return err
+		}
 	}
 	if err := m.app.validateMount(&mount); err != nil {
 		return err
@@ -239,11 +242,7 @@ func (m *mountManager) start(key string) (err error) {
 	}
 	process := &mountProcess{server: server, done: make(chan struct{}), point: point}
 	m.active[key] = process
-	go func() {
-		server.Wait()
-		close(process.done)
-		m.app.store.event("info", "storage", mount.Name+" 挂载进程已退出")
-	}()
+	go m.waitMount(key, mount, process)
 	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -269,15 +268,39 @@ func (m *mountManager) start(key string) (err error) {
 	}
 }
 
+func (m *mountManager) waitMount(key string, mount MountConfig, process *mountProcess) {
+	process.server.Wait()
+	close(process.done)
+	m.mu.Lock()
+	unexpected := m.active[key] == process && !process.stopping && m.app.ctx.Err() == nil
+	if unexpected {
+		m.failures[key] = "FUSE连接已断开，旧挂载可能残留；请重新挂载，并检查容器退出/OOM及挂载传播配置"
+	}
+	m.mu.Unlock()
+	if unexpected {
+		m.app.store.event("error", "storage", mount.Name+" FUSE服务意外退出："+process.point+"；请检查Docker日志、OOM及父目录挂载传播，重新挂载时会核验自身残留")
+	}
+}
+
 func (m *mountManager) stopLocked(key string) error {
 	process := m.active[key]
 	if process == nil {
 		return nil
 	}
+	process.stopping = true
 	if mountedAt(process.point) {
 		err := process.server.Unmount()
 		if err != nil {
-			return errors.New("卸载失败，目录可能正被占用；关闭访问它的程序后重试")
+			var mount MountConfig
+			for _, cfg := range m.app.store.snapshotWithLogLimit(0).Mounts {
+				if cfg.ID == key {
+					mount = cfg
+				}
+			}
+			if mount.ID == "" || recoverDisconnectedFuse(mount) != nil {
+				process.stopping = false
+				return errors.New("卸载失败，目录可能正被占用；关闭访问它的程序后重试")
+			}
 		}
 	}
 	select {
@@ -327,7 +350,7 @@ func (a *App) mountAPI(w http.ResponseWriter, r *http.Request) {
 			if process := a.mounts.active[mounts[i].ID]; process != nil {
 				select {
 				case <-process.done:
-					mounts[i].LastError = "挂载进程已退出，请查看日志"
+					mounts[i].LastError = "FUSE连接已断开，请检查容器日志后重新挂载"
 				default:
 					mounts[i].Status = "mounted"
 				}

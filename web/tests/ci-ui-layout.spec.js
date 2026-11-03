@@ -47,7 +47,7 @@ async function requiredTitle(control, text) {
   expect(geometry.grouped).toBe(true)
   expect(geometry.sameLine).toBe(true)
   expect(geometry.height).toBeLessThan(25)
-  expect(geometry.han).toBe(text.length - 1)
+  expect(geometry.han).toBe(0)
 }
 
 async function aligned(left, right) {
@@ -124,8 +124,9 @@ for (const [width, height, theme] of layouts) test.describe(`CI layout ${width} 
       await expect(trigger).toHaveText(label)
       await expect(trigger.locator('svg')).toHaveCount(2)
       const geometry = await trigger.evaluate(el => {
-        const bounds = el.getBoundingClientRect(), content = el.querySelector('.select-label'), text = content.querySelector('.han-text')
-        const icon = content.querySelector('svg').getBoundingClientRect(), words = text.getBoundingClientRect(), arrow = el.lastElementChild.getBoundingClientRect()
+        const bounds = el.getBoundingClientRect(), content = el.querySelector('.select-label'), range=document.createRange()
+        const svg=content.querySelector('svg');range.setStartAfter(svg);range.setEnd(content,content.childNodes.length)
+        const icon = svg.getBoundingClientRect(), words = range.getBoundingClientRect(), arrow = el.lastElementChild.getBoundingClientRect()
         return {
           fits: content.scrollWidth <= content.clientWidth,
           inside: icon.x >= bounds.x && words.right <= arrow.x && arrow.right <= bounds.right,

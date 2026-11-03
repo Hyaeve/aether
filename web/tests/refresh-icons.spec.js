@@ -21,6 +21,7 @@ async function setup(page) {
     if (path === '/api/cloud/manage') json = { items: [], nextPage: 0 }
     if (path === '/api/link-playback') json = { recentEvents: [] }
     if (path === '/api/version/check') json = { current: '0.6.1', message: '当前版本一致' }
+    if (path === '/api/rule-presets') json = [{id:'upgrade-test',kind:'upgrade',name:'洗版策略',description:''}]
     return route.fulfill({ json })
   })
   return requests
@@ -185,8 +186,8 @@ test('directory picker refresh is shared while the non-refresh media-upgrade sym
   await button.click()
   await expect.poll(() => requests.filter(path => path === '/api/files').length).toBeGreaterThan(before)
   await page.goto('/rules/upgrade')
-  const plugin = page.locator('.rule-placeholder').filter({hasText:'洗版策略'})
+  const plugin = page.locator('.rule-preset-card').filter({hasText:'洗版策略'})
   await expect(plugin.locator('svg.lucide-refresh-cw-icon')).toBeVisible()
-  await expect(plugin.locator('svg path')).toHaveCount(4)
+  await expect(plugin.locator('.rule-preset-symbol>svg path')).toHaveCount(4)
   await expect(plugin.locator('.refresh-icon')).toHaveCount(0)
 })

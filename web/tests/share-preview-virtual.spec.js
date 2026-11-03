@@ -162,7 +162,7 @@ test('virtual library tabs use unframed provider outlines in both themes',async(
  }
 })
 
-for(const width of [1440,390])for(const theme of ['light','dark'])test(`virtual library columns and CAS placeholder ${width} ${theme}`,async({page},info)=>{
+for(const width of [1440,390])for(const theme of ['light','dark'])test(`virtual library columns and CAS generation ${width} ${theme}`,async({page},info)=>{
  await mock(page)
  await page.setViewportSize({width,height:900})
  await page.goto('/virtual/115')
@@ -177,8 +177,10 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`virtual 
  await expect(page).toHaveURL(/\/virtual\/cas$/)
  await expect(tabs.getByRole('link',{name:'CAS链库',exact:true})).toHaveClass(/active/)
  await expect(tabs.getByRole('link',{name:'CAS链库',exact:true}).locator('svg.lucide-box-icon')).toHaveCount(1)
- await expect(page.locator('.virtual-planned')).toContainText('尚未开放')
- await expect(page.locator('.virtual-planned svg.lucide-box-icon')).toHaveCount(1)
+ await expect(page.getByRole('region',{name:'CAS分享链接',exact:true})).toContainText('暂无分享链接')
+ await expect(page.getByRole('region',{name:'CAS分享链接',exact:true}).locator('svg.lucide-box-icon')).toHaveCount(1)
+ await expect(page.getByRole('button',{name:'添加链接',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'CAS链库设置',exact:true})).toBeVisible()
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  await page.screenshot({path:info.outputPath(`cas-library-${width}-${theme}.png`)})
  await page.reload()

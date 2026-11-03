@@ -227,7 +227,7 @@ func TestTelegramLibraryProviderResultsAndChangedDefaults(t *testing.T) {
 		a.executeTelegramTransfer(context.Background(), job)
 	}
 	feedback := strings.Join(*messages, "\n")
-	if len(a.store.snapshot().QuarkLibraryCards) != 1 || strings.Count(feedback, "暂未接入") != 2 || !strings.Contains(feedback, "未启用") || m.saves != 0 {
+	if len(a.store.snapshot().QuarkLibraryCards) != 1 || !strings.Contains(feedback, "默认解析存储池和生成目录") || !strings.Contains(feedback, "绑定已授权且健康的原生移动云盘") || !strings.Contains(feedback, "未启用") || m.saves != 0 {
 		t.Fatal("unsupported providers must report, not fall back to share transfer", feedback)
 	}
 	if err := a.handleTelegramUpdate(context.Background(), cfg, telegramTextUpdate(2, 123, 123, "虚拟链库 https://pan.quark.cn/s/changed")); err != nil {

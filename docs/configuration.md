@@ -1,6 +1,6 @@
 # 模块配置
 
-TMDB与AI的界面入口现为“以太识律 → 辅助配置”，继续复用原插件配置、密钥按需查看及测试/保存接口；本次只调整导航，不迁移或重置存储内容。命名、分类、洗版及识别规则尚未实装的部分仅显示占位，详见[以太识律](rules-workspace.md)。
+TMDB与AI的界面入口现为“以太识律 → 辅助配置”，继续复用原插件配置、密钥按需查看及测试/保存接口，不迁移或重置存储内容。[命名和洗版预设](naming-upgrade-rules.md)现保存剧集/电影模板及有序评分分组，支持可视化编辑和只读求值；[媒体分类](media-categories.md)已支持多套预设，每张卡片独立保存剧集/电影目录、条件组合、顺序规则及兜底，整理任务用`mediaCategoryRuleId`引用，原`categoryRuleId`兼容读入，详见[以太识律](rules-workspace.md)。[识别规则](recognition-rules.md)现可保存前置匹配、归档黑名单、后置命名替换、发布组及文件体积阈值，前置规则有只读服务端预览。预设`rulePresets`、识别配置`recognitionRules`和整理归档任务定义`organizeTasks`存于主配置，随现有加密备份导出、导入及完整性事务保存；整理归档当前保存规则ID、冗余目录、过滤、元数据/排除名单及四个开关，`optionsVersion`区分旧缺省与显式关闭/留空，读取旧配置不重写磁盘。只提供本阶段配置表单与只读求值，不进入任务执行队列，详见[整理归档](organize-archive.md)。
 
 媒体深度删除配置为 `mediaDeepDelete.enabled/linkIds`，随加密配置备份。通过以链的Aether媒体目录/媒体服务目录映射定位原始STRM，独立回执位于数据目录runtime，不作为可导入的配置或自动执行队列。接入和启用步骤见[媒体深度删除](media-deep-delete.md)。
 
@@ -44,7 +44,7 @@ CAS目录任务的 `casInfoMode` 随 `task/cas.json` 保存，支持 `auto`（�
 
 普通STRM的`mode`随`task/strm.json`保存，支持默认`incremental_update`（增量更新）与`incremental_missing`（查漏补缺）。旧`full`/`incremental`分别兼容为更新/补缺，缺少值按更新；旧值读取不批量重写，编辑保存后规范化，未知值在保存、配置导入和启动时拒绝。旧全局`strmOverwriteMode`保留读取兼容，但设置界面不再显示，也不参与普通STRM执行。CAS和ED2K的模式不套用这两项新枚举。
 
-115普通任务另存`strmSource`：新建默认`life`生活事件，`tree`目录树须有Cron；旧缺省不迁移。`strmLifeSince`由服务在启用或源范围变化时设置，不允许客户端普通编辑回拨。`cascadeDelete`及`cascadeExtensions`保存级联开关和扩展名。来源索引、精确事件游标及待完成级联清理存于上述`strm-outputs`认证登记，不属于可清目录缓存或配置导出。恢复生活事件需保留运行登记、主密钥和生成目录，失败批次不提交游标。系统`strmContent`默认`original`、可选`encoded`，经`/api/strm/settings`的`content`读写，其他设置保存不清除明确选择。
+115普通任务另存`strmSource`：新建默认`life`生活事件，选择普通增量更新/查漏补缺时显式为`scan`，保留各自`mode`，Cron留空时仅手动执行，不启动生活事件轮询。“目录树”选项已移除，旧`tree`执行及编辑保存规范为普通增量更新，保留Cron和间隔。普通115增量、查漏及全量同步/重置优先读取携带pickcode的批量清单。更多选项在缓存期右侧半栏显示“请求间隔”，沿用`apiInterval`，单位ms、默认0、范围0–60000的非负整数；旧明确值保留，同存储运行任务取最大间隔，其他任务/存储及任务结束后保常规200ms最低间隔。它不限制本地写STRM，不新增配置字段。生成目录身份仅存内部认证运行登记，不再生成owner文件，见[生成说明](generation-import.md)。旧缺省不批量迁移。`strmLifeSince`由服务在启用或源范围变化时设置，不允许客户端普通编辑回拨。`cascadeDelete`及`cascadeExtensions`保存级联开关和扩展名。来源索引、精确事件游标、`rootIdentity`及待完成级联清理存于上述`strm-outputs`认证登记，不属于可清目录缓存或配置导出；目录身份绑定原文件系统，不能凭拷贝相同内容自动接管替换库。恢复生活事件需保留运行登记、主密钥和生成目录，失败批次不提交游标。系统`strmContent`默认`original`、可选`encoded`，经`/api/strm/settings`的`content`读写，其他设置保存不清除明确选择。
 
 普通STRM实际写入产物的摘要、输出范围和目录令牌独立保存在`/data/runtime/strm-outputs/*.json`，文件通过主密钥认证，目录令牌字段加密；生成目录内的任务专用`.owner`标记与之配套。它们不是配置或可随意清除的目录缓存，不进入配置导出，导入配置不删除本机原记录；恢复跨重启增量清理须一并保留`/data`、主密钥及生成目录。记录缺失不会接管历史文件，损坏会拒绝同步而非回退删除；全量重置仍需二次确认并核对自身标记。
 
@@ -54,7 +54,7 @@ CAS目录任务的 `casInfoMode` 随 `task/cas.json` 保存，支持 `auto`（�
 
 夸克链库设置 `quarkLibrary` 与链接卡片 `quarkLibraryCards` 同样保存在 `state.json`，卡片的 `secret` 为字段加密的规范分享链接，`cascadeCleanup` 缺省/`on` 开启、`off` 关闭；旧客户端更新时省略该字段不会覆盖已保存的关闭值。`/data/runtime/state.json` 的 `quarkLibraryRuntime` 保存执行结果、已生成文件授权和摘要、生成目录归属、临时转存与删除意图；目录内 `.aether-library-owner` 与运行态共同校验清理范围，不能随意移除。配置导入保留现有运行回执，重启不重放云端写入。请与主密钥一起备份配置和运行态，详见 [虚拟链库](virtual-library.md)。
 
-移动链库分别使用`mobileLibrary`、`mobileLibraryCards`和运行字段`mobileLibraryRuntime`；分享`secret`同样加密，原生账号授权仍属于存储配置。设置保存绑定池、默认目录/扩展名和`playbackMode`（`redirect`默认原文件直链、`relay`原文件中继）；不含夸克临时转存保活/失效清理字段。移动运行授权、摘要、结果和目录归属不进入配置导出，导入保留现有运行记录，重启仅标中断、不自动生成；迁移播放须同时保留运行态和主密钥。移动与夸克输出位置跨记录核对重叠，不能互相覆盖。
+移动链库分别使用`mobileLibrary`、`mobileLibraryCards`和运行字段`mobileLibraryRuntime`；分享`secret`同样加密，原生账号授权仍属于存储配置。设置保存绑定池、默认目录/扩展名及`playbackMode`：`share`默认分享直链、`relay`以太中继、`transfer`转存直链，旧`redirect`解释为`share`。新增`invalidDays`默认15、`retentionHours`默认12、`rotationHours`默认24；旧字段缺省0按默认读取，负值及超上限拒绝。夸克设置也增加`rotationHours`，默认24。移动运行授权、摘要、结果、目录归属及`temporary`转存/删除回执不进入配置导出，导入保留现有运行记录；重启不自动重放未知写入或生成，迁移播放须同时保留运行态和主密钥。移动与夸克输出位置跨记录核对重叠，不能互相覆盖，详见[虚拟链库](virtual-library.md)。
 
 [115文件夹清理](115-folder-cleanup.md)规则保存在`state.json`的`folderCleanup`，写前意图及成功回执另存`/data/runtime/state.json`的`folderCleanupReceipts`；导出配置排除回执，导入保留现有回执。全部Cron计划须满足[至少15分钟](cron-policy.md)，旧短周期可载入但不执行，115监控重试策略仍严格大于120分钟。
 

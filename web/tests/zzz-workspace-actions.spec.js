@@ -32,7 +32,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await expect(page).not.toHaveURL(/dashboard/)
   await page.goto('/tasks/strm')
   const taskPositions = await page.locator('[aria-label="任务栏目"] a').evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().x))
-  for (const name of ['目录整理', 'STRM 刮削', 'STRM 任务']) {
+  for (const name of ['整理归档', 'STRM 刮削', 'STRM 任务']) {
     await page.getByRole('link', { name, exact: true }).click()
     expect(await page.locator('[aria-label="任务栏目"] a').evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().x))).toEqual(taskPositions)
   }

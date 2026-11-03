@@ -407,11 +407,21 @@ func (a *App) checkTaskStartScopes(ctx context.Context, task Task, s Storage) er
 }
 
 func (a *App) refreshTaskInterval(storageID string) {
-	interval := 200
-	for _, task := range a.store.snapshotWithLogLimit(0).Tasks {
+	interval, active := 0, false
+	st := a.store.snapshotWithLogLimit(0)
+	for _, task := range st.Tasks {
 		if _, ok := a.running[task.ID]; ok && task.StorageID == storageID {
-			interval = max(interval, task.APIInterval)
+			requested := max(200, task.APIInterval)
+			for _, storage := range st.Storages {
+				if storage.ID == storageID && storage.Type == "115" && task.Kind == "strm" {
+					requested = task.APIInterval
+				}
+			}
+			interval, active = max(interval, requested), true
 		}
+	}
+	if !active {
+		interval = 200
 	}
 	a.gateMu.Lock()
 	a.intervals[storageID] = interval

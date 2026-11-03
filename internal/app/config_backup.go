@@ -129,6 +129,7 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	b.State.CloudCASRecords = nil
 	b.State.CASStats = CASRestoreStats{}
 	b.State.MobileLibraryRuntime = mobileLibraryRuntime{}
+	b.State.CASLibraryRuntime = casLibraryRuntime{}
 	b.State.ED2KStats, b.State.ED2KTemporary, b.State.GenerationJobs = CASRestoreStats{}, nil, nil
 	b.State.ToolsRevision = ""
 	b.State.Modules = nil
@@ -325,10 +326,16 @@ func applyPendingConfig(s *Store) error {
 	s.state.CASPlaybackAttempts = before.CASPlaybackAttempts
 	s.state.Rename115Attempts = before.Rename115Attempts
 	s.state.MobileLibraryRuntime = before.MobileLibraryRuntime
+	s.state.CASLibraryRuntime = before.CASLibraryRuntime
 	s.state.ShareTransfers, s.state.ShareLiveLinks = before.ShareTransfers, before.ShareLiveLinks
 	s.state.RenameHistory = nil
 	s.state.CASStats = CASRestoreStats{}
 	s.state.ED2KStats, s.state.ED2KTemporary, s.state.GenerationJobs = CASRestoreStats{}, nil, nil
+	for _, job := range before.GenerationJobs {
+		if job.LibrarySource != "" {
+			s.state.GenerationJobs = append(s.state.GenerationJobs, job)
+		}
+	}
 	// Imported run results must not be replaced by the old data directory on startup.
 	s.state.RuntimeSeparated = false
 	s.state.Modules = before.Modules

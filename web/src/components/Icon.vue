@@ -22,8 +22,14 @@ import { computed, h } from 'vue'
 import EmbyNoticeIcon from './EmbyNoticeIcon.vue'
 import RefreshIcon from './RefreshIcon.vue'
 import Ali115Icon from './Ali115Icon.vue'
+import ShareTransferIcon from './ShareTransferIcon.vue'
+import RecognitionRulesIcon from './RecognitionRulesIcon.vue'
+import OrganizeArchiveIcon from './OrganizeArchiveIcon.vue'
 import {LogIn,QrCode} from 'lucide-vue-next'
 const icons = {
+	ShareTransferHistory: ShareTransferIcon,
+	RecognitionRules: RecognitionRulesIcon,
+	OrganizeArchive: OrganizeArchiveIcon,
 	Ali115Rapid: Ali115Icon,
 	LogIn,
 	QrCode,

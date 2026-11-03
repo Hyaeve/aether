@@ -19,6 +19,7 @@ type quarkLibrarySettings struct {
 	Directory          string   `json:"directory"`
 	InvalidDays        int      `json:"invalidDays"`
 	RetentionHours     int      `json:"retentionHours"`
+	RotationHours      int      `json:"rotationHours,omitempty"`
 	MediaExtensions    string   `json:"mediaExtensions"`
 	MetadataExtensions string   `json:"metadataExtensions"`
 }
@@ -113,6 +114,9 @@ func effectiveQuarkLibrary(st State) quarkLibrarySettings {
 	if st.QuarkLibrary != nil {
 		cfg = *st.QuarkLibrary
 	}
+	if cfg.RotationHours == 0 {
+		cfg.RotationHours = 24
+	}
 	cfg.StorageIDs = append([]string{}, cfg.StorageIDs...)
 	for _, s := range st.Storages {
 		if s.Type == "quark" && s.Enabled {
@@ -131,6 +135,9 @@ func effectiveQuarkLibrary(st State) quarkLibrarySettings {
 
 func validateQuarkLibrary(st State, legacy ...bool) error {
 	if cfg := st.QuarkLibrary; cfg != nil {
+		if cfg.RotationHours < 0 || cfg.RotationHours > 8760 {
+			return errors.New("链库存储轮换时间须为1–8760 h")
+		}
 		if cfg.Directory != "" && (!filepath.IsAbs(cfg.Directory) || len(cfg.Directory) > 4096 || strings.ContainsAny(cfg.Directory, "\x00\r\n")) {
 			return errors.New("请选择容器内绝对生成位置")
 		}
@@ -330,12 +337,16 @@ func (a *App) quarkLibraryResolve(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) quarkLibraryStorage(st State) (Storage, error) {
 	cfg := effectiveQuarkLibrary(st)
+	available := []Storage{}
 	for _, sid := range cfg.StorageIDs {
 		for _, s := range st.Storages {
 			if s.ID == sid && s.Type == "quark" && s.Enabled && storageAuthBlocked(s, time.Now()) == nil {
-				return s, nil
+				available = append(available, s)
 			}
 		}
+	}
+	if len(available) > 0 {
+		return rotateLibraryStorages(available, cfg.RotationHours, time.Now())[0], nil
 	}
 	return Storage{}, errors.New("请在夸克链库设置中启用健康的夸克存储")
 }
@@ -491,6 +502,16 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	if err := validateQuarkLibraryCard(&card); err != nil {
 		fail(w, 400, err)
 		return
+	}
+	if exists {
+		if saved, err := a.saveShareLibraryMetadata("quark", old, card); saved {
+			if err != nil {
+				fail(w, 409, err)
+			} else {
+				jsonResponse(w, 200, map[string]string{"id": sid, "message": "链接配置已保存"})
+			}
+			return
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()

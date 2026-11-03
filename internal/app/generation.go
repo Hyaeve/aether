@@ -44,19 +44,20 @@ type generationManifest struct {
 	Mobile  *generationMobilePlan `json:"mobile,omitempty"`
 }
 type GenerationJob struct {
-	ID        string                `json:"id"`
-	Kind      string                `json:"kind"`
-	Name      string                `json:"name"`
-	Target    string                `json:"target"`
-	Status    string                `json:"status"`
-	Message   string                `json:"message"`
-	Processed int                   `json:"processed"`
-	Total     int                   `json:"total"`
-	Success   int                   `json:"success"`
-	Failed    int                   `json:"failed"`
-	Created   time.Time             `json:"created"`
-	Preview   string                `json:"preview"`
-	Temporary []GenerationTemporary `json:"temporary,omitempty"`
+	ID            string                `json:"id"`
+	Kind          string                `json:"kind"`
+	Name          string                `json:"name"`
+	Target        string                `json:"target"`
+	Status        string                `json:"status"`
+	Message       string                `json:"message"`
+	Processed     int                   `json:"processed"`
+	Total         int                   `json:"total"`
+	Success       int                   `json:"success"`
+	Failed        int                   `json:"failed"`
+	Created       time.Time             `json:"created"`
+	Preview       string                `json:"preview"`
+	Temporary     []GenerationTemporary `json:"temporary,omitempty"`
+	LibrarySource string                `json:"librarySource,omitempty"`
 }
 
 var ed2kTextPattern = regexp.MustCompile(`(?i)ed2k://\|file\|[^\r\n]+?\|/`)
@@ -661,7 +662,7 @@ func (a *App) executeGeneration(ctx context.Context, job GenerationJob, m genera
 	success := 0
 	if e == nil {
 		for _, entry := range m.Entries {
-			if e = ctx.Err(); e != nil {
+			if e = generationWorkCheck(ctx); e != nil {
 				break
 			}
 			filename := path.Join(rel, entry.Path)

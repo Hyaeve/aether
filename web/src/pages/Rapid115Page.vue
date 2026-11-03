@@ -3,7 +3,6 @@ import {computed,onMounted,onBeforeUnmount,ref} from 'vue'
 import {api,notify,state} from '../lib'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
-import Rapid115Icon from '../components/Rapid115Icon.vue'
 import Rapid115Fields from '../components/Rapid115Fields.vue'
 import BackupFilterEditor from '../components/BackupFilterEditor.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
@@ -119,7 +118,7 @@ onBeforeUnmount(()=>{alive=false;recordRequest++;watchRequest++;clearInterval(ti
 </script>
 <template>
   <div class="rapid115-page page-slide" :class="{leaving}">
-    <header class="task-heading"><div class="rapid115-title"><Rapid115Icon /><h2 class="module-title">115秒传中心</h2></div><button class="btn" @click="returnPage"><Icon name="ArrowLeft" />返回页面</button></header>
+    <header class="task-heading"><h2 class="module-title">115秒传中心</h2><button class="btn" @click="returnPage"><Icon name="ArrowLeft" />返回页面</button></header>
     <p v-if="error" class="error-message" role="alert">{{error}}</p>
     <div class="rapid115-top">
       <section class="rapid115-section"><header><h3><Icon name="Zap" />手动秒传</h3><button class="btn primary" :disabled="!complete||running" @click="confirm=true"><Icon :name="running?'LoaderCircle':'Zap'" />{{running?'秒传中':'开始秒传'}}</button></header><fieldset :disabled="!loaded"><Rapid115Fields v-model="settings.manual" manual @source="picker='source'" @target="picker='target'" @target-input="inputTarget" @target-commit="commitTarget" @commit="save" /></fieldset></section>
@@ -139,7 +138,6 @@ onBeforeUnmount(()=>{alive=false;recordRequest++;watchRequest++;clearInterval(ti
 </template>
 <style scoped>
 .rapid115-page{min-width:0;display:flex;flex-direction:column;flex:1;background:transparent}
-.rapid115-title{display:flex;align-items:center;gap:12px}
 .rapid115-top{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px}
 .rapid115-section{min-width:0;border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:18px}
 .rapid115-section :deep(input),.rapid115-section :deep(.rounded-select-trigger){background:var(--input)}

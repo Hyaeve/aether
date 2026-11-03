@@ -169,17 +169,15 @@ func (a *App) resetTaskOutputLocked(ctx context.Context, t Task, s Storage, appl
 		return err
 	}
 	owned := false
+	var ownership *strmTaskSync
 	if t.Kind == "strm" && t.ID != "" {
-		if _, statErr := library.Lstat(strmOwnerName(t.ID)); statErr == nil {
-			h, err := a.beginSTRMSync(t, s, filepath.Dir(name), filepath.Base(name))
-			if err != nil || h == nil {
-				return errors.New("STRM生成库归属登记不可验证，不能重置")
-			}
-			token, err := strmReadOwner(library, strmOwnerName(t.ID))
-			if err != nil || token != h.manifest.Token {
-				return errors.New("STRM生成库归属标记不符，不能重置")
-			}
-			owned = true
+		ownership, err = a.beginSTRMSync(t, s, filepath.Dir(name), filepath.Base(name))
+		if err != nil || ownership == nil {
+			return errors.New("STRM生成库内部登记不可验证，不能重置")
+		}
+		owned, err = ownership.rootOwnership(library)
+		if err != nil {
+			return err
 		}
 	}
 	err = fs.WalkDir(library.FS(), ".", func(p string, entry fs.DirEntry, walkErr error) error {
@@ -282,10 +280,8 @@ func (a *App) resetTaskOutputLocked(ctx context.Context, t Task, s Storage, appl
 				return errors.New("生成库身份已改变，未执行重置")
 			}
 			if owned {
-				left, e1 := strmReadOwner(library, strmOwnerName(t.ID))
-				right, e2 := strmReadOwner(live, strmOwnerName(t.ID))
-				if e1 != nil || e2 != nil || left != right {
-					return errors.New("生成库归属标记已改变，未执行重置")
+				if current, e := ownership.rootOwnership(live); e != nil || !current {
+					return errors.New("生成库内部身份登记已改变，未执行重置")
 				}
 			}
 			for _, item := range candidates {

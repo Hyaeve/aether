@@ -31,6 +31,7 @@ func normalizeSTRMMode(mode string) (string, error) {
 
 type strmSyncManifest struct {
 	Root           string                    `json:"root"`
+	RootIdentity   string                    `json:"rootIdentity,omitempty"`
 	Scope          string                    `json:"scope"`
 	Token          string                    `json:"secret"`
 	Files          map[string]string         `json:"files"`
@@ -52,17 +53,18 @@ type strmTaskSync struct {
 	created, updated, removed int
 	trackingFull              bool
 	sourcesBefore             map[string]strmLifeSource
-	lifeAfterTree             *strmLifeCursor
+	lifeAfterScan             *strmLifeCursor
 	sourcesPending            bool
 	lifeBefore                strmLifeCursor
 	lifeDeleteParents         map[string]string
 }
 
 func strmTaskConfig(t Task) string {
+	normalizeSTRMSource(&t)
 	if mode, err := normalizeSTRMMode(t.Mode); err == nil {
 		t.Mode = mode
 	}
-	if t.STRMSource != "" {
+	if t.STRMSource == "life" {
 		t.Mode = strmUpdate
 	}
 	retained := "iso"
@@ -148,11 +150,13 @@ func (a *App) beginSTRMSync(t Task, s Storage, base, prefix string) (*strmTaskSy
 		}
 	} else if previous.Root == root {
 		h.manifest.Token = previous.Token
+		h.manifest.RootIdentity = previous.RootIdentity
 	}
 	if h.manifest.Sources == nil {
 		h.manifest.Sources = map[string]strmLifeSource{}
 	}
 	if t.resetGeneration {
+		h.manifest.RootIdentity = ""
 		h.manifest.Files = map[string]string{}
 		h.manifest.Sources = map[string]strmLifeSource{}
 		h.manifest.PendingCascade = nil
@@ -227,9 +231,9 @@ func (h *strmTaskSync) check(ctx context.Context) error {
 		}
 		defer live.Close()
 		info, err := live.Stat(".")
-		token, tokenErr := strmReadOwner(live, strmOwnerName(h.task.ID))
-		if err != nil || !os.SameFile(h.rootInfo, info) || tokenErr != nil || token != h.manifest.Token {
-			return errors.New("STRM生成目录身份或归属标记已改变")
+		identity, identityErr := strmRootIdentity(live)
+		if err != nil || !os.SameFile(h.rootInfo, info) || identityErr != nil || identity != h.manifest.RootIdentity {
+			return errors.New("STRM生成目录身份已改变")
 		}
 	}
 	return nil
@@ -269,28 +273,7 @@ func (h *strmTaskSync) ensure(ctx context.Context, base *os.Root) error {
 	if err != nil {
 		return err
 	}
-	marker := strmOwnerName(h.task.ID)
-	if _, err := h.root.Lstat(marker); err == nil {
-		return h.check(ctx)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if len(h.manifest.Files) > 0 && !h.task.resetGeneration {
-		return errors.New("STRM目录归属标记缺失，请核对生成库；未覆盖或清理")
-	}
-	if err := h.save(); err != nil {
-		return err
-	}
-	f, err := h.root.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	_, err = io.WriteString(f, h.manifest.Token)
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	return errors.Join(err, closeErr)
+	return h.bindRootIdentity(ctx)
 }
 
 func strmOutputDigest(root *os.Root, filename string) (string, os.FileInfo, error) {
@@ -515,6 +498,16 @@ func (h *strmTaskSync) finish(ctx context.Context, completed bool) error {
 		}
 		return errors.Join(err, h.save())
 	}
+	legacyMarker := false
+	if completed && h.root == nil && len(h.manifest.Files) == 0 {
+		_, err := os.Lstat(filepath.Join(h.manifest.Root, strmOwnerName(h.task.ID)))
+		legacyMarker = err == nil || !os.IsNotExist(err)
+	}
+	if completed && (len(h.manifest.Files) > 0 || legacyMarker) {
+		if err := h.ensure(ctx, nil); err != nil && !os.IsNotExist(err) {
+			return deferSave(err)
+		}
+	}
 	if !completed || h.task.Mode != strmUpdate {
 		if !completed {
 			h.manifest.Sources = maps.Clone(h.sourcesBefore)
@@ -530,8 +523,8 @@ func (h *strmTaskSync) finish(ctx context.Context, completed bool) error {
 	}
 	if len(stale) == 0 {
 		err := h.deleteOutputs(ctx, nil)
-		if err == nil && h.lifeAfterTree != nil {
-			h.manifest.Life = *h.lifeAfterTree
+		if err == nil && h.lifeAfterScan != nil {
+			h.manifest.Life = *h.lifeAfterScan
 		}
 		return deferSave(err)
 	}
@@ -572,8 +565,8 @@ func (h *strmTaskSync) finish(ctx context.Context, completed bool) error {
 		removedNames = append(removedNames, name)
 	}
 	err = h.deleteOutputs(ctx, removedNames)
-	if err == nil && h.lifeAfterTree != nil {
-		h.manifest.Life = *h.lifeAfterTree
+	if err == nil && h.lifeAfterScan != nil {
+		h.manifest.Life = *h.lifeAfterScan
 	}
 	return deferSave(err)
 }

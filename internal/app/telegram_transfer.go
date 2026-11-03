@@ -55,6 +55,7 @@ func (a *App) finishTelegram(key, status, message string, processed int) {
 			job := &st.TelegramRuntime.Jobs[i]
 			if job.ID == key {
 				job.Status, job.Link, job.Processed = status, "", processed
+				job.Result = message
 				if job.GroupID == job.ID {
 					for j := range st.TelegramRuntime.Jobs {
 						member := &st.TelegramRuntime.Jobs[j]
@@ -137,6 +138,10 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 		a.executeTelegramLibrary(ctx, job)
 		return
 	}
+	if job.Kind == "cas-library" {
+		a.executeTelegramCASLibrary(ctx, job)
+		return
+	}
 	if job.Selected < 0 || job.Selected >= len(job.Targets) {
 		a.finishTelegram(job.ID, "failed", "TG 转存目录无效", 0)
 		return
@@ -167,12 +172,8 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 			}
 		}
 		message := fmt.Sprintf("%s：%s · %s · %s；已提交%d项，跳过%d项", result, storageName, target.Path, name, processed, skipped)
-		a.finishTelegram(job.ID, status, message, processed)
-		if current := a.store.snapshotWithLogLimit(0).Notifications.Telegram; telegramDigest(current) == job.Auth && telegramAllowed(current, job.ChatID, job.UserID) {
-			if _, e := a.telegramSend(ctx, cfg, job.ChatID, message, nil); e != nil && ctx.Err() == nil {
-				a.store.event("warn", "notifications", "TG 转存反馈消息未确认，请查看运行日志")
-			}
-		}
+		a.store.event("info", "notifications", message)
+		a.telegramComplete(ctx, job, status, name, processed, skipped, result)
 	}
 	if err != nil {
 		finish("failed", "转存失败：存储池已停用或移除")
@@ -206,7 +207,9 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 			return
 		}
 		name = info.Name
-		_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+name+"\n目标："+s.Name+" · "+target.Path, nil)
+		if job.GroupSize <= 1 {
+			_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+name+"\n目标："+s.Name+" · "+target.Path, nil)
+		}
 		processed, err = a.submitTelegramED2K(ctx, job, target, s, stampText, submit115URIs)
 		if err != nil {
 			finish("failed", err.Error())
@@ -227,11 +230,14 @@ func (a *App) executeTelegramTransfer(ctx context.Context, job telegramTransfer)
 		if resolved := telegramShareName(items); resolved != "" {
 			name = resolved
 		}
-		_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+name+"\n目标："+s.Name+" · "+target.Path, nil)
+		if job.GroupSize <= 1 {
+			_, _ = a.telegramSend(ctx, cfg, job.ChatID, "准备"+action+"："+name+"\n目标："+s.Name+" · "+target.Path, nil)
+		}
 		batches, err = a.planShareSession(previewCtx, &session, code, pass, token, items)
 	}
 	previewCancel()
 	receipt.Items = items
+	receipt.Batches = batches
 	if err != nil {
 		finish("failed", "读取分享失败："+err.Error())
 		return

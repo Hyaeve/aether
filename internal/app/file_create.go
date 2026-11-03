@@ -215,7 +215,7 @@ func (a *App) receiveFile(ctx context.Context, s Storage, parent, name string, b
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(dir, "upload-*")
+	f, err := a.newTransferTemp(dir, "upload-*", size)
 	if err != nil {
 		return err
 	}

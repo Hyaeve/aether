@@ -6,7 +6,7 @@ import { documentIcon } from '../file-icon'
 import Icon from './Icon.vue'
 import ImageViewer from './ImageViewer.vue'
 import TextFileEditor from './TextFileEditor.vue'
-const props = defineProps({ task: String, query: String, works: Array, running: Boolean, excluded: {type:Array, default:()=>[]} })
+const props = defineProps({ task: String, query: String, works: Array, running: Boolean, busy: Boolean, excluded: {type:Array, default:()=>[]} })
 const emit = defineEmits(['reset', 'identify', 'count'])
 const dir = ref(''), files = ref([]), loading = ref(false), error = ref(''), viewport = ref(null), editor = ref(null), image = ref(null)
 let run = 0, editRun = 0, alive = true
@@ -66,7 +66,7 @@ defineExpose({ refresh: () => load(dir.value) })
     <article v-for="f in shown" :key="f.id" class="scrape-file-row" :class="{recognized:!!recognizedWork(f)}">
       <button class="file-name" :aria-label="f.name" :aria-description="recognizedWork(f) ? `${recognizedWork(f).kind==='tv'?'剧集':'电影'}，${recognizedWork(f).matchedTitle || recognizedWork(f).title}，TMDB ${recognizedWork(f).tmdb}` : undefined" @click="open(f)"><Icon :name="f.isDir ? 'Folder' : documentIcon(f.name) || 'Image'" :size="24" :class="{'folder-color':f.isDir}" /><span class="scrape-file-label"><strong :data-tooltip="f.name">{{ f.name }}</strong></span></button>
       <span v-if="recognizedWork(f)" class="scrape-folder-identity"><b>{{recognizedWork(f).kind==='tv'?'剧集':'电影'}}</b><span :data-tooltip="recognizedWork(f).matchedTitle || recognizedWork(f).title">{{recognizedWork(f).matchedTitle || recognizedWork(f).title}}</span><small>TMDB {{recognizedWork(f).tmdb}}</small></span>
-      <div v-if="f.isDir && work(f)" class="scrape-folder-actions"><button class="text-btn" :disabled="running" @click="emit('reset',work(f))"><Icon name="RotateCcw" />重置</button><button class="text-btn" :disabled="running" @click="emit('identify',work(f))"><Icon name="ScanSearch" />识别</button></div>
+      <div v-if="f.isDir && work(f)" class="scrape-folder-actions"><button class="text-btn" :disabled="running" @click="emit('reset',work(f))"><Icon name="RotateCcw" />重置</button><button class="text-btn" :disabled="busy" @click="emit('identify',work(f))"><Icon name="ScanSearch" />识别</button></div>
     </article>
     <div v-if="bottom" :style="{height:`${bottom}px`}" />
     <p v-if="loading || error || !filtered.length" class="small-empty" :role="error ? 'alert' : 'status'">{{ loading ? '正在读取目录…' : error || '暂无文件' }}</p>

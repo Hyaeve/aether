@@ -29,6 +29,7 @@ type mobileLibraryMock struct {
 	onDownload  func()
 	rejectAuth  string
 	finalCursor any
+	extra       func(*http.Request) (string, bool)
 }
 
 func mockMobileLibrary(t *testing.T, a *App) (*mobileLibraryMock, quarkLibraryCard) {
@@ -51,6 +52,11 @@ func mockMobileLibrary(t *testing.T, a *App) (*mobileLibraryMock, quarkLibraryCa
 		{"coID": "video", "coName": "剧集 [A] #1.mkv", "coPath": "root/video", "coSize": 10},
 	}}}
 	shareMock(t, func(r *http.Request) string {
+		if m.extra != nil {
+			if raw, ok := m.extra(r); ok {
+				return raw
+			}
+		}
 		m.calls = append(m.calls, r.URL.Path)
 		if m.onRead != nil {
 			fn := m.onRead
@@ -338,7 +344,7 @@ func TestMobileLibraryAPISettingsDraftsAndPersistence(t *testing.T) {
 		t.Fatal("canonical draft defaults lost", saved)
 	}
 	reopened, err := NewStore(a.store.dir)
-	if err != nil || len(reopened.snapshot().MobileLibraryCards) != 2 || effectiveMobileLibrary(reopened.snapshot()).PlaybackMode != "redirect" {
+	if err != nil || len(reopened.snapshot().MobileLibraryCards) != 2 || effectiveMobileLibrary(reopened.snapshot()).PlaybackMode != "share" {
 		t.Fatal("settings/cards did not persist", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(a.store.dir, "state.json"))
@@ -541,7 +547,8 @@ func TestMobileLibraryPlaybackAccountFallbackAndLateRevocation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	m.rejectAuth = "Basic " + st.Storages[0].Config["authorization"]
+	ordered := rotateLibraryStorages(a.mobileLibraryStorages(a.store.snapshot()), cfg.RotationHours, time.Now())
+	m.rejectAuth = "Basic " + ordered[0].Config["authorization"]
 	h, _ := mobileLibraryHandler(t, a)
 	target := "/139-share/CodeAb-Ab12/" + url.PathEscape("剧集 [A] #1.mkv")
 	before := len(m.calls)

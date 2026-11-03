@@ -699,8 +699,7 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 		if err != nil {
 			return err
 		}
-		name := filepath.Join(stageDir, key)
-		out, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		out, err := a.newTransferTemp(stageDir, "sync-*", op.file.file.Size)
 		if err != nil {
 			input.Close()
 			return err
@@ -718,7 +717,7 @@ func (a *App) executeBackupSync(ctx context.Context, rule *BackupRule, st State)
 		if n != op.file.file.Size || hex.EncodeToString(h.Sum(nil)) != key {
 			return errors.New("同步源文件已变化，停止发布")
 		}
-		staged[key] = syncFile{backupEntry{Storage{ID: "", Type: "local", Config: map[string]string{"root": stageDir}}, File{ID: "/" + key, Name: key, Size: n}, op.name, "/"}, key}
+		staged[key] = syncFile{backupEntry{Storage{ID: "", Type: "local", Config: map[string]string{"root": stageDir}}, File{ID: "/" + filepath.Base(out.Name()), Name: filepath.Base(out.Name()), Size: n}, op.name, "/"}, key}
 		return nil
 	}); err != nil {
 		return err

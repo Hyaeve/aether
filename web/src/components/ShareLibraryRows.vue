@@ -8,7 +8,7 @@ import PageJumpInput from './PageJumpInput.vue'
 
 const props=defineProps({cards:{type:Array,default:()=>[]},provider:{type:String,default:'quark'},running:{default:''},busy:Boolean,loading:Boolean})
 const emit=defineEmits(['edit','remove','run'])
-const label=computed(()=>props.provider==='mobile'?'移动':'夸克')
+const label=computed(()=>props.provider==='cas'?'CAS':props.provider==='mobile'?'移动':'夸克')
 const page=ref(1),jump=ref(1),viewport=ref(null)
 const pages=computed(()=>Math.max(1,Math.ceil(props.cards.length/20)))
 const pageCards=computed(()=>props.cards.slice((page.value-1)*20,page.value*20))
@@ -27,7 +27,7 @@ function generating(card){return props.running===card.id||card.result?.status===
       <div v-if="top" :style="{height:`${top}px`}" aria-hidden="true" />
       <article v-for="card in shown" :key="card.id" :data-config-path="`/virtual-library/${provider}/${card.id}`" class="quark-library-card share-library-row" :style="{height:`${rowHeight}px`}" :class="{invalid:hasTime(card.result?.invalidSince),disabled:!card.enabled}" :aria-label="card.name">
         <div class="share-row-main">
-          <header><ProviderIcon :type="provider" small /><h3 :data-tooltip="card.name">{{card.name}}</h3><span class="share-row-status" :class="card.result?.status">{{!card.enabled?(card.directory?'已停用':'未启用'):generating(card)?'执行中':card.result?.status==='invalid'?'分享失效':card.result?.status==='failed'?'执行失败':'活链'}}</span></header>
+          <header><Icon v-if="provider==='cas'" name="Box" :size="22"/><ProviderIcon v-else :type="provider" small /><h3 :data-tooltip="card.name">{{card.name}}</h3><span class="share-row-status" :class="card.result?.status">{{!card.enabled?(card.directory?'已停用':'未启用'):generating(card)?'执行中':card.result?.status==='invalid'?'分享失效':card.result?.status==='failed'?'执行失败':provider==='cas'?'CAS':'活链'}}</span></header>
           <div class="share-row-location" :data-tooltip="card.directory?`${card.directory}/${card.directoryName}`:'未设置生成位置'"><Icon name="FolderOpen" :size="15" /><span>{{card.directory?`${card.directory}/${card.directoryName}`:'未设置生成位置'}}</span></div>
           <p class="quark-result share-row-result" :class="card.result?.status" :data-tooltip="card.result?.message"><Icon :name="card.result?.status==='failed'?'CircleAlert':generating(card)?'LoaderCircle':'FileSymlink'" :class="{spin:generating(card)}" :size="14" /><span>{{card.result?.message||'等待执行'}}</span></p>
         </div>
@@ -36,10 +36,10 @@ function generating(card){return props.running===card.id||card.result?.status===
       </article>
       <div v-if="bottom" :style="{height:`${bottom}px`}" aria-hidden="true" />
     </div>
-    <div v-if="!cards.length" class="share-library-empty"><ProviderIcon :type="provider" small /><span>{{loading?'正在读取分享链接…':'暂无分享链接'}}</span></div>
+    <div v-if="!cards.length" class="share-library-empty"><Icon v-if="provider==='cas'" name="Box"/><ProviderIcon v-else :type="provider" small /><span>{{loading?'正在读取分享链接…':'暂无分享链接'}}</span></div>
     <footer class="share-library-pagination">
       <span>共 {{cards.length}} 条</span>
-      <div class="share-page-controls"><button class="icon-btn" aria-label="上一页" :disabled="page<=1" @click="go(page-1)"><Icon name="ChevronLeft" /></button><span role="status" aria-label="当前页">{{page}} / {{pages}}</span><button class="icon-btn" aria-label="下一页" :disabled="page>=pages" @click="go(page+1)"><Icon name="ChevronRight" /></button>
+      <div v-if="pages>1" class="share-page-controls"><button class="icon-btn" aria-label="上一页" :disabled="page<=1" @click="go(page-1)"><Icon name="ChevronLeft" /></button><span role="status" aria-label="当前页">{{page}} / {{pages}}</span><button class="icon-btn" aria-label="下一页" :disabled="page>=pages" @click="go(page+1)"><Icon name="ChevronRight" /></button>
         <form @submit.prevent="go(jump)"><PageJumpInput v-model="jump" :pages="pages" /><button class="icon-btn" aria-label="跳转页面"><Icon name="CornerDownLeft" /></button></form>
       </div>
     </footer>

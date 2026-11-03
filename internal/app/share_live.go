@@ -28,25 +28,28 @@ type shareTransferRecord struct {
 }
 
 type shareLiveLink struct {
-	ID            string    `json:"id"`
-	TargetID      string    `json:"targetId"`
-	StorageID     string    `json:"storageId"`
-	Provider      string    `json:"provider"`
-	Parent        string    `json:"parent"`
-	DirectoryID   string    `json:"directoryId"`
-	DirectoryName string    `json:"directoryName"`
-	Name          string    `json:"name"`
-	OriginalName  string    `json:"originalName,omitempty"`
-	Link          string    `json:"secret"`
-	Stamp         string    `json:"stamp"`
-	Cron          string    `json:"cron"`
-	IntervalDays  int       `json:"intervalDays"`
-	LastRun       time.Time `json:"lastRun"`
-	NextRun       time.Time `json:"nextRun"`
-	Status        string    `json:"status"`
-	Message       string    `json:"message"`
-	Intent        string    `json:"intent,omitempty"`
-	Excluded      []string  `json:"excluded,omitempty"`
+	ID                string    `json:"id"`
+	TargetID          string    `json:"targetId"`
+	StorageID         string    `json:"storageId"`
+	Provider          string    `json:"provider"`
+	Parent            string    `json:"parent"`
+	DirectoryID       string    `json:"directoryId"`
+	DirectoryName     string    `json:"directoryName"`
+	Name              string    `json:"name"`
+	OriginalName      string    `json:"originalName,omitempty"`
+	Link              string    `json:"secret"`
+	Stamp             string    `json:"stamp"`
+	Cron              string    `json:"cron"`
+	IntervalDays      int       `json:"intervalDays"`
+	LastRun           time.Time `json:"lastRun"`
+	NextRun           time.Time `json:"nextRun"`
+	Status            string    `json:"status"`
+	Message           string    `json:"message"`
+	Intent            string    `json:"intent,omitempty"`
+	DeleteTaskID      string    `json:"deleteTaskId,omitempty"`
+	IncrementalCursor string    `json:"incrementalCursor,omitempty"`
+	LastSuccess       time.Time `json:"lastSuccess,omitempty"`
+	Excluded          []string  `json:"excluded,omitempty"`
 }
 
 func validateShareLiveCron(expression string) error {
@@ -146,6 +149,7 @@ func (a *App) recordShareTransfer(record shareTransferRecord, p sharePreview) er
 				for i := range st.ShareLiveLinks {
 					link := &st.ShareLiveLinks[i]
 					if link.StorageID == record.StorageID && link.Parent == p.Parent && shareRecordURL(link.Link) == shareRecordURL(record.Link) {
+						a.seedShareLiveCheckpoint(link, p, record.Time)
 						key = link.ID
 						break
 					}
@@ -156,6 +160,7 @@ func (a *App) recordShareTransfer(record shareTransferRecord, p sharePreview) er
 						Link: record.Link, OriginalName: shareRootDirectory(p.Items), Excluded: append([]string(nil), p.Excluded...), Stamp: telegramDigest(p.Config), IntervalDays: target.updateDays(),
 						LastRun: record.Time, Status: record.Status, Message: record.Message}
 					link.NextRun = shareLiveNext(link, record.Time)
+					a.seedShareLiveCheckpoint(&link, p, record.Time)
 					st.ShareLiveLinks = append(st.ShareLiveLinks, link)
 					key = link.ID
 				}
@@ -181,7 +186,10 @@ func (a *App) shareTransferHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) shareLiveGuard(link shareLiveLink) (Storage, error) {
-	st := a.store.snapshotWithLogLimit(0)
+	return shareLiveGuardState(a.store.snapshotWithLogLimit(0), link)
+}
+
+func shareLiveGuardState(st State, link shareLiveLink) (Storage, error) {
 	for _, s := range st.Storages {
 		if s.ID != link.StorageID || s.Type != link.Provider || !s.Enabled || telegramDigest(shareConfig(s)) != link.Stamp {
 			continue
@@ -290,44 +298,25 @@ func (a *App) shareLiveAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s, err := a.shareLiveGuard(link)
-	if err == nil && link.Intent != "" {
-		err = errors.New("上次写入结果未确认，不重复提交删除")
-	}
 	if err == nil {
-		for _, other := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
-			if other.ID != key && other.StorageID == link.StorageID && other.DirectoryID == link.DirectoryID {
-				err = errors.New("此目录还被其他活链记录使用，不能一并删除")
-			}
-		}
-	}
-	if err == nil {
-		err = a.verifyShareLiveDirectory(ctx, s, link)
-	}
-	if err == nil {
-		err = a.setShareLiveIntent(key, "delete")
+		err = a.deleteShareLive(ctx, s, link)
 	}
 	if err == nil {
 		_, err = a.shareLiveGuard(link)
-	}
-	if err == nil {
-		err = a.cloudFileAction(context.WithValue(ctx, shareLiveActionKey{}, link.ID), s, s, fileActionRequest{Action: "delete", Source: link.Parent, IDs: []string{link.DirectoryID}})
-	}
-	if err == nil {
-		var files []File
-		files, err = a.rawList(ctx, s, link.Parent)
-		if err == nil {
-			for _, file := range files {
-				if file.ID == link.DirectoryID {
-					err = errors.New("删除已提交，云盘尚未确认目录移除；请核对云盘，勿重复提交")
-				}
-			}
-		}
 	}
 	if err != nil {
 		fail(w, 409, err)
 		return
 	}
 	err = a.store.update(func(st *State) error {
+		if _, err := shareLiveGuardState(*st, link); err != nil {
+			return err
+		}
+		for _, current := range st.ShareLiveLinks {
+			if current.ID == key && (current.StorageID != link.StorageID || current.Parent != link.Parent || current.DirectoryID != link.DirectoryID || current.DirectoryName != link.DirectoryName || current.Stamp != link.Stamp) {
+				return errors.New("活链保存目录身份已变化，未移除记录")
+			}
+		}
 		st.ShareLiveLinks = slices.DeleteFunc(st.ShareLiveLinks, func(item shareLiveLink) bool { return item.ID == key })
 		return nil
 	})
@@ -406,6 +395,10 @@ func (a *App) startShareLive(key, source string) error {
 }
 
 func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record shareTransferRecord) {
+	oldCursor := link.IncrementalCursor
+	if record.Time.IsZero() {
+		record.Time = time.Now()
+	}
 	s, err := a.shareLiveGuard(link)
 	if err == nil && link.DirectoryID != "" {
 		err = a.verifyShareLiveDirectory(ctx, s, link)
@@ -447,8 +440,22 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		}
 	}
 	guard := func() error {
-		_, err := a.shareLiveGuard(link)
-		return err
+		if _, err := a.shareLiveGuard(link); err != nil {
+			return err
+		}
+		for _, current := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
+			if current.ID == link.ID && current.IncrementalCursor == link.IncrementalCursor && current.Link == link.Link {
+				return nil
+			}
+		}
+		return errors.New("活链来源或新增基线已变化，未继续转存")
+	}
+	var checkpoint string
+	baseline := false
+	if err == nil {
+		var skipped int
+		batches, checkpoint, skipped, baseline, err = a.planShareLiveIncremental(link, batches, record.Time)
+		record.Skipped += skipped
 	}
 	if err == nil && link.DirectoryID == "" {
 		err = a.initializeShareLiveDirectory(ctx, s, &link)
@@ -471,16 +478,19 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		if err == nil && s.Type == "quark" && task != "" {
 			err = waitShareQuark(ctx, &s, task, guard)
 		}
-		if err == nil {
-			err = a.setShareLiveIntent(link.ID, "")
-		}
 		a.cache.clear()
+	}
+	if err == nil {
+		err = guard()
 	}
 	record.Status = "completed"
 	if record.Submitted > 0 && link.Provider == "mobile" {
 		record.Status = "submitted"
 	}
 	record.Message = fmt.Sprintf("新增提交%d个文件，跳过%d个文件", record.Submitted, record.Skipped)
+	if baseline && err == nil {
+		record.Message = fmt.Sprintf("已建立新增转存基线，跳过%d个历史文件；后续仅转存新增文件", record.Skipped)
+	}
 	if err != nil {
 		record.Status, record.Message = "failed", "活链更新未完成，请核对云盘及运行日志"
 		a.store.event("error", "notifications", fmt.Sprintf("[活链:%s] %s", link.ID, transferFailureReason(err)))
@@ -489,6 +499,14 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		for i := range st.ShareLiveLinks {
 			if st.ShareLiveLinks[i].ID == link.ID {
 				current := &st.ShareLiveLinks[i]
+				if err == nil {
+					_, guardErr := shareLiveGuardState(*st, link)
+					if guardErr != nil || current.IncrementalCursor != link.IncrementalCursor || current.Link != link.Link {
+						record.Status, record.Message = "failed", "活链来源或新增基线已变化，未推进检查点"
+					} else {
+						current.IncrementalCursor, current.LastSuccess, current.Intent = checkpoint, record.Time, ""
+					}
+				}
 				current.Status, current.Message, current.LastRun = record.Status, record.Message, record.Time
 				current.NextRun = shareLiveNext(*current, record.Time)
 				if current.Intent != "" {
@@ -500,6 +518,9 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		return nil
 	}); saveErr != nil {
 		a.store.event("error", "notifications", "活链结果保存失败，请核对云盘；不自动重提")
+	} else if record.Status == "completed" || record.Status == "submitted" {
+		link.IncrementalCursor = checkpoint
+		a.removeShareLiveCheckpoint(link, oldCursor)
 	}
 }
 

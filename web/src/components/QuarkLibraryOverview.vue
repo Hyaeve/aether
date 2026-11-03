@@ -6,7 +6,7 @@ import SettingsEntry from './SettingsEntry.vue'
 import AnimatedNumber from './AnimatedNumber.vue'
 
 const props = defineProps({ provider: {type:String,default:'quark'}, cards: { type: Array, default: () => [] }, stats: { type: Object, default: () => ({}) }, running: { default: '' } })
-const label=computed(()=>props.provider==='mobile'?'移动':'夸克')
+const label=computed(()=>props.provider==='cas'?'CAS':props.provider==='mobile'?'移动':'夸克')
 const active = computed(() => props.cards.filter(card => card.result?.status === 'running' || card.id === props.running))
 const executed = computed(() => props.cards.filter(card => card.id !== props.running &&
   ['completed', 'failed', 'invalid', 'cancelled', 'interrupted'].includes(card.result?.status) &&

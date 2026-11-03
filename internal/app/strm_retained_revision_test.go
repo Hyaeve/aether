@@ -105,7 +105,7 @@ func TestSTRMRetainedSettingRoundTripAndGeneratedNames(t *testing.T) {
 			}
 		}
 		files, err := os.ReadDir(task.Target)
-		if err != nil || len(files) != 4 {
+		if err != nil || len(files) != 3 {
 			t.Fatal("unexpected generated names", files, err)
 		}
 		sync, err := reopened.beginSTRMSync(saved, s, saved.Target, "")
@@ -116,10 +116,10 @@ func TestSTRMRetainedSettingRoundTripAndGeneratedNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		token, markerErr := strmReadOwner(root, strmOwnerName(saved.ID))
+		identity, identityErr := strmRootIdentity(root)
 		root.Close()
-		if markerErr != nil || token != sync.manifest.Token {
-			t.Fatal("unexpected generated ownership marker", markerErr)
+		if identityErr != nil || identity != sync.manifest.RootIdentity {
+			t.Fatal("missing internal directory identity", identityErr)
 		}
 	}
 }

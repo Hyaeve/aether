@@ -56,21 +56,19 @@ func (a *App) executeTelegramAli115(ctx context.Context, job telegramTransfer) {
 	}
 	receipt, err := a.newAli115Receipt(target.ID, job.Link, "TG Bot", job.ID)
 	status, message, count := "failed", "阿里云盘秒传未开始", 0
+	name := "阿里云盘分享"
 	if err == nil {
 		a.runAli115(ctx, receipt, guard)
 		for _, r := range a.store.snapshotWithLogLimit(0).Ali115Receipts {
 			if r.ID == receipt.ID {
+				if r.Name != "" {
+					name = r.Name
+				}
 				status, message, count = r.Status, "阿里云盘"+ali115Summary(r)+"；"+r.Message, r.Success+r.Skipped
 			}
 		}
 	} else {
 		message = err.Error()
 	}
-	a.finishTelegram(job.ID, status, message, count)
-	current := a.store.snapshotWithLogLimit(0).Notifications.Telegram
-	if telegramDigest(current) == job.Auth && telegramAllowed(current, job.ChatID, job.UserID) {
-		if _, err := a.telegramSend(ctx, current, job.ChatID, message, nil); err != nil {
-			a.store.event("warn", "notifications", "TG阿里云盘秒传反馈未确认，请查看秒传记录")
-		}
-	}
+	a.telegramComplete(ctx, job, status, name, count, 0, message)
 }

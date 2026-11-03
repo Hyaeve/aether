@@ -9,20 +9,23 @@ import (
 	"time"
 )
 
-func telegramCommand(text string) (library bool, content string, supported bool) {
+func telegramCommand(text string) (mode string, content string, supported bool) {
 	text = strings.TrimSpace(text)
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
-		return false, text, true
+		return "", text, true
 	}
 	head := fields[0]
 	if head == "/share" || head == "虚拟链库" {
-		return true, strings.TrimSpace(text[len(head):]), true
+		return "library", strings.TrimSpace(text[len(head):]), true
+	}
+	if head == "/cas" {
+		return "cas-library", strings.TrimSpace(text[len(head):]), true
 	}
 	if strings.HasPrefix(head, "/") && head != "/start" {
-		return false, "", false
+		return "", "", false
 	}
-	return false, text, true
+	return "", text, true
 }
 
 func telegramProviderName(provider string) string {
@@ -71,8 +74,16 @@ func telegramConfirmation(st State, job telegramTransfer) (string, [][]map[strin
 	return text, [][]map[string]string{{back, {"text": "确认" + action, "callback_data": fmt.Sprintf("c:%s:%d", job.ID, job.Selected)}}}
 }
 
-func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m telegramMessage, links []telegramLink, library bool) error {
+func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m telegramMessage, links []telegramLink, library bool, modes ...string) error {
+	mode := "library"
+	if len(modes) > 0 {
+		mode = modes[0]
+	}
 	for _, link := range links {
+		if library && (mode == "cas-library" && link.Provider != "mobile" || link.Kind == "ed2k") {
+			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "/cas 只接受移动云盘分享链接；/share 请使用对应网盘的分享链接，不接受ED2K链接。", nil)
+			return err
+		}
 		if library && link.Kind == "ali-rapid" {
 			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "阿里云盘链接用于阿里云盘秒传，请直接发送链接；不支持加入虚拟链库。", nil)
 			return err
@@ -109,7 +120,7 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 		}
 		job.LastActivity = job.Created
 		if library {
-			job.Kind, job.Status, job.LibraryStamp = "library", "queued", telegramLibraryStamp(st)
+			job.Kind, job.Status, job.LibraryStamp = mode, "queued", telegramLibraryStamp(st, link.Provider, mode)
 		} else {
 			targets := st.Notifications.Targets
 			if link.Kind == "ali-rapid" {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,6 +33,14 @@ func membershipTime(raw json.RawMessage) time.Time {
 	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05", "20060102150405", "2006-01-02"} {
 		if t, err := time.ParseInLocation(layout, text, time.FixedZone("CST", 8*3600)); err == nil {
 			return t
+		}
+	}
+	if n, err := strconv.ParseInt(text, 10, 64); err == nil && n > 0 {
+		if len(text) == 13 {
+			return time.UnixMilli(n)
+		}
+		if len(text) == 10 {
+			return time.Unix(n, 0)
 		}
 	}
 	return time.Time{}
@@ -113,31 +122,34 @@ func (a *App) readStorageMembership(ctx context.Context, s Storage) *storageMemb
 		}
 		return best
 	case "tianyi":
+		type memberInfo struct {
+			Level json.Number     `json:"memberLevel"`
+			End   json.RawMessage `json:"endTime"`
+		}
 		var data struct {
 			Data struct {
-				Members []struct {
-					Level int             `json:"memberLevel"`
-					End   json.RawMessage `json:"endTime"`
-				} `json:"vipInfoList"`
+				Members []memberInfo `json:"vipInfoList"`
 			} `json:"data"`
+			Members []memberInfo `json:"vipInfoList"`
 		}
 		if a.tianyiRequest(ctx, s, "GET", tianyiAPI+"/order/queryUserLogo.action", nil, &data) != nil {
 			return nil
 		}
 		var best *storageMembership
 		rank := 0
-		for _, m := range data.Data.Members {
+		for _, m := range append(data.Data.Members, data.Members...) {
+			level, err := m.Level.Int64()
 			exp := membershipTime(m.End)
-			if exp.IsZero() || !exp.After(time.Now()) || m.Level <= rank {
+			if err != nil || exp.IsZero() || !exp.After(time.Now()) || int(level) <= rank {
 				continue
 			}
-			switch m.Level {
+			switch level {
 			case 1000:
 				best = membership("gold", "黄金会员", exp)
-				rank = m.Level
+				rank = int(level)
 			case 2000:
 				best = membership("platinum", "铂金会员", exp)
-				rank = m.Level
+				rank = int(level)
 			}
 		}
 		return best

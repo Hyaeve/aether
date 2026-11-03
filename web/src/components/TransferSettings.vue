@@ -18,7 +18,7 @@ const lowerModes = [{ value: 'auto', label: '默认一半' }, { value: 'custom',
 const queueMode = ref('bounded'), lowerMode = ref('auto')
 let controller, generation = 0, timer, pending, running = false, alive = true, updating = false
 function defaults() {
-  return backup.value ? { version: 1, pauseBidirectional: false, queueUpper: 10000, queueLower: 0, maxConcurrentScan: 1 } : { version: 1, tempDirectory: '', downloadSpeed: 0, downloadUnit: 'KB/s', uploadSpeed: 0, uploadUnit: 'KB/s', maxPreprocess: 5, maxUploads: 5, uploadDelay: 10, crossCloudTemp: true, ignoredExtensions: ['clfstmp', 'parts', 'tmp', 'downloading', 'aria2', 'temp', 'temp_video', '~#0'] }
+  return backup.value ? { version: 1, pauseBidirectional: false, queueUpper: 10000, queueLower: 0, maxConcurrentScan: 1 } : { version: 1, tempDirectory: '', tempMaxGiB: 100, downloadSpeed: 0, downloadUnit: 'KB/s', uploadSpeed: 0, uploadUnit: 'KB/s', maxPreprocess: 5, maxUploads: 5, uploadDelay: 10, crossCloudTemp: true, ignoredExtensions: ['clfstmp', 'parts', 'tmp', 'downloading', 'aria2', 'temp', 'temp_video', '~#0'] }
 }
 function payload() {
   const value = JSON.parse(JSON.stringify(form))
@@ -97,7 +97,7 @@ onBeforeUnmount(() => { if (automatic.value && timer) saveAutomatically(); alive
           </section>
           <section class="settings-section temp-section">
             <div class="settings-section-title"><Icon name="FolderClock" /><h2>临时文件位置</h2></div>
-            <div class="temp-path-row"><label for="transfer-temp-path">路径</label><div class="directory-input"><input id="transfer-temp-path" v-model="form.tempDirectory" placeholder="默认：/data/cache/transfer" @blur="saveAutomatically" /><button type="button" class="icon-btn" aria-label="选择临时文件位置" @click="picker = true"><Icon name="FolderOpen" /></button></div></div>
+            <div class="temp-path-row"><div class="temp-field"><label for="transfer-temp-path">路径</label><div class="directory-input"><input id="transfer-temp-path" v-model="form.tempDirectory" placeholder="默认：/data/cache/transfer" @blur="saveAutomatically" /><button type="button" class="icon-btn" aria-label="选择临时文件位置" @click="picker = true"><Icon name="FolderOpen" /></button></div></div><div class="temp-field"><label for="transfer-temp-limit">体积上限</label><NumberInput id="transfer-temp-limit" v-model="form.tempMaxGiB" aria-label="临时文件体积上限" unit="G" :min="1" :max="1048576" required @blur="saveAutomatically" /></div></div>
           </section>
           </div>
           <section class="settings-section"><div class="settings-section-title"><Icon name="ListChecks" /><h2>任务限制</h2></div>
@@ -125,9 +125,14 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1
 .transfer-settings-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items:start; }
 .speed-and-temp { display:grid; gap:16px; }
 .temp-section label { font-size:14px; }
-.temp-path-row { display:flex; align-items:center; gap:12px; }
-.temp-path-row label { flex-shrink:0; }
-.temp-path-row .directory-input { flex:1; min-width:0; }
+.temp-path-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.temp-field { display:flex; flex-direction:column; gap:9px; min-width:0; }
+.temp-path-row .directory-input { min-width:0; height:40px; }
+.temp-path-row :deep(.number-control) { width:100%; height:40px; }
+.temp-path-row .temp-field :deep(.number-control input){padding-right:66px}
+.temp-path-row .temp-field :deep(.number-accessory){width:60px;justify-items:start;padding-left:4px}
+.temp-path-row .temp-field :deep(.number-unit){opacity:1}
+.temp-path-row .temp-field :deep(.number-steppers){left:26px}
 .settings-section { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 18px; }
 .settings-section-title h2 { font-size: 16px; margin: 0; }
 .settings-section-title { gap: 10px; margin-bottom: 12px; color: var(--text); }

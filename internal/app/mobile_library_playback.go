@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
 )
+
+var errMobileLibraryGrant = errors.New("移动分享播放授权已改变")
 
 func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -19,6 +22,7 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := a.store.snapshotWithLogLimit(0)
+	cfg := effectiveMobileLibrary(st)
 	var card quarkLibraryCard
 	var grant *quarkLibraryFile
 	for _, candidate := range st.MobileLibraryCards {
@@ -52,13 +56,33 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	for _, storage := range a.mobileLibraryStorages(st) {
+	for _, storage := range rotateLibraryStorages(a.mobileLibraryStorages(st), cfg.RotationHours, time.Now()) {
+		check := func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := a.mobileLibraryCheck(card, &storage); err != nil {
+				return err
+			}
+			current := a.store.snapshotWithLogLimit(0)
+			before, _ := json.Marshal(cfg)
+			after, _ := json.Marshal(effectiveMobileLibrary(current))
+			if string(before) != string(after) {
+				return errors.New("移动链库播放设置已改变，请重新播放")
+			}
+			file, ok := current.MobileLibraryRuntime.Files[grant.Key]
+			if !ok || file != *grant || !file.Published {
+				return errMobileLibraryGrant
+			}
+			return nil
+		}
 		if err := a.mobileLibraryCheck(card, &storage); err != nil {
 			fail(w, 409, err)
 			return
 		}
 		share, err := a.mobileLibraryShareInfo(ctx, storage, card.Secret)
 		if err != nil {
+			a.markMobileLibraryInvalid(card, err)
 			continue
 		}
 		items, err := a.mobileLibraryList(ctx, storage, share, grant.SourceParent, false)
@@ -76,11 +100,30 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		download, err := a.mobileLibraryDownload(ctx, storage, share, *source)
+		var download Download
+		if cfg.PlaybackMode == "transfer" {
+			download, err = a.mobileLibraryTransferredLink(ctx, card, *grant, storage, share, *source, check)
+		} else if cfg.PlaybackMode == "share" && source.StreamURL != "" {
+			download = Download{URL: source.StreamURL}
+		} else {
+			download, err = a.mobileLibraryDownload(ctx, storage, share, *source)
+		}
 		if err != nil {
+			if errors.Is(err, errMobileLibraryGrant) {
+				http.NotFound(w, r)
+				return
+			}
+			if cfg.PlaybackMode == "transfer" {
+				fail(w, 502, err)
+				return
+			}
 			continue
 		}
-		if err := a.mobileLibraryCheck(card, &storage); err != nil {
+		if err := check(); err != nil {
+			if errors.Is(err, errMobileLibraryGrant) {
+				http.NotFound(w, r)
+				return
+			}
 			fail(w, 409, err)
 			return
 		}
@@ -92,7 +135,7 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.store.event("info", "virtual", "移动分享播放："+card.Name+" · "+name)
-		if effectiveMobileLibrary(st).PlaybackMode != "relay" {
+		if cfg.PlaybackMode != "relay" {
 			redirectDownload(w, r, download.URL)
 			return
 		}

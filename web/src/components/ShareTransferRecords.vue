@@ -66,7 +66,7 @@ async function save(confirmed=false){
 </script>
 <template>
   <section class="share-transfer-records" aria-label="转存记录">
-    <header><h2><Icon name="ListChecks"/>转存记录</h2><span>{{records.length}} 项</span><button class="icon-btn" aria-label="刷新转存记录" :disabled="loading" @click="load"><Icon name="RefreshCw" :class="{spin:loading}"/></button></header>
+    <header><h2><Icon name="ShareTransferHistory"/>转存记录</h2><span>{{records.length}} 项</span><button class="icon-btn" aria-label="刷新转存记录" :disabled="loading" @click="load"><Icon name="RefreshCw" :class="{spin:loading}"/></button></header>
     <p v-if="error" role="alert" class="error-message">{{error}}</p>
     <div class="share-record-table">
       <table><colgroup><col style="width:21%"/><col style="width:25%"/><col style="width:12%"/><col style="width:16%"/><col style="width:26%"/></colgroup>
@@ -109,4 +109,8 @@ async function save(confirmed=false){
 .share-live-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,.7fr) 96px;gap:12px;color:var(--muted);font-size:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 @media(max-width:680px){.share-live-columns{display:none}}
 @media(max-width:680px){.share-record-table table,.share-record-table tbody,.share-record-table tr,.share-record-table td{display:block}.share-record-table colgroup,.share-record-table thead{display:none}.share-record-table tr{display:grid;grid-template-columns:1fr 1fr;padding:10px;border-top:1px solid var(--border);gap:9px}.share-record-table td{border:0;padding:0;min-width:0}.share-record-table td:first-child,.share-record-table td:nth-child(2),.share-record-table td:last-child{grid-column:1/-1}.share-live-row{grid-template-columns:minmax(0,1fr) 96px}.share-live-identity{grid-column:1/-1}.share-live-actions{grid-column:2}.share-live-form{gap:16px 10px}.share-live-form input{font-size:14px}}
+.share-transfer-records{padding:18px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.share-record-table{background:var(--input)}
+:global(.modal:has(.share-live-list)),:global(.modal:has(.share-live-form)),:global(.modal:has(.share-live-delete)){background:var(--layer-frame)}
+.share-live-row{padding:13px 10px;margin-top:8px;border:1px solid var(--border);border-radius:8px;background:var(--input)}
+@media(max-width:680px){.share-transfer-records{padding:14px}.share-live-row{padding:12px 10px}}
 </style>

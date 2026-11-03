@@ -3,7 +3,7 @@ import Icon from './Icon.vue'
 const tabs = [
   ['/tasks/panel', '任务面板', 'LayoutDashboard'],
   ['/tasks/strm', 'STRM 任务', 'FileVideo'], ['/tasks/cas', 'CAS 任务', 'Box'], ['/tasks/ed2k', 'ED2K 任务', 'Link'], ['/tasks/cache', '缓存任务', 'Database'],
-  ['/tasks/organize', '目录整理', 'FolderTree'], ['/tasks/scrape', 'STRM 刮削', 'ScanSearch'], ['/tasks/automation', '联动任务', 'Workflow']
+  ['/tasks/organize', '整理归档', 'OrganizeArchive'], ['/tasks/scrape', 'STRM 刮削', 'ScanSearch'], ['/tasks/automation', '联动任务', 'Workflow']
 ]
 </script>
 <template>

@@ -19,6 +19,7 @@ import (
 
 type TransferSettings struct {
 	TempDirectory     string   `json:"tempDirectory,omitempty"`
+	TempMaxGiB        int64    `json:"tempMaxGiB"`
 	Version           int      `json:"version"`
 	DownloadSpeed     int64    `json:"downloadSpeed"`
 	DownloadUnit      string   `json:"downloadUnit"`
@@ -40,8 +41,11 @@ type BackupResources struct {
 }
 
 func normalizedTransferSettings(s TransferSettings) TransferSettings {
+	if s.TempMaxGiB == 0 {
+		s.TempMaxGiB = 100
+	}
 	if s.Version == 0 {
-		return TransferSettings{Version: 1, DownloadUnit: "KB/s", UploadUnit: "KB/s", MaxPreprocess: 5, MaxUploads: 5, UploadDelay: 10, CrossCloudTemp: true, IgnoredExtensions: []string{"clfstmp", "parts", "tmp", "downloading", "aria2", "temp", "temp_video", "~#0"}}
+		return TransferSettings{Version: 1, TempMaxGiB: s.TempMaxGiB, DownloadUnit: "KB/s", UploadUnit: "KB/s", MaxPreprocess: 5, MaxUploads: 5, UploadDelay: 10, CrossCloudTemp: true, IgnoredExtensions: []string{"clfstmp", "parts", "tmp", "downloading", "aria2", "temp", "temp_video", "~#0"}}
 	}
 	s.IgnoredExtensions = append([]string{}, s.IgnoredExtensions...)
 	return s
@@ -59,6 +63,13 @@ func speedBytes(value int64, unit string) int64 {
 	return value * 1024
 }
 func validateTransferSettings(s *TransferSettings) error {
+	if s.TempMaxGiB < 0 || s.TempMaxGiB > 1048576 {
+		return errors.New("临时文件体积上限须为1至1048576 G的整数")
+	}
+	// Zero is the omitted field in settings saved by older versions.
+	if s.TempMaxGiB == 0 {
+		s.TempMaxGiB = 100
+	}
 	s.TempDirectory = strings.TrimSpace(s.TempDirectory)
 	if s.TempDirectory != "" && (!filepath.IsAbs(s.TempDirectory) || strings.ContainsAny(s.TempDirectory, "\x00\r\n") || len(s.TempDirectory) > 4096) {
 		return errors.New("临时文件位置须为容器内绝对目录")
@@ -360,6 +371,9 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State, allowLegacyPIN ...bool) error {
+	if err := validateRulesWorkspace(*st); err != nil {
+		return err
+	}
 	if err := validateAli115(st.Ali115, *st, len(allowLegacyPIN) > 0 && allowLegacyPIN[0]); err != nil {
 		return err
 	}
@@ -419,6 +433,19 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 	}
 	if err := validateQuarkLibrary(*st, legacySchedule); err != nil {
 		return err
+	}
+	if err := validateCASLibrary(*st); err != nil {
+		return err
+	}
+	if cfg := st.Virtual115; cfg != nil {
+		if !filepath.IsAbs(cfg.Directory) || len(cfg.Directory) > 4096 || strings.ContainsAny(cfg.Directory, "\x00\r\n") {
+			return errors.New("115链库默认生成位置无效")
+		}
+		for _, s := range st.Storages {
+			if s.ID == cfg.StorageID && s.Type != "115" {
+				return errors.New("115链库默认存储类型不符")
+			}
+		}
 	}
 	if err := validateMobileLibrary(*st, legacySchedule); err != nil {
 		return err
@@ -515,7 +542,7 @@ func (a *App) stageBackupSource(ctx context.Context, source Storage, f File, dir
 	if f.Size < 0 || f.Size > limit {
 		return stage, rejectFileTransfer(ctx, "核对单文件大小", "暂存单文件上限 "+uploadLimitLabel(limit))
 	}
-	out, err := os.CreateTemp(dir, "backup-*")
+	out, err := a.newTransferTemp(dir, "backup-*", f.Size)
 	if err != nil {
 		return stage, err
 	}

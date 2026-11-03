@@ -46,6 +46,7 @@ type scrapeItem struct {
 	Manual       bool   `json:"manual,omitempty"`
 }
 type scrapeProgress struct {
+	Queued    int    `json:"queued,omitempty"`
 	Error     bool   `json:"error,omitempty"`
 	Running   bool   `json:"running"`
 	TaskID    string `json:"taskId"`
@@ -345,7 +346,9 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	a.scrapeMu.Lock()
 	defer a.scrapeMu.Unlock()
 	if action == "status" && r.Method == "GET" {
-		jsonResponse(w, 200, a.scrapeProgress)
+		progress := a.scrapeProgress
+		progress.Queued = len(a.scrapeQueue)
+		jsonResponse(w, 200, progress)
 		return
 	}
 	if action == "items" && r.Method == "GET" {
@@ -457,6 +460,8 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if action == "stop" {
+		a.scrapeQueueEpoch++
+		a.scrapeQueue = nil
 		if a.scrapeCancel != nil {
 			a.scrapeCancel()
 		}
@@ -467,28 +472,36 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 		return
 	}
-	if a.scrapeProgress.Running {
-		fail(w, 409, errors.New("刮削正在执行，请先停止"))
-		return
-	}
-	var in struct {
-		ArchiveID      string   `json:"archiveId"`
-		TaskID         string   `json:"taskId"`
-		Path           string   `json:"path"`
-		TMDB           int      `json:"tmdb"`
-		Kind           string   `json:"kind"`
-		Group          bool     `json:"group"`
-		Confirmed      bool     `json:"confirmed"`
-		Scope          string   `json:"scope"`
-		Scopes         []string `json:"scopes"`
-		ExcludedScopes []string `json:"excludedScopes"`
-		Paths          []string `json:"paths"`
-		DeleteFiles    bool     `json:"deleteFiles"`
-		Scrape         bool     `json:"scrape"`
-		Reidentify     bool     `json:"reidentify"`
-	}
+	var in scrapeRequest
 	if !decode(w, r, &in) {
 		return
+	}
+	queued, internal := r.Context().Value(queuedScrapeKey{}).(queuedScrapeMatch)
+	if a.scrapeProgress.Running || !internal && (a.scrapeDispatch || len(a.scrapeQueue) > 0) {
+		if action != "match" {
+			fail(w, 409, errors.New("刮削正在执行，请先停止"))
+			return
+		}
+		if err := a.queueScrapeMatch(in); err != nil {
+			fail(w, 409, err)
+			return
+		}
+		progress := a.scrapeProgress
+		progress.Queued = len(a.scrapeQueue)
+		jsonResponse(w, 202, progress)
+		return
+	}
+	if internal {
+		if queued.epoch != a.scrapeQueueEpoch || a.ctx.Err() != nil {
+			fail(w, 409, errors.New("排队的手动识别已取消"))
+			return
+		}
+		root, err := a.scrapeRoot(in.TaskID)
+		info, statErr := os.Stat(root)
+		if err != nil || statErr != nil || root != queued.root || !os.SameFile(info, queued.identity) || a.scrapeQueueStamp(in.TaskID) != queued.stamp {
+			fail(w, 409, errors.New("排队期间任务或生成目录已改变，请重新识别"))
+			return
+		}
 	}
 	retryFingerprint := ""
 	if in.ArchiveID != "" {
@@ -844,6 +857,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			level = "warn"
 		}
 		a.store.event(level, "tasks", "STRM "+message)
+		a.drainScrapeQueue()
 	}()
 	jsonResponse(w, 202, a.scrapeProgress)
 }

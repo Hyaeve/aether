@@ -15,6 +15,7 @@ import (
 type mobileLibraryShare struct{ Code, Pass, Name string }
 type mobileLibrarySource struct {
 	ID, Parent, Path, Name string
+	StreamURL              string
 	Size                   int64
 	Directory              bool
 }
@@ -66,6 +67,9 @@ func (a *App) mobileLibraryShareInfo(ctx context.Context, storage Storage, secre
 		return mobileLibraryShare{}, fmt.Errorf("读取移动分享信息：%w", err)
 	}
 	if len(data.Response.Links) != 1 {
+		if data.Response.Links != nil && len(data.Response.Links) == 0 {
+			return mobileLibraryShare{}, &mobileLibraryUnavailable{}
+		}
 		return mobileLibraryShare{}, errors.New("移动分享信息不完整，请核对链接及访问权限")
 	}
 	info := data.Response.Links[0]
@@ -115,6 +119,11 @@ func (a *App) mobileLibraryList(ctx context.Context, storage Storage, share mobi
 		CaPath      string      `json:"caPath"`
 		Size        json.Number `json:"coSize"`
 		ContentSize json.Number `json:"contentSize"`
+		Ultra       string      `json:"presentUURL"`
+		High        string      `json:"presentHURL"`
+		Normal      string      `json:"presentURL"`
+		Low         string      `json:"presentLURL"`
+		Original    string      `json:"originalURL"`
 	}
 	items := []mobileLibrarySource{}
 	seen := map[string]bool{}
@@ -184,6 +193,14 @@ func (a *App) mobileLibraryList(ctx context.Context, storage Storage, share mobi
 					return nil, err
 				}
 				items = append(items, item)
+				if !item.Directory {
+					for _, address := range []string{raw.Ultra, raw.High, raw.Normal, raw.Low, raw.Original} {
+						if validMobileLibraryURL(address) {
+							items[len(items)-1].StreamURL = address
+							break
+						}
+					}
+				}
 			}
 		}
 		if len(items) > mobileShareScanLimit {
@@ -199,6 +216,11 @@ func (a *App) mobileLibraryList(ctx context.Context, storage Storage, share mobi
 		}
 	}
 	return nil, errors.New("移动分享目录分页超过扫描上限")
+}
+
+func validMobileLibraryURL(address string) bool {
+	u, err := url.Parse(address)
+	return err == nil && u.Hostname() != "" && u.User == nil && u.Fragment == "" && (u.Scheme == "http" || u.Scheme == "https") && !strings.ContainsAny(address, "\r\n\x00")
 }
 
 func (a *App) mobileLibraryDownload(ctx context.Context, storage Storage, share mobileLibraryShare, file mobileLibrarySource) (Download, error) {

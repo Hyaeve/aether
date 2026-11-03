@@ -48,18 +48,24 @@ func recordSTRMLifeWork(ctx context.Context) error {
 	return nil
 }
 
-func validateSTRMSource(t Task, s Storage, legacy bool) error {
+// Old tree tasks retain full-update behavior through the ordinary bulk reader.
+// No text-tree export or separate tree generation strategy remains.
+func normalizeSTRMSource(t *Task) {
+	if t.STRMSource == "tree" {
+		t.STRMSource, t.Mode = "scan", strmUpdate
+	}
+}
+
+func validateSTRMSource(t Task, s Storage, _ bool) error {
+	normalizeSTRMSource(&t)
 	if t.DeleteThreshold != nil && *t.DeleteThreshold < 0 {
 		return errors.New("删除阈值须为非负整数")
 	}
-	if t.STRMSource != "" && t.STRMSource != "life" && t.STRMSource != "tree" {
-		return errors.New("115生成方式须为生活事件或目录树")
+	if t.STRMSource != "" && t.STRMSource != "scan" && t.STRMSource != "life" {
+		return errors.New("115生成方式须为增量更新、查漏补缺或生活事件")
 	}
 	if t.STRMSource != "" && s.Type != "115" {
-		return errors.New("生活事件和目录树方式仅适用于115存储")
-	}
-	if !legacy && t.STRMSource == "tree" && strings.TrimSpace(t.Cron) == "" {
-		return errors.New("目录树生成须填写Cron表达式，执行间隔至少15分钟")
+		return errors.New("115生成策略仅适用于115存储")
 	}
 	if t.CascadeExtensions != "" {
 		if _, err := normalizeExtensions(t.CascadeExtensions); err != nil {

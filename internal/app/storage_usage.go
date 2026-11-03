@@ -122,7 +122,7 @@ func (a *App) cachedStorageUsage(ctx context.Context, s Storage) (storageUsage, 
 	var memberResult chan *storageMembership
 	if s.Type != "quark" {
 		memberResult = make(chan *storageMembership, 1)
-		go func() { memberResult <- a.readStorageMembership(lookup, s) }()
+		go func() { member, _ := a.cachedStorageMembership(lookup, s); memberResult <- member }()
 	}
 	value := a.readStorageUsage(lookup, s)
 	if memberResult != nil {

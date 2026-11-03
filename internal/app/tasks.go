@@ -74,9 +74,12 @@ func safeName(name string) bool {
 }
 
 func (a *App) waitAPI(ctx context.Context, storageID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	a.gateMu.Lock()
-	interval := a.intervals[storageID]
-	if interval < 200 {
+	interval, configured := a.intervals[storageID]
+	if !configured {
 		interval = 200
 	}
 	now := time.Now()
@@ -90,7 +93,7 @@ func (a *App) waitAPI(ctx context.Context, storageID string) error {
 	defer timer.Stop()
 	select {
 	case <-timer.C:
-		return nil
+		return ctx.Err()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -131,6 +134,19 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	if task.ID == "" {
 		return errors.New("任务不存在")
 	}
+	if queued, internal := parent.Value(queuedSTRMSyncKey{}).(queuedSTRMSync); internal {
+		current, exists := a.pendingSTRMSync[taskID]
+		if !exists || current != queued {
+			return errors.New("排队的全量同步已取消")
+		}
+		delete(a.pendingSTRMSync, taskID)
+		s, err := a.store.storage(task.StorageID)
+		if err != nil || queued.config != syncQueueStamp(task) || queued.storage != storageRevision(s) {
+			return errors.New("STRM任务或源存储配置已改变，请重新确认全量同步")
+		}
+	} else if _, queued := a.pendingSTRMSync[taskID]; queued {
+		return errors.New("STRM全量同步正在排队，请勿重复启动")
+	}
 	if task.STRMDeleteState != nil {
 		return fmt.Errorf("STRM任务「%s」删除超限保护中，请先检查源存储健康", task.Name)
 	}
@@ -141,6 +157,9 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		return errors.New("旧版 CAS 转 STRM 任务已停用，请重新选择视频源目录并保存")
 	}
 	if _, ok := a.running[taskID]; ok {
+		if trigger == "full-sync" && a.runningTriggers[taskID] == "life-monitor" && task.Kind == "strm" && task.STRMSource == "life" {
+			return a.queueSTRMSync(task)
+		}
 		return fmt.Errorf("%s正在执行，请勿重复启动", taskDescription(task))
 	}
 	s, err := a.store.storage(task.StorageID)
@@ -186,6 +205,10 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	ctx, causeCancel := context.WithCancelCause(parent)
 	cancel := func() { causeCancel(context.Canceled) }
 	a.running[taskID] = cancel
+	if a.runningTriggers == nil {
+		a.runningTriggers = map[string]string{}
+	}
+	a.runningTriggers[taskID] = trigger
 	if a.taskHealthCancels == nil {
 		a.taskHealthCancels = map[string]func(){}
 	}
@@ -291,9 +314,11 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		a.runMu.Lock()
 		delete(a.running, taskID)
 		delete(a.runningStorage, taskID)
+		delete(a.runningTriggers, taskID)
 		delete(a.taskHealthCancels, taskID)
 		a.refreshTaskInterval(task.StorageID)
 		a.runMu.Unlock()
+		a.drainSTRMSync(taskID)
 		if done != nil {
 			done <- err
 		} else if err == nil && activity {
@@ -323,12 +348,13 @@ func (a *App) outputLocation(target string) (string, string, error) {
 
 func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, runErr error) {
 	if t.Kind == "strm" {
+		normalizeSTRMSource(&t)
 		mode, err := normalizeSTRMMode(t.Mode)
 		if err != nil {
 			return 0, err
 		}
 		t.Mode = mode
-		if t.STRMSource != "" {
+		if t.STRMSource == "life" {
 			t.Mode = strmUpdate
 		}
 	}
@@ -410,9 +436,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 		if t.STRMSource == "life" && (t.fullSyncGeneration || t.resetGeneration) {
 			cursor, err := a.latestSTRMLifeCursor(ctx, s, t.STRMLifeSince)
 			if err != nil {
-				a.store.event("warn", "tasks", "STRM任务「"+t.Name+"」未取得生活事件基线；仍执行目录树全量同步，原游标保留")
+				a.store.event("warn", "tasks", "STRM任务「"+t.Name+"」未取得生活事件基线；仍执行批量清单全量同步，原游标保留")
 			} else {
-				sync.lifeAfterTree = &cursor
+				sync.lifeAfterScan = &cursor
 			}
 		}
 	}
@@ -426,7 +452,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 	var plan map[string][]File
 	total, progressDone := 0, 0
 	if t.ID != "" && (t.Kind == "strm" || generateCAS || t.Kind == "ed2k" || t.Kind == "cache") {
-		plan, total, err = a.scanTaskProgress(ctx, t, s, sourceRel, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration || t.STRMSource == "tree")
+		plan, total, err = a.scanTaskProgress(ctx, t, s, sourceRel, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration)
 		known := !errors.Is(err, errTaskProgressLimit)
 		if err != nil && known {
 			return 0, err
@@ -465,7 +491,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 		files, found := plan[dir]
 		var err error
 		if !found {
-			files, err = a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration || t.STRMSource == "tree")
+			files, err = a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration)
 		}
 		if err != nil {
 			return err

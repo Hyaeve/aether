@@ -93,9 +93,10 @@ func TestSTRMLifeValidationScheduleAndCascadeOptions(t *testing.T) {
 		t.Fatal(delta)
 	}
 	task.STRMSource = "tree"
-	if a.validateTask(&task) == nil {
-		t.Fatal("tree cron optional")
+	if err := a.validateTask(&task); err != nil || task.STRMSource != "scan" || task.Mode != strmUpdate || !nextRun(task, now).IsZero() {
+		t.Fatal("old tree task was not mapped to ordinary update", task, err)
 	}
+	task.STRMSource = "life"
 	task.Cron = "*/15 * * * *"
 	task.CascadeDelete = true
 	task.Mode = strmMissing
@@ -140,13 +141,79 @@ func TestSTRMLifeAPIDefaultActivationAndSyncConfirmation(t *testing.T) {
 	}
 	task.STRMSource, task.Cron = "tree", ""
 	w = request(t, h, "PUT", "/api/tasks/"+task.ID, task, cookie)
-	if w.Code != 400 {
-		t.Fatal("tree task accepted missing cron", w.Code)
+	if w.Code != 200 || a.store.snapshot().Tasks[0].STRMSource != "scan" {
+		t.Fatal("old tree task did not become a normal task", w.Code, w.Body.String())
 	}
 	task.Cron = "*/15 * * * *"
 	w = request(t, h, "PUT", "/api/tasks/"+task.ID, task, cookie)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func Test115STRMExplicitScanModesPersistWithoutLifeScheduling(t *testing.T) {
+	a, s, _ := strm115Fixture(t)
+	h := a.Handler(t.TempDir())
+	cookie := setupTest(t, a, h)
+	for _, mode := range []string{strmMissing, strmUpdate} {
+		input := Task{Name: mode, Kind: "strm", StorageID: s.ID, Source: "10", SourceLabel: "Show", Target: t.TempDir(), Enabled: true, STRMSource: "scan", Mode: mode}
+		w := request(t, h, "POST", "/api/tasks", input, cookie)
+		if w.Code != 201 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		tasks := a.store.snapshot().Tasks
+		task := tasks[len(tasks)-1]
+		if task.Mode != mode || task.STRMSource != "scan" || !task.NextRun.IsZero() || !task.STRMLifeSince.IsZero() {
+			t.Fatal("normal mode became a life monitor", task)
+		}
+		w = request(t, h, "PUT", "/api/tasks/"+task.ID, task, cookie)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		saved := a.store.snapshot().Tasks[len(tasks)-1]
+		if saved.Mode != mode || saved.STRMSource != "scan" || !saved.NextRun.IsZero() {
+			t.Fatal("save changed normal strategy", saved)
+		}
+		other := saved
+		other.Mode = strmUpdate
+		if mode == strmMissing && strmTaskConfig(saved) == strmTaskConfig(other) {
+			t.Fatal("mode change did not invalidate the running plan")
+		}
+	}
+}
+
+func Test115STRMScanMissingKeepsExistingWhileUpdateRefreshes(t *testing.T) {
+	for _, mode := range []string{strmMissing, strmUpdate} {
+		t.Run(mode, func(t *testing.T) {
+			a, s, file := strm115Fixture(t)
+			task := Task{ID: "native-scan", Name: mode, Kind: "strm", StorageID: s.ID, Source: "/", Target: t.TempDir(), STRMSource: "scan", Mode: mode, MediaExtensions: "mkv"}
+			if err := a.store.update(func(st *State) error { st.Tasks = []Task{task}; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			shareMock(t, func(r *http.Request) string {
+				if r.Method != "GET" || r.URL.Path != "/files" {
+					t.Fatal("normal scan used life events or modified source", r.Method, r.URL.Path)
+				}
+				return `{"state":true,"cid":"0","count":1,"path":[{"cid":"0","name":"根目录"}],"data":[{"fid":"file","cid":"0","n":"film.mkv","s":42,"pc":"` + file.PickCode + `"}]}`
+			})
+			output := filepath.Join(task.Target, "film.strm")
+			writeTest(t, output, "existing link\n")
+			n, err := a.executeTask(a.ctx, task, s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == strmMissing {
+				if n != 0 || string(body) != "existing link\n" {
+					t.Fatal("missing mode overwrote existing STRM", n, string(body))
+				}
+			} else if n != 1 || !strings.Contains(string(body), "/"+file.PickCode+"/film.mkv") {
+				t.Fatal("update mode failed to refresh STRM", n, string(body))
+			}
+		})
 	}
 }
 

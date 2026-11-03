@@ -55,8 +55,8 @@ test('global transfer tab saves speed units, concurrency and extension rules acr
     })
     expect(Math.abs(layout.form.right-layout.parent.right)).toBeLessThan(2)
     expect(Math.abs(layout.extensions.width-layout.form.width)).toBeLessThan(2)
-    expect(layout.label.right).toBeLessThan(layout.input.x)
-    expect(Math.abs(layout.label.y+layout.label.height/2-layout.input.y-layout.input.height/2)).toBeLessThan(2)
+    expect(layout.label.y+layout.label.height).toBeLessThan(layout.input.y)
+    expect(Math.abs(layout.label.x-layout.input.x)).toBeLessThan(2)
     if(width>=1440) {
       expect(Math.abs(layout.columns[0].width-(layout.form.width-16)/2)).toBeLessThan(2)
       expect(Math.abs(layout.columns[1].right-layout.form.right)).toBeLessThan(2)

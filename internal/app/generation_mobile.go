@@ -145,13 +145,21 @@ func mobileGenerationRequest(ctx context.Context, method string, payload, out an
 		return err
 	}
 	var envelope struct {
-		Code json.RawMessage `json:"resultCode"`
-		Data json.RawMessage `json:"data"`
+		Code        json.RawMessage `json:"resultCode"`
+		Data        json.RawMessage `json:"data"`
+		Description string          `json:"desc"`
 	}
 	if json.Unmarshal(raw, &envelope) != nil {
 		return errors.New("移动分享响应格式无效")
 	}
 	if code := mobileQRString(envelope.Code); code != "0" && code != "0000" {
+		if method == "getOutLinkGeneral" {
+			for _, text := range []string{"分享已失效", "分享已取消", "分享已过期", "链接已失效", "外链已过期"} {
+				if strings.Contains(envelope.Description, text) {
+					return &mobileLibraryUnavailable{}
+				}
+			}
+		}
 		if len(code) <= 32 && shareCodePattern.MatchString(code) {
 			return fmt.Errorf("%s被拒绝（错误码 %s），请检查提取码和访问权限", stage, code)
 		}

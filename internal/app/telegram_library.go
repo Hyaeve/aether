@@ -8,7 +8,52 @@ import (
 	"time"
 )
 
-func telegramLibraryStamp(st State) string {
+func telegramLibraryStamp(st State, kinds ...string) string {
+	if len(kinds) > 0 && kinds[0] == "115" {
+		revision := ""
+		if st.Virtual115 != nil {
+			for _, s := range st.Storages {
+				if s.ID == st.Virtual115.StorageID {
+					revision = storageRevision(s)
+				}
+			}
+		}
+		return telegramDigest(struct {
+			Settings *virtual115Defaults
+			Revision string
+		}{st.Virtual115, revision})
+	}
+	if len(kinds) > 0 && kinds[0] == "mobile" {
+		if len(kinds) > 1 && kinds[1] == "cas-library" {
+			p, pool := generationMobilePool(st)
+			revisions := []string{}
+			for _, sid := range p.Mobile.StorageIDs {
+				for _, s := range st.Storages {
+					if s.ID == sid {
+						revisions = append(revisions, s.ID+":"+storageRevision(s))
+					}
+				}
+			}
+			return telegramDigest(struct {
+				Settings  casLibrarySettings
+				Pool      string
+				Revisions []string
+			}{effectiveCASLibrary(st), pool, revisions})
+		}
+		cfg := effectiveMobileLibrary(st)
+		revisions := []string{}
+		for _, sid := range cfg.StorageIDs {
+			for _, s := range st.Storages {
+				if s.ID == sid {
+					revisions = append(revisions, sid+":"+storageRevision(s))
+				}
+			}
+		}
+		return telegramDigest(struct {
+			Settings  mobileLibrarySettings
+			Revisions []string
+		}{cfg, revisions})
+	}
 	cfg := effectiveQuarkLibrary(st)
 	revisions := []string{}
 	for _, sid := range cfg.StorageIDs {
@@ -29,9 +74,9 @@ func telegramLibraryValid(st State, job telegramTransfer) bool {
 		return false
 	}
 	for _, current := range st.TelegramRuntime.Jobs {
-		if current.ID == job.ID && current.Kind == "library" && telegramActive(current.Status) &&
+		if current.ID == job.ID && (current.Kind == "library" || current.Kind == "cas-library") && telegramActive(current.Status) &&
 			current.Auth == job.Auth && current.ChatID == job.ChatID && current.UserID == job.UserID && current.Link == job.Link {
-			return current.LibraryStamp == telegramLibraryStamp(st)
+			return current.LibraryStamp == telegramLibraryStamp(st, job.Provider, job.Kind)
 		}
 	}
 	return false
@@ -48,6 +93,14 @@ func refreshTelegramLibraryStamp(st *State, previous string) {
 }
 
 func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) {
+	if job.Provider == "115" {
+		a.executeTelegram115Library(ctx, job)
+		return
+	}
+	if job.Provider == "mobile" {
+		a.executeTelegramMobileLibrary(ctx, job)
+		return
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	claimed := false
@@ -66,14 +119,7 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		return
 	}
 	finish := func(status, message string, count int) {
-		message = telegramProviderName(job.Provider) + "分享STRM：" + message
-		a.finishTelegram(job.ID, status, message, count)
-		st := a.store.snapshotWithLogLimit(0)
-		if telegramDigest(st.Notifications.Telegram) == job.Auth && telegramAllowed(st.Notifications.Telegram, job.ChatID, job.UserID) {
-			if _, err := a.telegramSend(ctx, st.Notifications.Telegram, job.ChatID, message, nil); err != nil {
-				a.store.event("warn", "notifications", "TG 链库结果通知未确认，请查看运行日志")
-			}
-		}
+		a.telegramComplete(ctx, job, status, job.Name, count, 0, message)
 	}
 	if !telegramLibraryValid(a.store.snapshotWithLogLimit(0), job) {
 		finish("failed", "授权或链库默认设置已变化，未生成，请重新发送命令", 0)
@@ -182,10 +228,12 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		a.store.event("info", "virtual", fmt.Sprintf("[TG:%s] 添加夸克分享卡片：%s，启用=%t", job.ID, card.Name, card.Enabled))
 	}
 	if cfg.Directory == "" {
+		job.Name = card.Name
 		finish("completed", card.Name+"：默认生成位置未设置，已添加或保留卡片，本次未生成；未启用的卡片须设置生成位置后手动启用", 0)
 		return
 	}
 	if !card.Enabled || strings.TrimSpace(card.Directory) == "" {
+		job.Name = card.Name
 		finish("completed", card.Name+"：已添加或保留未启用的分享卡片；请设置生成位置和可用夸克存储后手动启用", 0)
 		return
 	}
@@ -193,7 +241,10 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		finish("failed", err.Error(), 0)
 		return
 	}
-	_, _ = a.telegramSend(ctx, st.Notifications.Telegram, job.ChatID, "准备生成分享STRM："+card.Name+"\n生成位置："+quarkLibraryRoot(card), nil)
+	job.Name = card.Name
+	if job.GroupSize <= 1 {
+		_, _ = a.telegramSend(ctx, st.Notifications.Telegram, job.ChatID, "准备生成分享STRM："+card.Name+"\n生成位置："+quarkLibraryRoot(card), nil)
+	}
 	runCtx, stop := context.WithTimeout(context.WithValue(ctx, quarkLibraryGuardKey{}, check), 2*time.Minute)
 	defer stop()
 	result, err := a.runQuarkLibrary(runCtx, card)

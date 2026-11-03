@@ -18,15 +18,22 @@ type mobileLibrarySettings struct {
 	MediaExtensions    string   `json:"mediaExtensions"`
 	MetadataExtensions string   `json:"metadataExtensions"`
 	PlaybackMode       string   `json:"playbackMode"`
+	InvalidDays        int      `json:"invalidDays,omitempty"`
+	RetentionHours     int      `json:"retentionHours,omitempty"`
+	RotationHours      int      `json:"rotationHours,omitempty"`
 }
 
 type mobileLibraryRuntime struct {
-	Results map[string]quarkLibraryResult    `json:"results,omitempty"`
-	Files   map[string]quarkLibraryFile      `json:"files,omitempty"`
-	Roots   map[string]quarkLibraryOwnership `json:"roots,omitempty"`
+	Results   map[string]quarkLibraryResult     `json:"results,omitempty"`
+	Files     map[string]quarkLibraryFile       `json:"files,omitempty"`
+	Roots     map[string]quarkLibraryOwnership  `json:"roots,omitempty"`
+	Temporary map[string]mobileLibraryTemporary `json:"temporary,omitempty"`
 }
 
 func initMobileLibrary(st *State) {
+	if st.MobileLibraryRuntime.Temporary == nil {
+		st.MobileLibraryRuntime.Temporary = map[string]mobileLibraryTemporary{}
+	}
 	if st.MobileLibraryRuntime.Results == nil {
 		st.MobileLibraryRuntime.Results = map[string]quarkLibraryResult{}
 	}
@@ -39,10 +46,22 @@ func initMobileLibrary(st *State) {
 }
 
 func effectiveMobileLibrary(st State) mobileLibrarySettings {
-	cfg := mobileLibrarySettings{StorageIDs: []string{}, PlaybackMode: "redirect",
+	cfg := mobileLibrarySettings{StorageIDs: []string{}, PlaybackMode: "share", InvalidDays: 15, RetentionHours: 12, RotationHours: 24,
 		MediaExtensions: taskVideoExtensions + ";" + taskAudioExtensions, MetadataExtensions: "nfo;ass;srt;ssa;sub;jpg;jpeg;png;webp"}
 	if st.MobileLibrary != nil {
 		cfg = *st.MobileLibrary
+	}
+	if cfg.PlaybackMode == "redirect" || cfg.PlaybackMode == "" {
+		cfg.PlaybackMode = "share"
+	}
+	if cfg.InvalidDays == 0 {
+		cfg.InvalidDays = 15
+	}
+	if cfg.RetentionHours == 0 {
+		cfg.RetentionHours = 12
+	}
+	if cfg.RotationHours == 0 {
+		cfg.RotationHours = 24
 	}
 	cfg.StorageIDs = append([]string{}, cfg.StorageIDs...)
 	for _, s := range st.Storages {
@@ -84,6 +103,7 @@ func validateMobileLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
 
 func validateShareLibraryOutputs(st State) error {
 	all := append(append([]quarkLibraryCard{}, st.QuarkLibraryCards...), st.MobileLibraryCards...)
+	all = append(all, st.CASLibraryCards...)
 	for i, card := range all {
 		for _, previous := range all[:i] {
 			if quarkLibraryOutputsOverlap(card, previous) {
@@ -96,8 +116,11 @@ func validateShareLibraryOutputs(st State) error {
 
 func validateMobileLibrary(st State, legacy ...bool) error {
 	if cfg := st.MobileLibrary; cfg != nil {
-		if cfg.PlaybackMode != "redirect" && cfg.PlaybackMode != "relay" {
-			return errors.New("移动链库播放模式须为原文件直链或原文件中继")
+		if cfg.PlaybackMode != "redirect" && cfg.PlaybackMode != "share" && cfg.PlaybackMode != "transfer" && cfg.PlaybackMode != "relay" && cfg.PlaybackMode != "" {
+			return errors.New("移动链库播放模式须为以太中继、分享直链或转存直链")
+		}
+		if cfg.InvalidDays < 0 || cfg.InvalidDays > 3650 || cfg.RetentionHours < 0 || cfg.RetentionHours > 8760 || cfg.RotationHours < 0 || cfg.RotationHours > 8760 {
+			return errors.New("移动链库失效保留须为1–3650天，保活期及轮换时间须为1–8760 h")
 		}
 		if len(cfg.StorageIDs) > 32 {
 			return errors.New("移动链库最多绑定32个原生存储")
@@ -353,6 +376,16 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
+	if exists {
+		if saved, err := a.saveShareLibraryMetadata("mobile", old, card); saved {
+			if err != nil {
+				fail(w, 409, err)
+			} else {
+				jsonResponse(w, 200, map[string]string{"id": sid, "message": "链接配置已保存"})
+			}
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	storage, err := a.mobileLibraryStorage(st)
@@ -536,6 +569,7 @@ func (a *App) mobileLibraryMonitor() {
 }
 
 func (a *App) mobileLibraryTick(now time.Time) {
+	a.cleanupMobileLibraryTemporary(now)
 	if !a.mobileLibraryMu.TryLock() {
 		return
 	}
@@ -546,6 +580,10 @@ func (a *App) mobileLibraryTick(now time.Time) {
 		}
 	}()
 	st := a.store.snapshotWithLogLimit(0)
+	expiryCtx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	a.mobileLibraryExpiryTick(expiryCtx, st, now)
+	cancel()
+	st = a.store.snapshotWithLogLimit(0)
 	for _, card := range st.MobileLibraryCards {
 		if !card.Enabled || card.Cron == "" {
 			continue

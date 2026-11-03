@@ -61,6 +61,7 @@ const visible = computed(() => state.storages.filter(s => !query.value || s.name
 const picked = computed(() => driverOf(selected.value))
 const cloudTypes = ['115', 'quark', 'mobile', 'tianyi']
 const usages = ref({}), usageRevision = ref(0)
+const loadedMemberships = ref({})
 const memberships = computed(()=>Object.fromEntries(state.storages.filter(s=>s.enabled).map(s=>[s.id,storageMembership(s.type,usages.value[s.id]?.membership)])))
 let usageTimer
 onMounted(()=>{usageTimer=setInterval(()=>{usageRevision.value++},5*60*1000)})
@@ -68,9 +69,27 @@ onUnmounted(()=>clearInterval(usageTimer))
 watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.storages.map(s => [s.id, s.type, s.enabled, s.config])]), async (_, __, cleanup) => {
   const controller = new AbortController()
   cleanup(() => controller.abort())
-  if (!state.authenticated) { usages.value = {}; return }
+  if (!state.authenticated) { usages.value = {}; loadedMemberships.value={}; return }
   const pools = state.storages.filter(s => s.enabled && cloudTypes.includes(s.type))
   usages.value = Object.fromEntries(pools.filter(s => s.usage).map(s => [s.id, s.usage]))
+  loadedMemberships.value = {}
+  const memberPools=pools.filter(s=>!storageMembership(s.type,s.usage?.membership)&&(s.type==='115'?!!s.config?.cookie:s.type==='mobile'?s.config?.mode==='native'&&!!s.config?.authorization:s.type==='tianyi'&&(!!s.config?.accessToken||!!s.config?.refreshToken||!!s.config?.username&&!!s.config?.password)))
+  let memberIndex=0
+  const loadMembership=async()=>{
+    while(memberIndex<memberPools.length&&!controller.signal.aborted){
+      const pool=memberPools[memberIndex++]
+      try{
+        const response=await fetch(`/api/storages/${encodeURIComponent(pool.id)}/membership`,{credentials:'same-origin',signal:controller.signal})
+        if(!response.ok)continue
+        const value=await response.json()
+        if(controller.signal.aborted||!Object.hasOwn(value,'membership'))continue
+        loadedMemberships.value[pool.id]=value.membership
+        usages.value[pool.id]={...usages.value[pool.id],membership:value.membership}
+        const current=state.storages.find(s=>s.id===pool.id)
+        if(current)current.usage={...current.usage,membership:value.membership}
+      }catch{ /* Membership must remain independent of optional capacity lookup. */ }
+    }
+  }
   let index = 0
   const loadUsage = async () => {
     while (index < pools.length && !controller.signal.aborted) {
@@ -80,6 +99,7 @@ watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.stor
         if (!response.ok) continue
         const value = await response.json()
         if (!controller.signal.aborted) {
+          if(Object.hasOwn(loadedMemberships.value,pool.id))value.membership=loadedMemberships.value[pool.id]
           usages.value[pool.id] = value
           const current=state.storages.find(s=>s.id===pool.id)
           if (current) current.usage=value
@@ -87,7 +107,7 @@ watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.stor
       } catch { /* Optional quota lookup must not hide a storage card. */ }
     }
   }
-  await Promise.all(Array.from({length:Math.min(3,pools.length)}, loadUsage))
+  await Promise.all([...Array.from({length:Math.min(3,pools.length)}, loadUsage),...Array.from({length:Math.min(3,memberPools.length)}, loadMembership)])
 }, { immediate:true })
 watch(() => state.storages.map(s=>[s.id,s.usage]), () => {
   usages.value = Object.fromEntries(state.storages.filter(s => s.usage && s.enabled && state.authenticated && cloudTypes.includes(s.type)).map(s => [s.id, s.usage]))

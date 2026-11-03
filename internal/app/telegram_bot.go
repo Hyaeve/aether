@@ -348,7 +348,8 @@ func (a *App) handleTelegramUpdate(ctx context.Context, cfg telegramConfig, upda
 	if text == "" {
 		text = m.Caption
 	}
-	library, content, supported := telegramCommand(text)
+	mode, content, supported := telegramCommand(text)
+	library := mode != ""
 	if !supported {
 		return nil
 	}
@@ -359,7 +360,7 @@ func (a *App) handleTelegramUpdate(ctx context.Context, cfg telegramConfig, upda
 	}
 	if len(links) == 0 {
 		if library {
-			_, err = a.telegramSend(ctx, cfg, m.Chat.ID, "请在 /share 或“虚拟链库”后填写分享链接。", nil)
+			_, err = a.telegramSend(ctx, cfg, m.Chat.ID, "请在 /share（分享链库）或 /cas（仅移动CAS链库）后填写对应分享链接。", nil)
 			return err
 		}
 		if strings.HasPrefix(text, "/start") {
@@ -367,7 +368,7 @@ func (a *App) handleTelegramUpdate(ctx context.Context, cfg telegramConfig, upda
 		}
 		return err
 	}
-	return a.queueTelegramLinks(ctx, cfg, *m, links, library)
+	return a.queueTelegramLinks(ctx, cfg, *m, links, library, mode)
 }
 
 func telegramActive(status string) bool {

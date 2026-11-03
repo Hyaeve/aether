@@ -136,7 +136,18 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 				endpoint = "/file/batchDelete"
 			}
 		}
-		return a.mobilePost(ctx, s, host+endpoint, body, false, nil)
+		if req.Action == "delete" {
+			if err := beforeCloudDelete(ctx); err != nil {
+				return err
+			}
+		}
+		if err := a.mobilePost(ctx, s, host+endpoint, body, false, nil); err != nil {
+			return err
+		}
+		if req.Action == "delete" {
+			return acceptedCloudDelete(ctx, "")
+		}
+		return nil
 	}
 	if nativeTianyi(s) {
 		if req.Action == "rename" {
@@ -252,11 +263,24 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 			Status int
 		}
 	}
+	if req.Action == "delete" {
+		if err := beforeCloudDelete(ctx); err != nil {
+			return err
+		}
+	}
 	if err := requestJSON(ctx, "POST", "https://drive.quark.cn/1/clouddrive/file/"+endpoint+"?pr=ucpro&fr=pc", cloudHeaders(s), body, &result); err != nil {
 		return err
 	}
 	if result.Code != 0 || result.Status >= 400 {
+		if req.Action == "delete" {
+			if err := rejectedCloudDelete(ctx); err != nil {
+				return err
+			}
+		}
 		return errors.New("夸克拒绝文件操作")
+	}
+	if req.Action == "delete" {
+		return acceptedCloudDelete(ctx, result.Data.TaskID)
 	}
 	if req.Action == "copy" {
 		if result.Data.TaskID == "" {

@@ -45,6 +45,8 @@ type App struct {
 	wecom               wecomService
 	quarkLibraryMu      sync.Mutex
 	mobileLibraryMu     sync.Mutex
+	mobileTemporaryMu   sync.Mutex
+	casLibraryMu        sync.Mutex
 	quarkTemporaryMu    sync.Mutex
 	quarkPlaybackActive map[string]int
 	marketMu            sync.Mutex
@@ -67,6 +69,7 @@ type App struct {
 	thumbnails          *thumbnailService
 	usageMu             sync.Mutex
 	usageCache          map[string]*storageUsageEntry
+	membershipCache     map[string]*storageMembershipEntry
 	mobileCASMembers    map[string]mobileCASMembership
 	healthMu            sync.Mutex
 	healthChecks        map[string]*storageHealthCheck
@@ -81,52 +84,59 @@ type App struct {
 	mountReadMu         sync.Mutex
 	mountReadPools      map[string]*mountReadPool
 
-	simulcast      *pan115Simulcast
-	transfers      transferLog
-	resources      transferResources
-	traffic        trafficMeter
-	shareMu        sync.Mutex
-	shareLiveMu    sync.Mutex
-	sharePreviews  map[string]*sharePreview
-	scrapeMu       sync.Mutex
-	scrapeCancel   context.CancelFunc
-	scrapeProgress scrapeProgress
-	strmIndexMu    sync.Mutex
-	mounts         *mountManager
-	links          *linkRuntime
-	versionMu      sync.Mutex
-	versionExpiry  time.Time
-	versionResult  map[string]any
-	tianyiMu       sync.Mutex
-	tianyiSessions map[string]tianyiSession
-	casGate        chan struct{}
-	casActive      map[string]int
-	store          *Store
-	cache          *Cache
-	quarkTVMu      sync.Mutex
-	quarkTVCache   map[string]quarkTVLink
-	ctx            context.Context
-	logger         *log.Logger
-	outputDir      string
-	dataDir        string
-	wg             sync.WaitGroup
-	runMu          sync.Mutex
-	running        map[string]context.CancelFunc
-	runningStorage map[string]string
-	taskFileUses   map[string][]taskFileNode
-	gateMu         sync.Mutex
-	gates          map[string]time.Time
-	intervals      map[string]int
-	sessionMu      sync.Mutex
-	sessions       map[string]time.Time
-	loginMu        sync.Mutex
-	loginAttempts  map[string][]time.Time
-	downloaded     atomic.Int64
-	uploaded       atomic.Int64
-	offlineBatches atomic.Int32
-	extracting     atomic.Int32
-	started        time.Time
-	dav            *webdav.Handler
+	simulcast        *pan115Simulcast
+	transfers        transferLog
+	resources        transferResources
+	tempMu           sync.Mutex
+	tempBuckets      map[string]*transferTempBucket
+	traffic          trafficMeter
+	shareMu          sync.Mutex
+	shareLiveMu      sync.Mutex
+	sharePreviews    map[string]*sharePreview
+	scrapeMu         sync.Mutex
+	scrapeCancel     context.CancelFunc
+	scrapeProgress   scrapeProgress
+	scrapeQueue      []queuedScrapeMatch
+	scrapeDispatch   bool
+	scrapeQueueEpoch uint64
+	strmIndexMu      sync.Mutex
+	mounts           *mountManager
+	links            *linkRuntime
+	versionMu        sync.Mutex
+	versionExpiry    time.Time
+	versionResult    map[string]any
+	tianyiMu         sync.Mutex
+	tianyiSessions   map[string]tianyiSession
+	casGate          chan struct{}
+	casActive        map[string]int
+	store            *Store
+	cache            *Cache
+	quarkTVMu        sync.Mutex
+	quarkTVCache     map[string]quarkTVLink
+	ctx              context.Context
+	logger           *log.Logger
+	outputDir        string
+	dataDir          string
+	wg               sync.WaitGroup
+	runMu            sync.Mutex
+	running          map[string]context.CancelFunc
+	runningStorage   map[string]string
+	runningTriggers  map[string]string
+	pendingSTRMSync  map[string]queuedSTRMSync
+	taskFileUses     map[string][]taskFileNode
+	gateMu           sync.Mutex
+	gates            map[string]time.Time
+	intervals        map[string]int
+	sessionMu        sync.Mutex
+	sessions         map[string]time.Time
+	loginMu          sync.Mutex
+	loginAttempts    map[string][]time.Time
+	downloaded       atomic.Int64
+	uploaded         atomic.Int64
+	offlineBatches   atomic.Int32
+	extracting       atomic.Int32
+	started          time.Time
+	dav              *webdav.Handler
 
 	virtualGrantCount int
 	virtualGrantReady bool
@@ -255,6 +265,8 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.quarkLibraryMonitor()
 	a.wg.Add(1)
 	go a.mobileLibraryMonitor()
+	a.wg.Add(1)
+	go a.casLibraryMonitor()
 	go a.casExportResultMonitor()
 	a.wg.Add(1)
 	go a.storageHealthLoop()
@@ -362,6 +374,11 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/virtual-library/mobile/resolve", a.protected(http.HandlerFunc(a.mobileLibraryResolve)))
 	mux.Handle("POST /api/virtual-library/mobile/{id}/run", a.protected(http.HandlerFunc(a.mobileLibraryRunAPI)))
 	mux.HandleFunc("/139-share/{share}/{file...}", a.playMobileLibrary)
+	mux.Handle("/api/virtual-library/cas", a.protected(http.HandlerFunc(a.casLibraryAPI)))
+	mux.Handle("PUT /api/virtual-library/115/settings", a.protected(http.HandlerFunc(a.virtual115SettingsAPI)))
+	mux.Handle("/api/virtual-library/cas/{id}", a.protected(http.HandlerFunc(a.casLibraryAPI)))
+	mux.Handle("POST /api/virtual-library/cas/resolve", a.protected(http.HandlerFunc(a.casLibraryResolve)))
+	mux.Handle("POST /api/virtual-library/cas/{id}/run", a.protected(http.HandlerFunc(a.casLibraryRunAPI)))
 	mux.Handle("/api/115-simulcast", a.protected(http.HandlerFunc(a.pan115SimulcastSettings)))
 	mux.Handle("/api/115-simulcast/enabled", a.protected(http.HandlerFunc(a.simulcastToggle)))
 	mux.Handle("/api/115-recycle-cleanup", a.protected(http.HandlerFunc(a.recycleCleanupAPI)))
@@ -456,8 +473,22 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/storages/{id}", a.protected(http.HandlerFunc(a.storageItem)))
 	mux.Handle("/api/storages/{id}/test", a.protected(http.HandlerFunc(a.testStorage)))
 	mux.Handle("GET /api/storages/{id}/usage", a.protected(http.HandlerFunc(a.storageUsageAPI)))
+	mux.Handle("GET /api/storages/{id}/membership", a.protected(http.HandlerFunc(a.storageMembershipAPI)))
 	mux.Handle("/api/files", a.protected(http.HandlerFunc(a.files)))
 	mux.Handle("/api/tasks", a.protected(http.HandlerFunc(a.tasks)))
+	mux.Handle("/api/rule-presets", a.protected(http.HandlerFunc(a.rulePresetsAPI)))
+	mux.Handle("/api/recognition-rules", a.protected(http.HandlerFunc(a.recognitionRulesAPI)))
+	mux.Handle("GET /api/media-categories/catalog", a.protected(http.HandlerFunc(a.mediaCategoryCatalog)))
+	mux.Handle("GET /api/naming-rules/catalog", a.protected(http.HandlerFunc(a.namingCatalog)))
+	mux.Handle("POST /api/naming-rules/preview", a.protected(http.HandlerFunc(a.namingPreview)))
+	mux.Handle("GET /api/upgrade-rules/catalog", a.protected(http.HandlerFunc(a.upgradeCatalog)))
+	mux.Handle("POST /api/upgrade-rules/preview", a.protected(http.HandlerFunc(a.upgradePreview)))
+	mux.Handle("POST /api/media-categories/preview", a.protected(http.HandlerFunc(a.mediaCategoryPreview)))
+	mux.Handle("POST /api/recognition-rules/preview", a.protected(http.HandlerFunc(a.recognitionRulesPreview)))
+	mux.Handle("/api/rule-presets/{id}", a.protected(http.HandlerFunc(a.rulePresetsAPI)))
+	mux.Handle("/api/organize-tasks", a.protected(http.HandlerFunc(a.organizeTasksAPI)))
+	mux.Handle("/api/organize-options", a.protected(http.HandlerFunc(a.organizeOptionsAPI)))
+	mux.Handle("/api/organize-tasks/{id}", a.protected(http.HandlerFunc(a.organizeTasksAPI)))
 	mux.Handle("/api/automations", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("/api/backup-rules", a.protected(http.HandlerFunc(a.backupRulesAPI)))
 	mux.Handle("/api/backup-rules/{id}", a.protected(http.HandlerFunc(a.backupRulesAPI)))
@@ -747,7 +778,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	jsonResponse(w, 200, map[string]any{"storages": st.Storages, "fileFavorites": visibleFavorites(st.FileFavorites), "fileVisits": st.FileVisits, "links": redactedMediaLinks(st.Links), "libraryNotices": st.LibraryNotices, "shareNotices": st.ShareNotices, "tasks": st.Tasks, "settings": st.Settings, "logs": st.Logs, "username": st.Username,
-		"scrapeLibraries": shareScrapeSources(st), "cache": a.cache.stats(), "traffic": map[string]any{"uploaded": a.uploaded.Load(), "downloaded": a.downloaded.Load()}, "uptime": int(time.Since(a.started).Seconds()), "strmRoot": a.outputDir})
+		"virtual115": st.Virtual115, "scrapeLibraries": shareScrapeSources(st), "cache": a.cache.stats(), "traffic": map[string]any{"uploaded": a.uploaded.Load(), "downloaded": a.downloaded.Load()}, "uptime": int(time.Since(a.started).Seconds()), "strmRoot": a.outputDir})
 }
 
 func validateStorage(s *Storage) error {
@@ -1248,6 +1279,7 @@ func (a *App) validateTask(t *Task) error {
 			return err
 		}
 		if t.Kind == "strm" {
+			normalizeSTRMSource(t)
 			mode, err := normalizeSTRMMode(t.Mode)
 			if err != nil {
 				return err
@@ -1257,7 +1289,7 @@ func (a *App) validateTask(t *Task) error {
 			if err := validateSTRMSource(*t, s, false); err != nil {
 				return err
 			}
-			if t.STRMSource != "" {
+			if t.STRMSource == "life" {
 				t.Mode = strmUpdate
 			}
 			if t.CascadeDelete && t.CascadeExtensions == "" {
@@ -1422,6 +1454,10 @@ func (a *App) taskAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := a.startTaskWithTrigger(a.ctx, task.ID, nil, "full-sync"); err != nil {
+			if errors.Is(err, errSTRMSyncQueued) {
+				jsonResponse(w, 202, map[string]bool{"ok": true, "queued": true})
+				return
+			}
 			fail(w, 409, err)
 			return
 		}
@@ -1447,6 +1483,7 @@ func (a *App) taskAction(w http.ResponseWriter, r *http.Request) {
 		}
 	case "stop":
 		a.runMu.Lock()
+		delete(a.pendingSTRMSync, r.PathValue("id"))
 		if cancel, ok := a.running[r.PathValue("id")]; ok {
 			cancel()
 		}

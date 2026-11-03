@@ -25,13 +25,13 @@ async function fixture(page){
   return {saved:()=>saved,operation:()=>operation,progress:value=>{progress=value}}
 }
 
-for(const width of [1440,390])for(const theme of ['light','dark'])test(`share records and three visible target rows ${width} ${theme}`,async({page},info)=>{
+for(const [width,height,theme] of [[1440,900,'light'],[1440,900,'dark'],[390,900,'light'],[390,900,'dark'],[375,812,'light'],[844,390,'dark']])test(`share records and three visible target rows ${width} ${theme}`,async({page},info)=>{
   await fixture(page)
-  await page.setViewportSize({width,height:900})
+  await page.setViewportSize({width,height})
   await page.goto('/notifications/transfers')
   await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
   await expect(page.locator('.telegram-target-card')).toHaveCount(15)
-  await expect(page.locator('.telegram-target-avatar').first()).toHaveText('11')
+  await expect(page.locator('.telegram-target-avatar').first()).toHaveText('Ta')
   await expect(page.locator('.telegram-target-card>.provider-icon')).toHaveCount(0)
   for(const list of await page.locator('.telegram-target-list').all()){
     const value=await list.evaluate(el=>{const parent=el.getBoundingClientRect();const rows=[...el.children].map(child=>child.getBoundingClientRect());return {scroll:el.scrollHeight>el.clientHeight,third:rows[2].bottom<=parent.bottom+3,fourth:rows[3].top>=parent.bottom-3,bar:getComputedStyle(el).scrollbarWidth}})
@@ -39,13 +39,24 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`share re
   }
   const colors=await page.locator('.telegram-pool').evaluateAll(els=>els.map(el=>getComputedStyle(el).backgroundColor))
   expect(new Set(colors).size).toBe(3)
+  await expect(page.locator('.telegram-pool>header button')).toHaveCount(0)
+  for(const pool of await page.locator('.telegram-pool').all()){
+    const add=pool.locator('.telegram-add'),card=pool.locator('.telegram-target-card').first()
+    await expect(add).toHaveCount(1);await expect(add).toHaveCSS('border-top-style','dashed')
+    expect(await add.evaluate(el=>el.parentElement.classList.contains('telegram-target-list')&&el===el.parentElement.lastElementChild)).toBe(true)
+    expect((await add.boundingBox()).height).toBe((await card.boundingBox()).height)
+    expect((await add.boundingBox()).width).toBe((await card.boundingBox()).width)
+  }
   await expect(page.getByRole('region',{name:'转存记录'})).toContainText('Bot 交互')
   await expect(page.getByRole('region',{name:'转存记录'})).toContainText('浏览器转存')
   await expect(page.getByRole('region',{name:'转存记录'})).toContainText('活链计划')
+  const backgrounds=await page.getByRole('region',{name:'转存记录'}).evaluate(el=>({panel:getComputedStyle(el).backgroundColor,table:getComputedStyle(el.querySelector('.share-record-table')).backgroundColor,page:getComputedStyle(document.body).backgroundColor}))
+  expect(backgrounds.panel).not.toBe(backgrounds.page);expect(backgrounds.table).not.toBe(backgrounds.panel)
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   await page.screenshot({path:info.outputPath('share-records.png'),fullPage:true})
   await page.getByRole('button',{name:'活动链接 /Target 0',exact:true}).last().click()
   await expect(page.getByRole('dialog',{name:'活动链接',exact:true})).toContainText('影视分享')
+  await page.screenshot({path:info.outputPath('share-live-window.png')})
   await page.getByRole('button',{name:'编辑活链 影视分享',exact:true}).click()
   const modal=page.getByRole('dialog',{name:'编辑分享链接',exact:true})
   const fields=await modal.locator('.share-live-form label').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y}}))
@@ -56,6 +67,14 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`share re
   await page.screenshot({path:info.outputPath('share-live-edit.png')})
   await page.keyboard.press('Escape')
   await expect(modal).toHaveCount(0)
+})
+
+test('target avatars follow the deepest directory name rather than the storage name',async({page})=>{
+  await fixture(page)
+  await page.route('**/api/notification-service',route=>route.fulfill({json:{telegram:{userIds:[]},targets:[{id:'q0',provider:'quark',storageId:'q',parent:'novels',path:'../书库/网文声浪/'}]}}))
+  await page.goto('/notifications/transfers')
+  await expect(page.locator('.telegram-target-avatar')).toHaveText('网文')
+  await expect(page.locator('.telegram-target-title')).toContainText('夸克影音')
 })
 
 test('target update days and live rename, remove-only and delete confirmation',async({page})=>{

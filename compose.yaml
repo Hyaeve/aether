@@ -8,6 +8,8 @@ services:
       - ./data:/data
       # FUSE 读缓存单独映射，建议放到更快的磁盘
       - ./fuse_read_cache:/fuse_read_cache
+      # 需要向宿主机/Emby提供FUSE时，映射父目录并配置传播，见docs/mount-recovery.md
+      # - /NetDisk:/NetDisk:rshared
     environment:
       - TZ=Asia/Shanghai
       - AETHER_PORT=15151

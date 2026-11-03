@@ -134,7 +134,7 @@ func TestMobileGenerationPoolRotationAndConfirmationSnapshot(t *testing.T) {
 }
 
 func TestMobileGenerationTemporaryLifecycle(t *testing.T) {
-	for _, variant := range []string{"success", "permanent", "root-renamed", "submit-unknown", "missing-task", "task-failed", "wrong-task", "missing-hash", "changed-size", "duplicate-name", "source-changed", "output-conflict", "output-changed", "delete-failed", "delete-unconfirmed", "pool-changed", "cancelled"} {
+	for _, variant := range []string{"success", "permanent", "root-renamed", "submit-unknown", "missing-task", "task-failed", "wrong-task", "missing-hash", "changed-size", "duplicate-name", "source-changed", "output-conflict", "output-changed", "delete-failed", "delete-unconfirmed", "pool-changed", "cancelled", "library-success", "library-unknown"} {
 		t.Run(variant, func(t *testing.T) {
 			a := testApp(t)
 			s := generationMobileStorage(t, a)
@@ -160,7 +160,8 @@ func TestMobileGenerationTemporaryLifecycle(t *testing.T) {
 			old := apiClient
 			defer func() { apiClient = old }()
 			apiClient = &http.Client{Transport: casTransport(func(r *http.Request) (*http.Response, error) {
-				if r.Method != "POST" || r.Header.Get("Authorization") != "Basic "+s.Config["authorization"] {
+				publicRead := strings.HasPrefix(variant, "library-") && (filepath.Base(r.URL.Path) == "getOutLinkGeneral" || filepath.Base(r.URL.Path) == "getOutLinkInfoV6" || filepath.Base(r.URL.Path) == "getContentInfoFromOutLink")
+				if r.Method != "POST" || !publicRead && r.Header.Get("Authorization") != "Basic "+s.Config["authorization"] || publicRead && r.Header.Get("Authorization") != "" {
 					t.Fatal("unexpected request or credentials")
 				}
 				body, _ := io.ReadAll(r.Body)
@@ -179,6 +180,17 @@ func TestMobileGenerationTemporaryLifecycle(t *testing.T) {
 				var data any = map[string]any{}
 				status := 200
 				switch filepath.Base(r.URL.Path) {
+				case "getOutLinkGeneral":
+					data = map[string]any{"getOutLinkGeneralResp": map[string]any{"outLinkGeneral": []any{map[string]any{"passwd": "Ab12", "lkName": "作品"}}}}
+				case "getOutLinkInfoV6":
+					input := payload["getOutLinkInfoReq"].(map[string]any)
+					if input["pCaID"] == "root" {
+						data = map[string]any{"caLst": []any{map[string]any{"caID": "season", "caName": "Season", "path": "season"}}}
+					} else {
+						data = map[string]any{"owner": "owner-id", "coLst": []any{map[string]any{"coID": "source-id", "coName": "episode.mkv", "coSize": 12, "path": "root/source-id"}}}
+					}
+				case "getContentInfoFromOutLink":
+					data = map[string]any{"contentInfo": map[string]any{"contentID": "source-id", "contentName": "episode.mkv", "contentSize": 12}}
 				case "qryRoutePolicy":
 					data = map[string]any{"routePolicyList": []any{map[string]any{"modName": "personal", "httpsUrl": "https://personal.yun.139.com"}}}
 				case "list":
@@ -226,7 +238,7 @@ func TestMobileGenerationTemporaryLifecycle(t *testing.T) {
 					if a.store.snapshot().GenerationJobs[0].Temporary[1].Phase != "submitting" {
 						t.Fatal("missing durable submit intent")
 					}
-					if variant == "submit-unknown" {
+					if variant == "submit-unknown" || variant == "library-unknown" {
 						status = 502
 					}
 					data = map[string]any{"taskID": "transfer-task"}
@@ -296,7 +308,27 @@ func TestMobileGenerationTemporaryLifecycle(t *testing.T) {
 				}
 				return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(string(raw))), Request: r}, nil
 			})}
-			a.executeGeneration(ctx, job, m, base, "")
+			if strings.HasPrefix(variant, "library-") {
+				card := quarkLibraryCard{ID: "cas-library", Secret: "https://yun.139.com/shareweb/private-code?pwd=Ab12", Name: "作品", Directory: filepath.Dir(base), DirectoryName: filepath.Base(base), MediaExtensions: "mkv", Enabled: true}
+				a.store.update(func(st *State) error {
+					st.GenerationJobs = nil
+					st.CASLibraryCards = []quarkLibraryCard{card}
+					initCASLibrary(st)
+					return nil
+				})
+				_, runErr := a.runCASLibrary(ctx, card, nil)
+				if (runErr == nil) != (variant == "library-success") {
+					t.Fatal("unexpected library result", runErr)
+				}
+				job = a.store.snapshot().GenerationJobs[0]
+				if variant == "library-unknown" {
+					if _, err := a.runCASLibrary(ctx, card, nil); err == nil || submits != 1 {
+						t.Fatal("uncertain library transfer replayed")
+					}
+				}
+			} else {
+				a.executeGeneration(ctx, job, m, base, "")
+			}
 			final := a.store.snapshot().GenerationJobs[0]
 			wantSubmits := 1
 			if variant == "root-renamed" {
@@ -305,7 +337,7 @@ func TestMobileGenerationTemporaryLifecycle(t *testing.T) {
 			if submits != wantSubmits {
 				t.Fatal("transfer replayed or skipped", submits)
 			}
-			if variant == "success" || variant == "permanent" {
+			if variant == "success" || variant == "permanent" || variant == "library-success" {
 				if final.Status != "success" || final.Success != 1 || deletes != 1 || generationHasTemporary(final) {
 					t.Fatal(final, deletes)
 				}

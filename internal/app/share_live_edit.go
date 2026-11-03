@@ -290,8 +290,18 @@ func (a *App) editShareLive(w http.ResponseWriter, r *http.Request, link shareLi
 			return
 		}
 	}
+	oldCursor := link.IncrementalCursor
+	sourceChanged := shareRecordURL(input.URL) != shareRecordURL(link.Link)
 	link.TargetID, link.Parent = target.ID, target.Parent
 	link.Link, link.Cron, link.DirectoryName = input.URL, strings.TrimSpace(input.Cron), input.DirectoryName
+	if sourceChanged {
+		link.IncrementalCursor, err = a.stageShareLiveCheckpoint(link, map[string]bool{}, time.Now())
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		link.LastSuccess = time.Time{}
+	}
 	link.IntervalDays, link.Intent = 0, ""
 	link.NextRun = shareLiveNext(link, time.Now())
 	err = a.store.update(func(st *State) error {
@@ -318,6 +328,9 @@ func (a *App) editShareLive(w http.ResponseWriter, r *http.Request, link shareLi
 		return
 	}
 	a.cache.clear()
+	if sourceChanged {
+		a.removeShareLiveCheckpoint(link, oldCursor)
+	}
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }
 

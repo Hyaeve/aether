@@ -20,7 +20,7 @@ function refreshView() { exitSelection(); fileView.value?.refresh(); action('sca
 const excludedScopes = ref([]), selectionMode = ref(false), selection = ref([]), selectionAnchor = ref(''), confirmation = ref(null)
 function exitSelection() { selectionMode.value = false; selection.value = []; selectionAnchor.value = '' }
 function choose(event, item) {
-  if (event.target.closest('.scrape-actions') || progress.value.running) return
+  if (event.target.closest('.scrape-actions')) return
   if (event.type === 'contextmenu') selectionMode.value = true
   if (!selectionMode.value) { rematch(item); return }
   if (event.shiftKey && selectionAnchor.value) {
@@ -141,7 +141,7 @@ async function saveMatch() {
   busy.value = true
   try {
     const result = await api('/strm-scrape/match', 'POST', { taskId: task.value, path: matching.value.path, tmdb: Number(match.tmdb), kind: match.kind, group: true, scrape:true })
-    matching.value = null; progress.value = result; await load(); notify('匹配已应用，正在刮削')
+    matching.value = null; progress.value = result; if (!result.queued) await load(); notify(result.queued ? `手动识别已排队，等待 ${result.queued} 项` : '匹配已应用，正在刮削')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 const preferenceKey = computed(() => `aether-scrape-task:${state.username || ''}`)
@@ -181,15 +181,15 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索刮削记录" placeholder="搜索名称或路径" /></div>
       <button class="icon-btn" :aria-label="viewMode === 'poster' ? '海报墙视图' : '文件夹视图'" :aria-pressed="viewMode === 'folder'" @click="viewMode = viewMode === 'poster' ? 'folder' : 'poster'"><Icon :name="viewMode === 'poster' ? 'LayoutGrid' : 'List'" /></button>
     </div>
-    <div v-if="progress.running" class="scrape-progress"><span>{{ progress.message }}</span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
-    <ScrapeFiles v-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" @reset="resetting = $event" @identify="rematch" @count="fileCount = $event" />
+    <div v-if="progress.running" class="scrape-progress"><span>{{ progress.message }}<template v-if="progress.queued"> · 排队 {{ progress.queued }} 项</template></span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
+    <ScrapeFiles v-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" :busy="busy" @reset="resetting = $event" @identify="rematch" @count="fileCount = $event" />
     <div v-else class="scrape-poster-shell"><div ref="viewport" class="scrape-body">
       <div v-if="filtered.length" class="scrape-wall" :style="{gridTemplateColumns: `repeat(${columns}, minmax(0,1fr))`}">
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
         <article v-for="item in shown" :key="item.path" class="scrape-card" :class="{selected:selection.includes(item.path)}" @click="selectionMode && choose($event,item)" @contextmenu.prevent="choose($event,item)">
-          <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :aria-pressed="selectionMode ? selection.includes(item.path) : undefined" :disabled="progress.running || busy" @click.stop="choose($event,item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '剧集' : '电影' }}</span></template><span v-if="selectionMode" class="poster-selection"><Icon :name="selection.includes(item.path) ? 'CircleCheck' : 'Circle'" :size="22" /></span></button>
+          <button class="scrape-poster" :aria-label="`匹配 ${item.title}`" :aria-pressed="selectionMode ? selection.includes(item.path) : undefined" :disabled="busy" @click.stop="choose($event,item)"><img v-if="item.poster" :src="item.poster" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" /><template v-else><Icon :name="item.kind === 'tv' ? 'Tv' : 'Film'" :size="32" /><span>{{ item.kind === 'tv' ? '剧集' : '电影' }}</span></template><span v-if="selectionMode" class="poster-selection"><Icon :name="selection.includes(item.path) ? 'CircleCheck' : 'Circle'" :size="22" /></span></button>
           <div class="scrape-card-body"><div class="scrape-title"><strong :data-tooltip="item.title">{{ item.title }}</strong><span class="work-star" :class="itemStatus(item)" :aria-label="statuses[itemStatus(item)]"  /></div><small :data-tooltip="item.path">{{ item.kind === 'tv' ? '剧集' : '电影' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.kind === 'tv'"> · {{ item.count || 1 }} 集</template></small></div>
-          <div v-if="!selectionMode" class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" :size="16" />重置</button><button class="icon-btn" aria-label="识别作品" :disabled="progress.running || busy" @click="rematch(item)"><Icon name="ScanSearch" :size="16" />识别</button></div>
+          <div v-if="!selectionMode" class="scrape-actions"><button class="icon-btn" aria-label="重置元数据" :disabled="progress.running || busy" @click="resetting = item"><Icon name="RotateCcw" :size="16" />重置</button><button class="icon-btn" aria-label="识别作品" :disabled="busy" @click="rematch(item)"><Icon name="ScanSearch" :size="16" />识别</button></div>
         </article>
         <div v-if="bottom" :style="{height: `${bottom}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
       </div>
