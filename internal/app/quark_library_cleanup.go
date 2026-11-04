@@ -17,35 +17,72 @@ const quarkLibraryMarker = ".aether-library-owner"
 
 type quarkLibraryOwnership struct {
 	Directory string `json:"directory"`
-	Token     string `json:"token"`
+	Token     string `json:"token,omitempty"`
+	Identity  string `json:"identity,omitempty"`
 }
 
 func (a *App) ensureQuarkLibraryOwnership(ctx context.Context, card quarkLibraryCard, root *os.Root) error {
 	st := a.store.snapshotWithLogLimit(0)
-	record := st.QuarkLibraryRuntime.Roots[card.ID]
-	recovering := record.Directory == quarkLibraryRoot(card) && record.Token != ""
-	if recovering {
-		if err := verifyQuarkLibraryOwner(root, record); err == nil {
-			return nil
-		} else if _, statErr := root.Lstat(quarkLibraryMarker); !os.IsNotExist(statErr) {
+	return a.ensureLibraryIdentity(ctx, card, root, st.QuarkLibraryRuntime.Roots[card.ID], st.QuarkLibraryRuntime.Files,
+		func() error { return a.quarkLibraryCheckExecution(ctx, card) },
+		func(previous, record quarkLibraryOwnership) error {
+			return a.store.update(func(st *State) error {
+				if current, ok := quarkLibraryCardAt(*st, card.ID); !ok || current != card {
+					return errors.New("卡片已改变，未登记目录归属")
+				}
+				initQuarkLibraryRuntime(st)
+				if st.QuarkLibraryRuntime.Roots[card.ID] != previous {
+					return errors.New("目录归属记录已改变")
+				}
+				st.QuarkLibraryRuntime.Roots[card.ID] = record
+				return nil
+			})
+		})
+}
+
+// Persist the native identity internally before removing a legacy marker.
+// Replacing a directory, even with identical files, cannot acquire authority.
+func (a *App) ensureLibraryIdentity(ctx context.Context, card quarkLibraryCard, root *os.Root, previous quarkLibraryOwnership, files map[string]quarkLibraryFile, check func() error, save func(quarkLibraryOwnership, quarkLibraryOwnership) error) error {
+	if err := check(); err != nil {
+		return err
+	}
+	identity, err := strmRootIdentity(root)
+	if err != nil {
+		return err
+	}
+	liveRoot, e := openStrmReplaceRoot(quarkLibraryRoot(card))
+	if e != nil {
+		return e
+	}
+	liveIdentity, e := strmRootIdentity(liveRoot)
+	liveRoot.Close()
+	if e != nil || liveIdentity != identity {
+		return errors.New("生成目录路径身份已改变，未登记或清理")
+	}
+	if previous.Identity != "" && previous.Directory == quarkLibraryRoot(card) {
+		if previous.Identity != identity {
+			return errors.New("生成目录身份与内部登记不符，未接管或清理")
+		}
+		if err := verifyQuarkLibraryOwner(root, previous); err != nil {
 			return err
 		}
+		return removeLegacyLibraryMarker(root, previous)
 	}
-	// An existing foreign marker must never be replaced, including after import.
-	if _, err := root.Lstat(quarkLibraryMarker); !os.IsNotExist(err) {
-		return errors.New("生成目录已有其他归属标记，未接管或覆盖")
+	marker := false
+	if _, err := root.Lstat(quarkLibraryMarker); err == nil {
+		marker = true
+		if previous.Directory != quarkLibraryRoot(card) || verifyQuarkLibraryOwner(root, previous) != nil {
+			return errors.New("生成目录已有其他归属标记，未接管或覆盖")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	entries, err := scanQuarkLibraryDisk(ctx, root)
 	if err != nil {
 		return err
 	}
-	known := map[string]quarkLibraryFile{}
-	media := []string{}
-	present := map[string]bool{}
-	for _, entry := range entries {
-		present[entry.name] = !entry.info.IsDir()
-	}
-	for _, file := range st.QuarkLibraryRuntime.Files {
+	known, media := map[string]quarkLibraryFile{}, []string{}
+	for _, file := range files {
 		if file.CardID == card.ID {
 			known[file.Relative] = file
 			if file.Media {
@@ -54,126 +91,90 @@ func (a *App) ensureQuarkLibraryOwnership(ctx context.Context, card quarkLibrary
 		}
 	}
 	for i := range entries {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		entry := &entries[i]
 		if entry.info.IsDir() {
 			continue
 		}
 		entry.digest, err = quarkLibraryDigest(root, entry.name)
 		if err != nil {
-			return errors.New("生成文件无法完整核验，未恢复归属标记")
+			return errors.New("生成文件无法完整核验，未登记目录身份")
 		}
 		if file, ok := known[entry.name]; ok {
-			if entry.digest != file.Digest {
-				return errors.New("旧生成目录存在已修改文件，未接管自动清理")
+			if file.Digest == "" || entry.digest != file.Digest {
+				return errors.New("生成目录存在已修改文件，未接管自动清理")
 			}
 		} else if !slices.ContainsFunc(media, func(name string) bool {
-			return (!recovering || present[name]) && (quarkLibraryCompanion(entry.name, name) || quarkLibrarySidecar(entry.name) && path.Dir(entry.name) == path.Dir(name))
+			return quarkLibraryCompanion(entry.name, name) || quarkLibrarySidecar(entry.name) && path.Dir(entry.name) == path.Dir(name)
 		}) {
-			return errors.New("生成目录已有未登记的文件，请选择独立目录，未接管或清理")
+			return errors.New("生成目录已有未登记的文件，请选择独立目录")
 		}
 	}
-	// A missing marker is recoverable only from a still-identical, fully
-	// inventoried directory. Never overwrite an existing marker to recover.
-	identity, err := root.Stat(".")
+	if err := check(); err != nil {
+		return err
+	}
+	live, err := openStrmReplaceRoot(quarkLibraryRoot(card))
 	if err != nil {
 		return err
 	}
-	verifyInventory := func(ignore string) error {
-		if err := a.quarkLibraryCheckExecution(ctx, card); err != nil {
-			return err
+	freshIdentity, err := strmRootIdentity(live)
+	live.Close()
+	if err != nil || freshIdentity != identity {
+		return errors.New("生成目录身份已改变，未登记")
+	}
+	fresh, err := scanQuarkLibraryDisk(ctx, root)
+	if err != nil || len(fresh) != len(entries) {
+		return errors.New("生成目录核验期间发生变化")
+	}
+	byName := map[string]quarkLibraryDiskEntry{}
+	for _, entry := range fresh {
+		byName[entry.name] = entry
+	}
+	for _, entry := range entries {
+		current, ok := byName[entry.name]
+		if !ok || !os.SameFile(entry.info, current.info) || entry.info.IsDir() != current.info.IsDir() {
+			return errors.New("生成目录核验期间身份变化")
 		}
-		live, err := openStrmReplaceRoot(quarkLibraryRoot(card))
-		if err != nil {
-			return err
-		}
-		current, statErr := live.Stat(".")
-		live.Close()
-		if statErr != nil || !os.SameFile(identity, current) {
-			return errors.New("生成目录身份已改变，未恢复归属标记")
-		}
-		fresh, err := scanQuarkLibraryDisk(ctx, root, ignore)
-		if err != nil {
-			return err
-		}
-		byName := map[string]quarkLibraryDiskEntry{}
-		for _, entry := range fresh {
-			if entry.name != ignore {
-				byName[entry.name] = entry
+		if !entry.info.IsDir() {
+			digest, e := quarkLibraryDigest(root, entry.name)
+			if e != nil || digest != entry.digest {
+				return errors.New("生成文件核验期间内容变化")
 			}
 		}
-		if len(byName) != len(entries) {
-			return errors.New("生成目录在归属核验期间出现变动，未恢复标记")
-		}
-		for _, entry := range entries {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			current, ok := byName[entry.name]
-			if !ok || !os.SameFile(entry.info, current.info) || entry.info.IsDir() != current.info.IsDir() {
-				return errors.New("生成目录在归属核验期间已改变，未恢复标记")
-			}
-			if entry.info.IsDir() {
-				continue
-			}
-			digest, err := quarkLibraryDigest(root, entry.name)
-			if err != nil || !sameStrmFile(entry.info, current.info) || digest != entry.digest {
-				return errors.New("生成文件在归属核验期间已改变，未恢复标记")
-			}
-		}
+	}
+	record := quarkLibraryOwnership{Directory: quarkLibraryRoot(card), Identity: identity, Token: previous.Token}
+	if err := save(previous, record); err != nil {
+		return err
+	}
+	if marker {
+		return removeLegacyLibraryMarker(root, record)
+	}
+	return verifyQuarkLibraryOwner(root, record)
+}
+
+func removeLegacyLibraryMarker(root *os.Root, record quarkLibraryOwnership) error {
+	if _, err := root.Lstat(quarkLibraryMarker); os.IsNotExist(err) {
 		return nil
-	}
-	if err := verifyInventory(""); err != nil {
+	} else if err != nil {
 		return err
 	}
-	previous := record
-	if !recovering {
-		record = quarkLibraryOwnership{Directory: quarkLibraryRoot(card), Token: id()}
-	}
-	if err := a.store.update(func(st *State) error {
-		if current, ok := quarkLibraryCardAt(*st, card.ID); !ok || current != card {
-			return errors.New("卡片已改变，未登记目录归属")
-		}
-		initQuarkLibraryRuntime(st)
-		if st.QuarkLibraryRuntime.Roots[card.ID] != previous {
-			return errors.New("生成目录归属记录已改变，未恢复标记")
-		}
-		st.QuarkLibraryRuntime.Roots[card.ID] = record
-		return nil
-	}); err != nil {
+	if err := verifyQuarkLibraryOwner(root, record); err != nil {
 		return err
 	}
-	temp := ".aether-owner-" + id()
-	f, err := root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	defer root.Remove(temp)
-	_, err = io.WriteString(f, record.Token)
-	if err == nil {
-		err = f.Sync()
-	}
-	if err := errors.Join(err, f.Close()); err != nil {
-		return err
-	}
-	if err := verifyInventory(temp); err != nil {
-		return err
-	}
-	if a.store.snapshotWithLogLimit(0).QuarkLibraryRuntime.Roots[card.ID] != record {
-		return errors.New("生成目录归属记录已改变，未发布标记")
-	}
-	if err := root.Link(temp, quarkLibraryMarker); err != nil {
-		return errors.New("生成目录归属标记发布失败或已出现其他标记，未覆盖")
-	}
-	if recovering {
-		a.store.event("info", "virtual", "夸克链库已核验并恢复缺失的生成目录归属标记："+card.Name)
-	}
-	return nil
+	return root.Remove(quarkLibraryMarker)
 }
 
 func verifyQuarkLibraryOwner(root *os.Root, record quarkLibraryOwnership) error {
+	if record.Identity != "" {
+		identity, err := strmRootIdentity(root)
+		if err != nil || identity != record.Identity {
+			return errors.New("生成目录身份与内部登记不符，未执行清理")
+		}
+		if _, err := root.Lstat(quarkLibraryMarker); os.IsNotExist(err) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
 	digest, err := quarkLibraryDigest(root, quarkLibraryMarker)
 	sum := sha256.Sum256([]byte(record.Token))
 	if err != nil || record.Token == "" || digest != hex.EncodeToString(sum[:]) {
@@ -374,19 +375,29 @@ func (a *App) reconcileQuarkLibrary(ctx context.Context, card quarkLibraryCard, 
 			staleMedia = append(staleMedia, name)
 		}
 	}
+	if card.CascadeCleanup == "off" {
+		staleMedia = slices.DeleteFunc(staleMedia, func(name string) bool { return !sourceLibraryMediaGone(ctx, name) })
+	}
 	for _, entry := range entries {
 		if entry.info.IsDir() || remove[entry.name] {
 			continue
+		}
+		if file, tracked := known[entry.name]; tracked {
+			digest, e := quarkLibraryDigest(root, entry.name)
+			if e != nil || digest != file.Digest {
+				continue
+			}
 		}
 		if expiry {
 			if !quarkLibrarySidecar(entry.name) {
 				return 0, errors.New("到期目录包含未登记的文件，卡片及目录保留，请人工核对")
 			}
 			remove[entry.name] = true
-		} else if card.CascadeCleanup != "off" && quarkLibrarySidecar(entry.name) {
+		} else if (card.CascadeCleanup != "off" || sourceLibraryCleanup(ctx) || len(staleMedia) > 0) && quarkLibrarySidecar(entry.name) {
 			directory := path.Dir(entry.name)
 			hasMedia := slices.ContainsFunc(liveMedia, func(name string) bool { return directory == "." || strings.HasPrefix(name, directory+"/") })
-			if directory != "." && !hasMedia {
+			hasStale := slices.ContainsFunc(staleMedia, func(name string) bool { return directory == "." || strings.HasPrefix(name, directory+"/") })
+			if directory != "." && !hasMedia && (card.CascadeCleanup != "off" && !sourceLibraryCleanup(ctx) || hasStale) {
 				remove[entry.name] = true
 				continue
 			}
@@ -463,7 +474,7 @@ func (a *App) reconcileQuarkLibrary(ctx context.Context, card quarkLibraryCard, 
 	}); err != nil {
 		return removed, err
 	}
-	if card.CascadeCleanup == "off" && !expiry {
+	if card.CascadeCleanup == "off" && !expiry && !sourceLibraryCleanup(ctx) {
 		return removed, nil
 	}
 	// Remove only now-empty directories, deepest first. New or unrelated files
@@ -494,7 +505,7 @@ func (a *App) reconcileQuarkLibrary(ctx context.Context, card quarkLibraryCard, 
 		if err != nil || len(remaining) != 0 {
 			return removed, errors.New("到期目录仍有文件或目录变化，卡片保留，请人工核对")
 		}
-		if err := root.Remove(quarkLibraryMarker); err != nil {
+		if err := removeLegacyLibraryMarker(root, owner); err != nil {
 			return removed, err
 		}
 		parent, err := openStrmReplaceRoot(card.Directory)

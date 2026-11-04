@@ -40,6 +40,10 @@ func (a *App) mobileLibraryPersonalFolder(ctx context.Context, s Storage, host, 
 // Intent precedes each cloud write. An unknown write is never submitted again,
 // including after restart or selection of a different account by rotation.
 func (a *App) mobileLibraryTransferredLink(ctx context.Context, card quarkLibraryCard, grant quarkLibraryFile, s Storage, share mobileLibraryShare, source mobileLibrarySource, check func() error) (Download, error) {
+	resource, err := mobileLibraryDownloadResource(source)
+	if err != nil {
+		return Download{}, err
+	}
 	a.mobileTemporaryMu.Lock()
 	defer a.mobileTemporaryMu.Unlock()
 	ctx = context.WithValue(ctx, generationWorkGuardKey{}, check)
@@ -129,7 +133,7 @@ func (a *App) mobileLibraryTransferredLink(ctx context.Context, card quarkLibrar
 		if err = save(); err != nil {
 			return Download{}, err
 		}
-		record.Task, err = a.generationTransfer(ctx, s, []GenerationEntry{{Mobile: &generationMobileSource{Code: share.Code, Pass: share.Pass, Token: source.Path}}}, record.Folder)
+		record.Task, err = a.generationTransfer(ctx, s, []GenerationEntry{{Mobile: &generationMobileSource{Code: share.Code, Pass: share.Pass, Token: resource}}}, record.Folder)
 		if err != nil {
 			return Download{}, err
 		}

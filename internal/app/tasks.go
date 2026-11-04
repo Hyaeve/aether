@@ -475,6 +475,18 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 	}
 	visited := map[string]bool{}
 	outputs := map[string]bool{}
+	batch := make([]strm115Output, 0, 128)
+	flush115 := func() error {
+		err := a.publish115Batch(ctx, sync, s, root, batch, skipOutput, func(changed bool) {
+			if changed {
+				count++
+			}
+			progressDone++
+			reportProgress(false)
+		})
+		batch = batch[:0]
+		return err
+	}
 	lastProgress := time.Time{}
 	var walk func(string, string, int) error
 	walk = func(dir, rel string, depth int) error {
@@ -787,11 +799,26 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 				}
 				continue
 			}
+			if t.Kind == "strm" && s.Type == "115" && sync != nil && plan != nil {
+				batch = append(batch, strm115Output{file: f, name: filename})
+				pendingProgress = false
+				if len(batch) == cap(batch) {
+					if err := flush115(); err != nil {
+						return err
+					}
+				}
+				continue
+			}
 			claim := streamClaim{Storage: s.ID, File: f.ID, Pick: f.PickCode, CAS: info}
 			if info != nil {
 				claim.TaskID, claim.RetentionHours = t.ID, casRetentionHours(t.RetentionHours)
 			}
-			link := a.signedStreamURL(claim)
+			// Public 115/Quark references have their own authorization index/signature.
+			// Avoid building an unused signed stream token for every media file.
+			link := ""
+			if t.Kind != "strm" || s.Type != "115" && s.Type != "quark" {
+				link = a.signedStreamURL(claim)
+			}
 			if t.Kind == "strm" && (s.Type == "mobile" || s.Type == "tianyi") {
 				link = a.generatedStreamURL(claim)
 			}
@@ -841,6 +868,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 		return nil
 	}
 	err = walk(t.Source, sourceRel, 0)
+	if err == nil {
+		err = flush115()
+	}
 	if err == nil && cleanup != nil {
 		err = cleanup.finish(ctx, a, root)
 	}

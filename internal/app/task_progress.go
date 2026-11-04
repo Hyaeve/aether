@@ -26,7 +26,7 @@ func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel
 			if ctx.Err() != nil {
 				return nil, 0, ctx.Err()
 			}
-			a.store.event("info", "tasks", "STRM任务「"+t.Name+"」：批量目录清单不可用，改用逐目录核验")
+			a.store.event("info", "tasks", "STRM任务「"+t.Name+"」：批量目录清单不可用，改用逐目录核验："+err.Error())
 			bulk = nil
 		} else {
 			a.store.event("info", "tasks", fmt.Sprintf("STRM任务「%s」：115批量目录清单已就绪，共%d个目录；后续媒体STRM在本地生成", t.Name, len(bulk)))

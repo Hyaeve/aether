@@ -129,6 +129,7 @@ func (a *App) configBackup(w http.ResponseWriter, r *http.Request) {
 	b.State.CloudCASRecords = nil
 	b.State.CASStats = CASRestoreStats{}
 	b.State.MobileLibraryRuntime = mobileLibraryRuntime{}
+	b.State.Library115Runtime = quarkLibraryRuntime{}
 	b.State.CASLibraryRuntime = casLibraryRuntime{}
 	b.State.ED2KStats, b.State.ED2KTemporary, b.State.GenerationJobs = CASRestoreStats{}, nil, nil
 	b.State.ToolsRevision = ""
@@ -318,6 +319,7 @@ func applyPendingConfig(s *Store) error {
 	}
 	before := s.state
 	s.state = b.State
+	ensureRulePresets(&s.state)
 	s.state.FileFavorites, s.state.FileVisits = before.FileFavorites, before.FileVisits
 	s.state.CloudCASRecords = before.CloudCASRecords
 	s.state.FolderCleanupReceipts = before.FolderCleanupReceipts
@@ -326,6 +328,7 @@ func applyPendingConfig(s *Store) error {
 	s.state.CASPlaybackAttempts = before.CASPlaybackAttempts
 	s.state.Rename115Attempts = before.Rename115Attempts
 	s.state.MobileLibraryRuntime = before.MobileLibraryRuntime
+	s.state.Library115Runtime = before.Library115Runtime
 	s.state.CASLibraryRuntime = before.CASLibraryRuntime
 	s.state.ShareTransfers, s.state.ShareLiveLinks = before.ShareTransfers, before.ShareLiveLinks
 	s.state.RenameHistory = nil

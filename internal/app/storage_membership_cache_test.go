@@ -70,6 +70,79 @@ func TestStorageMembershipReturnsBeforeSlowQuota(t *testing.T) {
 	}
 }
 
+func TestStorageMembershipNavigationDoesNotCancelSharedLookup(t *testing.T) {
+	a, s, _ := strm115Fixture(t)
+	s, err := a.store.storage(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	oldClient, oldTransport := apiClient, http.DefaultTransport
+	var calls atomic.Int32
+	transport := casTransport(func(r *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		close(started)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"state":true,"data":{"user_id":"333554321","vip_info":{"level_name":"永久VIP"}}}`)), Request: r}, nil
+	})
+	apiClient, http.DefaultTransport = &http.Client{Transport: transport}, transport
+	defer func() { apiClient, http.DefaultTransport = oldClient, oldTransport }()
+	ctx, cancel := context.WithCancel(a.ctx)
+	done := make(chan error, 1)
+	go func() { _, err := a.cachedStorageMembership(ctx, s); done <- err }()
+	<-started
+	cancel()
+	close(release)
+	if err := <-done; err != context.Canceled {
+		t.Fatal("initiating page did not receive cancellation", err)
+	}
+	value, err := a.cachedStorageMembership(a.ctx, s)
+	if err != nil || value == nil || value.Tier != "permanent" || calls.Load() != 1 {
+		t.Fatal("navigation restarted or discarded shared membership", value, err, calls.Load())
+	}
+	stored, err := a.store.storage(s.ID)
+	if err != nil || stored.Usage == nil || stored.Usage.Membership == nil {
+		t.Fatal("background result not persisted", err)
+	}
+}
+
+func TestStorageMembershipLastKnownBadgeDoesNotAuthorizeCAS(t *testing.T) {
+	a, s, _ := strm115Fixture(t)
+	m := membership("annual", "年费VIP", time.Time{})
+	m.CheckedAt = time.Now().Add(-6 * time.Minute)
+	s.Usage = &storageUsageState{storageUsage: storageUsage{Membership: m, Total: 100, Used: 25}, Stamp: storageRevision(s)}
+	a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil })
+	oldClient, oldTransport := apiClient, http.DefaultTransport
+	transport := casTransport(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 503, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("unavailable")), Request: r}, nil
+	})
+	apiClient, http.DefaultTransport = &http.Client{Transport: transport}, transport
+	defer func() { apiClient, http.DefaultTransport = oldClient, oldTransport }()
+	h := a.Handler(t.TempDir())
+	cookie := setupTest(t, a, h)
+	w := request(t, h, "GET", "/api/storages/"+s.ID+"/membership", nil, cookie)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"tier":"annual"`) {
+		t.Fatal("last known display badge lost", w.Code, w.Body.String())
+	}
+	stored, err := a.store.storage(s.ID)
+	if err != nil || displayMembership(stored.Usage.Membership) == nil {
+		t.Fatal("last known metadata not retained", err)
+	}
+	usage, _ := savedStorageUsage(stored)
+	if usage.Membership != nil || freshMembership(stored.Usage.Membership) != nil {
+		t.Fatal("display cache leaked into CAS capability checks")
+	}
+	expired := time.Now().Add(-time.Second)
+	m.ExpiresAt = &expired
+	if displayMembership(m) != nil {
+		t.Fatal("expired tier displayed")
+	}
+}
+
 func TestStorageMembershipCoalescesAndRejectsChangedCredentials(t *testing.T) {
 	a, s, _ := strm115Fixture(t)
 	// The fixture inserted s.Config by reference. Real callers obtain a detached

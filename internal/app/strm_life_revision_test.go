@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestCASExportEncodingSelection(t *testing.T) {
@@ -51,7 +52,7 @@ func TestCASExportEncodingSelection(t *testing.T) {
 	}
 }
 
-func TestShareLibraryNamesManualRejectAndBotTimestamp(t *testing.T) {
+func TestShareLibraryNamesManualRejectAndBotNumericSuffix(t *testing.T) {
 	root := t.TempDir()
 	first := quarkLibraryCard{ID: "first", Directory: root, DirectoryName: "剧集"}
 	next := quarkLibraryCard{ID: "second", Directory: root, DirectoryName: "剧集"}
@@ -63,14 +64,13 @@ func TestShareLibraryNamesManualRejectAndBotTimestamp(t *testing.T) {
 	if err := shareLibraryNamesAvailable(State{MobileLibraryCards: []quarkLibraryCard{{ID: "mobile-draft", DirectoryName: "Draft"}}}, draft); !errors.Is(err, errShareLibraryDirectory) {
 		t.Fatal("late cross-provider draft collision accepted", err)
 	}
-	at := time.Date(2026, 10, 31, 22, 23, 0, 0, time.FixedZone("CST", 8*3600))
-	got, err := telegramLibraryDirectory(st, next, at)
-	if err != nil || got != "剧集（10／31 22：23）" {
+	got, err := telegramLibraryDirectory(st, next)
+	if err != nil || got != "剧集_1" {
 		t.Fatal(got, err)
 	}
 	st.MobileLibraryCards = []quarkLibraryCard{{ID: "third", Directory: root, DirectoryName: got}}
-	got, err = telegramLibraryDirectory(st, next, at)
-	if err != nil || !strings.HasSuffix(got, "）-2") {
+	got, err = telegramLibraryDirectory(st, next)
+	if err != nil || got != "剧集_2" {
 		t.Fatal(got, err)
 	}
 	if err := os.Mkdir(filepath.Join(root, "已有目录"), 0755); err != nil {
@@ -79,6 +79,72 @@ func TestShareLibraryNamesManualRejectAndBotTimestamp(t *testing.T) {
 	next.DirectoryName = "已有目录"
 	if shareLibraryDirectoryAvailable(st, next, quarkLibraryCard{}) == nil {
 		t.Fatal("existing disk directory adopted")
+	}
+}
+
+func TestShareLibraryNamesNumericSuffixScopesAndDisk(t *testing.T) {
+	root := t.TempDir()
+	card := quarkLibraryCard{ID: "next", Directory: root, DirectoryName: "某作品"}
+	st := State{
+		QuarkLibraryCards:  []quarkLibraryCard{{ID: "q", Directory: root, DirectoryName: "某作品"}},
+		MobileLibraryCards: []quarkLibraryCard{{ID: "m", Directory: root, DirectoryName: "某作品_1"}},
+		CASLibraryCards:    []quarkLibraryCard{{ID: "c", Directory: root, DirectoryName: "某作品_2"}},
+		Library115Cards:    []quarkLibraryCard{{ID: "115", Directory: root, DirectoryName: "某作品_3"}},
+	}
+	if err := os.Mkdir(filepath.Join(root, "某作品_4"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeTest(t, filepath.Join(root, "某作品_5"), "keep")
+	got, err := telegramLibraryDirectory(st, card)
+	if err != nil || got != "某作品_6" {
+		t.Fatal("cross-provider or disk collision not skipped", got, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 2 {
+		t.Fatal("allocation wrote to output directory", len(entries), err)
+	}
+	st.MobileLibraryCards = nil
+	got, err = telegramLibraryDirectory(st, card)
+	if err != nil || got != "某作品_1" {
+		t.Fatal("did not use first available sequence number", got, err)
+	}
+	card.Directory = t.TempDir()
+	got, err = telegramLibraryDirectory(st, card)
+	if err != nil || got != "某作品" {
+		t.Fatal("unrelated output location was treated as duplicate", got, err)
+	}
+}
+
+func TestShareLibraryNamesNumericSuffixDraftsCaseAndLength(t *testing.T) {
+	for _, tc := range []struct{ base, occupied, want string }{
+		{"某作品", "某作品", "某作品_1"},
+		{"Works", "works", "Works_1"},
+		{"某作品_1", "某作品_1", "某作品_1_1"},
+	} {
+		st := State{MobileLibraryCards: []quarkLibraryCard{{ID: "first", DirectoryName: tc.occupied}}}
+		got, err := telegramLibraryDirectory(st, quarkLibraryCard{ID: "next", DirectoryName: tc.base})
+		if err != nil || got != tc.want {
+			t.Fatal("draft/literal title policy", got, err)
+		}
+	}
+	name := strings.Repeat("剧", 85)
+	st := State{QuarkLibraryCards: []quarkLibraryCard{{ID: "first", DirectoryName: name}}}
+	got, err := telegramLibraryDirectory(st, quarkLibraryCard{ID: "next", DirectoryName: name})
+	if err != nil || len(got) > 255 || !utf8.ValidString(got) || !validShareDirectory(got) || !strings.HasSuffix(got, "_1") {
+		t.Fatal("suffix broke UTF-8 or component length", got, err)
+	}
+	st = State{QuarkLibraryCards: []quarkLibraryCard{{ID: "first", DirectoryName: "某作品"}}}
+	for i := 1; i <= 205; i++ {
+		c := quarkLibraryCard{ID: fmt.Sprint(i), DirectoryName: fmt.Sprintf("某作品_%d", i)}
+		if i < 150 {
+			st.QuarkLibraryCards = append(st.QuarkLibraryCards, c)
+		} else {
+			st.MobileLibraryCards = append(st.MobileLibraryCards, c)
+		}
+	}
+	got, err = telegramLibraryDirectory(st, quarkLibraryCard{ID: "next", DirectoryName: "某作品"})
+	if err != nil || got != "某作品_206" {
+		t.Fatal("sequence stopped at old timestamp-attempt boundary", got, err)
 	}
 }
 
@@ -704,6 +770,45 @@ func TestShareLiveFileManagerUnconfirmedRenameKeepsRecord(t *testing.T) {
 		if a.store.snapshot().ShareLiveLinks[0].DirectoryName != link.DirectoryName {
 			t.Fatal("unconfirmed rename changed saved directory")
 		}
+	}
+}
+
+func TestShareLiveFileManagerRenameWaitsForConfirmedListing(t *testing.T) {
+	a, s, link := liveTestSetup(t)
+	if err := a.store.update(func(st *State) error {
+		st.ShareTransfers = []shareTransferRecord{{ID: "old", LiveID: link.ID, DirectoryName: link.DirectoryName}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	written, reads := false, 0
+	shareMock(t, func(r *http.Request) string {
+		switch r.URL.Path {
+		case "/1/clouddrive/file/sort":
+			name := "Saved"
+			if written {
+				reads++
+				if reads > 1 {
+					name = "New"
+				}
+			}
+			return fmt.Sprintf(`{"code":0,"data":{"list":[{"fid":"saved-root","file_name":%q,"dir":true}]}}`, name)
+		case "/1/clouddrive/file/rename":
+			if written {
+				t.Fatal("rename was replayed")
+			}
+			written = true
+			return `{"code":0}`
+		}
+		t.Fatal("unexpected call", r.URL.Path)
+		return ""
+	})
+	h := a.Handler(t.TempDir())
+	cookie := setupTest(t, a, h)
+	w := request(t, h, "POST", "/api/files/action", fileActionRequest{StorageID: s.ID, Action: "rename", Source: link.Parent, IDs: []string{link.DirectoryID}, Name: "New"}, cookie)
+	st := a.store.snapshot()
+	if w.Code != 200 || reads != 2 || st.ShareLiveLinks[0].DirectoryName != "New" || st.ShareTransfers[0].DirectoryName != "New" {
+		t.Fatal("file manager rename was not returned to active link", w.Code, w.Body.String(), reads, st.ShareLiveLinks)
 	}
 }
 

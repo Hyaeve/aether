@@ -21,6 +21,6 @@ watch(() => [props.item.id, props.item.poster], () => { failedImage.value = fals
     <span class="archive-trigger"><Icon :name="item.trigger === 'manual' ? 'UserRound' : 'Clock3'" :size="15" />{{ archiveTriggers[item.trigger] || '未知来源' }}<small>{{ item.action === 'identify' ? '识别' : '识别刮削' }}</small></span>
     <time class="archive-time" :datetime="item.finishedAt || item.startedAt">{{ noticeTime(item.finishedAt || item.startedAt) }}</time>
     <span class="archive-status" :class="archiveStatusClass(item.status)" :data-tooltip="item.message" data-tooltip-always><Icon :name="item.status === 'success' ? 'CircleCheck' : item.status === 'running' ? 'LoaderCircle' : 'CircleAlert'" :size="15" />{{ archiveStatuses[item.status] || '未知状态' }}</span>
-    <button class="icon-btn archive-retry" aria-label="重新识别刮削" data-tooltip="重新识别刮削" data-tooltip-always :disabled="disabled || item.status === 'running'" @click="$emit('retry',item)"><Icon name="ScanSearch" /></button>
+    <button v-if="!item.taskId?.startsWith('directory:')" class="icon-btn archive-retry" aria-label="重新识别刮削" data-tooltip="重新识别刮削" data-tooltip-always :disabled="disabled || item.status === 'running'" @click="$emit('retry',item)"><Icon name="ScanSearch" /></button><span v-else class="muted" data-tooltip="请在目录刮削中重新选择文件"><Icon name="FolderSearch"/></span>
   </article>
 </template>

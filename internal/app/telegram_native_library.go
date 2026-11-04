@@ -20,7 +20,7 @@ func (a *App) executeTelegramNativeLibrary(ctx context.Context, job telegramTran
 	if err := a.store.update(func(st *State) error {
 		for i := range st.TelegramRuntime.Jobs {
 			j := &st.TelegramRuntime.Jobs[i]
-			if j.ID == job.ID && j.Status == "queued" && j.Link == job.Link {
+			if j.ID == job.ID && j.Status == "queued" && !j.QueuePending && j.Link == job.Link {
 				j.Status = "running"
 				claimed = true
 				return nil
@@ -108,7 +108,14 @@ func (a *App) executeTelegramNativeLibrary(ctx context.Context, job telegramTran
 			name = "移动分享-" + quarkLibraryStamp(code)[:8]
 		}
 		card = quarkLibraryCard{ID: id(), Secret: mobileLibrarySecret(code, pass), Name: title, ShareName: title, Directory: directory, DirectoryName: name, Enabled: directory != "", CascadeCleanup: "off"}
-		card.DirectoryName, err = telegramLibraryDirectory(st, card, time.Now())
+		card.ScrapeEnabled = effectiveMobileLibrary(st).ScrapeEnabled
+		days := effectiveMobileLibrary(st).UpdateDays
+		if cas {
+			days = effectiveCASLibrary(st).UpdateDays
+			card.ScrapeEnabled = effectiveCASLibrary(st).ScrapeEnabled
+		}
+		botLibrarySchedule(&card, days, job.Created)
+		card.DirectoryName, err = telegramLibraryDirectory(st, card)
 		if err != nil {
 			finish("failed", err.Error(), 0)
 			return
@@ -139,7 +146,7 @@ func (a *App) executeTelegramNativeLibrary(ctx context.Context, job telegramTran
 		}
 	}
 	job.Name = card.Name
-	if directory == "" {
+	if card.Directory == "" {
 		finish("completed", "默认生成位置未设置，已添加或保留卡片，本次未生成", 0)
 		return
 	}
@@ -156,7 +163,7 @@ func (a *App) executeTelegramNativeLibrary(ctx context.Context, job telegramTran
 		if err != nil {
 			finish("failed", err.Error(), result.Generated)
 		} else {
-			finish("completed", result.Message, result.Generated)
+			a.telegramComplete(ctx, job, "completed", card.Name, result.Generated+result.Metadata, result.Skipped, result.Message)
 		}
 		return
 	}
@@ -164,6 +171,6 @@ func (a *App) executeTelegramNativeLibrary(ctx context.Context, job telegramTran
 	if err != nil {
 		finish("failed", result.Message, result.Generated)
 	} else {
-		finish("completed", result.Message, result.Generated)
+		a.telegramComplete(ctx, job, "completed", card.Name, result.Generated+result.Metadata, result.Skipped, result.Message)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"mime/multipart"
 	"net/http"
@@ -136,6 +137,155 @@ func mockMobileLibrary(t *testing.T, a *App) (*mobileLibraryMock, quarkLibraryCa
 	return m, card
 }
 
+func TestMobileLibraryPlaybackDownloadUsesShareRelativeResource(t *testing.T) {
+	for _, tc := range []struct{ parent, resource, want string }{{"root", "root/video", "video"}, {"root/folder", "root/folder/video", "folder/video"}, {"folder", "folder/video", "folder/video"}} {
+		t.Run(tc.parent, func(t *testing.T) {
+			a := testApp(t)
+			m, _ := mockMobileLibrary(t, a)
+			s, _ := a.store.storage("mobile")
+			m.extra = func(r *http.Request) (string, bool) {
+				if filepath.Base(r.URL.Path) != "dlFromOutLinkV3" {
+					return "", false
+				}
+				var body struct {
+					Request struct {
+						Files struct {
+							Items []string `json:"item"`
+						} `json:"coIDLst"`
+					} `json:"dlFromOutLinkReqV3"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Request.Files.Items) != 1 || body.Request.Files.Items[0] != tc.want {
+					t.Errorf("download request must use share-relative ID path: %+v, %v", body, err)
+					return `{"resultCode":"404","data":{}}`, true
+				}
+				return `{"resultCode":"0","data":{"redrUrl":"https://mobile-library-cdn.test/file"}}`, true
+			}
+			download, err := a.mobileLibraryDownload(a.ctx, s, mobileLibraryShare{Code: "CodeAb", Pass: "Ab12"}, mobileLibrarySource{ID: "video", Parent: tc.parent, Path: tc.resource, Name: "file.mkv"})
+			if err != nil || download.URL == "" {
+				t.Fatal("share download failed", err)
+			}
+		})
+	}
+}
+
+func TestMobileLibraryPlaybackFailureReportsStage(t *testing.T) {
+	a := testApp(t)
+	m, card := mockMobileLibrary(t, a)
+	if _, err := a.runMobileLibrary(a.ctx, card); err != nil {
+		t.Fatal(err)
+	}
+	m.extra = func(r *http.Request) (string, bool) {
+		if filepath.Base(r.URL.Path) == "dlFromOutLinkV3" {
+			return `{"resultCode":"403","data":{}}`, true
+		}
+		return "", false
+	}
+	h, _ := mobileLibraryHandler(t, a)
+	w := request(t, h, "GET", "/139-share/CodeAb-Ab12/"+url.PathEscape("剧集 [A] #1.mkv"), nil, nil)
+	if w.Code != 502 || !strings.Contains(w.Body.String(), "获取分享下载直链") || !strings.Contains(w.Body.String(), "403") {
+		t.Fatal("playback hid the failing stage", w.Code, w.Body.String())
+	}
+	for _, line := range a.store.snapshot().Logs {
+		if line.Module == "virtual" && strings.Contains(line.Message, "获取分享下载直链") && strings.Contains(line.Message, "403") {
+			return
+		}
+	}
+	t.Fatal("virtual playback log did not retain a safe failing stage")
+}
+
+func TestMobileLibraryPlaybackNestedRelativeResourceAndExistingGrant(t *testing.T) {
+	for _, mode := range []string{"share", "relay", "transfer"} {
+		t.Run(mode, func(t *testing.T) {
+			a := testApp(t)
+			m, card := mockMobileLibrary(t, a)
+			m.list["root"] = []map[string]any{{"caID": "folder", "caName": "共享根目录", "caPath": "root/folder"}}
+			m.list["folder"] = []map[string]any{{"coID": "video", "coName": "剧集 [A] #1.mkv", "coPath": "root/folder/video", "coSize": 10}}
+			var personal *mobilePlaybackPersonal
+			if mode == "transfer" {
+				personal = mockMobilePlaybackPersonal(t, a, m, "folder/video")
+			}
+			previous := m.extra
+			downloads := 0
+			parentRead := false
+			m.extra = func(r *http.Request) (string, bool) {
+				raw, _ := io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				var body map[string]map[string]any
+				json.Unmarshal(raw, &body)
+				switch filepath.Base(r.URL.Path) {
+				case "getOutLinkInfoV6":
+					if parent, _ := body["getOutLinkInfoReq"]["pCaID"].(string); parent != "root" {
+						if parent != "/folder" {
+							t.Errorf("incorrect nested catalog parameter %q", parent)
+						}
+						parentRead = true
+					}
+				case "dlFromOutLinkV3":
+					var payload struct {
+						Request struct {
+							Files struct {
+								Items []string `json:"item"`
+							} `json:"coIDLst"`
+						} `json:"dlFromOutLinkReqV3"`
+					}
+					json.Unmarshal(raw, &payload)
+					if len(payload.Request.Files.Items) != 1 || payload.Request.Files.Items[0] != "folder/video" {
+						t.Errorf("incorrect download resource %+v", payload)
+					}
+					downloads++
+				}
+				if previous != nil {
+					return previous(r)
+				}
+				return "", false
+			}
+			a.store.update(func(st *State) error {
+				cfg := effectiveMobileLibrary(*st)
+				cfg.PlaybackMode = mode
+				st.MobileLibrary = &cfg
+				return nil
+			})
+			if _, err := a.runMobileLibrary(a.ctx, card); err != nil {
+				t.Fatal(err)
+			}
+			grant := nextMobileGrant(t, a)
+			if grant.SourceParent != "root/folder" || grant.SourceID != "root/folder/video" {
+				t.Fatal("legacy grants should not be rewritten", grant)
+			}
+			h, _ := mobileLibraryHandler(t, a)
+			r := httptest.NewRequest("GET", "/139-share/CodeAb-Ab12/"+url.PathEscape(grant.Name), nil)
+			r.Header.Set("Range", "bytes=3-6")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if !parentRead {
+				t.Fatal("nested catalog was not checked")
+			}
+			if mode == "relay" {
+				if w.Code != 206 || w.Body.String() != "3456" {
+					t.Fatal("nested relay failed", w.Code, w.Body.String())
+				}
+			} else if w.Code != 302 {
+				t.Fatal("nested direct playback failed", w.Code, w.Body.String())
+			}
+			if mode == "transfer" {
+				if personal.transfers != 1 || downloads != 0 {
+					t.Fatal("unexpected transfer attempt", personal.transfers, downloads)
+				}
+			} else if downloads != 1 {
+				t.Fatal("share download was not resolved once", downloads)
+			}
+		})
+	}
+}
+
+func TestMobileLibraryPlaybackResourceRejectsTraversal(t *testing.T) {
+	for _, file := range []mobileLibrarySource{{ID: "..", Parent: "root"}, {ID: "v", Parent: "root/../escape"}, {ID: "../v", Parent: "root"}, {ID: "v", Parent: "a/../b"}} {
+		if _, err := mobileLibraryDownloadResource(file); err == nil {
+			t.Fatal("invalid resource accepted", file)
+		}
+	}
+}
+
 func mobileLibraryHandler(t *testing.T, a *App) (http.Handler, *http.Cookie) {
 	t.Helper()
 	h := a.Handler(t.TempDir())
@@ -189,11 +339,11 @@ func TestMobileLibraryPaginationDirectoriesAndExclusions(t *testing.T) {
 	m.finalCursor = "0"
 	card.ExcludeDirs, card.ExcludeTypes = "排除目录", "mp4"
 	m.list["root"] = []map[string]any{{"caID": "folder", "caName": "分享原目录", "caPath": "root/folder"}}
-	m.list["root/folder"] = []map[string]any{{"caID": "skip", "caName": "排除目录", "caPath": "root/skip"}}
+	m.list["folder"] = []map[string]any{{"caID": "skip", "caName": "排除目录", "caPath": "root/skip"}}
 	for i := 0; i < 101; i++ {
-		m.list["root/folder"] = append(m.list["root/folder"], map[string]any{"coID": fmt.Sprintf("v%d", i), "coName": fmt.Sprintf("影片%03d.mkv", i), "coPath": fmt.Sprintf("root/folder/v%d", i), "coSize": "10"})
+		m.list["folder"] = append(m.list["folder"], map[string]any{"coID": fmt.Sprintf("v%d", i), "coName": fmt.Sprintf("影片%03d.mkv", i), "coPath": fmt.Sprintf("root/folder/v%d", i), "coSize": "10"})
 	}
-	m.list["root/folder"] = append(m.list["root/folder"], map[string]any{"coID": "skip-file", "coName": "skip.mp4", "coPath": "root/folder/skip-file", "coSize": 10})
+	m.list["folder"] = append(m.list["folder"], map[string]any{"coID": "skip-file", "coName": "skip.mp4", "coPath": "root/folder/skip-file", "coSize": 10})
 	if err := a.store.update(func(st *State) error { st.MobileLibraryCards[0] = card; return nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +548,7 @@ func TestMobileLibraryBackgroundGenerationAndRestartRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := store.snapshot()
-	if st.MobileLibraryRuntime.Results[card.ID].Status != "interrupted" || len(st.MobileLibraryRuntime.Files) != 1 || st.MobileLibraryRuntime.Roots[card.ID].Token == "" {
+	if st.MobileLibraryRuntime.Results[card.ID].Status != "interrupted" || len(st.MobileLibraryRuntime.Files) != 1 || st.MobileLibraryRuntime.Roots[card.ID].Identity == "" {
 		t.Fatal("runtime grants/ownership/restart state lost")
 	}
 }
@@ -572,18 +722,18 @@ func TestMobileLibraryOwnerRecoveryAndReplacedRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := a.store.snapshot()
-	token := st.MobileLibraryRuntime.Roots[card.ID].Token
+	identity := st.MobileLibraryRuntime.Roots[card.ID].Identity
 	marker := filepath.Join(quarkLibraryRoot(card), quarkLibraryMarker)
-	if err := os.Remove(marker); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("new library created marker", err)
 	}
 	if _, err := a.runMobileLibrary(context.Background(), card); err != nil {
-		t.Fatal("unchanged inventory did not restore marker", err)
+		t.Fatal("internal identity cannot reopen", err)
 	}
-	raw, err := os.ReadFile(marker)
-	if err != nil || string(raw) != token {
-		t.Fatal("ownership changed during recovery", err)
+	if a.store.snapshot().MobileLibraryRuntime.Roots[card.ID].Identity != identity {
+		t.Fatal("directory identity changed")
 	}
+	token := "copied-marker"
 	root, err := openStrmReplaceRoot(quarkLibraryRoot(card))
 	if err != nil {
 		t.Fatal(err)

@@ -51,7 +51,7 @@ func upgradeTestConfig() upgradeDefinition {
 	}
 	return c
 }
-func TestUpgradeLinearTotalAndDisabledGroups(t *testing.T) {
+func TestUpgradePriorityTotalAndDisabledGroups(t *testing.T) {
 	c := upgradeTestConfig()
 	c.Groups[0].Enabled = true
 	c.Groups[0].Values = []string{"4K", "1080p"}
@@ -62,19 +62,50 @@ func TestUpgradeLinearTotalAndDisabledGroups(t *testing.T) {
 	old := upgradeVersion{Facts: map[string][]string{"resolution": {"4K"}}}
 	next := upgradeVersion{Facts: map[string][]string{"resolution": {"1080p"}, "video_codec": {"HEVC"}, "audio_codec": {"AAC"}}}
 	r, err := compareUpgrade(c, old, next, organizeTaskDefinition{FailureDirectory: "losers"})
-	if err != nil || r.Winner != "incoming" || r.Existing != 300 || r.Incoming != 450 || r.Groups[0].Weight != 3 || r.Groups[2].Weight != 1 || r.LoserAction != "move" || r.Directory != "losers" {
+	if err != nil || r.Winner != "incoming" || r.Existing != 10 || r.Incoming != 19 || r.Groups[0].Weight != 10 || r.Groups[2].Weight != 6 || r.LoserAction != "move" || r.Directory != "losers" {
 		t.Fatal(r, err)
 	}
 	c.Groups[2].Enabled = false
 	c.Groups[3].Enabled = false
 	r, err = compareUpgrade(c, old, next, organizeTaskDefinition{})
-	if err != nil || r.Winner != "existing" || len(r.Groups) != 1 || r.Groups[0].Weight != 1 || r.LoserAction != "keep" {
+	if err != nil || r.Winner != "existing" || len(r.Groups) != 1 || r.Groups[0].Weight != 10 || r.LoserAction != "keep" {
 		t.Fatal(r, err)
 	}
 	c.Groups[0].Enabled = false
 	r, err = compareUpgrade(c, old, next, organizeTaskDefinition{FailureDirectory: "losers"})
 	if err != nil || r.Winner != "tie" || r.LoserAction != "keep" || len(r.Groups) != 0 {
 		t.Fatal(r, err)
+	}
+}
+
+func TestUpgradeFixedWeightsArithmeticStepsAndReordering(t *testing.T) {
+	c := defaultUpgrade(nil)
+	r, err := compareUpgrade(c, upgradeVersion{}, upgradeVersion{}, organizeTaskDefinition{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, w := range []float64{10, 8, 6, 5, 4, 3, 2, 2, 1, .6} {
+		if r.Groups[i].Weight != w {
+			t.Fatal("incorrect group weight", i, r.Groups[i])
+		}
+	}
+	c = upgradeTestConfig()
+	c.Groups[0].Enabled = true
+	c.Groups[0].Values = []string{"2160p", "1440p", "1080p", "720p"}
+	for i, value := range c.Groups[0].Values {
+		r, err = compareUpgrade(c, upgradeVersion{}, upgradeVersion{Facts: map[string][]string{"resolution": {value}}}, organizeTaskDefinition{})
+		want := []float64{10, 7.5, 5, 2.5}[i]
+		if err != nil || r.Incoming != want || r.Groups[0].Incoming != want {
+			t.Fatal("incorrect arithmetic group score", i, r, err)
+		}
+	}
+	c.Groups[1].Enabled = true
+	c.Groups[2].Enabled = true
+	c.Groups[0], c.Groups[2] = c.Groups[2], c.Groups[0]
+	c.Groups[1].Enabled = false
+	r, err = compareUpgrade(c, upgradeVersion{}, upgradeVersion{Facts: map[string][]string{"resolution": {"2160p"}, "video_codec": {"AV1"}}}, organizeTaskDefinition{})
+	if err != nil || len(r.Groups) != 2 || r.Groups[0].ID != "video_codec" || r.Groups[0].Weight != 10 || r.Groups[1].Weight != 8 {
+		t.Fatal("disabled group did not close priority gap", r, err)
 	}
 }
 func TestUpgradeAliasesOrderAndSize(t *testing.T) {
@@ -105,7 +136,7 @@ func TestUpgradeAliasesOrderAndSize(t *testing.T) {
 	c = upgradeTestConfig()
 	c.Groups[9].Enabled = true
 	r, err := compareUpgrade(c, upgradeVersion{Size: 50}, upgradeVersion{Size: 100}, organizeTaskDefinition{})
-	if err != nil || r.Existing != 50 || r.Incoming != 100 || r.Winner != "incoming" || r.LoserAction != "keep" {
+	if err != nil || r.Existing != 5 || r.Incoming != 10 || r.Winner != "incoming" || r.LoserAction != "keep" {
 		t.Fatal(r, err)
 	}
 	if _, err = compareUpgrade(c, upgradeVersion{Size: -1}, upgradeVersion{}, organizeTaskDefinition{}); err == nil {
@@ -142,7 +173,7 @@ func TestNamingUpgradePresetPersistenceAndEncryptedBackup(t *testing.T) {
 		}
 	}
 	saved := a.store.snapshot().RulePresets
-	if !reflect.DeepEqual(saved[0].Naming, &n) || !reflect.DeepEqual(saved[1].Upgrade, &u) {
+	if !reflect.DeepEqual(saved[3].Naming, &n) || !reflect.DeepEqual(saved[4].Upgrade, &u) {
 		t.Fatal("metadata save lost definitions")
 	}
 	reopened, err := NewStore(a.store.dir)
@@ -162,7 +193,7 @@ func TestNamingUpgradePresetPersistenceAndEncryptedBackup(t *testing.T) {
 	bad.State.RulePresets = append([]rulePreset{}, bundle.State.RulePresets...)
 	wrong := n
 	wrong.Movie = "{invalid}"
-	bad.State.RulePresets[0].Naming = &wrong
+	bad.State.RulePresets[3].Naming = &wrong
 	if validateBundle(bad) == nil {
 		t.Fatal("invalid import accepted")
 	}

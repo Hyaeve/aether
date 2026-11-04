@@ -17,6 +17,8 @@ const router = createRouter({
     { path: '/rules', redirect: '/rules/recognition' },
     { path: '/notifications', redirect: '/notifications/telegram' },
     { path: '/archives', redirect: '/archives/organize' },
+    { path: '/scrape', redirect: '/scrape/strm' },
+    { path: '/tasks/scrape', redirect: '/scrape/strm' },
     { path: '/virtual/tianyi', redirect: '/virtual/115' },
     { path: '/webdav', redirect: '/files/webdav' },
     { path: '/mounts', redirect: '/files/mounts' },

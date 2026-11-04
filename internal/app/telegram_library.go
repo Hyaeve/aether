@@ -107,7 +107,7 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 	err := a.store.update(func(st *State) error {
 		for i := range st.TelegramRuntime.Jobs {
 			current := &st.TelegramRuntime.Jobs[i]
-			if current.ID == job.ID && current.Kind == "library" && current.Status == "queued" && current.Link == job.Link {
+			if current.ID == job.ID && current.Kind == "library" && current.Status == "queued" && !current.QueuePending && current.Link == job.Link {
 				current.Status = "running"
 				claimed = true
 				return nil
@@ -185,8 +185,9 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 			directoryName = "夸克分享-" + quarkLibraryStamp(code)[:8]
 		}
 		card = quarkLibraryCard{ID: id(), Secret: job.Link, Name: title, ShareName: title, Directory: cfg.Directory,
-			DirectoryName: directoryName, Enabled: cfg.Directory != "" && readErr == nil}
-		card.DirectoryName, err = telegramLibraryDirectory(st, card, time.Now())
+			DirectoryName: directoryName, Enabled: cfg.Directory != "" && readErr == nil, ScrapeEnabled: cfg.ScrapeEnabled}
+		botLibrarySchedule(&card, cfg.UpdateDays, job.Created)
+		card.DirectoryName, err = telegramLibraryDirectory(st, card)
 		if err != nil {
 			finish("failed", err.Error(), 0)
 			return
@@ -227,7 +228,7 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		}
 		a.store.event("info", "virtual", fmt.Sprintf("[TG:%s] 添加夸克分享卡片：%s，启用=%t", job.ID, card.Name, card.Enabled))
 	}
-	if cfg.Directory == "" {
+	if card.Directory == "" {
 		job.Name = card.Name
 		finish("completed", card.Name+"：默认生成位置未设置，已添加或保留卡片，本次未生成；未启用的卡片须设置生成位置后手动启用", 0)
 		return
@@ -242,9 +243,7 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		return
 	}
 	job.Name = card.Name
-	if job.GroupSize <= 1 {
-		_, _ = a.telegramSend(ctx, st.Notifications.Telegram, job.ChatID, "准备生成分享STRM："+card.Name+"\n生成位置："+quarkLibraryRoot(card), nil)
-	}
+
 	runCtx, stop := context.WithTimeout(context.WithValue(ctx, quarkLibraryGuardKey{}, check), 2*time.Minute)
 	defer stop()
 	result, err := a.runQuarkLibrary(runCtx, card)
@@ -252,5 +251,5 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 		finish("failed", card.Name+"："+result.Message, result.Generated)
 		return
 	}
-	finish("completed", card.Name+"："+result.Message, result.Generated)
+	a.telegramComplete(ctx, job, "completed", card.Name, result.Generated+result.Metadata, result.Skipped, result.Message)
 }

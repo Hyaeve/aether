@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,6 +42,7 @@ type strmSyncManifest struct {
 }
 
 type strmTaskSync struct {
+	mu                        sync.Mutex
 	app                       *App
 	task                      Task
 	storage                   Storage
@@ -254,6 +256,8 @@ func strmReadOwner(root *os.Root, name string) (string, error) {
 }
 
 func (h *strmTaskSync) ensure(ctx context.Context, base *os.Root) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if err := h.check(ctx); err != nil {
 		return err
 	}
@@ -344,16 +348,12 @@ func publishSTRMOutput(ctx context.Context, h *strmTaskSync, root *os.Root, file
 		if err != nil {
 			return false, err
 		}
-		if old := h.manifest.Files[relative]; exists && old != "" && old != before {
+		h.mu.Lock()
+		old := h.manifest.Files[relative]
+		h.mu.Unlock()
+		if exists && old != "" && old != before {
 			h.app.store.event("warn", "tasks", "STRM任务「"+h.task.Name+"」保留外部修改的产物："+relative)
 			return false, nil
-		}
-		if _, known := h.manifest.Files[relative]; !known && len(h.manifest.Files) >= 100000 {
-			track = false
-			if !h.trackingFull {
-				h.trackingFull = true
-				h.app.store.event("warn", "tasks", "STRM任务「"+h.task.Name+"」产物登记达到100000项，继续生成；超出部分不自动清理")
-			}
 		}
 		if err := recordSTRMLifeWork(ctx); err != nil {
 			return false, err
@@ -412,6 +412,15 @@ func publishSTRMOutput(ctx context.Context, h *strmTaskSync, root *os.Root, file
 		return false, err
 	}
 	if h != nil {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, known := h.manifest.Files[relative]; !known && len(h.manifest.Files) >= 100000 {
+			track = false
+			if !h.trackingFull {
+				h.trackingFull = true
+				h.app.store.event("warn", "tasks", "STRM任务「"+h.task.Name+"」产物登记达到100000项，继续生成；超出部分不自动清理")
+			}
+		}
 		if track {
 			h.manifest.Files[relative] = digest
 		}

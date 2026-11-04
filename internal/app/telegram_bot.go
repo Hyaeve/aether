@@ -20,6 +20,7 @@ type telegramUser struct {
 	Bot bool  `json:"is_bot"`
 }
 type telegramMessage struct {
+	Date int64        `json:"date"`
 	ID   int64        `json:"message_id"`
 	From telegramUser `json:"from"`
 	Chat struct {
@@ -40,7 +41,7 @@ type telegramUpdate struct {
 }
 
 func telegramRequest(ctx context.Context, cfg telegramConfig, method string, body any, out any) error {
-	if !telegramTokenPattern.MatchString(cfg.Token) || !map[string]bool{"getMe": true, "getUpdates": true, "getWebhookInfo": true, "sendMessage": true, "editMessageText": true, "answerCallbackQuery": true, "deleteMessages": true}[method] {
+	if !telegramTokenPattern.MatchString(cfg.Token) || !map[string]bool{"getMe": true, "getUpdates": true, "getWebhookInfo": true, "getMyCommands": true, "setMyCommands": true, "sendMessage": true, "editMessageText": true, "answerCallbackQuery": true, "deleteMessages": true}[method] {
 		return errors.New("TG 请求配置无效")
 	}
 	raw, err := json.Marshal(body)
@@ -118,6 +119,7 @@ func telegramPause(ctx context.Context, delay time.Duration) bool {
 func (a *App) telegramPoll() {
 	defer a.wg.Done()
 	lastError := ""
+	commandsBot := ""
 	for a.ctx.Err() == nil {
 		st := a.store.snapshotWithLogLimit(0)
 		cfg := st.Notifications.Telegram
@@ -128,6 +130,17 @@ func (a *App) telegramPoll() {
 			continue
 		}
 		bot := telegramDigest(cfg.Token)
+		if commandsBot != bot {
+			commandCtx, cancel := context.WithTimeout(a.ctx, 3*time.Second)
+			err := registerTelegramLibraryCommands(commandCtx, cfg)
+			cancel()
+			// Command-menu registration is optional and attempted once per token per
+			// process. A failed menu request must not block message polling.
+			commandsBot = bot
+			if err != nil {
+				a.store.event("warn", "notifications", "TG命令菜单设置失败，消息交互仍可使用")
+			}
+		}
 		var updates []telegramUpdate
 		offset := st.TelegramRuntime.Offset
 		bootstrap := st.TelegramRuntime.Bot != bot
@@ -515,46 +528,11 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 		}()
 		defer func() { <-done }()
 	}
-	action := telegramAction(selected.Kind)
-	text := "已加入" + action + "队列"
-	keyboard := [][]map[string]string{}
-	if selected.Status == "choosing" {
-		text, keyboard = telegramDirectoryPage(a.store.snapshotWithLogLimit(0), selected)
+	if err := a.editTelegramPrompt(ctx, cfg, selected, false); err != nil {
+		return err
 	}
-	if selected.Status == "cancelled" {
-		text = "已取消" + action
-	}
-	if selected.Status == "confirming" {
-		target := selected.Targets[index]
-		if selected.Name == "" && selected.Provider != "" {
-			name := a.telegramResourceName(ctx, selected, target)
-			if name != "" {
-				err := a.store.update(func(st *State) error {
-					for i := range st.TelegramRuntime.Jobs {
-						current := &st.TelegramRuntime.Jobs[i]
-						if current.ID == selected.ID && current.Status == "confirming" && current.Selected == index && telegramTargetCurrent(*st, *current, target) && !telegramInteractionExpired(*current, time.Now()) {
-							current.Name = name
-							selected = *current
-							return nil
-						}
-					}
-					return errors.New("目录选择已变化")
-				})
-				if err != nil {
-					return err
-				}
-			}
-		}
-		text, keyboard = telegramConfirmation(a.store.snapshotWithLogLimit(0), selected)
-	}
-	for _, current := range a.store.snapshotWithLogLimit(0).TelegramRuntime.Jobs {
-		if current.ID == selected.ID {
-			if current.Status != selected.Status || current.Page != selected.Page || current.Selected != selected.Selected ||
-				!current.LastActivity.Equal(selected.LastActivity) || current.MessageID != message {
-				return errors.New("交互状态已变化，未覆盖较新的消息")
-			}
-			break
-		}
-	}
-	return telegramRequest(ctx, cfg, "editMessageText", map[string]any{"chat_id": chat, "message_id": message, "text": text, "reply_markup": map[string]any{"inline_keyboard": keyboard}}, nil)
+	// The confirmation is already visible; optional cloud metadata never holds up
+	// this callback or the next getUpdates poll.
+	a.queueTelegramTitle(selected)
+	return nil
 }

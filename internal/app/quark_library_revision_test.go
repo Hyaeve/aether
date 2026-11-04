@@ -280,7 +280,7 @@ func TestQuarkLibraryRevisionCleanupSafety(t *testing.T) {
 			}
 			for _, name := range []string{"Movie.nfo", "orphan/poster.jpg"} {
 				_, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
-				if mode == "modified" && name == "orphan/poster.jpg" {
+				if (mode == "cascade-off" || mode == "expiry-user-file") && name == "Movie.nfo" || mode == "modified" && name == "orphan/poster.jpg" {
 					if !os.IsNotExist(err) {
 						t.Fatal("unrelated obsolete scraper directory retained", err)
 					}
@@ -289,7 +289,7 @@ func TestQuarkLibraryRevisionCleanupSafety(t *testing.T) {
 				}
 			}
 			_, existsErr := os.Stat(filepath.Join(root, "Movie.mkv.share.strm"))
-			if mode == "cascade-off" && !os.IsNotExist(existsErr) || mode != "cascade-off" && existsErr != nil {
+			if (mode == "cascade-off" || mode == "expiry-user-file") && !os.IsNotExist(existsErr) || mode != "cascade-off" && mode != "expiry-user-file" && existsErr != nil {
 				t.Fatal("incorrect STRM preservation", mode, existsErr)
 			}
 			if mode == "expiry-user-file" && len(a.store.snapshot().QuarkLibraryCards) != 1 {
@@ -543,7 +543,7 @@ func TestQuarkLibraryRevisionSharedCompanionAndCascadePersistence(t *testing.T) 
 		t.Fatal(err)
 	}
 	st := reopened.snapshot()
-	if st.QuarkLibraryCards[0].CascadeCleanup != "off" || st.QuarkLibraryRuntime.Roots[card.ID].Token == "" {
+	if st.QuarkLibraryCards[0].CascadeCleanup != "off" || st.QuarkLibraryRuntime.Roots[card.ID].Identity == "" {
 		t.Fatal("cascade preference or directory ownership did not persist")
 	}
 	h := a.Handler(t.TempDir())

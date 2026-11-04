@@ -1,6 +1,6 @@
 // Configuration deletion feedback only. No file-operation hooks or background rendering.
 const active = new Set()
-const DURATION = 680
+const DURATION = 1120
 const MAX_EFFECTS = 2
 const MAX_PIXELS = 600000
 
@@ -18,7 +18,7 @@ export function isConfigRemoval(card, url, method, body) {
 }
 
 export function particleBudget(width, height, dpr = 1) {
-  const count = Math.min(640, Math.max(90, Math.round(width * height / 72)))
+  const count = Math.min(1280, Math.max(180, Math.round(width * height / 36)))
   const scale = Math.min(1.5, Math.max(1, dpr), Math.sqrt(MAX_PIXELS / ((width + 96) * (height + 96))))
   return { count, scale, width: Math.max(1, Math.floor((width + 96) * scale)), height: Math.max(1, Math.floor((height + 96) * scale)) }
 }

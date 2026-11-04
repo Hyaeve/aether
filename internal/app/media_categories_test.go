@@ -52,10 +52,10 @@ func TestMediaCategoryPresetPersistenceAndTaskSelection(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	w = request(t, h, "PUT", "/api/rule-presets/"+first.ID, map[string]string{"kind": "categories", "name": "名称修改保留目录"}, cookie)
-	if w.Code != 200 || a.store.snapshot().RulePresets[0].MediaCategory.Rules[0].DirectoryID != "tv-anime" {
+	if w.Code != 200 || a.store.snapshot().RulePresets[3].MediaCategory.Rules[0].DirectoryID != "tv-anime" {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	first = a.store.snapshot().RulePresets[0]
+	first = a.store.snapshot().RulePresets[3]
 	first.MediaCategory.Directories[2].Name = "国产动画"
 	first.MediaCategory.Directories[2].Path = []string{"动画", "国产动画"}
 	w = request(t, h, "PUT", "/api/rule-presets/"+first.ID, first, cookie)
@@ -63,7 +63,7 @@ func TestMediaCategoryPresetPersistenceAndTaskSelection(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	st := a.store.snapshot()
-	if st.OrganizeTasks[0].MediaCategoryRuleID != first.ID || !reflect.DeepEqual(st.RulePresets[1], second) || st.RulePresets[0].MediaCategory.Rules[0].DirectoryID != "tv-anime" {
+	if st.OrganizeTasks[0].MediaCategoryRuleID != first.ID || !reflect.DeepEqual(st.RulePresets[4], second) || st.RulePresets[3].MediaCategory.Rules[0].DirectoryID != "tv-anime" {
 		t.Fatal("edit changed stable identities or another preset")
 	}
 	reopened, err := NewStore(a.store.dir)
@@ -144,14 +144,14 @@ func TestMediaCategoryNullListsCanonicalRead(t *testing.T) {
 	legacy := defaultMediaCategory(nil)
 	legacy.Rules = nil
 	legacy.Directories[0].Path = nil
-	if err := a.store.update(func(st *State) error { st.RulePresets[0].MediaCategory = &legacy; return nil }); err != nil {
+	if err := a.store.update(func(st *State) error { st.RulePresets[3].MediaCategory = &legacy; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	w = request(t, h, "GET", "/api/rule-presets?kind=categories", nil, cookie)
 	if w.Code != 200 || strings.Contains(w.Body.String(), `"path":null`) || strings.Contains(w.Body.String(), `"rules":null`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	stored := a.store.snapshot().RulePresets[0].MediaCategory
+	stored := a.store.snapshot().RulePresets[3].MediaCategory
 	if stored.Rules != nil || stored.Directories[0].Path != nil {
 		t.Fatal("read rewrote legacy lists")
 	}
@@ -217,7 +217,7 @@ func TestMediaCategoryPreviewIsReadOnly(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `剧集/动画/国漫`) || !strings.Contains(w.Body.String(), `"ruleId":"anime-first"`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if raw, err := os.ReadFile(file); err != nil || string(raw) != "unchanged" || len(a.running) != 0 || len(a.store.snapshot().RulePresets) != 0 {
+	if raw, err := os.ReadFile(file); err != nil || string(raw) != "unchanged" || len(a.running) != 0 || len(a.store.snapshot().RulePresets) != 3 {
 		t.Fatal("preview performed writes", err)
 	}
 }
@@ -255,7 +255,7 @@ func TestMediaCategoryLegacyFieldAndEncryptedBackup(t *testing.T) {
 		t.Fatal("classification missing in backup", err)
 	}
 	bad := bundle
-	bad.State.RulePresets[0].MediaCategory.Rules[0].DirectoryID = "missing"
+	bad.State.RulePresets[3].MediaCategory.Rules[0].DirectoryID = "missing"
 	if validateBundle(bad) == nil {
 		t.Fatal("invalid category import accepted")
 	}

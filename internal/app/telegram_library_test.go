@@ -70,6 +70,7 @@ func TestTelegramLibraryConfiguredOutputAndNoReplay(t *testing.T) {
 	a.store.update(func(st *State) error {
 		settings := effectiveQuarkLibrary(*st)
 		settings.Directory, settings.MediaExtensions, settings.MetadataExtensions = output, "mkv", ""
+		settings.ScrapeEnabled = true
 		st.QuarkLibrary = &settings
 		return nil
 	})
@@ -82,12 +83,50 @@ func TestTelegramLibraryConfiguredOutputAndNoReplay(t *testing.T) {
 	if len(st.QuarkLibraryCards) != 1 || !st.QuarkLibraryCards[0].Enabled || st.QuarkLibraryCards[0].Directory != output || len(st.QuarkLibraryRuntime.Files) != 1 || m.saves != 0 {
 		t.Fatal("configured command did not generate STRM without transferring media", st.QuarkLibraryCards)
 	}
+	if !st.QuarkLibraryCards[0].ScrapeEnabled {
+		t.Fatal("new bot card did not inherit library scraping default")
+	}
 	if _, err := os.Stat(filepath.Join(output, "Series", "Movie.mkv.share.strm")); err != nil {
 		t.Fatal(err)
 	}
 	a.executeTelegramTransfer(context.Background(), job)
 	if len(a.store.snapshot().QuarkLibraryCards) != 1 {
 		t.Fatal("stale execution replayed")
+	}
+}
+
+func TestTelegramLibraryDifferentLinksUseNumericDirectories(t *testing.T) {
+	a, cfg, m, _ := telegramLibraryFixture(t)
+	output := t.TempDir()
+	a.store.update(func(st *State) error {
+		settings := effectiveQuarkLibrary(*st)
+		settings.Directory, settings.MediaExtensions, settings.MetadataExtensions = output, "mkv", ""
+		st.QuarkLibrary = &settings
+		return nil
+	})
+	for i, code := range []string{"first", "second", "third", "first"} {
+		if err := a.handleTelegramUpdate(a.ctx, cfg, telegramTextUpdate(int64(i+1), 123, 123, "/share https://pan.quark.cn/s/"+code)); err != nil {
+			t.Fatal(err)
+		}
+		jobs := a.store.snapshot().TelegramRuntime.Jobs
+		a.executeTelegramTransfer(a.ctx, jobs[len(jobs)-1])
+		cards := a.store.snapshot().QuarkLibraryCards
+		if len(cards) != min(i+1, 3) {
+			t.Fatal("different shares were merged or repeated share duplicated", i, len(cards))
+		}
+	}
+	cards := a.store.snapshot().QuarkLibraryCards
+	for i, want := range []string{"Series", "Series_1", "Series_2"} {
+		if cards[i].DirectoryName != want {
+			t.Fatal("non-numeric collision suffix", cards[i].DirectoryName, want)
+		}
+		data, err := os.ReadFile(filepath.Join(output, want, "Movie.mkv.share.strm"))
+		if err != nil || !strings.Contains(string(data), "/quark-share/"+[]string{"first", "second", "third"}[i]+"/Movie.mkv") {
+			t.Fatal("share output routed into wrong directory", i, err, string(data))
+		}
+	}
+	if m.saves != 0 || m.deletes != 0 {
+		t.Fatal("directory naming changed cloud files", m.saves, m.deletes)
 	}
 }
 
@@ -227,7 +266,7 @@ func TestTelegramLibraryProviderResultsAndChangedDefaults(t *testing.T) {
 		a.executeTelegramTransfer(context.Background(), job)
 	}
 	feedback := strings.Join(*messages, "\n")
-	if len(a.store.snapshot().QuarkLibraryCards) != 1 || !strings.Contains(feedback, "默认解析存储池和生成目录") || !strings.Contains(feedback, "绑定已授权且健康的原生移动云盘") || !strings.Contains(feedback, "未启用") || m.saves != 0 {
+	if len(a.store.snapshot().QuarkLibraryCards) != 1 || !strings.Contains(feedback, "默认存储池和生成目录") || !strings.Contains(feedback, "绑定已授权且健康的原生移动云盘") || !strings.Contains(feedback, "未启用") || m.saves != 0 {
 		t.Fatal("unsupported providers must report, not fall back to share transfer", feedback)
 	}
 	if err := a.handleTelegramUpdate(context.Background(), cfg, telegramTextUpdate(2, 123, 123, "虚拟链库 https://pan.quark.cn/s/changed")); err != nil {
@@ -290,15 +329,15 @@ func TestTelegramProviderKindsStayInContiguousGroups(t *testing.T) {
 	}
 }
 
-func TestTelegramLibraryClearedDefaultDoesNotRunExistingCard(t *testing.T) {
+func TestTelegramLibraryExistingCardUsesOwnOutputAfterDefaultCleared(t *testing.T) {
 	a, cfg, m, messages := telegramLibraryFixture(t)
 	card := newQuarkLibraryCard(t, a, "mkv")
 	if err := a.handleTelegramUpdate(context.Background(), cfg, telegramTextUpdate(1, 123, 123, "/share "+card.Secret)); err != nil {
 		t.Fatal(err)
 	}
 	a.executeTelegramTransfer(context.Background(), a.store.snapshot().TelegramRuntime.Jobs[0])
-	if len(a.store.snapshot().QuarkLibraryRuntime.Files) != 0 || m.saves != 0 || !strings.Contains(strings.Join(*messages, "\n"), "默认生成位置") {
-		t.Fatal("missing global output must not start an existing card through TG")
+	if len(a.store.snapshot().QuarkLibraryRuntime.Files) != 1 || m.saves != 0 || !strings.Contains(strings.Join(*messages, "\n"), "夸克链库已更新") {
+		t.Fatal("existing card should use its own output independently of defaults")
 	}
 }
 

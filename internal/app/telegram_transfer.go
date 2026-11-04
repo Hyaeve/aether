@@ -95,7 +95,7 @@ func (a *App) telegramWorker() {
 		st := a.store.snapshotWithLogLimit(0)
 		var next *telegramTransfer
 		for _, job := range st.TelegramRuntime.Jobs {
-			if job.Status == "queued" {
+			if job.Status == "queued" && !job.QueuePending {
 				copy := job
 				next = &copy
 				break

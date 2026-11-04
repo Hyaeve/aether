@@ -342,9 +342,37 @@ func (a *App) syncShareLiveDirectory(ctx context.Context, s Storage, req fileAct
 	if req.Action == "move" {
 		parent = req.Target
 	}
-	files, err := a.rawList(ctx, s, parent)
-	if err != nil {
-		return errors.New("云端操作已提交，但活动链接目录回传未确认，请刷新核对")
+	var files []File
+	// A successful rename can precede the provider's directory-list refresh.
+	// Re-read only; never replay the cloud mutation to obtain confirmation.
+	for attempt := 0; attempt < 3; attempt++ {
+		var err error
+		files, err = a.rawList(ctx, s, parent)
+		if err != nil {
+			return errors.New("云端操作已提交，但活动链接目录回传未确认，请刷新核对")
+		}
+		confirmed := true
+		for _, link := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
+			if link.StorageID != s.ID {
+				continue
+			}
+			for _, id := range req.IDs {
+				if id != link.DirectoryID {
+					continue
+				}
+				found := false
+				for _, file := range files {
+					if file.ID == id && file.IsDir && (req.Action != "rename" || file.Name == req.Name) {
+						found = true
+						break
+					}
+				}
+				confirmed = confirmed && found
+			}
+		}
+		if confirmed {
+			break
+		}
 	}
 	return a.store.update(func(st *State) error {
 		for i := range st.ShareLiveLinks {

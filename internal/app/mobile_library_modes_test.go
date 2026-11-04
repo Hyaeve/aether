@@ -55,7 +55,7 @@ type mobilePlaybackPersonal struct {
 	onDelete                           func()
 }
 
-func mockMobilePlaybackPersonal(t *testing.T, a *App, m *mobileLibraryMock) *mobilePlaybackPersonal {
+func mockMobilePlaybackPersonal(t *testing.T, a *App, m *mobileLibraryMock, resources ...string) *mobilePlaybackPersonal {
 	t.Helper()
 	p := &mobilePlaybackPersonal{files: map[string][]File{"/": {{ID: "aether", Name: "Aether", IsDir: true}}, "aether": {{ID: "share-parent", Name: "Share", IsDir: true}}}}
 	wire := apiClient.Transport
@@ -139,7 +139,11 @@ func mockMobilePlaybackPersonal(t *testing.T, a *App, m *mobileLibraryMock) *mob
 				} `json:"createOuterLinkBatchOprTaskReq"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&in)
-			if len(in.Request.Task.Files) != 1 || in.Request.Task.Files[0] != "root/video" {
+			expectedResource := "video"
+			if len(resources) > 0 {
+				expectedResource = resources[0]
+			}
+			if len(in.Request.Task.Files) != 1 || in.Request.Task.Files[0] != expectedResource {
 				t.Error("transfer expanded beyond requested source", in)
 			}
 			p.files[in.Request.Task.Folder] = []File{{ID: "temporary-video", Name: "剧集 [A] #1.mkv", Size: 10, SHA256: strings.Repeat("a", 64)}}

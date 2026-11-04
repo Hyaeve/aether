@@ -42,9 +42,10 @@ func (scheduledCronParser) Parse(expression string) (cron.Schedule, error) {
 
 func (a *App) cronPolicyAPI(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Expression string `json:"expression"`
-		Retry      bool   `json:"retry"`
-		ShareLive  bool   `json:"shareLive"`
+		Expression   string `json:"expression"`
+		Retry        bool   `json:"retry"`
+		ShareLibrary bool   `json:"shareLibrary"`
+		ShareLive    bool   `json:"shareLive"`
 	}
 	if !decode(w, r, &input) {
 		return
@@ -53,7 +54,11 @@ func (a *App) cronPolicyAPI(w http.ResponseWriter, r *http.Request) {
 	if len(input.Expression) > 128 {
 		message = "Cron表达式最多128字节"
 	} else if input.Expression != "" {
-		_, err := cronParser.Parse(input.Expression)
+		parser := cronParser.Parse
+		if input.ShareLibrary {
+			parser = func(expression string) (cron.Schedule, error) { return parseLibraryCron(expression) }
+		}
+		_, err := parser(input.Expression)
 		if err == nil && input.Retry {
 			err = validateRapid115RetryCron(input.Expression)
 		}

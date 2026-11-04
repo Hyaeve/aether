@@ -150,7 +150,11 @@ func (a *App) cachedStorageUsage(ctx context.Context, s Storage) (storageUsage, 
 					if hasPrevious && !validQuota {
 						updated = s.Usage.UpdatedAt
 					}
-					current.Usage = &storageUsageState{storageUsage: value, Stamp: storageRevision(s), UpdatedAt: updated, AttemptedAt: time.Now()}
+					storedValue := value
+					if storedValue.Membership == nil && current.Usage != nil && current.Usage.Stamp == storageRevision(*current) {
+						storedValue.Membership = displayMembership(current.Usage.Membership)
+					}
+					current.Usage = &storageUsageState{storageUsage: storedValue, Stamp: storageRevision(s), UpdatedAt: updated, AttemptedAt: time.Now()}
 				}
 			}
 			return nil

@@ -192,3 +192,11 @@ func freshMembership(m *storageMembership) *storageMembership {
 	}
 	return m
 }
+
+// Display-only last successful result. Capability checks must use freshMembership.
+func displayMembership(m *storageMembership) *storageMembership {
+	if m == nil || m.CheckedAt.IsZero() || time.Since(m.CheckedAt) > 24*time.Hour || (m.ExpiresAt != nil && !m.ExpiresAt.After(time.Now())) {
+		return nil
+	}
+	return m
+}

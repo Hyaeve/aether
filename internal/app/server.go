@@ -44,6 +44,7 @@ type App struct {
 	notificationQueue   chan channelNotice
 	wecom               wecomService
 	quarkLibraryMu      sync.Mutex
+	library115Mu        sync.Mutex
 	mobileLibraryMu     sync.Mutex
 	mobileTemporaryMu   sync.Mutex
 	casLibraryMu        sync.Mutex
@@ -84,59 +85,63 @@ type App struct {
 	mountReadMu         sync.Mutex
 	mountReadPools      map[string]*mountReadPool
 
-	simulcast        *pan115Simulcast
-	transfers        transferLog
-	resources        transferResources
-	tempMu           sync.Mutex
-	tempBuckets      map[string]*transferTempBucket
-	traffic          trafficMeter
-	shareMu          sync.Mutex
-	shareLiveMu      sync.Mutex
-	sharePreviews    map[string]*sharePreview
-	scrapeMu         sync.Mutex
-	scrapeCancel     context.CancelFunc
-	scrapeProgress   scrapeProgress
-	scrapeQueue      []queuedScrapeMatch
-	scrapeDispatch   bool
-	scrapeQueueEpoch uint64
-	strmIndexMu      sync.Mutex
-	mounts           *mountManager
-	links            *linkRuntime
-	versionMu        sync.Mutex
-	versionExpiry    time.Time
-	versionResult    map[string]any
-	tianyiMu         sync.Mutex
-	tianyiSessions   map[string]tianyiSession
-	casGate          chan struct{}
-	casActive        map[string]int
-	store            *Store
-	cache            *Cache
-	quarkTVMu        sync.Mutex
-	quarkTVCache     map[string]quarkTVLink
-	ctx              context.Context
-	logger           *log.Logger
-	outputDir        string
-	dataDir          string
-	wg               sync.WaitGroup
-	runMu            sync.Mutex
-	running          map[string]context.CancelFunc
-	runningStorage   map[string]string
-	runningTriggers  map[string]string
-	pendingSTRMSync  map[string]queuedSTRMSync
-	taskFileUses     map[string][]taskFileNode
-	gateMu           sync.Mutex
-	gates            map[string]time.Time
-	intervals        map[string]int
-	sessionMu        sync.Mutex
-	sessions         map[string]time.Time
-	loginMu          sync.Mutex
-	loginAttempts    map[string][]time.Time
-	downloaded       atomic.Int64
-	uploaded         atomic.Int64
-	offlineBatches   atomic.Int32
-	extracting       atomic.Int32
-	started          time.Time
-	dav              *webdav.Handler
+	simulcast           *pan115Simulcast
+	transfers           transferLog
+	resources           transferResources
+	tempMu              sync.Mutex
+	tempBuckets         map[string]*transferTempBucket
+	traffic             trafficMeter
+	shareMu             sync.Mutex
+	shareLiveMu         sync.Mutex
+	sharePreviews       map[string]*sharePreview
+	scrapeMu            sync.Mutex
+	scrapeCancel        context.CancelFunc
+	scrapeProgress      scrapeProgress
+	scrapeQueue         []queuedScrapeMatch
+	scrapeDispatch      bool
+	scrapeQueueEpoch    uint64
+	strmIndexMu         sync.RWMutex
+	strmReferenceMu     [64]sync.Mutex
+	telegramPromptMu    [32]sync.Mutex
+	telegramTitles      chan telegramTransfer
+	mounts              *mountManager
+	links               *linkRuntime
+	versionMu           sync.Mutex
+	versionExpiry       time.Time
+	versionResult       map[string]any
+	tianyiMu            sync.Mutex
+	tianyiSessions      map[string]tianyiSession
+	casGate             chan struct{}
+	casActive           map[string]int
+	store               *Store
+	cache               *Cache
+	quarkTVMu           sync.Mutex
+	quarkTVCache        map[string]quarkTVLink
+	ctx                 context.Context
+	logger              *log.Logger
+	outputDir           string
+	dataDir             string
+	wg                  sync.WaitGroup
+	runMu               sync.Mutex
+	running             map[string]context.CancelFunc
+	runningStorage      map[string]string
+	directoryScrapeTask *Task
+	runningTriggers     map[string]string
+	pendingSTRMSync     map[string]queuedSTRMSync
+	taskFileUses        map[string][]taskFileNode
+	gateMu              sync.Mutex
+	gates               map[string]time.Time
+	intervals           map[string]int
+	sessionMu           sync.Mutex
+	sessions            map[string]time.Time
+	loginMu             sync.Mutex
+	loginAttempts       map[string][]time.Time
+	downloaded          atomic.Int64
+	uploaded            atomic.Int64
+	offlineBatches      atomic.Int32
+	extracting          atomic.Int32
+	started             time.Time
+	dav                 *webdav.Handler
 
 	virtualGrantCount int
 	virtualGrantReady bool
@@ -195,6 +200,7 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	}
 	a.casGate = make(chan struct{}, 1)
 	a.notificationQueue = make(chan channelNotice, 64)
+	a.telegramTitles = make(chan telegramTransfer, 32)
 	a.transfers.restore(filepath.Join(dataDir, "cache", "transfers.json"))
 	a.simulcast = newPan115Simulcast(a, linkTrustedProxies())
 	if err := a.restoreSessions(); err != nil {
@@ -253,10 +259,11 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.folderCleanupMonitor()
 	a.wg.Add(1)
 	go a.pan115SigninMonitor()
-	a.wg.Add(3)
+	a.wg.Add(4)
 	go a.telegramPoll()
 	go a.telegramWorker()
 	go a.telegramInteractionCleaner()
+	go a.telegramTitleWorker()
 	a.wg.Add(1)
 	go a.shareLiveMonitor()
 	a.wg.Add(1)
@@ -360,6 +367,11 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/files/favorites", a.protected(http.HandlerFunc(a.fileFavorites)))
 	mux.Handle("POST /api/files/visits", a.protected(http.HandlerFunc(a.fileVisits)))
 	a.RegisterStrmReplace(mux)
+	mux.Handle("/api/virtual-library/115", a.protected(http.HandlerFunc(a.library115API)))
+	mux.Handle("PUT /api/virtual-library/115/{id}", a.protected(http.HandlerFunc(a.library115API)))
+	mux.Handle("DELETE /api/virtual-library/115/{id}", a.protected(http.HandlerFunc(a.library115API)))
+	mux.Handle("POST /api/virtual-library/115/resolve", a.protected(http.HandlerFunc(a.library115Resolve)))
+	mux.Handle("POST /api/virtual-library/115/{id}/run", a.protected(http.HandlerFunc(a.library115RunAPI)))
 	mux.Handle("POST /api/virtual-library/115/{action}", a.protected(http.HandlerFunc(a.virtualLibrary)))
 	mux.HandleFunc("/s/{key}", a.playVirtualShare)
 	mux.HandleFunc("/115-share/{share}/{file...}", a.playVirtual115Name)
@@ -496,6 +508,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/automations/{id}", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("POST /api/automations/{id}/{action}", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("/api/strm-scrape/{action}", a.protected(http.HandlerFunc(a.strmScrape)))
+	mux.Handle("/api/directory-scrape/{action}", a.protected(http.HandlerFunc(a.directoryScrapeAPI)))
 	mux.Handle("GET /api/archives/{category}", a.protected(http.HandlerFunc(a.archiveList)))
 	mux.Handle("POST /api/archives/scrape/{id}/retry", a.protected(http.HandlerFunc(a.archiveRetry)))
 	mux.Handle("/api/tasks/{id}", a.protected(http.HandlerFunc(a.taskItem)))

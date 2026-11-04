@@ -24,7 +24,7 @@ func normalizeOrganizeOptions(t *organizeTaskDefinition, st State) {
 		t.MetadataExtensions = "srt;ass;ssa"
 		t.TMDBScrape, t.FFprobe = true, true
 	}
-	for kind, selected := range map[string]*string{"naming": &t.NamingRuleID, "categories": &t.MediaCategoryRuleID, "upgrade": &t.UpgradeRuleID} {
+	for kind, selected := range map[string]*string{"naming": &t.NamingRuleID, "categories": &t.MediaCategoryRuleID} {
 		if *selected != "" {
 			continue
 		}

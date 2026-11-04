@@ -73,7 +73,7 @@ test('draft requires an output before it can be enabled and retains the original
   const card = page.getByRole('article', { name: '机器人草稿', exact: true })
   await expect(card.getByText('未设置生成位置', { exact: true })).toBeVisible()
   await expect(card.getByText('未启用', { exact: true })).toBeVisible()
-  await expect(card.getByRole('button', { name: '立即生成', exact: true })).toBeDisabled()
+  await expect(card.getByRole('button', { name: '执行', exact: true })).toBeDisabled()
   await card.getByRole('button', { name: '编辑 机器人草稿', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '编辑夸克链接', exact: true })
   const enabled = dialog.getByRole('switch', { name: '启用链接', exact: true })

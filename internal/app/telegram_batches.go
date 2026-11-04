@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -11,16 +12,24 @@ import (
 
 func telegramCommand(text string) (mode string, content string, supported bool) {
 	text = strings.TrimSpace(text)
+	for _, command := range []struct{ prefix, mode string }{
+		{"虚拟链库", "library"}, {"移动链库", "library:mobile"}, {"夸克链库", "library:quark"},
+		{"115链库", "library:115"}, {"cas链库", "cas-library"},
+	} {
+		if strings.HasPrefix(strings.ToLower(text), command.prefix) {
+			return command.mode, strings.TrimSpace(text[len(command.prefix):]), true
+		}
+	}
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return "", text, true
 	}
-	head := fields[0]
-	if head == "/share" || head == "虚拟链库" {
-		return "library", strings.TrimSpace(text[len(head):]), true
+	head := strings.SplitN(fields[0], "@", 2)[0]
+	if head == "/share" {
+		return "library", strings.TrimSpace(text[len(fields[0]):]), true
 	}
 	if head == "/cas" {
-		return "cas-library", strings.TrimSpace(text[len(head):]), true
+		return "cas-library", strings.TrimSpace(text[len(fields[0]):]), true
 	}
 	if strings.HasPrefix(head, "/") && head != "/start" {
 		return "", "", false
@@ -79,6 +88,25 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 	if len(modes) > 0 {
 		mode = modes[0]
 	}
+	if library && (strings.HasPrefix(mode, "library:") || mode == "cas-library") {
+		provider := strings.TrimPrefix(mode, "library:")
+		if mode == "cas-library" {
+			provider = "mobile"
+		} else {
+			mode = "library"
+		}
+		selected := []telegramLink{}
+		for _, link := range links {
+			if link.Provider == provider && link.Kind != "ed2k" && link.Kind != "ali-rapid" {
+				selected = append(selected, link)
+			}
+		}
+		if len(selected) == 0 {
+			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "未找到对应链库的分享链接；/cas 只接受移动云盘分享链接。", nil)
+			return err
+		}
+		links = selected
+	}
 	for _, link := range links {
 		if library && (mode == "cas-library" && link.Provider != "mobile" || link.Kind == "ed2k") {
 			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "/cas 只接受移动云盘分享链接；/share 请使用对应网盘的分享链接，不接受ED2K链接。", nil)
@@ -121,6 +149,10 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 		job.LastActivity = job.Created
 		if library {
 			job.Kind, job.Status, job.LibraryStamp = mode, "queued", telegramLibraryStamp(st, link.Provider, mode)
+			job.QueuePending = true
+			if m.Date > 0 {
+				job.Created = time.Unix(m.Date, 0)
+			}
 		} else {
 			targets := st.Notifications.Targets
 			if link.Kind == "ali-rapid" {
@@ -205,7 +237,24 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 		return err
 	}
 	if library {
-		return err
+		labels := []string{}
+		for _, j := range jobs {
+			label := telegramLibraryLabel(j.Provider, j.Kind)
+			if !slices.Contains(labels, label) {
+				labels = append(labels, label)
+			}
+		}
+		// Workers cannot start before this initial notice has been attempted.
+		_, sendErr := a.telegramSend(ctx, cfg, m.Chat.ID, "已加入"+strings.Join(labels, "、")+"任务队列，共"+fmt.Sprint(len(jobs))+"条分享链接；正在等待执行。", nil)
+		releaseErr := a.store.update(func(st *State) error {
+			for i := range st.TelegramRuntime.Jobs {
+				if st.TelegramRuntime.Jobs[i].BatchID == batch {
+					st.TelegramRuntime.Jobs[i].QueuePending = false
+				}
+			}
+			return nil
+		})
+		return errors.Join(sendErr, releaseErr)
 	}
 	return a.advanceTelegramBatch(ctx, batch)
 }

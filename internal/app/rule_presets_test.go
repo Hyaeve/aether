@@ -26,7 +26,7 @@ func TestRulePresetCRUDPersistsAndSeparatesKinds(t *testing.T) {
 		}
 		w = request(t, h, "GET", "/api/rule-presets?kind="+kind, nil, cookie)
 		var list []rulePreset
-		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &list) != nil || len(list) != 1 || list[0].Kind != kind {
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &list) != nil || len(list) != 2 || list[0].Kind != kind {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
@@ -46,13 +46,13 @@ func TestRulePresetCRUDPersistsAndSeparatesKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := reopened.snapshot().RulePresets; len(got) != 3 || got[0].Name != "新名称" || got[0].Description != "多行\n说明" {
+	if got := reopened.snapshot().RulePresets; len(got) != 6 || got[3].Name != "新名称" || got[3].Description != "多行\n说明" {
 		t.Fatal("presets not durable", got)
 	}
 	if w := request(t, h, "DELETE", "/api/rule-presets/"+first.ID, nil, cookie); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if len(a.store.snapshot().RulePresets) != 2 {
+	if len(a.store.snapshot().RulePresets) != 5 {
 		t.Fatal("delete affected another kind")
 	}
 }

@@ -245,7 +245,7 @@ func TestShareLibraryScrapeOptInAndNewFormatOnly(t *testing.T) {
 	var state struct {
 		Libraries []map[string]any `json:"scrapeLibraries"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil || len(state.Libraries) != 1 || len(state.Libraries[0]) != 4 || state.Libraries[0]["id"] != taskID {
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil || len(state.Libraries) != 1 || len(state.Libraries[0]) != 5 || state.Libraries[0]["id"] != taskID || state.Libraries[0]["provider"] != "quark" {
 		t.Fatal("share source missing or private fields exposed", w.Body.String(), err)
 	}
 	if strings.Contains(w.Body.String(), "pan.quark.cn") || strings.Contains(w.Body.String(), "aB12") || strings.Contains(w.Body.String(), card.Directory) {

@@ -91,6 +91,7 @@ type telegramTransfer struct {
 	Processed      int               `json:"processed"`
 	Skipped        int               `json:"skipped,omitempty"`
 	Result         string            `json:"result,omitempty"`
+	QueuePending   bool              `json:"queuePending,omitempty"`
 	ResultSent     bool              `json:"resultSent,omitempty"`
 	Batches        int               `json:"batches"`
 	Created        time.Time         `json:"created"`

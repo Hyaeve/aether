@@ -10,7 +10,8 @@ import StorageTabs from '../components/StorageTabs.vue'
 import SecretInput from '../components/SecretInput.vue'
 import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 import { useCardDrag } from '../useCardDrag'
-import { storageMembership } from '../storage-membership.mjs'
+import { storageMembership,freshStorageMembership } from '../storage-membership.mjs'
+import {rememberMembership,mergeMemberships} from '../storage-membership-cache.mjs'
 import StorageMembership from '../components/StorageMembership.vue'
 const directoryPicker = ref(false)
 
@@ -66,14 +67,15 @@ const memberships = computed(()=>Object.fromEntries(state.storages.filter(s=>s.e
 let usageTimer
 onMounted(()=>{usageTimer=setInterval(()=>{usageRevision.value++},5*60*1000)})
 onUnmounted(()=>clearInterval(usageTimer))
-watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.storages.map(s => [s.id, s.type, s.enabled, s.config])]), async (_, __, cleanup) => {
+watch(() => JSON.stringify([usageRevision.value, state.authenticated,state.username, state.storages.map(s => [s.id, s.type, s.enabled,s.viewRevision, s.config])]), async (_, __, cleanup) => {
   const controller = new AbortController()
+  const owner=state.username
   cleanup(() => controller.abort())
   if (!state.authenticated) { usages.value = {}; loadedMemberships.value={}; return }
   const pools = state.storages.filter(s => s.enabled && cloudTypes.includes(s.type))
   usages.value = Object.fromEntries(pools.filter(s => s.usage).map(s => [s.id, s.usage]))
   loadedMemberships.value = {}
-  const memberPools=pools.filter(s=>!storageMembership(s.type,s.usage?.membership)&&(s.type==='115'?!!s.config?.cookie:s.type==='mobile'?s.config?.mode==='native'&&!!s.config?.authorization:s.type==='tianyi'&&(!!s.config?.accessToken||!!s.config?.refreshToken||!!s.config?.username&&!!s.config?.password)))
+  const memberPools=pools.filter(s=>!freshStorageMembership(s.type,s.usage?.membership)&&(s.type==='quark'||s.type==='115'?!!s.config?.cookie:s.type==='mobile'?s.config?.mode==='native'&&!!s.config?.authorization:s.type==='tianyi'&&(!!s.config?.accessToken||!!s.config?.refreshToken||!!s.config?.username&&!!s.config?.password)))
   let memberIndex=0
   const loadMembership=async()=>{
     while(memberIndex<memberPools.length&&!controller.signal.aborted){
@@ -82,8 +84,10 @@ watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.stor
         const response=await fetch(`/api/storages/${encodeURIComponent(pool.id)}/membership`,{credentials:'same-origin',signal:controller.signal})
         if(!response.ok)continue
         const value=await response.json()
-        if(controller.signal.aborted||!Object.hasOwn(value,'membership'))continue
+        if(controller.signal.aborted||!state.authenticated||state.username!==owner||!Object.hasOwn(value,'membership'))continue
+        if(!value.membership&&storageMembership(pool.type,usages.value[pool.id]?.membership))continue
         loadedMemberships.value[pool.id]=value.membership
+        rememberMembership(state.username,pool,value.membership)
         usages.value[pool.id]={...usages.value[pool.id],membership:value.membership}
         const current=state.storages.find(s=>s.id===pool.id)
         if(current)current.usage={...current.usage,membership:value.membership}
@@ -98,8 +102,10 @@ watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.stor
         const response = await fetch(`/api/storages/${encodeURIComponent(pool.id)}/usage`, { credentials:'same-origin', signal:controller.signal })
         if (!response.ok) continue
         const value = await response.json()
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted&&state.authenticated&&state.username===owner) {
           if(Object.hasOwn(loadedMemberships.value,pool.id))value.membership=loadedMemberships.value[pool.id]
+          else if(!storageMembership(pool.type,value.membership))value.membership=usages.value[pool.id]?.membership
+          if(value.membership)rememberMembership(state.username,pool,value.membership)
           usages.value[pool.id] = value
           const current=state.storages.find(s=>s.id===pool.id)
           if (current) current.usage=value
@@ -110,6 +116,9 @@ watch(() => JSON.stringify([usageRevision.value, state.authenticated, state.stor
   await Promise.all([...Array.from({length:Math.min(3,pools.length)}, loadUsage),...Array.from({length:Math.min(3,memberPools.length)}, loadMembership)])
 }, { immediate:true })
 watch(() => state.storages.map(s=>[s.id,s.usage]), () => {
+  if(!state.authenticated){usages.value={};return}
+  // State polling and a late quota response must not erase a newer badge.
+  mergeMemberships(state.username,state.storages)
   usages.value = Object.fromEntries(state.storages.filter(s => s.usage && s.enabled && state.authenticated && cloudTypes.includes(s.type)).map(s => [s.id, s.usage]))
 }, {deep:true})
 const quotaPercent = id => Math.min(100, Math.max(0, (usages.value[id]?.used || 0) / usages.value[id].total * 100))

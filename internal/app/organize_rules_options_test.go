@@ -31,10 +31,11 @@ func TestOrganizeRuleDefaultsOptionsAndReferenceValidation(t *testing.T) {
 	if w.Code != 201 || json.Unmarshal(w.Body.Bytes(), &saved) != nil {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if saved.NamingRuleID != "n-first" || saved.MediaCategoryRuleID != "c-first" || saved.UpgradeRuleID != "u-first" || saved.MetadataExtensions != "srt;ass;ssa" || !saved.TMDBScrape || !saved.FFprobe || saved.SmartCleanup || saved.AIEnhance {
+	if saved.NamingRuleID != "n-first" || saved.MediaCategoryRuleID != "c-first" || saved.UpgradeRuleID != "" || saved.MetadataExtensions != "srt;ass;ssa" || !saved.TMDBScrape || !saved.FFprobe || saved.SmartCleanup || saved.AIEnhance {
 		t.Fatal(saved)
 	}
 	saved.NamingRuleID = "n-next"
+	saved.UpgradeRuleID = "u-first"
 	saved.MetadataExtensions = ".SRT;ass;SRT"
 	saved.ExcludeList = " 预告 ;.CAS.STRM;/花絮;预告"
 	saved.TMDBScrape = false
@@ -45,7 +46,7 @@ func TestOrganizeRuleDefaultsOptionsAndReferenceValidation(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	stored := a.store.snapshot().OrganizeTasks[0]
-	if stored.MetadataExtensions != "srt;ass" || stored.ExcludeList != "预告;.cas.strm;/花絮" || stored.TMDBScrape || stored.FFprobe || !stored.SmartCleanup {
+	if stored.UpgradeRuleID != "u-first" || stored.MetadataExtensions != "srt;ass" || stored.ExcludeList != "预告;.cas.strm;/花絮" || stored.TMDBScrape || stored.FFprobe || !stored.SmartCleanup {
 		t.Fatal(stored)
 	}
 	for _, kind := range []string{"wrong-kind", "missing-rule", "ai", "extension", "exclude"} {
@@ -74,6 +75,7 @@ func TestOrganizeRuleDefaultsOptionsAndReferenceValidation(t *testing.T) {
 		return nil
 	})
 	stored.AIEnhance = true
+	stored.UpgradeRuleID = ""
 	stored.MetadataExtensions = ""
 	w = request(t, h, "PUT", "/api/organize-tasks/"+saved.ID, stored, cookie)
 	if w.Code != 200 {
@@ -84,7 +86,7 @@ func TestOrganizeRuleDefaultsOptionsAndReferenceValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := reopened.snapshot().OrganizeTasks[0]
-	if !got.AIEnhance || got.MetadataExtensions != "" || got.NamingRuleID != "n-next" || got.OptionsVersion != 1 || got.ExcludeList != "预告;.cas.strm;/花絮" {
+	if got.UpgradeRuleID != "" || !got.AIEnhance || got.MetadataExtensions != "" || got.NamingRuleID != "n-next" || got.OptionsVersion != 1 || got.ExcludeList != "预告;.cas.strm;/花絮" {
 		t.Fatal(got)
 	}
 }

@@ -87,6 +87,23 @@ func (t *organizeTaskDefinition) UnmarshalJSON(data []byte) error {
 func validRulePresetKind(kind string) bool {
 	return kind == "naming" || kind == "categories" || kind == "upgrade"
 }
+
+// Fill missing families without replacing existing cards or task references.
+func ensureRulePresets(st *State) {
+	names := map[string]string{"naming": "默认命名规则", "categories": "默认媒体分类", "upgrade": "默认洗版策略"}
+	for _, kind := range []string{"naming", "categories", "upgrade"} {
+		if slices.ContainsFunc(st.RulePresets, func(p rulePreset) bool { return p.Kind == kind }) {
+			continue
+		}
+		key := "default-" + kind
+		for slices.ContainsFunc(st.RulePresets, func(p rulePreset) bool { return p.ID == key }) {
+			key = id()
+		}
+		p := rulePreset{ID: key, Kind: kind, Name: names[kind], CreatedAt: time.Now(), UpdatedAt: time.Now()}
+		_ = validatePreset(&p)
+		st.RulePresets = append(st.RulePresets, p)
+	}
+}
 func validatePreset(p *rulePreset) error {
 	p.Name = strings.TrimSpace(p.Name)
 	p.Description = strings.TrimSpace(p.Description)
@@ -266,6 +283,25 @@ func (a *App) rulePresetsAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodDelete && key != "" {
 		found := false
 		err := a.store.update(func(st *State) error {
+			for _, p := range st.RulePresets {
+				if p.ID != key {
+					continue
+				}
+				count := 0
+				for _, other := range st.RulePresets {
+					if other.Kind == p.Kind {
+						count++
+					}
+				}
+				if count <= 1 {
+					return errors.New("每类规则须至少保留一个预设")
+				}
+				for _, task := range st.OrganizeTasks {
+					if task.NamingRuleID == key || task.MediaCategoryRuleID == key || task.UpgradeRuleID == key {
+						return errors.New("预设已被整理归档任务引用，请先更换任务规则")
+					}
+				}
+			}
 			st.RulePresets = slices.DeleteFunc(st.RulePresets, func(p rulePreset) bool {
 				if p.ID == key {
 					found = true
@@ -276,7 +312,7 @@ func (a *App) rulePresetsAPI(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 		if err != nil {
-			fail(w, 500, err)
+			fail(w, 409, err)
 		} else if !found {
 			fail(w, 404, errors.New("预设不存在"))
 		} else {

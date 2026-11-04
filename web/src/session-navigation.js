@@ -4,6 +4,7 @@ const jumpPageParents = {
   '/tasks/cas/pool': '/tasks/cas',
   '/tasks/ed2k/pool': '/tasks/ed2k',
   '/tools/115-rapid': '/tools',
+  '/virtual/115/settings': '/virtual/115',
   '/virtual/quark/settings': '/virtual/quark',
   '/virtual/mobile/settings': '/virtual/mobile',
   '/transfer/backup/settings': '/transfer/backup'
@@ -24,5 +25,6 @@ export function rememberRoute(user, path) {
 }
 export function rememberedRoute(user, path) {
   const saved = readSession(user, `route:${path}`)
+  if(path==='/tasks' && saved==='/tasks/scrape') return '/tasks/strm'
   return typeof saved === 'string' && modulePath(saved) === path ? jumpPageParents[saved] || saved : path
 }

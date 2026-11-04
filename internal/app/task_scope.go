@@ -194,7 +194,7 @@ func (r *taskScopeResolver) overlap(left, right taskFileNode) (bool, error) {
 }
 
 func taskDescription(task Task) string {
-	kind := map[string]string{"strm": "STRM ", "cas": "CAS ", "ed2k": "ED2K ", "cache": "目录缓存"}[task.Kind]
+	kind := map[string]string{"strm": "STRM ", "cas": "CAS ", "ed2k": "ED2K ", "cache": "目录缓存", "directory-scrape": "目录刮削 "}[task.Kind]
 	name := strings.TrimSpace(task.Name)
 	if name == "" {
 		name = task.ID
@@ -208,6 +208,9 @@ func taskDescription(task Task) string {
 // Keep reporting deterministic when multiple active tasks could overlap.
 func (a *App) runningTasks() []Task {
 	tasks := map[string]Task{}
+	if a.directoryScrapeTask != nil {
+		tasks[a.directoryScrapeTask.ID] = *a.directoryScrapeTask
+	}
 	for _, task := range a.store.snapshotWithLogLimit(0).Tasks {
 		tasks[task.ID] = task
 	}
@@ -237,6 +240,9 @@ func (a *App) checkTaskFileNodes(ctx context.Context, nodes []taskFileNode) erro
 	defer cancel()
 	resolver := taskScopeResolver{a, ctx, map[string][]File{}}
 	for _, t := range a.runningTasks() {
+		if own, _ := ctx.Value(directoryScrapeContextKey{}).(string); own != "" && t.ID == own {
+			continue
+		}
 		s, err := a.store.storage(t.StorageID)
 		if err != nil {
 			return fmt.Errorf("无法核验运行中的%s的存储目录，未执行文件操作", taskDescription(t))
@@ -338,7 +344,7 @@ func (a *App) reserveTaskFileNodes(ctx context.Context, nodes []taskFileNode) (f
 
 func (a *App) taskRunNodes(task Task, s Storage) ([]taskFileNode, error) {
 	nodes := []taskFileNode{{storage: s, id: task.Source}}
-	if task.Kind == "cache" {
+	if task.Kind == "cache" || task.Kind == "directory-scrape" {
 		return nodes, nil
 	}
 	base, rel, err := a.outputLocation(task.Target)

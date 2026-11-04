@@ -1,5 +1,11 @@
 # Aether Design System
 
+规则预设编辑器去描述，规则名称为半栏40px输入框，命名与分类页签等分宽度且使用语义图标。洗版名称右侧为恢复默认，分组标题显示中文和代码，仅箭头调序；组内标签及命名标签可拖动，浮动卡片跟随指针且不可获焦，保留按钮/键盘替代及Esc取消。命名选中描边为1px混色线。链库设置两个面板使用surface底色、边框和14px圆角，1100px以下改纵向；存储管理下拉标签填满剩余宽度后才省略，不改变135/105/93px外宽。虚拟链库图标使用独立书库与链接组合线形SVG，刮削平台位于其下，档案中心在以太链接前。
+
+整理、刮削档案共用右侧单按钮切换列表/分组，工具栏依次状态、来源、数量、刷新、搜索、视图。折叠分组保留44×66px海报或空图占位，手机使用固定列网格避免海报被旧文本flex规则拉宽。
+
+规则预设与整理归档的虚线添加大卡片使用`--surface`窗口底色，悬浮沿用`--primary-soft`，与页面背景在日夜主题下均有区分。整理归档顶部使用公共蓝紫环状图及统计层级，当前度量为配置完整率及真实配置条目数。分享链库任务条使用直接占满32px圆角块的前两字文字图标，不再内嵌提供商图像。
+
 LitePan is the primary layout and interaction reference, including its local AdminView, AddAccountDialog, DriverPickerStep and authorization flow. Aura is no longer the layout reference. User-selected colors remain unchanged.
 
 - Primary `#3A4980`, soft lavender `#B4B9D6`, sidebar accent `#5263A8`.
@@ -12,6 +18,7 @@ LitePan is the primary layout and interaction reference, including its local Adm
 - Statistical counters settle within 1000ms, including custom durations. Scale steps with the value difference, use quartic ease-out and progressively slower update cadence near the target; retain the original deadline when a value changes during the transition. Reduced motion skips the animation, and unmount cancels pending work. These counters are display transitions, never simulated task progress.
 - Spacing: 4/8/12/16/20/24/32/48px. Repeated item cards <= 8px radius.
 - Fixed 220px sidebar with thirteen destinations in three groups and a fixed breadcrumb/traffic header. Task kinds live in page tabs; system settings use inner navigation. No workspace switch or sidebar connection/version footer.
+- When the sidebar menu overflows, a decorative 2px fading line sits directly on its right edge. It moves with the menu's scroll position, has no track, handle or pointer interaction, and disappears when the menu fits. Its tint inherits the sidebar brand color, including About's local night theme. Native wheel/touch/keyboard scrolling remains unchanged; passive scroll events update immediately while ResizeObserver changes are batched into one animation frame, without polling or motion interpolation.
 - Theme: one icon cycles light, dark and system; persists locally and reacts to OS theme changes. A task notification bell follows it, with per-account local read markers.
 - Current light content surfaces use a neutral gray-white with a faint blue tint: the large area to the right of the sidebar is `#f1f3f6`. Inward layers progressively brighten through shell `#f3f5f8`, frame `#f6f8fa`, surface `#f8fafc`, item `#fafcfd`, rule `#fdfefe`, then pure-white inputs. Parallel surfaces share tokens. The mist blue-gray sidebar stays `#d9e0ef`, hover `#ccd5e9` and selected `#bac8e8` with dark text. Dark tokens and the About page's local night sidebar remain unchanged.
 - Number controls share one accessory slot for units and hover/focus steppers. Form focus stays within the existing rounded boundary.
@@ -21,7 +28,7 @@ LitePan is the primary layout and interaction reference, including its local Adm
 - The organize/archive editor uses six rows: two paired source/destination rows, three equal rule selectors, paired redundancy/size fields, paired metadata/exclusion fields, then four switches in one row. It hides scrollbars while preserving internal scrolling and fixed header/footer. Rule menus use an opt-in fixed portal with208px bounded height, hidden tracks, keyboard navigation, visible theme-colored focus and viewport clamping; other select instances retain their existing layout. Redundancy keeps the source-pool-only path picker. Size filtering remains0 MB default; AI is unavailable until configured/enabled, TMDB and FFprobe default on, smart cleanup defaults off.
 - STRM task cascade switches use a label above a 40px control row, centered against the adjacent extension input. STRM content uses label-above-select layout. Transfer temporary path and size cap share equal columns, including narrow screens. Account and notification popovers leave 16px desktop / 24px mobile clearance from the right edge so page scrollbars cannot cover actions.
 - My Plugins descriptions disclose full text only when actually clipped, after 300ms of stationary hover. Pointer movement restarts the delay. Rename confirmation uses original name, a downward arrow and new name on separate rows; prioritize changed fragments and nearby context before ellipsizing, with the same 300ms full-text disclosure only on overflow.
-- The compact rename rule panel uses 32px input/select heights on desktop and mobile, including number inputs and the rule-type selector beside the rule number. Only multiple-rule lists show small pale-red delete controls; ignore, edit and rule-delete tooltips require 500ms of stationary hover. Other standard editor controls remain 40px.
+- The compact rename rule panel uses 32px input/select heights on desktop and mobile, including number inputs and the rule-type selector beside the rule number. Only multiple-rule lists show a 12px red delete glyph without a filled or outlined rounded box; its click area and keyboard focus remain. Ignore, edit and rule-delete tooltips require 500ms of stationary hover. Other standard editor controls remain 40px.
 - Storage: cards without a connector footer; compact two-step modal, icon/name-only selection, previous/save controls and lower-left authorization. Small screens retain scrolling without visible scrollbars.
 - Provider choices show a themed soft filled block and border on hover or keyboard focus; later transparent idle styles must not erase this feedback. Membership badges keep their compact upper-right slot while independent membership lookups avoid waiting for capacity.
 - Tools use four-column plugin cards on desktop with honest unfinished states. About reuses the animated starfield and checks GHCR image revisions explicitly.
@@ -65,4 +72,6 @@ LitePan is the primary layout and interaction reference, including its local Adm
 
 WebDAV主体在普通存储图标中使用36px，在存储卡片中使用48px边界。选择存储目录窗口左侧的存储池图标去掉附加圆角框、底色和边框，品牌图像或SVG占满原32×32px位置；移动、夸克使用已有独立主体图像。存储条目自身的选中背景与可点击范围保留，紧凑文件选择器图标沿用既有规格。
 
-配置卡片删除由共用消散效果反馈：服务器确认成功后，原卡片内容在约680ms内淡出并化为小粒子，相邻卡片平滑补位。取消、拒绝、失败、编辑、排序、筛选、翻页及普通刷新不会触发。支持DELETE单项接口、明确标记为删除的整表PUT，以及活链的移除/删除动作；文件操作和传输历史不接入。减少动态效果时立即完成视图更新；切页、退出账号、后台及视口变化会清理特效。最多两个并行效果，每个最多640粒子、60万画布像素、1.5倍绘制倍率，930ms兜底释放。绘制失败不改变删除请求的成功结果，不重放请求。
+配置卡片删除由共用消散效果反馈：服务器确认成功后，原卡片内容在约1120ms内淡出并化为更密的小粒子，相邻卡片平滑补位。粒子按每36平方CSS像素约一个分配，最少180、最多1280，约为原密度两倍；消散放慢不延迟删除请求或页面数据更新。取消、拒绝、失败、编辑、排序、筛选、翻页及普通刷新不会触发。支持DELETE单项接口、明确标记为删除的整表PUT，以及活链的移除/删除动作；文件操作和传输历史不接入。减少动态效果时立即完成视图更新；切页、退出账号、后台及视口变化会清理特效。最多两个并行效果，每个仍限60万画布像素、1.5倍绘制倍率，1370ms兜底释放。绘制失败不改变删除请求的成功结果，不重放请求。
+
+虚拟链库四栏共用满宽列表，少量或空记录的窗口延伸到页面剩余空间，底部留白采用page-content实际内边距；超出时随页面滚动，不增内滚动区域。搜索图标与输入框同行，左侧为单选状态筛选；执行在编辑左侧，115不显示Cron和封存项。命名/媒体分类/洗版预设编辑器统一960px宽、最高860px，正文可滚动且隐藏轨道，固定头尾；只剩一个预设时删除按钮禁用。

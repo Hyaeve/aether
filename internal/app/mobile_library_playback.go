@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -56,6 +57,15 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
+	lastFailure := "未找到已授权的原生移动存储，请检查链库绑定和账号授权"
+	recordFailure := func(stage string, storage Storage, err error) {
+		reason := strings.NewReplacer("\r", " ", "\n", " ").Replace(err.Error())
+		if strings.Contains(reason, "://") || len([]rune(reason)) > 300 {
+			reason = safeStorageError(err)
+		}
+		lastFailure = stage + "：" + reason
+		a.store.event("warn", "virtual", "移动分享播放失败："+card.Name+" · "+name+"；存储池「"+storage.Name+"」；"+lastFailure)
+	}
 	for _, storage := range rotateLibraryStorages(a.mobileLibraryStorages(st), cfg.RotationHours, time.Now()) {
 		check := func() error {
 			if err := ctx.Err(); err != nil {
@@ -82,11 +92,13 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 		share, err := a.mobileLibraryShareInfo(ctx, storage, card.Secret)
 		if err != nil {
+			recordFailure("读取分享信息", storage, err)
 			a.markMobileLibraryInvalid(card, err)
 			continue
 		}
 		items, err := a.mobileLibraryList(ctx, storage, share, grant.SourceParent, false)
 		if err != nil {
+			recordFailure("核对分享目录", storage, err)
 			continue
 		}
 		var source *mobileLibrarySource
@@ -97,6 +109,7 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if source == nil {
+			a.cleanMissingLibraryFile(ctx, "mobile", card, *grant)
 			http.NotFound(w, r)
 			return
 		}
@@ -109,6 +122,11 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 			download, err = a.mobileLibraryDownload(ctx, storage, share, *source)
 		}
 		if err != nil {
+			stage := "获取分享下载直链"
+			if cfg.PlaybackMode == "transfer" {
+				stage = "临时转存并取直链"
+			}
+			recordFailure(stage, storage, err)
 			if errors.Is(err, errMobileLibraryGrant) {
 				http.NotFound(w, r)
 				return
@@ -149,6 +167,6 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, name, time.Time{}, reader)
 		return
 	}
-	a.store.event("warn", "virtual", "移动分享取链失败："+card.Name+" · "+name+"；请核对链接、提取码及绑定账号授权")
-	fail(w, 502, errors.New("移动分享未取得下载直链，请检查分享有效性、提取码及原生账号授权"))
+	a.store.event("warn", "virtual", "移动分享取链失败："+card.Name+" · "+name+"；"+lastFailure)
+	fail(w, 502, errors.New("移动分享未取得下载直链；"+lastFailure))
 }

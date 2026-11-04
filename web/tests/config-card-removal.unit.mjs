@@ -28,9 +28,11 @@ test('list updates animate only an explicitly confirmed removed entry, never tog
 test('particle counts and canvas pixels stay bounded even for large retina cards',()=>{
  for(const [w,h,dpr] of [[100,80,1],[500,150,3],[3840,2160,4],[14400,8000,8]]){
   const budget=particleBudget(w,h,dpr)
-  assert.ok(budget.count>=90&&budget.count<=640)
+  assert.ok(budget.count>=180&&budget.count<=1280)
   assert.ok(budget.scale<=1.5)
   assert.ok(budget.width*budget.height<=600000)
  }
+ assert.equal(particleBudget(500,150,1).count,1280)
+ assert.ok(particleBudget(100,80,1).count>=220)
  assert.doesNotThrow(()=>prepareConfigRemoval('/storages/a','DELETE')())
 })

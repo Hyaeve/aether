@@ -1,5 +1,7 @@
 # 模块配置
 
+刮削平台独立于任务中心，提供STRM、链库与目录三个栏目。四类链库设置新增布尔`scrapeEnabled`（缺省false），只作为新卡片默认，已有卡片仍使用自己的`scrapeEnabled`；不批量迁移参与状态。目录刮削共用现有`organize/strm-scrape.json`设置，只有用户确认后才写回NFO和图片，临时文件计入传输暂存额度。目录识别索引保存在已有刮削缓存目录，真实结果进入加密档案。详见[刮削平台](scrape-platform.md)。
+
 TMDB与AI的界面入口现为“以太识律 → 辅助配置”，继续复用原插件配置、密钥按需查看及测试/保存接口，不迁移或重置存储内容。[命名和洗版预设](naming-upgrade-rules.md)现保存剧集/电影模板及有序评分分组，支持可视化编辑和只读求值；[媒体分类](media-categories.md)已支持多套预设，每张卡片独立保存剧集/电影目录、条件组合、顺序规则及兜底，整理任务用`mediaCategoryRuleId`引用，原`categoryRuleId`兼容读入，详见[以太识律](rules-workspace.md)。[识别规则](recognition-rules.md)现可保存前置匹配、归档黑名单、后置命名替换、发布组及文件体积阈值，前置规则有只读服务端预览。预设`rulePresets`、识别配置`recognitionRules`和整理归档任务定义`organizeTasks`存于主配置，随现有加密备份导出、导入及完整性事务保存；整理归档当前保存规则ID、冗余目录、过滤、元数据/排除名单及四个开关，`optionsVersion`区分旧缺省与显式关闭/留空，读取旧配置不重写磁盘。只提供本阶段配置表单与只读求值，不进入任务执行队列，详见[整理归档](organize-archive.md)。
 
 媒体深度删除配置为 `mediaDeepDelete.enabled/linkIds`，随加密配置备份。通过以链的Aether媒体目录/媒体服务目录映射定位原始STRM，独立回执位于数据目录runtime，不作为可导入的配置或自动执行队列。接入和启用步骤见[媒体深度删除](media-deep-delete.md)。
@@ -118,3 +120,5 @@ iOS Safari 可通过系统菜单添加到主屏幕。部署应使用受信任 HT
 ## 阿里云盘秒传配置与回执
 
 内置阿里云盘秒传使用根配置中的 `ali115`，包括115接收目录、扩展名及阿里账号。refresh token与设备私钥加密保存，访问令牌只留内存，管理接口不返回凭据。`ali115Receipts` 是独立运行态，保存逐项结果、临时文件身份和未确认写入意图；配置导出排除它，导入保留本机运行回执，不能用备份清掉待核对状态。操作说明见 [阿里云盘秒传](ali115-rapid.md)。
+
+链库补充：library115Cards为115手动快照卡片配置，library115Runtime为本部署的结果/产物摘要/原生目录身份运行态，导出不携运行态、导入保留目标部署已有运行态。quarkLibrary/mobileLibrary/casLibrary的updateDays为机器人新卡的默认更新天数（缺省7、正整数）；卡片scheduleAnchor保存在配置中，配合库专用@every计划实现跨月不漂移的整点周期。115不使用这两个计划字段。默认命名/媒体分类/洗版仅在类别缺失时补齐，最后一张规则不可删除；整理归档的空upgradeRuleId仍表示不洗版。

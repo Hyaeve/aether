@@ -152,6 +152,10 @@ func TestTelegramDirectoryPagination(t *testing.T) {
 	if err := a.telegramCallback(context.Background(), cfg, 123, 123, 77, fmt.Sprintf("t:%s:10", job.ID)); err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(markup.Text, "/目录10") || markup.Markup.Rows[0][0].Text != "返回" || markup.Markup.Rows[0][1].Text != "确认转存" {
+		t.Fatal("initial confirmation did not show selected destination immediately", markup)
+	}
+	a.enrichTelegramPrompt(a.ctx, a.store.snapshot().TelegramRuntime.Jobs[0])
 	if !strings.Contains(markup.Text, "/目录10") || !strings.Contains(markup.Text, "分享目录") || markup.Markup.Rows[0][0].Text != "返回" || markup.Markup.Rows[0][1].Text != "确认转存" {
 		t.Fatal("absolute index or confirmation wrong", markup)
 	}

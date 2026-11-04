@@ -59,7 +59,7 @@ func TestQuarkLibraryGuardClosesUnpublishedOutput(t *testing.T) {
 		t.Fatal("publication guard did not stop the write", err)
 	}
 	items, err := os.ReadDir(quarkLibraryRoot(card))
-	if err != nil || len(items) != 1 || items[0].Name() != quarkLibraryMarker {
+	if err != nil || len(items) != 0 {
 		t.Fatal("unpublished output or open temporary file was left behind", items, err)
 	}
 }

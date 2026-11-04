@@ -129,7 +129,12 @@ func (a *App) mobileLibraryList(ctx context.Context, storage Storage, share mobi
 	seen := map[string]bool{}
 	requestParent := parent
 	if parent != "root" {
-		requestParent = "/" + strings.TrimLeft(parent, "/")
+		parentID := strings.TrimLeft(parent, "/")
+		parentID = strings.TrimPrefix(parentID, "root/")
+		if !quarkLibraryRelative(parentID) {
+			return nil, errors.New("移动分享父目录路径无效")
+		}
+		requestParent = "/" + parentID
 	}
 	for page := 0; page <= mobileShareScanLimit/100; page++ {
 		var data struct {
@@ -223,7 +228,34 @@ func validMobileLibraryURL(address string) bool {
 	return err == nil && u.Hostname() != "" && u.User == nil && u.Fragment == "" && (u.Scheme == "http" || u.Scheme == "https") && !strings.ContainsAny(address, "\r\n\x00")
 }
 
+// Share download/transfer APIs accept IDs relative to the shared root. coPath
+// is listing metadata and may include the synthetic "root/" prefix; it is not
+// the resource token accepted by dlFromOutLinkV3.
+func mobileLibraryDownloadResource(file mobileLibrarySource) (string, error) {
+	if !safeName(file.ID) {
+		return "", errors.New("移动分享文件标识无效")
+	}
+	parent := strings.Trim(file.Parent, "/")
+	if parent == "root" {
+		parent = ""
+	} else {
+		parent = strings.TrimPrefix(parent, "root/")
+	}
+	if parent != "" && !quarkLibraryRelative(parent) {
+		return "", errors.New("移动分享下载父目录无效")
+	}
+	value := path.Join(parent, file.ID)
+	if len(value) > 4096 || !quarkLibraryRelative(value) {
+		return "", errors.New("移动分享下载资源路径无效")
+	}
+	return value, nil
+}
+
 func (a *App) mobileLibraryDownload(ctx context.Context, storage Storage, share mobileLibraryShare, file mobileLibrarySource) (Download, error) {
+	resource, err := mobileLibraryDownloadResource(file)
+	if err != nil {
+		return Download{}, err
+	}
 	account, _, err := mobileAccount(storage)
 	if err != nil {
 		return Download{}, err
@@ -233,7 +265,7 @@ func (a *App) mobileLibraryDownload(ctx context.Context, storage Storage, share 
 		Download string `json:"downloadURL"`
 	}
 	err = a.mobileLibraryRequest(ctx, storage, "dlFromOutLinkV3", map[string]any{
-		"dlFromOutLinkReqV3": map[string]any{"linkID": share.Code, "account": account, "coIDLst": map[string]any{"item": []string{file.Path}}},
+		"dlFromOutLinkReqV3": map[string]any{"linkID": share.Code, "account": account, "coIDLst": map[string]any{"item": []string{resource}}},
 		"commonAccountInfo":  map[string]any{"account": account, "accountType": 1},
 	}, &data)
 	if err != nil {

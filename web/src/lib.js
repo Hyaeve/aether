@@ -1,5 +1,6 @@
 import { reactive, watch } from 'vue'
 import {prepareConfigRemoval,cancelCardRemovals} from './config-card-removal.js'
+import {clearMembershipCache,mergeMemberships} from './storage-membership-cache.mjs'
 
 export const state = reactive({
   loaded: false, initialized: false, authenticated: false, storages: [], tasks: [], scrapeLibraries: [],
@@ -7,7 +8,7 @@ export const state = reactive({
 })
 let linksRequest, linksGeneration = 0
 watch(() => state.authenticated, authenticated => {
-	if(!authenticated)cancelCardRemovals()
+	if(!authenticated){cancelCardRemovals();clearMembershipCache()}
   linksGeneration++
   linksRequest = null
   state.links = []
@@ -53,7 +54,10 @@ export async function api(url, method = 'GET', body) {
 }
 export async function reload() {
   if (!state.authenticated) return
+  const generation=linksGeneration
   const data = await api('/state')
+  if(!state.authenticated||generation!==linksGeneration)return
+  if(Array.isArray(data.storages))mergeMemberships(data.username,data.storages)
   Object.assign(state, { shareNotices: [], scrapeLibraries: [] }, data)
 }
 export const drivers = [

@@ -405,6 +405,7 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 	original := s
 	token, items, err := a.readShareSession(ctx, &s, code, pass, grant.SourceParent, "")
 	if err != nil {
+		a.markQuarkLibraryInvalid(card, err)
 		a.store.event("warn", "virtual", "夸克链库播放分享读取失败："+card.Name+" · "+grant.Name+"；"+safeStorageError(err))
 		fail(w, 502, err)
 		return
@@ -421,6 +422,7 @@ func (a *App) playQuarkLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if source == nil {
+		a.cleanMissingLibraryFile(ctx, "quark", card, grant)
 		a.store.event("warn", "virtual", "夸克链库播放源文件核对失败："+card.Name+" · "+grant.Name+"；分享文件身份、名称或大小已变化")
 		http.NotFound(w, r)
 		return

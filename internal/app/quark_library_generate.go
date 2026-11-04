@@ -149,9 +149,18 @@ func quarkLibraryDigest(root *os.Root, name string) (string, error) {
 }
 
 func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibraryCard, st State) (func(bool), error) {
+	return a.prepareShareLibraryMove(ctx, old, next, st.QuarkLibraryRuntime.Files, st.QuarkLibraryRuntime.Roots[old.ID])
+}
+
+func (a *App) prepareShareLibraryMove(ctx context.Context, old, next quarkLibraryCard, records map[string]quarkLibraryFile, owner quarkLibraryOwnership) (func(bool), error) {
 	nop := func(bool) {}
+	for _, protected := range []string{a.store.dir, a.dataDir} {
+		if next.Directory != "" && protected != "" && (backupPathsOverlap(quarkLibraryRoot(next), protected) || backupPathsOverlap(protected, quarkLibraryRoot(next))) {
+			return nop, errors.New("生成目录不能覆盖配置或运行数据")
+		}
+	}
 	if next.Directory == "" {
-		for _, f := range st.QuarkLibraryRuntime.Files {
+		for _, f := range records {
 			if f.CardID == old.ID {
 				return nop, errors.New("已有生成文件的卡片不能清空生成位置")
 			}
@@ -170,8 +179,16 @@ func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibrar
 	if backupPathsOverlap(from, to) || backupPathsOverlap(to, from) {
 		return nop, errors.New("新旧生成目录不能互相包含")
 	}
+	if shareLibraryNameChanged(old, next) {
+		finish, _, err := a.prepareShareLibraryRename(ctx, old, next, owner)
+		return func(committed bool) {
+			if err := finish(committed); err != nil {
+				a.store.event("error", "virtual", "分享链库目录改名收尾失败："+err.Error())
+			}
+		}, err
+	}
 	files := []quarkLibraryFile{}
-	for _, f := range st.QuarkLibraryRuntime.Files {
+	for _, f := range records {
 		if f.CardID == old.ID {
 			files = append(files, f)
 		}
@@ -184,42 +201,74 @@ func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibrar
 		return nop, errors.New("原生成目录不可读取，未修改卡片")
 	}
 	defer source.Close()
+	if owner.Directory != from {
+		return nop, errors.New("原生成目录归属未登记，未迁移")
+	}
+	if err := verifyQuarkLibraryOwner(source, owner); err != nil {
+		return nop, err
+	}
 	dest, err := virtualOutputRoot(target, next.DirectoryName)
 	if err != nil {
 		return nop, err
 	}
 	defer dest.Close()
+	sourceIdentity, e := source.Stat(".")
+	if e != nil {
+		return nop, e
+	}
+	destIdentity, e := dest.Stat(".")
+	if e != nil {
+		return nop, e
+	}
+	sourceFiles, destFiles := map[string]os.FileInfo{}, map[string]os.FileInfo{}
 	created := []quarkLibraryFile{}
-	cleanup := func(root *os.Root, list []quarkLibraryFile) {
+	cleanup := func(root *os.Root, list []quarkLibraryFile, expected os.FileInfo, identities map[string]os.FileInfo) {
+		current, e := root.Stat(".")
+		if e != nil || !os.SameFile(expected, current) {
+			return
+		}
 		for _, item := range list {
-			if digest, e := quarkLibraryDigest(root, item.Relative); e == nil && digest == item.Digest {
-				_ = root.Remove(item.Relative)
+			parent, e := quarkLibraryParent(root, item.Relative)
+			if e != nil {
+				continue
 			}
+			name := path.Base(item.Relative)
+			current, e := parent.Lstat(name)
+			digest, de := quarkLibraryDigest(parent, name)
+			if before := identities[item.Relative]; before != nil && e == nil && de == nil && os.SameFile(before, current) && digest == item.Digest {
+				_ = parent.Remove(name)
+			}
+			parent.Close()
 		}
 	}
 	for _, item := range files {
 		if err := ctx.Err(); err != nil {
-			cleanup(dest, created)
+			cleanup(dest, created, destIdentity, destFiles)
+			return nop, err
+		}
+		sourceFiles[item.Relative], err = source.Lstat(item.Relative)
+		if err != nil {
+			cleanup(dest, created, destIdentity, destFiles)
 			return nop, err
 		}
 		digest, e := quarkLibraryDigest(source, item.Relative)
 		if e != nil || digest != item.Digest {
-			cleanup(dest, created)
+			cleanup(dest, created, destIdentity, destFiles)
 			return nop, errors.New("原生成文件已被外部修改或缺失，迁移停止，未修改卡片")
 		}
 		if _, e := dest.Lstat(item.Relative); !os.IsNotExist(e) {
-			cleanup(dest, created)
+			cleanup(dest, created, destIdentity, destFiles)
 			return nop, errors.New("迁移目标已有同名文件，不覆盖")
 		}
 		child, e := virtualOutputRoot(dest, path.Dir(item.Relative))
 		if e != nil {
-			cleanup(dest, created)
+			cleanup(dest, created, destIdentity, destFiles)
 			return nop, e
 		}
 		in, e := source.Open(item.Relative)
 		if e != nil {
 			child.Close()
-			cleanup(dest, created)
+			cleanup(dest, created, destIdentity, destFiles)
 			return nop, e
 		}
 		out, e := child.OpenFile(path.Base(item.Relative), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
@@ -236,9 +285,10 @@ func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibrar
 		}
 		in.Close()
 		child.Close()
+		destFiles[item.Relative], _ = dest.Lstat(item.Relative)
 		copied, verify := quarkLibraryDigest(dest, item.Relative)
 		if e != nil || verify != nil || copied != item.Digest {
-			cleanup(dest, created)
+			cleanup(dest, created, destIdentity, destFiles)
 			return nop, errors.New("迁移校验失败，原文件和卡片保留")
 		}
 	}
@@ -254,7 +304,11 @@ func (a *App) prepareQuarkLibraryMove(ctx context.Context, old, next quarkLibrar
 			return
 		}
 		defer root.Close()
-		cleanup(root, list)
+		expected, identities := destIdentity, destFiles
+		if committed {
+			expected, identities = sourceIdentity, sourceFiles
+		}
+		cleanup(root, list, expected, identities)
 		if committed {
 			a.store.event("info", "virtual", fmt.Sprintf("分享链库迁移完成：%s，已核验 %d 个登记文件，目标 %s", next.Name, len(files), to))
 		}
@@ -297,6 +351,14 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 		} else {
 			result.Status, result.Message = "completed", fmt.Sprintf("新增STRM %d 条，元数据 %d 个，跳过 %d 个，清理 %d 个", result.Generated, result.Metadata, result.Skipped, result.Removed)
 			result.InvalidSince = time.Time{}
+		}
+		if result.Status == "invalid" {
+			removed, e := a.cleanInvalidQuarkLibrary(ctx, card)
+			result.Removed += removed
+			if e != nil {
+				result.Message += "；失效产物清理待重试：" + e.Error()
+				resultErr = errors.Join(resultErr, e)
+			}
 		}
 		expired := result.Status == "invalid" && !result.InvalidSince.Add(time.Duration(cfg.InvalidDays)*24*time.Hour).After(now)
 		if expired {
@@ -587,6 +649,15 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 	if err := a.quarkLibraryCheckStorage(s); err != nil {
 		return result, err
 	}
+	present := map[string]bool{}
+	for _, batch := range batches {
+		for _, item := range batch.Items {
+			relative := path.Join(batch.Directory, item.Name)
+			present[relative] = true
+			present[relative+shareSTRMSuffix] = true
+		}
+	}
+	ctx = context.WithValue(ctx, librarySourceInventoryKey{}, present)
 	result.Removed, err = a.reconcileQuarkLibrary(ctx, card, root, wanted, false)
 	return result, err
 }

@@ -4,11 +4,14 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, state, notify } from '../lib'
 import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
-import TaskTabs from '../components/TaskTabs.vue'
+import ScrapeTabs from '../components/ScrapeTabs.vue'
+import DirectoryScrape from '../components/DirectoryScrape.vue'
 import Modal from '../components/Modal.vue'
 import ScrapeScopePicker from '../components/ScrapeScopePicker.vue'
 import ScrapeFiles from '../components/ScrapeFiles.vue'
 import { useVirtualList } from '../virtual-list'
+const props=defineProps({section:{type:String,default:'strm'}})
+const libraryProvider=ref('115')
 const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), settingsOpen = ref(false), matching = ref(null), candidates = ref([])
 const query = ref(''), status = ref('all')
 const scopeOpen = ref(false)
@@ -68,7 +71,7 @@ async function resetMetadata() {
     resetting.value = null; await load(); notify('作品元数据已重置')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-const tasks = computed(() => [...state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded), ...state.scrapeLibraries].map(t => ({ value: t.id, label: t.name })))
+const tasks = computed(() => (props.section==='directory'?[]:props.section==='library'?state.scrapeLibraries.filter(t=>(t.provider||t.id.split('-share:')[0])===libraryProvider.value):state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded)).map(t => ({ value: t.id, label: t.name })))
 const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', error: '失败' }
 const itemStatus = item => ['miss','doubt'].includes(item.status) || item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
@@ -144,7 +147,7 @@ async function saveMatch() {
     matching.value = null; progress.value = result; if (!result.queued) await load(); notify(result.queued ? `手动识别已排队，等待 ${result.queued} 项` : '匹配已应用，正在刮削')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-const preferenceKey = computed(() => `aether-scrape-task:${state.username || ''}`)
+const preferenceKey = computed(() => `aether-scrape-task:${state.username || ''}:${props.section}:${libraryProvider.value}`)
 watch(task, value => {
   excludedScopes.value = []; exitSelection()
   libraryRoot.value = ''; directoryRequest++
@@ -162,6 +165,7 @@ watch(() => [...state.tasks, ...state.scrapeLibraries].find(t => t.id === task.v
   if (previous === 'running' && current !== 'running') load()
 })
 onMounted(async () => {
+  if(props.section==='directory')return
   document.addEventListener('keydown', selectionKey)
   document.addEventListener('focusin', overlayFocus)
   poll()
@@ -170,10 +174,14 @@ onMounted(async () => {
 onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequest++; directoryRequest++; document.removeEventListener('keydown',selectionKey); document.removeEventListener('focusin',overlayFocus) })
 </script>
 <template>
-  <section class="task-heading"><TaskTabs /><div class="toolbar-right"><button class="btn" @click="settingsOpen = true"><Icon name="Settings2" />刮削设置</button><button v-if="progress.running" class="btn" :disabled="busy" @click="action('stop')"><Icon name="Square" />停止</button></div></section>
+  <ScrapeTabs :section="section"/>
+  <DirectoryScrape v-if="section==='directory'"/>
+  <template v-else>
+  <section class="task-heading"><div></div><div class="toolbar-right"><button class="btn" @click="settingsOpen = true"><Icon name="Settings2" />刮削设置</button><button v-if="progress.running" class="btn" :disabled="busy" @click="action('stop')"><Icon name="Square" />停止</button></div></section>
   <section class="scrape-panel" :class="{'selecting':selectionMode}">
     <div class="scrape-toolbar">
-      <RoundedSelect v-model="task" label="STRM 任务" placeholder="选择 STRM 任务" :disabled="progress.running" :options="tasks" />
+      <RoundedSelect v-if="section==='library'" v-model="libraryProvider" label="链库类型" :options="[{value:'115',label:'115链库'},{value:'mobile',label:'移动链库'},{value:'quark',label:'夸克链库'},{value:'cas',label:'CAS链库'}]"/>
+      <RoundedSelect v-model="task" :label="section==='library'?'链库卡片':'STRM 任务'" :placeholder="section==='library'?'选择参与刮削的链库':'选择 STRM 任务'" :options="tasks" />
       <button class="btn" aria-label="筛选库目录" :disabled="!task || progress.running" @click="scopeOpen = true"><Icon name="Folder" />{{ excludedScopes.length ? `已排除 ${excludedScopes.length} 个目录` : '全部目录' }}</button>
       <RoundedSelect v-model="status" label="刮削状态" :options="[{ value: 'all', label: '全部状态' }, ...Object.entries(statuses).map(([value,label]) => ({value,label,marker:value}))]" />
       <button class="btn" :disabled="!task || busy || progress.running" @click="confirmation = {action:'identify'}"><Icon name="ScanSearch" />识别 STRM 库</button>
@@ -215,6 +223,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     <p v-if="candidateError" class="error-message" role="alert">{{ candidateError }}</p><p v-else-if="candidateBusy" role="status">正在搜索候选媒体…</p>
     <div class="candidate-grid"><button v-for="candidate in candidates" :key="candidate.id" type="button" class="candidate-card" :aria-pressed="Number(match.tmdb) === candidate.id" :class="{ selected: Number(match.tmdb) === candidate.id }" @click="match.tmdb = candidate.id"><img v-if="candidate.poster" :src="candidate.poster" :alt="candidate.title || candidate.name" loading="lazy" referrerpolicy="no-referrer" /><span v-else class="candidate-poster"><Icon name="Film" /></span><span class="candidate-info"><strong :data-tooltip="candidate.title || candidate.name">{{ candidate.title || candidate.name }}</strong><span><em>{{ match.kind === 'tv' ? '剧集' : '电影' }}</em><small>{{ candidate.year?.slice(0,4) || '年份未知' }}</small></span><small>TMDB {{ candidate.id }}</small></span></button></div>
     <label>TMDB ID<input v-model="match.tmdb" type="number" min="1" required /></label></div><footer class="modal-footer"><button class="btn primary" :disabled="busy || !match.tmdb">确认匹配</button></footer></form></Modal>
+  </template>
 </template>
 <style scoped>
 .scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; }

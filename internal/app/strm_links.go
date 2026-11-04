@@ -67,7 +67,10 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 		return "", errors.New("文件名称无效")
 	}
 	if s.Type == "115" {
-		if err := unique115Account(s, a.store.snapshotWithLogLimit(0).Storages); err != nil {
+		a.store.mu.RLock()
+		err := unique115Account(s, a.store.state.Storages)
+		a.store.mu.RUnlock()
+		if err != nil {
 			return "", err
 		}
 		account, err := account115(s)
@@ -80,8 +83,14 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 		}
 		key = account + "/" + key
 		// Only generated references are public, never arbitrary cloud lookups.
-		a.strmIndexMu.Lock()
-		defer a.strmIndexMu.Unlock()
+		// Distinct references can be flushed in parallel. Share-index maintenance
+		// still takes the exclusive lock, and the same key remains serialized.
+		a.strmIndexMu.RLock()
+		defer a.strmIndexMu.RUnlock()
+		shard := sha256.Sum256([]byte(key))
+		guard := &a.strmReferenceMu[int(shard[0])%len(a.strmReferenceMu)]
+		guard.Lock()
+		defer guard.Unlock()
 		old, err := a.readSTRMReference(key)
 		if err != nil && !os.IsNotExist(err) {
 			return "", err

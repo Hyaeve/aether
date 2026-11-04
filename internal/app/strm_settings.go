@@ -36,7 +36,11 @@ func validSTRMSettings(in strmSettings) error {
 }
 
 func (a *App) currentSTRMSettings() strmSettings {
-	s := a.store.snapshotWithLogLimit(0).Settings
+	// Only scalar settings are needed here. This runs for every generated file;
+	// cloning the entire state also copies task runtime and histories.
+	a.store.mu.RLock()
+	s := a.store.state.Settings
+	a.store.mu.RUnlock()
 	in := strmSettings{Address: s.STRMURL, Format: s.STRM115Format, OverwriteMode: s.STRMOverwriteMode, Content: s.STRMContent}
 	if in.Content == "" {
 		in.Content = "original"

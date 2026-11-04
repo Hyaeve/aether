@@ -49,7 +49,8 @@ for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[375,812
  expect(ruleRects).toHaveLength(3);expect(new Set(ruleRects.map(r=>r.y)).size).toBe(1);expect(ruleRects[0].y).toBeGreaterThan(fields[2].y);expect(ruleRects[0].y).toBeLessThan(fields[4].y)
  const ruleBoxes=await dialog.locator('.organize-rules-row').evaluate(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,boxes:[...el.querySelectorAll('.rounded-select')].map(c=>{const r=c.getBoundingClientRect();return{left:r.left,right:r.right}})}})
  for(let i=0;i<ruleBoxes.boxes.length;i++){const b=ruleBoxes.boxes[i];expect(b.left).toBeGreaterThanOrEqual(ruleBoxes.left-1);expect(b.right).toBeLessThanOrEqual(ruleBoxes.right+1);if(i)expect(b.left).toBeGreaterThan(ruleBoxes.boxes[i-1].right)}
- for(const label of ['命名规则','媒体分类','洗版策略'])await expect(dialog.getByRole('button',{name:label,exact:true})).toContainText('预设 1（默认）')
+ for(const label of ['命名规则','媒体分类'])await expect(dialog.getByRole('button',{name:label,exact:true})).toContainText('预设 1（默认）')
+ await expect(dialog.getByRole('button',{name:'洗版策略',exact:true})).toHaveText('不洗版')
  await expect(dialog.getByRole('textbox',{name:'元数据归档',exact:true})).toHaveValue('srt;ass;ssa')
  const toggleRects=await dialog.getByRole('switch').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().y));expect(toggleRects).toHaveLength(4);expect(new Set(toggleRects).size).toBe(1)
  await expect(dialog.getByRole('switch',{name:'AI增强识别',exact:true})).toBeDisabled();await expect(dialog.getByRole('switch',{name:'AI增强识别',exact:true})).not.toBeChecked();await expect(dialog.getByRole('switch',{name:'TMDB刮削',exact:true})).toBeChecked();await expect(dialog.getByRole('switch',{name:'FFprobe解析',exact:true})).toBeChecked();await expect(dialog.getByRole('switch',{name:'智能清理',exact:true})).not.toBeChecked()
@@ -62,10 +63,10 @@ for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[375,812
 })
 test('preset create edit failed save and confirmed removal persist independently',async({page})=>{
  const f=await fixture(page);await page.goto('/rules/naming');await page.getByRole('button',{name:'添加命名规则预设',exact:true}).click()
- await page.getByRole('textbox',{name:'预设名称',exact:true}).fill('自定义电影');await page.getByRole('textbox',{name:'预设说明',exact:true}).fill('我自己的命名预设')
+ await page.getByRole('textbox',{name:'规则名称',exact:true}).fill('自定义电影');await expect(page.getByRole('textbox',{name:'预设说明',exact:true})).toHaveCount(0)
  f.reject(true);await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('保存失败');await expect(page.getByRole('dialog')).toBeVisible()
  f.reject(false);await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);await page.reload();await expect(page.getByRole('article',{name:'命名规则预设 自定义电影',exact:true})).toBeVisible()
- await page.getByRole('button',{name:'编辑预设 自定义电影',exact:true}).click();await page.getByRole('textbox',{name:'预设名称',exact:true}).fill('电影备用');await page.getByRole('button',{name:'保存',exact:true}).click()
+ await page.getByRole('button',{name:'编辑预设 自定义电影',exact:true}).click();await page.getByRole('textbox',{name:'规则名称',exact:true}).fill('电影备用');await page.getByRole('button',{name:'保存',exact:true}).click()
  await page.getByRole('button',{name:'删除预设 电影备用',exact:true}).click();await page.getByRole('button',{name:'取消',exact:true}).click();expect(f.presets).toHaveLength(10)
  await page.getByRole('button',{name:'删除预设 电影备用',exact:true}).click();await page.getByRole('button',{name:'确认删除',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);expect(f.presets).toHaveLength(9)
  expect(f.presets.filter(x=>x.kind==='categories')).toHaveLength(3);expect(f.unexpected).toEqual([])
@@ -121,16 +122,22 @@ test('organize rules use bounded keyboard menus and saved switches preserve expl
  await dialog.getByRole('textbox',{name:'元数据归档',exact:true}).fill('')
  const excludes=dialog.getByRole('textbox',{name:'排除名单',exact:true});await expect(excludes).toHaveAttribute('placeholder','预告;.strm;/花絮');await expect(dialog).toContainText('文件关键词；.扩展名；/目录关键词');await excludes.fill('预告;.cas.strm;/花絮')
  await pick(page,'source','本地一','Source');await pick(page,'target','本地二','Archive');await dialog.getByRole('button',{name:'保存',exact:true}).click()
- expect(f.tasks[0]).toMatchObject({optionsVersion:1,namingRuleId:'long-31',mediaCategoryRuleId:'categories-0',upgradeRuleId:'upgrade-0',metadataExtensions:'',excludeList:'预告;.cas.strm;/花絮',aiEnhance:true,tmdbScrape:false,ffprobe:false,smartCleanup:true})
+ expect(f.tasks[0]).toMatchObject({optionsVersion:1,namingRuleId:'long-31',mediaCategoryRuleId:'categories-0',upgradeRuleId:'',metadataExtensions:'',excludeList:'预告;.cas.strm;/花絮',aiEnhance:true,tmdbScrape:false,ffprobe:false,smartCleanup:true})
  await page.reload();await page.getByRole('button',{name:'编辑整理归档 自定义规则',exact:true}).click()
  const edit=page.getByRole('dialog',{name:'编辑整理归档',exact:true});await expect(edit.getByRole('textbox',{name:'排除名单',exact:true})).toHaveValue('预告;.cas.strm;/花絮');await expect(edit.getByRole('textbox',{name:'元数据归档',exact:true})).toHaveValue('');await expect(edit.getByRole('button',{name:'命名规则',exact:true})).toContainText('31');await expect(edit.getByRole('switch',{name:'AI增强识别',exact:true})).toBeChecked();await expect(edit.getByRole('switch',{name:'TMDB刮削',exact:true})).not.toBeChecked()
+ await expect(edit.getByRole('button',{name:'洗版策略',exact:true})).toHaveText('不洗版')
+ await edit.getByRole('button',{name:'洗版策略',exact:true}).click();await page.getByRole('option',{name:'预设 1',exact:true}).click();await edit.getByRole('button',{name:'保存',exact:true}).click()
+ await page.getByRole('button',{name:'编辑整理归档 自定义规则',exact:true}).click();await expect(edit.getByRole('button',{name:'洗版策略',exact:true})).toHaveText('预设 1');expect(f.tasks[0].upgradeRuleId).toBe('upgrade-0')
+ await edit.getByRole('button',{name:'洗版策略',exact:true}).click();await page.getByRole('option',{name:'不洗版',exact:true}).click();await edit.getByRole('button',{name:'保存',exact:true}).click();await page.reload()
+ await page.getByRole('button',{name:'编辑整理归档 自定义规则',exact:true}).click();await expect(edit.getByRole('button',{name:'洗版策略',exact:true})).toHaveText('不洗版');expect(f.tasks[0].upgradeRuleId).toBe('')
  expect(f.unexpected).toEqual([])
 })
 
 test('organize missing rule lists stay empty and removed selected rules require a new choice',async({page})=>{
  const f=await fixture(page);f.presets.splice(0)
  await page.goto('/tasks/organize');await page.getByRole('button',{name:'添加整理归档任务',exact:true}).click()
- for(const label of ['命名规则','媒体分类','洗版策略']){await expect(page.getByRole('button',{name:label,exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:label,exact:true})).toContainText('尚未添加规则')}
+ for(const label of ['命名规则','媒体分类']){await expect(page.getByRole('button',{name:label,exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:label,exact:true})).toContainText('尚未添加规则')}
+ await expect(page.getByRole('button',{name:'洗版策略',exact:true})).toBeEnabled();await expect(page.getByRole('button',{name:'洗版策略',exact:true})).toHaveText('不洗版')
  await page.keyboard.press('Escape')
  f.presets.push({id:'replacement',kind:'naming',name:'可用命名',description:''});f.tasks.push({id:'stale',name:'失效引用',storageId:'l1',source:'/Source',targetStorageId:'l2',target:'/Archive',optionsVersion:1,namingRuleId:'removed',metadataExtensions:'srt',method:'move'})
  await page.reload();await page.getByRole('button',{name:'编辑整理归档 失效引用',exact:true}).click()

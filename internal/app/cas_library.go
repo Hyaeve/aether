@@ -13,22 +13,32 @@ import (
 )
 
 type casLibrarySettings struct {
+	ScrapeEnabled   bool   `json:"scrapeEnabled"`
+	UpdateDays      *int   `json:"updateDays,omitempty"`
 	Directory       string `json:"directory"`
 	MediaExtensions string `json:"mediaExtensions"`
 }
 type casLibraryRuntime struct {
-	Results map[string]quarkLibraryResult `json:"results,omitempty"`
+	Results map[string]quarkLibraryResult    `json:"results,omitempty"`
+	Roots   map[string]quarkLibraryOwnership `json:"roots,omitempty"`
 }
 
 func effectiveCASLibrary(st State) casLibrarySettings {
 	if st.CASLibrary != nil {
-		return *st.CASLibrary
+		cfg := *st.CASLibrary
+		days := libraryUpdateDays(cfg.UpdateDays)
+		cfg.UpdateDays = &days
+		return cfg
 	}
-	return casLibrarySettings{MediaExtensions: taskVideoExtensions + ";" + taskAudioExtensions}
+	days := 7
+	return casLibrarySettings{UpdateDays: &days, MediaExtensions: taskVideoExtensions + ";" + taskAudioExtensions}
 }
 func initCASLibrary(st *State) {
 	if st.CASLibraryRuntime.Results == nil {
 		st.CASLibraryRuntime.Results = map[string]quarkLibraryResult{}
+	}
+	if st.CASLibraryRuntime.Roots == nil {
+		st.CASLibraryRuntime.Roots = map[string]quarkLibraryOwnership{}
 	}
 }
 func casLibraryCardAt(st State, key string) (quarkLibraryCard, bool) {
@@ -41,6 +51,9 @@ func casLibraryCardAt(st State, key string) (quarkLibraryCard, bool) {
 }
 func validateCASLibrary(st State) error {
 	cfg := effectiveCASLibrary(st)
+	if err := validateLibraryUpdateDays(cfg.UpdateDays); err != nil {
+		return err
+	}
 	if cfg.Directory != "" && (!filepath.IsAbs(cfg.Directory) || strings.ContainsAny(cfg.Directory, "\x00\r\n") || len(cfg.Directory) > 4096) {
 		return errors.New("请选择CAS链库绝对生成位置")
 	}
@@ -119,7 +132,7 @@ func (a *App) casLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		for _, c := range st.CASLibraryCards {
 			result := st.CASLibraryRuntime.Results[c.ID]
 			total += result.Generated + result.Skipped
-			cards = append(cards, map[string]any{"id": c.ID, "url": c.Secret, "name": c.Name, "shareName": c.ShareName, "directory": c.Directory, "directoryName": c.DirectoryName, "cron": c.Cron, "enabled": c.Enabled, "mediaExtensions": c.MediaExtensions, "excludeDirs": c.ExcludeDirs, "excludeFiles": c.ExcludeFiles, "excludeTypes": c.ExcludeTypes, "result": result})
+			cards = append(cards, map[string]any{"id": c.ID, "url": c.Secret, "name": c.Name, "shareName": c.ShareName, "directory": c.Directory, "directoryName": c.DirectoryName, "cron": c.Cron, "enabled": c.Enabled, "mediaExtensions": c.MediaExtensions, "cascadeCleanup": c.CascadeCleanup, "scrapeEnabled": c.ScrapeEnabled, "excludeDirs": c.ExcludeDirs, "excludeFiles": c.ExcludeFiles, "excludeTypes": c.ExcludeTypes, "result": result})
 		}
 		jsonResponse(w, 200, map[string]any{"cards": cards, "settings": effectiveCASLibrary(st), "stats": map[string]int{"strm": total}})
 		return
@@ -154,6 +167,7 @@ func (a *App) casLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			st.CASLibraryCards = out
 			delete(st.CASLibraryRuntime.Results, key)
+			delete(st.CASLibraryRuntime.Roots, key)
 			return nil
 		})
 		if err != nil {
@@ -184,10 +198,9 @@ func (a *App) casLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	} else {
 		card.ID = id()
 	}
+	setLibrarySchedule(&card, old, time.Now())
 	card.Secret = in.URL
-	card.CascadeCleanup = "off"
 	card.MetadataExtensions = ""
-	card.ScrapeEnabled = false
 	provider, code, pass, err := parseShareLink(card.Secret, "")
 	if err != nil || provider != "mobile" {
 		fail(w, 400, errors.New("CAS链库只接受移动云盘分享链接"))
@@ -199,9 +212,13 @@ func (a *App) casLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if exists {
-		if saved, err := a.saveShareLibraryMetadata("cas", old, card); saved {
+		if saved, err := a.saveShareLibraryMetadata(r.Context(), "cas", old, card); saved {
 			if err != nil {
-				fail(w, 409, err)
+				if errors.Is(err, errShareLibraryDirectory) {
+					jsonResponse(w, 409, map[string]string{"error": err.Error(), "field": "directoryName"})
+				} else {
+					fail(w, 409, err)
+				}
 			} else {
 				jsonResponse(w, 200, map[string]string{"id": card.ID, "message": "CAS链接配置已保存"})
 			}
@@ -212,11 +229,19 @@ func (a *App) casLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 409, map[string]string{"error": err.Error(), "field": "directoryName"})
 		return
 	}
+	migration, err := a.prepareShareLibraryMove(r.Context(), old, card, nil, st.CASLibraryRuntime.Roots[old.ID])
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
 	err = a.store.update(func(st *State) error {
 		if err := shareLibraryNamesAvailable(*st, card); err != nil {
 			return err
 		}
 		if exists {
+			if current, ok := casLibraryCardAt(*st, key); !ok || current != old {
+				return errors.New("CAS链接已改变，请重新打开")
+			}
 			for i := range st.CASLibraryCards {
 				if st.CASLibraryCards[i].ID == key {
 					st.CASLibraryCards[i] = card
@@ -226,13 +251,19 @@ func (a *App) casLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			st.CASLibraryCards = append(st.CASLibraryCards, card)
 		}
 		initCASLibrary(st)
+		if exists && !shareLibraryNameChanged(old, card) && quarkLibraryRoot(old) != quarkLibraryRoot(card) {
+			delete(st.CASLibraryRuntime.Roots, card.ID)
+		}
+		updateShareLibraryRenamedRoot(st.CASLibraryRuntime.Roots, old, card)
 		st.CASLibraryRuntime.Results[card.ID] = quarkLibraryResult{Status: "idle", Message: "等待执行", NextRun: quarkLibraryNext(card, time.Now())}
 		return validateCASLibrary(*st)
 	})
 	if err != nil {
+		migration(false)
 		fail(w, 400, err)
 		return
 	}
+	migration(true)
 	jsonResponse(w, 200, map[string]string{"id": card.ID, "message": "CAS链接已保存，可点击立即生成"})
 }
 
@@ -298,6 +329,25 @@ func (a *App) runCASLibrary(ctx context.Context, card quarkLibraryCard, external
 	defer root.Close()
 	identity, err := root.Stat(".")
 	if err != nil {
+		return result, err
+	}
+	rootIdentity, err := strmRootIdentity(root)
+	if err != nil {
+		return result, err
+	}
+	if err := a.store.update(func(st *State) error {
+		current, ok := casLibraryCardAt(*st, card.ID)
+		if !ok || current != card {
+			return errors.New("CAS链库配置已变化，未登记目录")
+		}
+		initCASLibrary(st)
+		previous := st.CASLibraryRuntime.Roots[card.ID]
+		if previous.Identity != "" && (previous.Directory != quarkLibraryRoot(card) || previous.Identity != rootIdentity) {
+			return errors.New("CAS生成目录身份已改变")
+		}
+		st.CASLibraryRuntime.Roots[card.ID] = quarkLibraryOwnership{Directory: quarkLibraryRoot(card), Identity: rootIdentity}
+		return nil
+	}); err != nil {
 		return result, err
 	}
 	check := func() error {
@@ -489,7 +539,7 @@ func (a *App) casLibraryTick(now time.Time) {
 		if !card.Enabled || card.Cron == "" || casLibraryUncertain(st, card) {
 			continue
 		}
-		if _, err := cronParser.Parse(card.Cron); err != nil {
+		if _, err := parseLibraryCron(card.Cron); err != nil {
 			continue
 		}
 		result := st.CASLibraryRuntime.Results[card.ID]

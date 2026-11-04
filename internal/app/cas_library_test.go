@@ -76,7 +76,7 @@ func TestCASLibraryAPIBackupRestartAndUnknownReceipt(t *testing.T) {
 	}
 	cookie := setupTest(t, a, h)
 	directory := t.TempDir()
-	if w := request(t, h, "PUT", "/api/virtual-library/cas/settings", casLibrarySettings{directory, "mkv;mp4"}, cookie); w.Code != 200 {
+	if w := request(t, h, "PUT", "/api/virtual-library/cas/settings", casLibrarySettings{Directory: directory, MediaExtensions: "mkv;mp4"}, cookie); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	body := map[string]any{"url": "https://pan.quark.cn/s/wrong", "name": "作品", "directory": directory, "directoryName": "作品", "enabled": true}
@@ -187,7 +187,10 @@ func TestTelegramCASCommandProviderAndNativeLibraryRouting(t *testing.T) {
 			if command == "/cas" {
 				mockMobileGeneration(t, "valid")
 				dir := t.TempDir()
-				a.store.update(func(st *State) error { st.CASLibrary = &casLibrarySettings{dir, "mkv"}; return nil })
+				a.store.update(func(st *State) error {
+					st.CASLibrary = &casLibrarySettings{Directory: dir, MediaExtensions: "mkv"}
+					return nil
+				})
 			} else {
 				_, _ = mockMobileLibrary(t, a)
 				a.store.update(func(st *State) error {
@@ -215,7 +218,7 @@ func TestTelegramCASCommandProviderAndNativeLibraryRouting(t *testing.T) {
 			if st.TelegramRuntime.Jobs[0].Status != "completed" || st.TelegramRuntime.Jobs[0].Processed != 1 {
 				t.Fatal(st.TelegramRuntime.Jobs[0])
 			}
-			if len(*messages) != 1 || !strings.Contains((*messages)[0], "· ") || !strings.Contains((*messages)[0], "（1）") {
+			if len(*messages) != 2 || !strings.Contains((*messages)[0], "任务队列") || !strings.Contains((*messages)[1], "· ") || !strings.Contains((*messages)[1], "（1）") {
 				t.Fatal("unmerged result", *messages)
 			}
 			if command == "/cas" && len(st.MobileLibraryCards) != 0 || command == "/share" && len(st.CASLibraryCards) != 0 {
@@ -256,7 +259,7 @@ func TestTelegramMergedResultsWaitForGroupAndDoNotReplay(t *testing.T) {
 		t.Fatal("sent before other link finished")
 	}
 	a.telegramComplete(context.Background(), jobs[1], "completed", jobs[1].Name, 10, 0, "成功")
-	if len(*messages) != 1 || (*messages)[0] != "夸克分享STRM\n· 莫语丨者（14）\n· 现在就出发 第4季(2026)（10）" {
+	if len(*messages) != 1 || (*messages)[0] != "夸克链库已更新\n本次完成：识别 2 条，成功 2 条，失败 0 条，跳过 0 条。\n本次共处理 24 个文件。\n\n· 莫语丨者（14）\n· 现在就出发 第4季(2026)（10）" {
 		t.Fatal(*messages)
 	}
 	a.sendTelegramGroupResult(context.Background(), jobs[0])
@@ -272,7 +275,7 @@ func TestTelegram115LibraryDefaultsAndShareOutput(t *testing.T) {
 	h := a.Handler(t.TempDir())
 	cookie := setupTest(t, a, h)
 	directory := t.TempDir()
-	if w := request(t, h, "PUT", "/api/virtual-library/115/settings", virtual115Defaults{s.ID, directory}, cookie); w.Code != 200 {
+	if w := request(t, h, "PUT", "/api/virtual-library/115/settings", virtual115Defaults{StorageID: s.ID, Directory: directory}, cookie); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	shareMock(t, func(r *http.Request) string {
@@ -301,12 +304,21 @@ func TestTelegram115LibraryDefaultsAndShareOutput(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), "/115-share/swf1h7936et-YJFX/片名.mkv") {
 		t.Fatal("wrong 115 output", err, string(raw))
 	}
-	if len(*messages) != 1 || !strings.Contains((*messages)[0], "115分享STRM\n· Show（1）") {
+	if len(*messages) != 2 || !strings.Contains((*messages)[0], "115链库任务队列") || !strings.Contains((*messages)[1], "115链库已更新\n本次完成：识别 1 条，成功 1 条，失败 0 条，跳过 0 条。\n本次共处理 1 个文件。\n\n· Show（1）") {
 		t.Fatal(*messages)
 	}
 	a.executeTelegramTransfer(context.Background(), job)
-	if len(*messages) != 1 {
+	if len(*messages) != 2 {
 		t.Fatal("115 command replayed")
+	}
+	if err := a.handleTelegramUpdate(context.Background(), cfg, telegramTextUpdate(2, 123, 123, "/share https://115cdn.com/s/swf1h7936et?password=YJFX")); err != nil {
+		t.Fatal(err)
+	}
+	jobs := a.store.snapshot().TelegramRuntime.Jobs
+	a.executeTelegramTransfer(a.ctx, jobs[len(jobs)-1])
+	current := a.store.snapshot()
+	if len(current.Library115Cards) != 1 || current.Library115Cards[0].Cron != "" || current.TelegramRuntime.Jobs[len(jobs)-1].Processed != 0 || len(*messages) != 4 {
+		t.Fatal("repeated 115 link added a duplicate or schedule", current.Library115Cards, *messages)
 	}
 	reopened, err := NewStore(a.store.dir)
 	if err != nil || reopened.snapshot().Virtual115.Directory != directory {

@@ -178,7 +178,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++; document
         <ThinScroll :thickness="3" class="rename-rules-scroll">
         <fieldset :disabled="busy">
           <article v-for="(rule, index) in rules" :key="index" class="rename-rule" :class="{collapsed: expanded !== index,'has-delete':rules.length>1}">
-            <header><strong>规则 {{ index + 1 }}</strong><RoundedSelect :model-value="rule.kind" label="规则类型" :options="renameRuleTypes" @update:model-value="changeRule(index,$event)" /><button v-if="rules.length > 1" class="icon-btn rename-delete-rule" aria-label="删除规则" data-tooltip="删除规则" data-tooltip-always data-tooltip-stationary data-tooltip-delay="500" @click="removeRule(index)"><Icon name="Trash2" :size="14" /></button><button class="icon-btn" :aria-label="`规则 ${index + 1}`" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" /></button></header>
+            <header><strong>规则 {{ index + 1 }}</strong><RoundedSelect :model-value="rule.kind" label="规则类型" :options="renameRuleTypes" @update:model-value="changeRule(index,$event)" /><button v-if="rules.length > 1" class="icon-btn rename-delete-rule" aria-label="删除规则" data-tooltip="删除规则" data-tooltip-always data-tooltip-stationary data-tooltip-delay="500" @click="removeRule(index)"><Icon name="Trash2" :size="12" /></button><button class="icon-btn" :aria-label="`规则 ${index + 1}`" :aria-expanded="expanded === index" @click="expanded = expanded === index ? -1 : index"><Icon :name="expanded === index ? 'ChevronDown' : 'ChevronRight'" /></button></header>
             <Transition name="rule-expand"><div v-if="expanded === index" class="rule-collapse"><div class="rule-fields">
             <RenameRuleFields :rule="rule" />
             </div></div></Transition>
@@ -227,8 +227,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++; document
 .rename-rule header strong{white-space:nowrap}
 .rename-rule header :deep(.rounded-select){min-width:0;width:100%}
 .rename-rule header :deep(.select-label){display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rename-rule .rename-delete-rule{color:var(--red);background:color-mix(in srgb,var(--red) 9%,var(--input));border:1px solid color-mix(in srgb,var(--red) 18%,transparent);border-radius:5px}
-.rename-rule .rename-delete-rule:hover{background:color-mix(in srgb,var(--red) 16%,var(--input))}
+.rename-rule .rename-delete-rule{color:color-mix(in srgb,var(--red) 75%,var(--muted));background:transparent;border:0;border-radius:0}
+.rename-rule .rename-delete-rule:hover{color:var(--red);background:transparent}
 .rename-edit-original{font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin:0 0 12px}
 .rename-add-rule { justify-content:flex-start;gap:8px; }.rename-add-chevron { margin-left:auto; }
 .rename-rule-choices { display:grid;gap:2px;padding:6px;margin-top:6px;border:1px solid var(--border);border-radius:8px;background:var(--input); }

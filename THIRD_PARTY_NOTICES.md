@@ -296,6 +296,13 @@ reader to normal STRM modes and exposes its own per-task request interval.
 No GPL Python/Rust implementation, worker pool, pickcode conversion, package
 or asset from these repositories is copied or distributed with Aether.
 
+The same pinned repository's `plugins.v2/p115strmhelper/helper/strm/full/__init__.py`
+was additionally inspected for batch enumeration/local publication. The explicit
+recursive `cur=0` protocol was checked against the primary p115client iterator
+documentation and source. Aether's four-worker, 128-item bounded local publisher,
+encrypted reference locking, atomic/durable writes and ownership checks are its
+own Go implementation; no upstream worker/Rust code or dependency is included.
+
 ## QQ Official Bot and Feishu Custom Bot
 
 The notification channel selection and configuration fields were compared with

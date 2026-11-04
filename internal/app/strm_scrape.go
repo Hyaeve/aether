@@ -28,22 +28,28 @@ type scrapeSettings struct {
 	Actors       bool   `json:"actors"`
 	Excluded     string `json:"excluded"`
 	ShareOnly    bool   `json:"-"`
+	CASOnly      bool   `json:"-"`
 	ExcludeFiles string `json:"-"`
 	ExcludeTypes string `json:"-"`
 }
 type scrapeItem struct {
-	MatchedTitle string `json:"matchedTitle,omitempty"`
-	Path         string `json:"path"`
-	Title        string `json:"title"`
-	Year         string `json:"year"`
-	Kind         string `json:"kind"`
-	TMDB         int    `json:"tmdb"`
-	Season       int    `json:"season"`
-	Episode      int    `json:"episode"`
-	Status       string `json:"status"`
-	Message      string `json:"message"`
-	Poster       string `json:"poster,omitempty"`
-	Manual       bool   `json:"manual,omitempty"`
+	SourceID       string    `json:"sourceId,omitempty"`
+	SourceName     string    `json:"sourceName,omitempty"`
+	SourceParent   string    `json:"sourceParent,omitempty"`
+	SourceSize     int64     `json:"sourceSize,omitempty"`
+	SourceModified time.Time `json:"sourceModified,omitzero"`
+	MatchedTitle   string    `json:"matchedTitle,omitempty"`
+	Path           string    `json:"path"`
+	Title          string    `json:"title"`
+	Year           string    `json:"year"`
+	Kind           string    `json:"kind"`
+	TMDB           int       `json:"tmdb"`
+	Season         int       `json:"season"`
+	Episode        int       `json:"episode"`
+	Status         string    `json:"status"`
+	Message        string    `json:"message"`
+	Poster         string    `json:"poster,omitempty"`
+	Manual         bool      `json:"manual,omitempty"`
 }
 type scrapeProgress struct {
 	Queued    int    `json:"queued,omitempty"`
@@ -987,6 +993,24 @@ func resolveScrapeMedia(ctx context.Context, client *http.Client, tmdb PluginCon
 }
 
 func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb PluginConfig, cfg scrapeSettings, item *scrapeItem) error {
+	return scrapeOneTo(ctx, localScrapeOutput(root), client, tmdb, cfg, item)
+}
+
+type scrapeOutput struct {
+	exists func(string) (bool, error)
+	write  func(string, []byte, bool) error
+}
+
+func localScrapeOutput(root *os.Root) scrapeOutput {
+	return scrapeOutput{exists: func(name string) (bool, error) {
+		_, err := root.Stat(name)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return err == nil, err
+	}, write: func(name string, data []byte, missing bool) error { return writeCASOutput(root, name, data, missing) }}
+}
+func scrapeOneTo(ctx context.Context, output scrapeOutput, client *http.Client, tmdb PluginConfig, cfg scrapeSettings, item *scrapeItem) error {
 	media, err := resolveScrapeMedia(ctx, client, tmdb, cfg, item)
 	if err != nil || media.ID == 0 {
 		return err
@@ -1008,7 +1032,7 @@ func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb Plu
 		if err != nil {
 			return err
 		}
-		return writeCASOutput(root, name, append([]byte(xml.Header), b...), incremental)
+		return output.write(name, append([]byte(xml.Header), b...), incremental)
 	}
 	posterPath, fanartPath := stem+"-poster.jpg", stem+"-fanart.jpg"
 	if item.Kind == "tv" {
@@ -1034,18 +1058,18 @@ func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb Plu
 			if err := writeNFO(stem+".nfo", nfo); err != nil {
 				return err
 			}
-			if err := scrapeImage(ctx, root, client, tmdb, episode.Still, stem+"-thumb.jpg", incremental); err != nil {
+			if err := scrapeImageTo(ctx, output, client, tmdb, episode.Still, stem+"-thumb.jpg", incremental); err != nil {
 				return err
 			}
 		}
 	} else if err := writeNFO(stem+".nfo", nfo); err != nil {
 		return err
 	}
-	if err := scrapeImage(ctx, root, client, tmdb, media.Poster, posterPath, incremental); err != nil {
+	if err := scrapeImageTo(ctx, output, client, tmdb, media.Poster, posterPath, incremental); err != nil {
 		return err
 	}
 	if cfg.Fanart {
-		if err := scrapeImage(ctx, root, client, tmdb, media.Backdrop, fanartPath, incremental); err != nil {
+		if err := scrapeImageTo(ctx, output, client, tmdb, media.Backdrop, fanartPath, incremental); err != nil {
 			return err
 		}
 	}
@@ -1054,13 +1078,16 @@ func scrapeOne(ctx context.Context, root *os.Root, client *http.Client, tmdb Plu
 	return nil
 }
 func scrapeImage(ctx context.Context, root *os.Root, client *http.Client, cfg PluginConfig, image, target string, incremental bool) error {
+	return scrapeImageTo(ctx, localScrapeOutput(root), client, cfg, image, target, incremental)
+}
+func scrapeImageTo(ctx context.Context, output scrapeOutput, client *http.Client, cfg PluginConfig, image, target string, incremental bool) error {
 	if image == "" {
 		return nil
 	}
 	if incremental {
-		if _, err := root.Stat(target); err == nil {
+		if exists, err := output.exists(target); err == nil && exists {
 			return nil
-		} else if !os.IsNotExist(err) {
+		} else if err != nil {
 			return err
 		}
 	}
@@ -1089,5 +1116,5 @@ func scrapeImage(ctx context.Context, root *os.Root, client *http.Client, cfg Pl
 	if !strings.HasPrefix(http.DetectContentType(b), "image/") {
 		return errors.New("图片响应内容无效")
 	}
-	return writeCASOutput(root, target, b, incremental)
+	return output.write(target, b, incremental)
 }

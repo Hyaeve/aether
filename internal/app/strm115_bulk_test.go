@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -41,6 +43,10 @@ func strmBulkFixture(t *testing.T, n int, broken string) (*App, Storage, Task, *
 		case "/files":
 			q := r.URL.Query()
 			if q.Get("show_dir") == "0" {
+				// Web files defaults to the current directory. Only cur=0 includes descendants.
+				if q.Get("cur") != "0" {
+					return `{"state":true,"cid":"10","offset":0,"count":0,"data":[]}`
+				}
 				offset, _ := strconv.Atoi(q.Get("offset"))
 				items := []any{}
 				for i := offset; i < min(offset+1150, n); i++ {
@@ -113,6 +119,34 @@ func Test115STRMBulkWritesPickcodeOutputsLocally(t *testing.T) {
 	if err != nil || h.manifest.RootIdentity == "" {
 		t.Fatal("bulk generation lost internal directory identity", err)
 	}
+}
+
+func Test115STRMBulkFullSyncCoversEveryPageAndRepairsMissingOutput(t *testing.T) {
+	a, s, task, calls := strmBulkFixture(t, 1200, "")
+	task.fullSyncGeneration = true
+	started := time.Now()
+	n, err := a.executeTask(a.ctx, task, s)
+	if err != nil || n != 1200 || *calls != 4 {
+		t.Fatal("full sync lost recursive pages", n, *calls, err)
+	}
+	for i := 0; i < 1200; i++ {
+		body, err := os.ReadFile(filepath.Join(task.Target, "Show", fmt.Sprintf("Season%04d", i), "film.strm"))
+		if err != nil || !strings.Contains(string(body), fmt.Sprintf("/pick%012d/film.mkv", i)) {
+			t.Fatal("missing/wrong pickcode", i, err)
+		}
+	}
+	missing := filepath.Join(task.Target, "Show", "Season1199", "film.strm")
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	n, err = a.executeTask(a.ctx, task, s)
+	if err != nil || n != 1 || *calls != 8 {
+		t.Fatal("second sync did not repair only missing output", n, *calls, err)
+	}
+	if _, err := os.Stat(missing); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("1200 descendants / two recursive pages, full generation + repair: %s; cloud requests: %d", time.Since(started), *calls)
 }
 
 func Test115STRMBulkRejectsIncompletePlansAndFallsBack(t *testing.T) {
@@ -208,5 +242,120 @@ func Test115STRMRequestIntervalGateHonorsZeroAndSharedMaximum(t *testing.T) {
 	a.refreshTaskInterval(s.ID)
 	if a.intervals[s.ID] != 200 {
 		t.Fatal("non-STRM task lost its original minimum", a.intervals[s.ID])
+	}
+}
+
+func TestSTRMSettingsReadDoesNotCloneTaskRuntime(t *testing.T) {
+	a := testApp(t)
+	if err := a.store.update(func(st *State) error {
+		st.Settings.STRMURL = "https://strm.test"
+		for i := 0; i < 2000; i++ {
+			st.Tasks = append(st.Tasks, Task{ID: strconv.Itoa(i), Name: "large task runtime", Message: strings.Repeat("progress", 32)})
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	allocs := testing.AllocsPerRun(20, func() {
+		if got := a.currentSTRMSettings(); got.Address != "https://strm.test" || got.Content != "original" {
+			t.Fatal(got)
+		}
+	})
+	legacy := testing.AllocsPerRun(5, func() { _ = a.store.snapshotWithLogLimit(0).Settings })
+	t.Logf("per-file settings allocations: %.0f; full-state snapshot: %.0f", allocs, legacy)
+	if allocs > 10 {
+		t.Fatal("per-file settings still clone task runtime", allocs)
+	}
+}
+
+func Test115STRMBatchKeepsPublicationGuardsAndMarksWorkOnce(t *testing.T) {
+	a, s, task, _ := strmBulkFixture(t, 0, "")
+	h, err := a.beginSTRMSync(task, s, task.Target, "Show")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := h.finish(a.ctx, false); err != nil {
+			t.Error(err)
+		}
+	}()
+	root, err := os.OpenRoot(task.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	jobs := make([]strm115Output, 32)
+	for i := range jobs {
+		jobs[i] = strm115Output{file: File{ID: strconv.Itoa(i + 100), Name: fmt.Sprintf("episode%02d.mkv", i), PickCode: fmt.Sprintf("pick%012d", i)}, name: fmt.Sprintf("Show/Season/episode%02d.strm", i)}
+	}
+	var marks atomic.Int32
+	ctx := context.WithValue(a.ctx, strmLifeWorkKey{}, func() error { marks.Add(1); return nil })
+	changed, processed := 0, 0
+	progress := func(wrote bool) {
+		processed++
+		if wrote {
+			changed++
+		}
+	}
+	if err := a.publish115Batch(ctx, h, s, root, jobs, false, progress); err != nil {
+		t.Fatal(err)
+	}
+	if changed != 32 || processed != 32 || marks.Load() != 1 || len(h.manifest.Files) != 32 {
+		t.Fatal(changed, processed, marks.Load(), len(h.manifest.Files))
+	}
+	for _, job := range jobs {
+		ref, err := a.readSTRMReference("333554321/" + job.file.PickCode)
+		if err != nil || ref.File != job.file.ID {
+			t.Fatal("reference was not registered before publication", ref, err)
+		}
+	}
+	modified := filepath.Join(task.Target, filepath.FromSlash(jobs[0].name))
+	if err := os.WriteFile(modified, []byte("external edit\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	changed, processed = 0, 0
+	if err := a.publish115Batch(ctx, h, s, root, jobs, false, progress); err != nil {
+		t.Fatal(err)
+	}
+	if changed != 0 || processed != 32 || marks.Load() != 1 {
+		t.Fatal("unchanged/external outputs rewritten", changed, processed, marks.Load())
+	}
+	body, err := os.ReadFile(modified)
+	if err != nil || string(body) != "external edit\n" {
+		t.Fatal("external edit overwritten", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := a.publish115Batch(canceled, h, s, root, jobs, false, progress); !errors.Is(err, context.Canceled) {
+		t.Fatal("cancellation ignored", err)
+	}
+}
+
+func Test115STRMBatchArchiveFailurePublishesNothing(t *testing.T) {
+	a, s, task, _ := strmBulkFixture(t, 0, "")
+	h, err := a.beginSTRMSync(task, s, task.Target, "Show")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.finish(a.ctx, false)
+	root, err := os.OpenRoot(task.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	jobs := make([]strm115Output, 16)
+	for i := range jobs {
+		jobs[i] = strm115Output{file: File{ID: strconv.Itoa(i + 100), Name: "film.mkv", PickCode: fmt.Sprintf("pick%012d", i)}, name: fmt.Sprintf("Show/%d.strm", i)}
+	}
+	var marks atomic.Int32
+	failure := errors.New("archive unavailable")
+	ctx := context.WithValue(a.ctx, strmLifeWorkKey{}, func() error { marks.Add(1); return failure })
+	completed := 0
+	err = a.publish115Batch(ctx, h, s, root, jobs, false, func(bool) { completed++ })
+	if !errors.Is(err, failure) || marks.Load() != 1 || completed != 0 || len(h.manifest.Files) != 0 {
+		t.Fatal("failed archive authorized publication", err, marks.Load(), completed, len(h.manifest.Files))
+	}
+	if _, err := os.Stat(filepath.Join(task.Target, "Show")); !os.IsNotExist(err) {
+		t.Fatal("outputs created despite archive failure", err)
 	}
 }

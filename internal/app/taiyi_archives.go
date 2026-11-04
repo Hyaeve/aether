@@ -24,25 +24,32 @@ import (
 const archivePageSize = 30
 
 type archiveEntry struct {
-	ID         string    `json:"id"`
-	Category   string    `json:"category"`
-	TaskID     string    `json:"taskId"`
-	TaskName   string    `json:"taskName"`
-	TaskKind   string    `json:"taskKind,omitempty"`
-	Trigger    string    `json:"trigger"`
-	Action     string    `json:"action"`
-	Status     string    `json:"status"`
-	Message    string    `json:"message"`
-	StartedAt  time.Time `json:"startedAt"`
-	FinishedAt time.Time `json:"finishedAt,omitzero"`
-	Processed  int       `json:"processed,omitempty"`
-	Path       string    `json:"path,omitempty"`
-	Filename   string    `json:"filename,omitempty"`
-	Folder     string    `json:"folder,omitempty"`
-	Title      string    `json:"title,omitempty"`
-	Kind       string    `json:"kind,omitempty"`
-	TMDB       int       `json:"tmdb,omitempty"`
-	Poster     string    `json:"poster,omitempty"`
+	ID            string    `json:"id"`
+	Category      string    `json:"category"`
+	TaskID        string    `json:"taskId"`
+	TaskName      string    `json:"taskName"`
+	TaskKind      string    `json:"taskKind,omitempty"`
+	Trigger       string    `json:"trigger"`
+	Action        string    `json:"action"`
+	Status        string    `json:"status"`
+	Message       string    `json:"message"`
+	StartedAt     time.Time `json:"startedAt"`
+	FinishedAt    time.Time `json:"finishedAt,omitzero"`
+	Processed     int       `json:"processed,omitempty"`
+	Path          string    `json:"path,omitempty"`
+	Filename      string    `json:"filename,omitempty"`
+	Folder        string    `json:"folder,omitempty"`
+	Title         string    `json:"title,omitempty"`
+	Kind          string    `json:"kind,omitempty"`
+	TMDB          int       `json:"tmdb,omitempty"`
+	Poster        string    `json:"poster,omitempty"`
+	SourceStorage string    `json:"sourceStorage,omitempty"`
+	SourcePath    string    `json:"sourcePath,omitempty"`
+	TargetStorage string    `json:"targetStorage,omitempty"`
+	TargetPath    string    `json:"targetPath,omitempty"`
+	Method        string    `json:"method,omitempty"`
+	Size          int64     `json:"size,omitempty"`
+	Year          string    `json:"year,omitempty"`
 }
 
 type archiveRecord struct {
@@ -275,7 +282,7 @@ func archivePriority(status string) int {
 
 func (a *App) archiveList(w http.ResponseWriter, r *http.Request) {
 	category := r.PathValue("category")
-	if category != "scrape" && category != "tasks" {
+	if category != "scrape" && category != "tasks" && category != "organize" {
 		http.NotFound(w, r)
 		return
 	}
@@ -295,7 +302,7 @@ func (a *App) archiveList(w http.ResponseWriter, r *http.Request) {
 		if group := query.Get("group"); group != "" && record.GroupID != group {
 			continue
 		}
-		if search != "" && !strings.Contains(strings.ToLower(strings.Join([]string{record.TaskName, record.Title, record.Path}, " ")), search) {
+		if search != "" && !strings.Contains(strings.ToLower(strings.Join([]string{record.TaskName, record.Title, record.Path, record.Filename, record.SourceStorage, record.SourcePath, record.TargetStorage, record.TargetPath}, " ")), search) {
 			continue
 		}
 		records = append(records, record)
@@ -304,12 +311,15 @@ func (a *App) archiveList(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(query.Get("page"))
 	total := len(records)
 	groups := []archiveGroup{}
-	grouped := category == "scrape" && query.Get("mode") == "group"
+	grouped := (category == "scrape" || category == "organize") && query.Get("mode") == "group"
 	if grouped {
 		indices := map[string]int{}
 		for _, record := range records {
 			if i, found := indices[record.GroupID]; found {
 				groups[i].Count++
+				if groups[i].Poster == "" && record.Poster != "" {
+					groups[i].Poster = record.Poster
+				}
 				if archivePriority(record.Status) > archivePriority(groups[i].Status) {
 					groups[i].Status = record.Status
 				}

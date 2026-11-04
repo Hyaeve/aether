@@ -31,12 +31,18 @@ func TestQuarkLibraryRecoversMissingOwnerOnlyAfterInventory(t *testing.T) {
 				if _, err := a.runQuarkLibrary(context.Background(), card); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Remove(filepath.Join(dir, quarkLibraryMarker)); err != nil {
+				if err := a.store.update(func(st *State) error {
+					r := st.QuarkLibraryRuntime.Roots[card.ID]
+					r.Identity = ""
+					r.Token = "legacy-inventory-intent"
+					st.QuarkLibraryRuntime.Roots[card.ID] = r
+					return nil
+				}); err != nil {
 					t.Fatal(err)
 				}
 				writeTest(t, filepath.Join(dir, "Movie.nfo"), "scraped companion")
 			}
-			owner := a.store.snapshotWithLogLimit(0).QuarkLibraryRuntime.Roots[card.ID]
+			_ = a.store.snapshotWithLogLimit(0).QuarkLibraryRuntime.Roots[card.ID]
 			switch mode {
 			case "modified-file":
 				writeTest(t, filepath.Join(dir, "Movie.mkv.share.strm"), "modified externally")
@@ -85,7 +91,7 @@ func TestQuarkLibraryRecoversMissingOwnerOnlyAfterInventory(t *testing.T) {
 			}
 			marker, readErr := os.ReadFile(filepath.Join(dir, quarkLibraryMarker))
 			if allowed {
-				if readErr != nil || string(marker) != owner.Token {
+				if !os.IsNotExist(readErr) || a.store.snapshot().QuarkLibraryRuntime.Roots[card.ID].Identity == "" {
 					t.Fatal("owner token was not safely restored", string(marker), readErr)
 				}
 				if _, err := a.runQuarkLibrary(context.Background(), card); err != nil {
@@ -126,7 +132,13 @@ func TestQuarkLibraryMissingOwnerNeverAuthorizesExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := quarkLibraryRoot(card)
-	if err := os.Remove(filepath.Join(dir, quarkLibraryMarker)); err != nil {
+	if err := a.store.update(func(st *State) error {
+		r := st.QuarkLibraryRuntime.Roots[card.ID]
+		r.Identity = ""
+		r.Token = "missing-legacy"
+		st.QuarkLibraryRuntime.Roots[card.ID] = r
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.expireQuarkLibraryOutput(context.Background(), card); err == nil {

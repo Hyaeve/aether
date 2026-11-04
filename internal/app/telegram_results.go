@@ -121,6 +121,9 @@ func (a *App) sendTelegramGroupResult(ctx context.Context, job telegramTransfer)
 		detail = telegramLimit(detail, max(20, budget/2))
 		lines = append(lines, "· "+telegramLimit(name, max(8, budget-len([]rune(detail))-2))+"（"+detail+"）")
 	}
+	if job.Kind == "library" || job.Kind == "cas-library" {
+		lines = telegramLibraryResultLines(job, members)
+	}
 	claimed := false
 	if err := a.store.update(func(st *State) error {
 		if telegramDigest(st.Notifications.Telegram) != job.Auth {

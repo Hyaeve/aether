@@ -147,6 +147,7 @@ onBeforeUnmount(()=>{alive=false;request++;window.removeEventListener('resize',r
 .cloud-toolbar :deep(.rounded-select){width:135px;min-width:135px;max-width:135px;flex:none}
 .cloud-toolbar :deep(.rounded-select-trigger){width:100%}
 .cloud-toolbar :deep(.select-label){flex:1;overflow:hidden}
+.cloud-toolbar :deep(.rounded-select-trigger .select-label){max-width:none;width:0;flex:1 1 0}.cloud-toolbar :deep(.select-label>.provider-icon){flex:none}.cloud-toolbar :deep(.select-label>span:last-child){flex:1;max-width:none;width:auto}
 .cloud-toolbar :deep(.select-label>span:last-child){min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .cloud-loading{position:absolute;right:14px;bottom:3px;display:flex;align-items:center;gap:5px;color:var(--muted);font-size:12px}
 .cloud-target{display:flex;align-items:center;gap:6px;min-width:0;direction:ltr}.cloud-target strong{font-weight:500;max-width:40%;overflow:hidden;text-overflow:ellipsis;flex:none}.cloud-directory-tail{min-width:0;flex:1;direction:rtl;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cloud-target :deep(.provider-icon){flex:none}

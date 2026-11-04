@@ -130,7 +130,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 			Offset *int               `json:"offset"`
 			Data   *[]driver.FileInfo `json:"data"`
 		}
-		if err = read("https://webapi.115.com/files", url.Values{"aid": {"1"}, "cid": {root}, "show_dir": {"0"}, "o": {"file_id"}, "asc": {"1"}, "offset": {strconv.Itoa(offset)}, "limit": {"1150"}, "format": {"json"}}, &result); err != nil {
+		if err = read("https://webapi.115.com/files", url.Values{"aid": {"1"}, "cid": {root}, "cur": {"0"}, "show_dir": {"0"}, "o": {"file_id"}, "asc": {"1"}, "offset": {strconv.Itoa(offset)}, "limit": {"1150"}, "format": {"json"}}, &result); err != nil {
 			return nil, err
 		}
 		count, e := result.Count.Int64()

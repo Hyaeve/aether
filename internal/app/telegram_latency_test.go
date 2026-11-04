@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -56,6 +57,50 @@ func telegramLatencyUpdate(t *testing.T, updateID int64, data string) telegramUp
 	return update
 }
 
+func TestTelegramConfirmationEditPrecedesCloudTitleRead(t *testing.T) {
+	a, cfg, job := telegramLatencyJob(t, "quark")
+	old := apiClient.Transport
+	defer func() { apiClient.Transport = old }()
+	edited, cloud := make(chan struct{}, 1), make(chan struct{}, 1)
+	release := make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.telegram.org" {
+			cloud <- struct{}{}
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			return nil, errors.New("cloud unavailable")
+		}
+		if strings.HasSuffix(r.URL.Path, "/editMessageText") {
+			edited <- struct{}{}
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`)), Request: r}, nil
+	})
+	done := make(chan error, 1)
+	go func() { done <- a.telegramCallback(a.ctx, cfg, 123, 123, 77, "t:"+job.ID+":0") }()
+	select {
+	case <-edited:
+	case <-cloud:
+		once.Do(func() { close(release) })
+		<-done
+		t.Fatal("confirmation waits for cloud name before showing destination and buttons")
+	case <-time.After(3 * time.Second):
+		once.Do(func() { close(release) })
+		<-done
+		t.Fatal("confirmation was not sent")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	current := a.store.snapshot().TelegramRuntime.Jobs[0]
+	if current.Status != "confirming" || current.Batches != 0 {
+		t.Fatal("showing prompt submitted a transfer", current.Status, current.Batches)
+	}
+}
+
 func TestTelegramConfirmationTitleFirstPage(t *testing.T) {
 	for _, provider := range []string{"115", "mobile", "quark"} {
 		t.Run(provider, func(t *testing.T) {
@@ -71,7 +116,7 @@ func TestTelegramConfirmationTitleFirstPage(t *testing.T) {
 					if err := json.NewDecoder(r.Body).Decode(&markup); err != nil {
 						t.Error(err)
 					}
-					if !strings.Contains(markup.Text, "影片000.mkv、影片001.mkv") || len(markup.Markup.Rows) != 1 || markup.Markup.Rows[0][1].Text != "确认转存" {
+					if (edits == 2 && !strings.Contains(markup.Text, "影片000.mkv、影片001.mkv")) || len(markup.Markup.Rows) != 1 || markup.Markup.Rows[0][1].Text != "确认转存" {
 						t.Errorf("missing original names or confirmation: %+v", markup)
 					}
 					return `{"ok":true,"result":true}`
@@ -120,7 +165,11 @@ func TestTelegramConfirmationTitleFirstPage(t *testing.T) {
 			if err := a.telegramCallback(context.Background(), cfg, 123, 123, 77, "t:"+job.ID+":0"); err != nil {
 				t.Fatal(err)
 			}
-			if reads != 1 || edits != 1 || a.store.snapshot().TelegramRuntime.Jobs[0].Status != "confirming" {
+			if reads != 0 || edits != 1 {
+				t.Fatal("initial confirmation performed a cloud lookup", reads, edits)
+			}
+			a.enrichTelegramPrompt(a.ctx, a.store.snapshot().TelegramRuntime.Jobs[0])
+			if reads != 1 || edits != 2 || a.store.snapshot().TelegramRuntime.Jobs[0].Status != "confirming" {
 				t.Fatalf("confirmation waited for all pages: reads=%d edits=%d", reads, edits)
 			}
 			storage, _ := a.store.storage("latency")
@@ -161,6 +210,7 @@ func TestTelegramConfirmationTitleBudget(t *testing.T) {
 	if err := a.telegramCallback(ctx, cfg, 123, 123, 77, "t:"+job.ID+":0"); err != nil {
 		t.Fatal(err)
 	}
+	a.enrichTelegramPrompt(ctx, a.store.snapshot().TelegramRuntime.Jobs[0])
 	if budget <= 0 || budget > 1500*time.Millisecond || edits != 1 {
 		t.Fatalf("slow title delayed confirmation: budget=%s edits=%d", budget, edits)
 	}
@@ -207,7 +257,8 @@ func TestTelegramCallbackAnswersDuringTitleRead(t *testing.T) {
 	if err := a.handleTelegramUpdate(context.Background(), cfg, telegramLatencyUpdate(t, 1, "t:"+job.ID+":0")); err != nil {
 		t.Fatal(err)
 	}
-	if !answeredBeforeTitle.Load() || answers.Load() != 1 || edits.Load() != 1 {
+	a.enrichTelegramPrompt(a.ctx, a.store.snapshot().TelegramRuntime.Jobs[0])
+	if !answeredBeforeTitle.Load() || answers.Load() != 1 || edits.Load() != 2 {
 		t.Fatal("button acknowledgement still waits for the cloud title", answeredBeforeTitle.Load(), answers.Load(), edits.Load())
 	}
 }
@@ -289,5 +340,240 @@ func TestTelegramFastCallbackStillRejectsStaleTargets(t *testing.T) {
 				t.Fatal("invalid callback submitted a transfer")
 			}
 		})
+	}
+}
+
+func TestTelegramLateTitleCannotChangeNewInteraction(t *testing.T) {
+	for _, scenario := range []string{"back", "confirm", "cancel", "credentials", "target", "authorization"} {
+		t.Run(scenario, func(t *testing.T) {
+			a, cfg, job := telegramLatencyJob(t, "quark")
+			started, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			defer once.Do(func() { close(release) })
+			var edits atomic.Int32
+			shareMock(t, func(r *http.Request) string {
+				if r.URL.Host == "api.telegram.org" {
+					edits.Add(1)
+					return `{"ok":true,"result":true}`
+				}
+				if strings.HasSuffix(r.URL.Path, "/token") {
+					close(started)
+					select {
+					case <-release:
+					case <-r.Context().Done():
+					}
+					return `{"code":0,"data":{"stoken":"read-only"}}`
+				}
+				return `{"code":0,"data":{"list":[{"fid":"1","file_name":"迟到的影片.mkv"}]},"metadata":{"_total":1}}`
+			})
+			if err := a.telegramCallback(a.ctx, cfg, 123, 123, 77, "t:"+job.ID+":0"); err != nil {
+				t.Fatal(err)
+			}
+			expected := a.store.snapshot().TelegramRuntime.Jobs[0]
+			done := make(chan struct{})
+			go func() { defer close(done); a.enrichTelegramPrompt(a.ctx, expected) }()
+			<-started
+			wantEdits := int32(1)
+			action := map[string]string{"back": "b", "confirm": "c", "cancel": "x"}[scenario]
+			if action != "" {
+				if err := a.telegramCallback(a.ctx, cfg, 123, 123, 77, action+":"+job.ID+":0"); err != nil {
+					t.Fatal(err)
+				}
+				wantEdits++
+			} else {
+				a.store.update(func(st *State) error {
+					switch scenario {
+					case "credentials":
+						st.Storages[0].Config["cookie"] = "changed"
+					case "target":
+						st.Notifications.Targets[0].Parent = "changed"
+					case "authorization":
+						st.Notifications.Telegram.UserIDs = nil
+					}
+					return nil
+				})
+			}
+			once.Do(func() { close(release) })
+			<-done
+			current := a.store.snapshot().TelegramRuntime.Jobs[0]
+			if current.Name != "" || edits.Load() != wantEdits || current.Batches != 0 {
+				t.Fatal("late name overwrote newer interaction or submitted work", current.Name, edits.Load(), current.Batches)
+			}
+		})
+	}
+}
+
+func TestTelegramConfirmedActionFollowsInFlightTitleEdit(t *testing.T) {
+	a, cfg, job := telegramLatencyJob(t, "quark")
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	writes := make(chan string, 4)
+	shareMock(t, func(r *http.Request) string {
+		if r.URL.Host != "api.telegram.org" {
+			if strings.HasSuffix(r.URL.Path, "/token") {
+				return `{"code":0,"data":{"stoken":"read-only"}}`
+			}
+			return `{"code":0,"data":{"list":[{"fid":"1","file_name":"影片.mkv"}]},"metadata":{"_total":1}}`
+		}
+		var body struct {
+			Text string `json:"text"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if strings.Contains(body.Text, "分享内容") {
+			close(started)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}
+		writes <- body.Text
+		return `{"ok":true,"result":true}`
+	})
+	if err := a.telegramCallback(a.ctx, cfg, 123, 123, 77, "t:"+job.ID+":0"); err != nil {
+		t.Fatal(err)
+	}
+	expected := a.store.snapshot().TelegramRuntime.Jobs[0]
+	enriched := make(chan struct{})
+	go func() { defer close(enriched); a.enrichTelegramPrompt(a.ctx, expected) }()
+	<-started
+	done := make(chan error, 1)
+	go func() { done <- a.telegramCallback(a.ctx, cfg, 123, 123, 77, "c:"+job.ID+":0") }()
+	deadline := time.Now().Add(time.Second)
+	for a.store.snapshot().TelegramRuntime.Jobs[0].Status != "queued" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	once.Do(func() { close(release) })
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	<-enriched
+	close(writes)
+	texts := []string{}
+	for text := range writes {
+		texts = append(texts, text)
+	}
+	if len(texts) != 3 || !strings.Contains(texts[1], "分享内容") || texts[2] != "已加入转存队列" {
+		t.Fatal("enrichment overwrote the confirmed state", texts)
+	}
+}
+
+func TestTelegramOptionalTitleQueueIsBoundedAndStopsWithApp(t *testing.T) {
+	a, cfg, job := telegramLatencyJob(t, "quark")
+	shareMock(t, func(r *http.Request) string {
+		if r.URL.Host != "api.telegram.org" {
+			t.Error("stale title queue read cloud")
+		}
+		return `{"ok":true,"result":true}`
+	})
+	if err := a.telegramCallback(a.ctx, cfg, 123, 123, 77, "t:"+job.ID+":0"); err != nil {
+		t.Fatal(err)
+	}
+	job = a.store.snapshot().TelegramRuntime.Jobs[0]
+	for i := 0; i < 64; i++ {
+		a.queueTelegramTitle(job)
+	}
+	if len(a.telegramTitles) != 32 {
+		t.Fatal("unbounded or blocking title queue", len(a.telegramTitles))
+	}
+	// Invalidated work is dropped before any cloud query.
+	a.store.update(func(st *State) error { st.TelegramRuntime.Jobs[0].Status = "cancelled"; return nil })
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.ctx = ctx
+	a.wg.Add(1)
+	done := make(chan struct{})
+	go func() { a.telegramTitleWorker(); close(done) }()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("title worker did not stop")
+	}
+}
+
+func TestTelegramTitleWorkerEnrichesVisibleConfirmation(t *testing.T) {
+	a, cfg, job := telegramLatencyJob(t, "quark")
+	ready := make(chan struct{}, 1)
+	shareMock(t, func(r *http.Request) string {
+		if r.URL.Host == "api.telegram.org" {
+			var body struct {
+				Text string `json:"text"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			if strings.Contains(body.Text, "分享内容：影片.mkv") {
+				ready <- struct{}{}
+			}
+			return `{"ok":true,"result":true}`
+		}
+		if strings.HasSuffix(r.URL.Path, "/token") {
+			return `{"code":0,"data":{"stoken":"read-only"}}`
+		}
+		return `{"code":0,"data":{"list":[{"fid":"1","file_name":"影片.mkv"}]},"metadata":{"_total":1}}`
+	})
+	if err := a.telegramCallback(a.ctx, cfg, 123, 123, 77, "t:"+job.ID+":0"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.ctx = ctx
+	defer cancel()
+	a.wg.Add(1)
+	done := make(chan struct{})
+	go func() { a.telegramTitleWorker(); close(done) }()
+	select {
+	case <-ready:
+	case <-time.After(3 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("queued name never reached visible confirmation")
+	}
+	cancel()
+	<-done
+	current := a.store.snapshot().TelegramRuntime.Jobs[0]
+	if current.Name != "影片.mkv" || current.Status != "confirming" || current.Batches != 0 {
+		t.Fatal("background enrichment submitted or lost interaction", current.Name, current.Status, current.Batches)
+	}
+}
+
+func TestTelegramTitleDoesNotWaitForBusyExplicitMessageEdit(t *testing.T) {
+	a, cfg, job := telegramLatencyJob(t, "quark")
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	var edits atomic.Int32
+	shareMock(t, func(r *http.Request) string {
+		if r.URL.Host == "api.telegram.org" {
+			edits.Add(1)
+			close(started)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			return `{"ok":true,"result":true}`
+		}
+		if strings.HasSuffix(r.URL.Path, "/token") {
+			return `{"code":0,"data":{"stoken":"read-only"}}`
+		}
+		return `{"code":0,"data":{"list":[{"fid":"1","file_name":"影片.mkv"}]},"metadata":{"_total":1}}`
+	})
+	done := make(chan error, 1)
+	go func() { done <- a.telegramCallback(a.ctx, cfg, 123, 123, 77, "t:"+job.ID+":0") }()
+	<-started
+	expected := a.store.snapshot().TelegramRuntime.Jobs[0]
+	enriched := make(chan struct{})
+	go func() { defer close(enriched); a.enrichTelegramPrompt(a.ctx, expected) }()
+	select {
+	case <-enriched:
+	case <-time.After(time.Second):
+		once.Do(func() { close(release) })
+		<-done
+		<-enriched
+		t.Fatal("optional enrichment waited for a busy message edit")
+	}
+	once.Do(func() { close(release) })
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if edits.Load() != 1 || a.store.snapshot().TelegramRuntime.Jobs[0].Name != "影片.mkv" {
+		t.Fatal("busy optional edit was sent or successful name lost", edits.Load())
 	}
 }

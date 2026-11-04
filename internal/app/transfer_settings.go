@@ -434,6 +434,9 @@ func validateResourceState(st *State, allowLegacyPIN ...bool) error {
 	if err := validateQuarkLibrary(*st, legacySchedule); err != nil {
 		return err
 	}
+	if err := validateLibrary115(*st); err != nil {
+		return err
+	}
 	if err := validateCASLibrary(*st); err != nil {
 		return err
 	}

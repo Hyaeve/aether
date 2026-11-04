@@ -1,43 +1,17 @@
 <script setup>
-import { computed, onUnmounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { api, bytes, notify, state } from '../lib'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import Icon from '../components/Icon.vue'
-import ProviderIcon from '../components/ProviderIcon.vue'
 import ProviderLineIcon from '../components/ProviderLineIcon.vue'
-import RoundedSelect from '../components/RoundedSelect.vue'
-import LocalDirectoryPicker from '../components/LocalDirectoryPicker.vue'
 import QuarkLibrary from '../components/QuarkLibrary.vue'
-const route=useRoute(),router=useRouter()
+const route=useRoute()
 const tabs=[{id:'115',name:'115链库'},{id:'mobile',name:'移动链库'},{id:'quark',name:'夸克链库'},{id:'cas',name:'CAS链库',icon:'Box'}]
-const kind=computed(()=>route.path.startsWith('/virtual/cas')?'cas':route.path.startsWith('/virtual/quark')?'quark':route.path.startsWith('/virtual/mobile')?'mobile':route.path.split('/').at(-1)==='virtual'?'115':route.path.split('/').at(-1))
+const kind=computed(()=>route.path.split('/')[2]||'115')
 const quark=ref(null)
-const pools=computed(()=>state.storages.filter(s=>s.type==='115'&&s.enabled))
-const storage=ref(state.virtual115?.storageId||pools.value[0]?.id||''),link=ref(''),directory=ref(state.virtual115?.directory||''),picker=ref(false),preview=ref(null),busy=ref(false),error=ref('')
-let alive=true
-onUnmounted(()=>{alive=false})
-async function saveDefaults(){busy.value=true;error.value='';try{const cfg=await api('/virtual-library/115/settings','PUT',{storageId:storage.value,directory:directory.value});if(alive){state.virtual115=cfg;notify('115链库默认设置已保存，/share 将使用此位置')}}catch(e){if(alive)error.value=e.message}finally{if(alive)busy.value=false}}
-async function parse(){
- busy.value=true;error.value='';preview.value=null
- try{const result=await api('/virtual-library/115/preview','POST',{storageId:storage.value,url:link.value});if(alive)preview.value=result}catch(e){if(alive)error.value=e.message}finally{if(alive)busy.value=false}
-}
-async function generate(){
- busy.value=true;error.value=''
- try{const result=await api('/virtual-library/115/generate','POST',{storageId:storage.value,preview:preview.value.preview,directory:directory.value});if(alive){notify(`生成 ${result.generated} 个 STRM，跳过 ${result.skipped} 个已有文件`);preview.value=null}}catch(e){if(alive)error.value=e.message}finally{if(alive)busy.value=false}
-}
 </script>
 <template>
- <section v-if="!route.path.endsWith('/settings')" class="task-heading"><nav v-tab-scroll class="content-tabs" aria-label="虚拟链库栏目"><RouterLink v-for="tab in tabs" :key="tab.id" :to="`/virtual/${tab.id}`" :class="{active:kind===tab.id}"><Icon v-if="tab.icon" :name="tab.icon" :size="19" /><ProviderLineIcon v-else :type="tab.id" />{{ tab.name }}</RouterLink></nav><button v-if="['quark','mobile','cas'].includes(kind)" class="btn primary" @click="quark?.open()"><Icon name="Plus" />添加链接</button><button v-else class="btn" @click="router.push('/tasks/ed2k/pool')"><Icon name="Settings2" />存储绑定池</button></section>
- <section v-if="kind==='115'" class="virtual-library-panel">
-  <form @submit.prevent="parse"><div class="virtual-fields"><label>解析存储池<RoundedSelect v-model="storage" label="解析存储池" :disabled="busy" :options="pools.map(s=>({value:s.id,label:s.name}))" /></label><label>生成目录<button type="button" class="source-trigger" :disabled="busy" @click="picker=true"><span>{{ directory || '选择容器目录' }}</span><Icon name="FolderOpen" /></button></label></div>
-   <label>115分享链接<textarea v-model="link" rows="3" :disabled="busy" required @input="preview=null" /></label>
-   <div class="virtual-actions"><p v-if="error" class="error-message" role="alert">{{ error }}</p><button type="button" class="btn" :disabled="busy||!storage||!directory" @click="saveDefaults"><Icon name="Save"/>保存默认设置</button><button class="btn" :disabled="busy || !storage || !link"><Icon name="ScanSearch" />{{ busy?'处理中…':'解析' }}</button><button type="button" class="btn primary" :disabled="busy || !directory || !preview?.files.length" @click="generate"><Icon name="FileSymlink" />生成 STRM</button></div>
-   <p class="muted virtual-default-hint">保存默认设置后，机器人 /share 的115链接将使用此存储池解析，并在生成目录下按分享名称建立文件夹。</p>
-  </form><div v-if="preview" class="virtual-results"><header>{{ preview.files.length }} 项</header><div v-for="item in preview.files" :key="item.path"><Icon name="FileSymlink" /><span><strong>{{ item.path }}</strong><small>{{ item.content }}</small></span><span>{{ bytes(item.size) }}</span></div></div>
- </section>
- <QuarkLibrary v-else-if="['quark','mobile','cas'].includes(kind)" :key="kind" ref="quark" :provider="kind" />
- <section v-else class="virtual-library-panel virtual-planned"><Icon v-if="kind==='cas'" name="Box" :size="27" /><ProviderIcon v-else :type="kind" /><span>尚未开放</span></section>
- <LocalDirectoryPicker v-if="picker" :initial="directory" @close="picker=false" @select="directory=$event;picker=false" />
+ <section v-if="!route.path.endsWith('/settings')" class="task-heading"><nav v-tab-scroll class="content-tabs" aria-label="虚拟链库栏目"><RouterLink v-for="tab in tabs" :key="tab.id" :to="`/virtual/${tab.id}`" :class="{active:kind===tab.id}"><Icon v-if="tab.icon" :name="tab.icon" :size="19" /><ProviderLineIcon v-else :type="tab.id" />{{tab.name}}</RouterLink></nav><button class="btn primary" @click="quark?.open()"><Icon name="Plus"/>添加链接</button></section>
+ <QuarkLibrary :key="kind" ref="quark" :provider="kind"/>
 </template>
 <style scoped>
 .virtual-library-panel { border:1px solid var(--border);border-radius:8px;padding:20px;background:var(--surface);min-height:calc(100dvh - 185px);box-sizing:border-box; }

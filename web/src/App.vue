@@ -14,6 +14,7 @@ import { clipboardEnabled, clipboardStatus } from './clipboard-settings'
 import { replacementJobs, refreshReplacementNotices } from './replacement-notices'
 import { recentNotices, noticeResult } from './task-notices'
 import ProviderIcon from './components/ProviderIcon.vue'
+import SidebarScrollHint from './components/SidebarScrollHint.vue'
 import TaskTabs from './components/TaskTabs.vue'
 import FileTabs from './components/FileTabs.vue'
 import LoginPage from './pages/LoginPage.vue'
@@ -44,6 +45,7 @@ import ArchivesPage from './pages/ArchivesPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
+const sidebarNav=ref(null)
 const clipboardShare = ref(null)
 let clipboardQueue = [], clipboardGeneration = 0
 async function nextClipboardShare() {
@@ -77,10 +79,11 @@ const navigationGroups = [
   { id: 'workshop', label: '以太工坊', items: [
     { path: '/rules', label: '以太识律', icon: 'RecognitionRules' },
     { path: '/tasks', label: '任务中心', icon: 'ListTodo' },
-    { path: '/virtual', label: '虚拟链库', icon: 'LibraryBig' },
+    { path: '/virtual', label: '虚拟链库', icon: 'VirtualLibrary' },
+    { path: '/scrape', label: '刮削平台', icon: 'ScanSearch' },
+    { path: '/archives', label: '档案中心', icon: 'Archive' },
     { path: '/links', label: '以太链接', icon: 'Waypoints' },
-    { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' },
-    { path: '/archives', label: '档案中心', icon: 'Archive' }
+    { path: '/tools', label: '辅助工具', icon: 'BriefcaseBusiness' }
   ] },
   { id: 'system', label: '系统面板', items: [
     { path: '/notifications', label: '通知服务', icon: 'RadioTower' },
@@ -93,6 +96,7 @@ const currentPath = computed(() => route.path === '/' ? '/storage' : route.path 
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
 const title = computed(() => activeNav.value?.label || '以太')
 const sectionTitles = {
+  '/scrape/strm':['STRM刮削'], '/scrape/library':['链库刮削'], '/scrape/directory':['目录刮削'],
   '/rules/recognition':['识别规则'], '/rules/naming':['命名规则'], '/rules/categories':['媒体分类'], '/rules/upgrade':['洗版策略'], '/rules/assist':['辅助配置'],
   '/files':['文件管理'], '/files/webdav':['WebDAV'], '/files/mounts':['本地挂载'],
   '/storage':['存储池'], '/storage/shares':['分享栏'], '/storage/downloads':['云下载'], '/storage/trash':['回收站'],
@@ -102,7 +106,7 @@ const sectionTitles = {
   '/tasks/cache':['缓存任务'], '/tasks/cache/settings':['缓存任务','缓存设置'],
   '/tasks/organize':['整理归档'], '/tasks/scrape':['STRM 刮削'], '/tasks/automation':['联动任务'],
   '/virtual':['115链库'], '/virtual/115':['115链库'], '/virtual/mobile':['移动链库'], '/virtual/quark':['夸克链库'],
-  '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/mobile/settings':['移动链库','链库设置'], '/virtual/cas':['CAS链库'], '/virtual/cas/settings':['CAS链库','链库设置'],
+  '/virtual/115/settings':['115链库','链库设置'], '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/mobile/settings':['移动链库','链库设置'], '/virtual/cas':['CAS链库'], '/virtual/cas/settings':['CAS链库','链库设置'],
   '/links/manage':['以链管理'], '/links/cache':['直链缓存'],
   '/tools':['我的插件'], '/tools/market':['插件市场'], '/tools/115-rapid':['115秒传中心'],
   '/archives':['整理档案'], '/archives/organize':['整理档案'], '/archives/scrape':['刮削档案'], '/archives/tasks':['任务档案'],
@@ -198,12 +202,13 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
     <div v-if="mobileNav" class="nav-overlay" @click="mobileNav = false" />
     <aside class="sidebar" :class="{ open: mobileNav }" :data-theme="currentPath === '/settings/about' ? 'dark' : undefined">
       <div class="brand"><img src="/aether.svg" alt="" /><span>Aether<small>云端本地 · 以太空间</small></span></div>
-      <nav aria-label="主导航">
+      <nav ref="sidebarNav" aria-label="主导航">
         <div v-for="group in navigationGroups" :key="group.id" class="nav-group" role="group" :aria-labelledby="`sidebar-${group.id}`">
           <h2 :id="`sidebar-${group.id}`" class="nav-group-title">{{ group.label }}</h2>
           <button v-for="item in group.items" :key="item.path" role="link" :aria-current="activeNav?.path === item.path ? 'page' : undefined" :class="{ active: activeNav?.path === item.path }" @click="router.push(rememberedRoute(state.username, item.path))"><Icon :name="item.icon" :size="22" /><span>{{ item.label }}</span></button>
         </div>
       </nav>
+      <SidebarScrollHint :target="sidebarNav"/>
     </aside>
     <div class="main-shell">
       <header class="topbar">
@@ -251,7 +256,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <TaskPanelPage v-else-if="currentPath === '/tasks/panel'" />
         <TasksPage v-else-if="['/tasks/strm', '/tasks/cache', '/tasks/cas', '/tasks/ed2k'].includes(currentPath)" :kind="currentPath.split('/').at(-1)" />
         <OrganizePage v-else-if="currentPath === '/tasks/organize'" />
-        <ScrapePage v-else-if="currentPath === '/tasks/scrape'" />
+        <ScrapePage v-else-if="currentPath.startsWith('/scrape/')" :key="currentPath" :section="currentPath.split('/')[2]" />
         <AutomationPage v-else-if="currentPath === '/tasks/automation'" />
         <SettingsPage v-else-if="currentPath === '/tasks/cache/settings'" section="cache" />
         <CASPoolPage v-else-if="currentPath === '/tasks/cas/pool'" />

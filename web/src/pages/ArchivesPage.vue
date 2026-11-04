@@ -5,6 +5,8 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import ArchiveScrapeRow from '../components/ArchiveScrapeRow.vue'
+import ArchiveOrganizeRow from '../components/ArchiveOrganizeRow.vue'
+import ArchivePoster from '../components/ArchivePoster.vue'
 import PageJumpInput from '../components/PageJumpInput.vue'
 import { noticeTime } from '../library-notices'
 import { archiveStatuses, archiveTriggers, archiveKinds, archiveStatusClass } from '../archive-display'
@@ -22,7 +24,6 @@ function parameters(page=1) {
 }
 async function load(page=1, polling=false) {
   clearTimeout(timer)
-  if(props.section==='organize') return
   const generation=++request, section=props.section
   if(!polling) loading.value=true
   try {
@@ -53,8 +54,9 @@ async function loadGroup(group,page=1) {
   groups.value={...groups.value,[group.id]:{...groups.value[group.id],loading:true,ticket}}
   try {
     const params=parameters(page);params.set('mode','list');params.set('group',group.id)
-    const data=await api(`/archives/scrape?${params}`)
-    if(alive && props.section==='scrape' && groups.value[group.id]?.ticket===ticket) groups.value={...groups.value,[group.id]:{...data,loading:false}}
+    const section=props.section
+    const data=await api(`/archives/${section}?${params}`)
+    if(alive && props.section===section && groups.value[group.id]?.ticket===ticket) groups.value={...groups.value,[group.id]:{...data,loading:false}}
   } catch(e) {
     if(alive && groups.value[group.id]?.ticket===ticket) { delete groups.value[group.id]; notify(e.message,true) }
   }
@@ -95,25 +97,25 @@ onUnmounted(()=>{alive=false;request++;clearTimeout(timer);clearTimeout(searchTi
     <RouterLink to="/archives/scrape" :class="{active:section==='scrape'}"><Icon name="ScanSearch" />刮削档案</RouterLink>
     <RouterLink to="/archives/tasks" :class="{active:section==='tasks'}"><Icon name="FileClock" />任务档案</RouterLink>
   </nav>
-  <section v-if="section==='organize'" class="archive-empty workspace-empty" aria-label="整理档案"><Icon name="FolderTree" :size="32" /><h2>整理档案</h2><span class="muted">暂未实装</span></section>
-  <section v-else class="archive-panel" :aria-label="section==='scrape'?'刮削档案':'任务档案'">
+  <section class="archive-panel" :aria-label="section==='organize'?'整理档案':section==='scrape'?'刮削档案':'任务档案'">
     <div class="archive-toolbar">
-      <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索档案" placeholder="搜索名称或原文件" /></div>
       <RoundedSelect v-model="status" label="档案状态" :options="statusOptions" />
       <RoundedSelect v-model="trigger" label="触发来源" :options="[{value:'',label:'全部来源'},...Object.entries(archiveTriggers).map(([value,label])=>({value,label}))]" />
-      <div v-if="section==='scrape'" class="archive-view" role="group" aria-label="档案视图"><button class="icon-btn" aria-label="列表模式" data-tooltip="列表模式" data-tooltip-always :aria-pressed="mode==='list'" @click="mode='list'"><Icon name="List" /></button><button class="icon-btn" aria-label="分组模式" data-tooltip="分组模式" data-tooltip-always :aria-pressed="mode==='group'" @click="mode='group'"><Icon name="FolderTree" /></button></div>
-      <span class="archive-count" role="status">{{ result.total }} {{ section==='scrape'&&mode==='group'?'组':'项' }}</span>
+      <span class="archive-count" role="status">{{ result.total }} {{ section!=='tasks'&&mode==='group'?'组':'项' }}</span>
       <button class="icon-btn" aria-label="刷新档案" :disabled="loading" @click="groups={};load(result.page)"><Icon name="RefreshCw" :class="{spin:loading}" /></button>
+      <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索档案" placeholder="搜索名称或路径" /></div>
+      <button v-if="section!=='tasks'" class="icon-btn archive-mode" :aria-label="mode==='list'?'列表模式':'分组模式'" :data-tooltip="mode==='list'?'列表模式，点击切换分组':'分组模式，点击切换列表'" data-tooltip-always @click="mode=mode==='list'?'group':'list'"><Icon :name="mode==='list'?'List':'FolderTree'"/></button>
     </div>
     <div v-if="section==='scrape' && mode==='list'" class="archive-columns" aria-hidden="true"><span>影视 / 原文件名称</span><span>触发来源</span><span>执行时间</span><span>操作状态</span><span>操作</span></div>
     <div v-if="!result.items.length" class="small-empty">{{ loading&&!loaded?'正在读取档案…':loaded?'暂无档案':'档案读取失败，可刷新重试' }}</div>
     <div v-else-if="section==='scrape' && mode==='list'" role="list" aria-label="刮削文件"><ArchiveScrapeRow v-for="item in result.items" :key="item.id" :item="item" :disabled="scrapeRunning || submitting" @retry="retry=$event" /></div>
-    <div v-else-if="section==='scrape'" class="archive-groups">
+    <div v-else-if="section==='organize'&&mode==='list'" role="list" aria-label="整理文件"><ArchiveOrganizeRow v-for="item in result.items" :key="item.id" :item="item"/></div>
+    <div v-else-if="section!=='tasks'" class="archive-groups">
       <div v-for="group in result.items" :key="group.id" class="archive-group">
-        <button class="archive-group-toggle" :aria-expanded="!!groups[group.id]" @click="toggleGroup(group)"><Icon :name="groups[group.id]?'ChevronDown':'ChevronRight'" :size="17" /><Icon :name="group.kind==='tv'?'Tv':'Film'" /><span><strong :data-tooltip="group.title">{{ group.title || group.folder }}</strong><small :data-tooltip="`${group.taskName} / ${group.folder}`">{{ group.kind==='tv'?'剧集':'电影' }} · {{ group.taskName }} / {{ group.folder }}<template v-if="group.tmdb"> · TMDB {{ group.tmdb }}</template></small></span><b>{{ group.count }} 项</b><span class="archive-status" :class="archiveStatusClass(group.status)">{{ archiveStatuses[group.status] || '未知状态' }}</span></button>
+        <button class="archive-group-toggle" :aria-expanded="!!groups[group.id]" @click="toggleGroup(group)"><Icon :name="groups[group.id]?'ChevronDown':'ChevronRight'" :size="17" /><ArchivePoster :poster="group.poster" :title="group.title"/><span class="archive-group-name"><strong :data-tooltip="group.title">{{ group.title || group.folder }}</strong><small :data-tooltip="`${group.taskName} / ${group.folder}`">{{ group.kind==='tv'?'剧集':'电影' }} · {{ group.taskName }} / {{ group.folder }}<template v-if="group.tmdb"> · TMDB {{ group.tmdb }}</template></small></span><b>{{ group.count }} 项</b><span class="archive-status" :class="archiveStatusClass(group.status)">{{ archiveStatuses[group.status] || '未知状态' }}</span></button>
         <div v-if="groups[group.id]" class="archive-group-content" role="list" :aria-label="`${group.title}的文件`">
           <p v-if="groups[group.id].loading" class="small-empty">正在读取…</p>
-          <ArchiveScrapeRow v-for="item in groups[group.id].items || []" :key="item.id" :item="item" :disabled="scrapeRunning || submitting" @retry="retry=$event" />
+          <component :is="section==='organize'?ArchiveOrganizeRow:ArchiveScrapeRow" v-for="item in groups[group.id].items || []" :key="item.id" :item="item" :disabled="scrapeRunning || submitting" @retry="retry=$event" />
           <div v-if="groups[group.id].pages>1" class="archive-group-pages"><button class="icon-btn" aria-label="组内上一页" :disabled="groups[group.id].loading || groups[group.id].page<=1" @click="loadGroup(group,groups[group.id].page-1)"><Icon name="ChevronLeft" /></button><span>{{groups[group.id].page}} / {{groups[group.id].pages}}</span><button class="icon-btn" aria-label="组内下一页" :disabled="groups[group.id].loading || groups[group.id].page>=groups[group.id].pages" @click="loadGroup(group,groups[group.id].page+1)"><Icon name="ChevronRight" /></button></div>
         </div>
       </div>

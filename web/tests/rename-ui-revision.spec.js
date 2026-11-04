@@ -74,6 +74,7 @@ for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[375,812
     await page.getByRole('group',{name:'可选规则'}).getByRole('button',{name:'字符转换',exact:true}).click()
     await header.scrollIntoViewIfNeeded()
     const compact=await header.getByRole('button',{name:'规则类型',exact:true}).boundingBox()
+    const remove=header.getByRole('button',{name:'删除规则',exact:true});await expect(remove).toHaveCSS('background-color','rgba(0, 0, 0, 0)');await expect(remove).toHaveCSS('border-top-width','0px');await expect(remove.locator('svg')).toHaveAttribute('width','12')
     expect(compact.width).toBeLessThan(initial.width)
     for(const control of await header.locator('strong,button').all()){
       const b=await control.boundingBox()

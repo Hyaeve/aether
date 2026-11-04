@@ -19,6 +19,7 @@ func (a *App) markMobileLibraryInvalid(card quarkLibraryCard, err error) {
 	if !errors.As(err, &unavailable) {
 		return
 	}
+	marked := false
 	_ = a.store.update(func(st *State) error {
 		current, ok := mobileLibraryCardAt(*st, card.ID)
 		if !ok || current != card {
@@ -28,6 +29,7 @@ func (a *App) markMobileLibraryInvalid(card quarkLibraryCard, err error) {
 		if result.Status == "running" {
 			return nil
 		}
+		marked = true
 		result.Status, result.Message = "invalid", unavailable.Error()
 		if result.InvalidSince.IsZero() {
 			result.InvalidSince = time.Now()
@@ -35,6 +37,27 @@ func (a *App) markMobileLibraryInvalid(card quarkLibraryCard, err error) {
 		st.MobileLibraryRuntime.Results[card.ID] = result
 		return nil
 	})
+	if !marked || !a.mobileLibraryMu.TryLock() {
+		return
+	}
+	defer a.mobileLibraryMu.Unlock()
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+	removed, e := a.cleanInvalidMobileLibrary(ctx, card)
+	_ = a.store.update(func(st *State) error {
+		current, ok := mobileLibraryCardAt(*st, card.ID)
+		if !ok || current != card {
+			return errors.New("移动卡片已改变")
+		}
+		result := st.MobileLibraryRuntime.Results[card.ID]
+		result.Removed += removed
+		if e != nil {
+			result.Message += "；清理待重试：" + e.Error()
+		}
+		st.MobileLibraryRuntime.Results[card.ID] = result
+		return nil
+	})
+
 }
 
 // Expiry only removes unchanged files in this card's authenticated manifest.
@@ -141,39 +164,17 @@ func (a *App) removeEmptyMobileLibraryRoot(card quarkLibraryCard, root *os.Root)
 	if err != nil || !os.SameFile(before, current) {
 		return errors.New("到期生成目录身份已变化")
 	}
-	st := a.store.snapshotWithLogLimit(0)
-	token := st.MobileLibraryRuntime.Roots[card.ID].Token
 	if err = a.checkMobileLibraryRoot(card, root); err != nil {
 		return err
 	}
-	if err = root.Remove(quarkLibraryMarker); err != nil {
+	record := a.store.snapshotWithLogLimit(0).MobileLibraryRuntime.Roots[card.ID]
+	if err = removeLegacyLibraryMarker(root, record); err != nil {
 		return err
 	}
 	root.Close()
-	if err = parent.Remove(card.DirectoryName); err == nil {
-		return nil
-	}
-	// Remove only an empty directory. If another file appeared, restore the
-	// exact marker on the same directory so the retained card remains usable.
-	restored, e := strmReplaceSubroot(parent, card.DirectoryName)
-	if e != nil {
-		return errors.Join(err, e)
-	}
-	defer restored.Close()
-	identity, e := restored.Stat(".")
-	if e != nil || !os.SameFile(before, identity) {
-		return errors.Join(err, errors.New("目录被替换，未恢复标记"))
-	}
-	f, e := restored.OpenFile(quarkLibraryMarker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if e != nil {
-		return errors.Join(err, e)
-	}
-	_, e = f.WriteString(token)
-	if e == nil {
-		e = f.Sync()
-	}
-	e = errors.Join(e, f.Close())
-	return errors.Join(err, e)
+	// Remove only an empty directory. A concurrent addition leaves it intact;
+	// its internal identity remains available without any marker restoration.
+	return parent.Remove(card.DirectoryName)
 }
 
 func (a *App) mobileLibraryExpiryTick(ctx context.Context, st State, now time.Time) {

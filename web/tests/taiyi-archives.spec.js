@@ -21,6 +21,7 @@ async function fixture(page) {
       if (u.searchParams.get('mode') === 'group') json = {items:[{id:'g',title:'识别的剧集',kind:'tv',tmdb:1399,poster:'/providers/quark.png',taskName:'剧集库',folder:'Show',count:2,status:'doubt'}],total:1,page:1,pages:1,pageSize:30}
       if (u.searchParams.get('group')) json = {items:records.slice(0,2),total:2,page:1,pages:1,pageSize:30}
     } else if (p === '/api/archives/tasks') json = {items:[{id:'task-run',taskId:'t',taskName:'剧集库',taskKind:'strm',trigger:'scheduled',status:'success',processed:20,startedAt:'2026-10-27T08:10:00Z',finishedAt:'2026-10-27T08:12:00Z',message:'执行完成，处理20项'}],total:1,page:1,pages:1,pageSize:30}
+    else if (p === '/api/archives/organize') json={items:[],total:0,page:1,pages:1,pageSize:30}
     else if (p.endsWith('/retry')) { calls.push(r.postDataJSON()); json = {running:true} }
     else if (p === '/api/strm-scrape/status') json = {running:false}
     else if (p === '/api/strm-scrape/items') json = [{path:'Show/Season 1/one.strm',directories:['Show/Season 1'],title:'猜测剧名',matchedTitle:'标准剧名',kind:'tv',status:'ok',tmdb:1399}]
@@ -51,8 +52,8 @@ for (const width of [1440,375]) for (const theme of ['light','dark']) {
     if(width<760) await page.getByRole('button',{name:'打开导航',exact:true}).click()
     const links=page.getByRole('navigation',{name:'主导航'}).getByRole('link')
     const names=await links.allTextContents()
-    expect(names.indexOf('档案中心')).toBe(names.indexOf('辅助工具')+1)
-    expect(names.indexOf('档案中心')).toBe(names.indexOf('通知服务')-1)
+    expect(names.indexOf('档案中心')).toBe(names.indexOf('刮削平台')+1)
+    expect(names.indexOf('档案中心')).toBe(names.indexOf('以太链接')-1)
     await expect(page.locator('.breadcrumbs strong')).toHaveText('档案中心')
     await expect(page.getByRole('navigation',{name:'档案中心栏目',exact:true}).getByRole('link')).toHaveText(['整理档案','刮削档案','任务档案'])
     if(width<760) await page.locator('.nav-overlay').click({position:{x:width-5,y:400}})
@@ -64,8 +65,9 @@ for (const width of [1440,375]) for (const theme of ['light','dark']) {
     await expect(page.locator('.archive-row').last()).toContainText('监控执行')
     await expect(page.locator('.archive-row').last().locator('.archive-poster img')).toHaveCount(0)
     await captureScreenshot(page,{path:info.outputPath(`archives-list-${width}-${theme}.png`)})
-    await page.getByRole('button',{name:'分组模式',exact:true}).click()
+    await page.getByRole('button',{name:'列表模式',exact:true}).click()
     await expect(page.locator('.archive-group-toggle')).toContainText('识别的剧集')
+    await expect(page.locator('.archive-group-toggle .archive-poster img')).toBeVisible()
     await page.locator('.archive-group-toggle').click()
     await expect(page.locator('.archive-group .archive-row')).toHaveCount(2)
     await captureScreenshot(page,{path:info.outputPath(`archives-group-${width}-${theme}.png`)})
@@ -78,7 +80,7 @@ for (const width of [1440,375]) for (const theme of ['light','dark']) {
     await expect(page.locator('.archive-task-row')).toContainText('计划执行')
     await captureScreenshot(page,{path:info.outputPath(`archives-task-${width}-${theme}.png`)})
     await page.getByRole('link',{name:'整理档案',exact:true}).click()
-    await expect(page.locator('.archive-empty')).toContainText('暂未实装')
+    await expect(page.getByRole('region',{name:'整理档案',exact:true})).toBeVisible()
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     await captureScreenshot(page,{path:info.outputPath(`archives-empty-${width}-${theme}.png`)})
   })
@@ -205,7 +207,7 @@ test.describe('archives narrow touch landscape',()=>{
   test.use({viewport:{width:844,height:390},hasTouch:true,isMobile:true,deviceScaleFactor:2,reducedMotion:'reduce'})
   test('groups remain operable in short touch viewports',async({page},info)=>{
     await fixture(page);await page.goto('/archives/scrape')
-    await page.getByRole('button',{name:'分组模式',exact:true}).click()
+    await page.getByRole('button',{name:'列表模式',exact:true}).click()
     await page.locator('.archive-group-toggle').click()
     await expect(page.locator('.archive-group .archive-row')).toHaveCount(2)
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)

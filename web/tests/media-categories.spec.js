@@ -52,7 +52,7 @@ for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[375,812
 
 test('media category presets persist nested directories and ordered condition groups',async({page})=>{
  const f=await fixture(page);await page.goto('/rules/categories');await page.getByRole('button',{name:'添加媒体分类预设',exact:true}).click()
- const dialog=page.getByRole('dialog',{name:'添加媒体分类预设',exact:true});await dialog.getByRole('textbox',{name:'预设名称',exact:true}).fill('动漫专用')
+ const dialog=page.getByRole('dialog',{name:'添加媒体分类预设',exact:true});await dialog.getByRole('textbox',{name:'规则名称',exact:true}).fill('动漫专用')
  await directory(page,'国漫','动画/国漫');await dialog.getByRole('group',{name:'媒体大类',exact:true}).getByRole('button',{name:'电影',exact:true}).click();await page.getByRole('button',{name:'添加电影分类目录',exact:true}).click();await page.getByRole('textbox',{name:'分类目录名称 1',exact:true}).fill('动画电影');await page.getByRole('textbox',{name:'分类目录路径 1',exact:true}).fill('动画')
  await dialog.getByRole('tab',{name:'分类规则',exact:true}).click();await page.getByRole('button',{name:'添加媒体分类规则',exact:true}).click();await page.getByRole('textbox',{name:'分类规则名称 1',exact:true}).fill('国漫优先');await choose(page,'分类规则归入目录 1','国漫 · 动画/国漫')
  await choose(page,'规则1条件组合','全部满足');await choose(page,'规则1条件.1字段','类型ID');await page.getByRole('textbox',{name:'规则1条件.1匹配值',exact:true}).fill('16')

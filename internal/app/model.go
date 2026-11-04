@@ -139,6 +139,8 @@ type State struct {
 	Ali115                ali115Settings                  `json:"ali115"`
 	Ali115Receipts        []ali115Receipt                 `json:"ali115Receipts,omitempty"`
 	CASLibrary            *casLibrarySettings             `json:"casLibrary,omitempty"`
+	Library115Cards       []quarkLibraryCard              `json:"library115Cards,omitempty"`
+	Library115Runtime     quarkLibraryRuntime             `json:"library115Runtime,omitempty"`
 	Virtual115            *virtual115Defaults             `json:"virtual115,omitempty"`
 	CASLibraryCards       []quarkLibraryCard              `json:"casLibraryCards,omitempty"`
 	CASLibraryRuntime     casLibraryRuntime               `json:"casLibraryRuntime,omitempty"`
@@ -349,6 +351,7 @@ func NewStore(dir string) (*Store, error) {
 	if s.state.Settings.PublicURL == "http://localhost:15151" {
 		s.state.Settings.PublicURL = defaultPublicURL()
 	}
+	ensureRulePresets(&s.state)
 	if err := validateResourceState(&s.state, true); err != nil {
 		return nil, err
 	}

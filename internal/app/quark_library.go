@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/robfig/cron/v3"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -15,7 +16,9 @@ import (
 )
 
 type quarkLibrarySettings struct {
+	ScrapeEnabled      bool     `json:"scrapeEnabled"`
 	StorageIDs         []string `json:"storageIds"`
+	UpdateDays         *int     `json:"updateDays,omitempty"`
 	Directory          string   `json:"directory"`
 	InvalidDays        int      `json:"invalidDays"`
 	RetentionHours     int      `json:"retentionHours"`
@@ -25,33 +28,36 @@ type quarkLibrarySettings struct {
 }
 
 type quarkLibraryCard struct {
-	ID                 string `json:"id"`
-	Secret             string `json:"secret"`
-	Name               string `json:"name"`
-	ShareName          string `json:"shareName"`
-	Cron               string `json:"cron"`
-	Directory          string `json:"directory"`
-	DirectoryName      string `json:"directoryName"`
-	MediaExtensions    string `json:"mediaExtensions"`
-	MetadataExtensions string `json:"metadataExtensions"`
-	CascadeCleanup     string `json:"cascadeCleanup,omitempty"`
-	ScrapeEnabled      bool   `json:"scrapeEnabled"`
-	ExcludeDirs        string `json:"excludeDirs,omitempty"`
-	ExcludeFiles       string `json:"excludeFiles,omitempty"`
-	ExcludeTypes       string `json:"excludeTypes,omitempty"`
-	Enabled            bool   `json:"enabled"`
+	ID                 string    `json:"id"`
+	StorageID          string    `json:"storageId,omitempty"`
+	Secret             string    `json:"secret"`
+	Name               string    `json:"name"`
+	ShareName          string    `json:"shareName"`
+	Cron               string    `json:"cron"`
+	ScheduleAnchor     time.Time `json:"scheduleAnchor,omitempty"`
+	Directory          string    `json:"directory"`
+	DirectoryName      string    `json:"directoryName"`
+	MediaExtensions    string    `json:"mediaExtensions"`
+	MetadataExtensions string    `json:"metadataExtensions"`
+	CascadeCleanup     string    `json:"cascadeCleanup,omitempty"`
+	ScrapeEnabled      bool      `json:"scrapeEnabled"`
+	ExcludeDirs        string    `json:"excludeDirs,omitempty"`
+	ExcludeFiles       string    `json:"excludeFiles,omitempty"`
+	ExcludeTypes       string    `json:"excludeTypes,omitempty"`
+	Enabled            bool      `json:"enabled"`
 }
 
 type quarkLibraryResult struct {
-	Status       string    `json:"status"`
-	Message      string    `json:"message"`
-	LastRun      time.Time `json:"lastRun"`
-	NextRun      time.Time `json:"nextRun"`
-	InvalidSince time.Time `json:"invalidSince"`
-	Generated    int       `json:"generated"`
-	Metadata     int       `json:"metadata"`
-	Skipped      int       `json:"skipped"`
-	Removed      int       `json:"removed"`
+	Status         string    `json:"status"`
+	Message        string    `json:"message"`
+	LastRun        time.Time `json:"lastRun"`
+	NextRun        time.Time `json:"nextRun"`
+	InvalidSince   time.Time `json:"invalidSince"`
+	InvalidCheckAt time.Time `json:"invalidCheckAt,omitempty"`
+	Generated      int       `json:"generated"`
+	Metadata       int       `json:"metadata"`
+	Skipped        int       `json:"skipped"`
+	Removed        int       `json:"removed"`
 }
 
 // Manifests authorize only resources actually published by this deployment.
@@ -117,6 +123,8 @@ func effectiveQuarkLibrary(st State) quarkLibrarySettings {
 	if cfg.RotationHours == 0 {
 		cfg.RotationHours = 24
 	}
+	days := libraryUpdateDays(cfg.UpdateDays)
+	cfg.UpdateDays = &days
 	cfg.StorageIDs = append([]string{}, cfg.StorageIDs...)
 	for _, s := range st.Storages {
 		if s.Type == "quark" && s.Enabled {
@@ -135,6 +143,9 @@ func effectiveQuarkLibrary(st State) quarkLibrarySettings {
 
 func validateQuarkLibrary(st State, legacy ...bool) error {
 	if cfg := st.QuarkLibrary; cfg != nil {
+		if err := validateLibraryUpdateDays(cfg.UpdateDays); err != nil {
+			return err
+		}
 		if cfg.RotationHours < 0 || cfg.RotationHours > 8760 {
 			return errors.New("链库存储轮换时间须为1–8760 h")
 		}
@@ -225,11 +236,7 @@ func validateShareLibraryFields(card *quarkLibraryCard, legacy ...bool) error {
 		card.Directory = filepath.Clean(card.Directory)
 	}
 	if card.Cron != "" {
-		parser := cronParser.Parse
-		if len(legacy) > 0 && legacy[0] {
-			parser = rawCronParser.Parse
-		}
-		if _, err := parser(card.Cron); err != nil {
+		if _, err := parseLibraryCron(card.Cron, legacy...); err != nil {
 			return err
 		}
 	}
@@ -373,6 +380,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			var item map[string]any
 			_ = json.Unmarshal(raw, &item)
 			delete(item, "secret")
+			delete(item, "scheduleAnchor")
 			item["url"], item["result"] = card.Secret, st.QuarkLibraryRuntime.Results[card.ID]
 			cards = append(cards, item)
 		}
@@ -496,6 +504,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			*field.target = *field.input
 		}
 	}
+	setLibrarySchedule(&card, old, time.Now())
 	if strings.TrimSpace(card.Directory) == "" && card.Enabled {
 		card.Directory = effectiveQuarkLibrary(st).Directory
 	}
@@ -504,9 +513,13 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if exists {
-		if saved, err := a.saveShareLibraryMetadata("quark", old, card); saved {
+		if saved, err := a.saveShareLibraryMetadata(r.Context(), "quark", old, card); saved {
 			if err != nil {
-				fail(w, 409, err)
+				if errors.Is(err, errShareLibraryDirectory) {
+					jsonResponse(w, 409, map[string]string{"error": err.Error(), "field": "directoryName"})
+				} else {
+					fail(w, 409, err)
+				}
 			} else {
 				jsonResponse(w, 200, map[string]string{"id": sid, "message": "链接配置已保存"})
 			}
@@ -586,6 +599,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			st.QuarkLibraryCards = append(st.QuarkLibraryCards, card)
 		}
 		initQuarkLibraryRuntime(st)
+		updateShareLibraryRenamedRoot(st.QuarkLibraryRuntime.Roots, old, card)
 		result := st.QuarkLibraryRuntime.Results[sid]
 		result.InvalidSince = time.Time{}
 		result.Status, result.Message = "idle", "等待执行"
@@ -619,12 +633,21 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func quarkLibraryNext(card quarkLibraryCard, now time.Time) time.Time {
-	if card.Enabled && card.Cron != "" {
-		if schedule, err := cronParser.Parse(card.Cron); err == nil {
-			return schedule.Next(now)
-		}
+	if !card.Enabled || card.Cron == "" {
+		return time.Time{}
 	}
-	return time.Time{}
+	schedule, err := parseLibraryCron(card.Cron)
+	if err != nil {
+		return time.Time{}
+	}
+	if interval, ok := schedule.(cron.ConstantDelaySchedule); ok && !card.ScheduleAnchor.IsZero() {
+		anchor := card.ScheduleAnchor
+		if now.Before(anchor) {
+			return anchor
+		}
+		return anchor.Add((now.Sub(anchor)/interval.Delay + 1) * interval.Delay)
+	}
+	return schedule.Next(now)
 }
 
 func (a *App) quarkLibraryRunAPI(w http.ResponseWriter, r *http.Request) {
@@ -693,13 +716,20 @@ func (a *App) quarkLibraryTick(now time.Time) {
 		st := a.store.snapshotWithLogLimit(0)
 		for _, card := range st.QuarkLibraryCards {
 			if card.Cron != "" {
-				if _, err := cronParser.Parse(card.Cron); err != nil {
+				if _, err := parseLibraryCron(card.Cron); err != nil {
 					continue
 				}
 			}
 			result := st.QuarkLibraryRuntime.Results[card.ID]
-			invalidCheck := !result.InvalidSince.IsZero() && !result.LastRun.Add(time.Hour).After(now)
-			if !card.Enabled || !invalidCheck && (card.Cron == "" || result.NextRun.After(now)) {
+			if card.Enabled && result.Status == "invalid" {
+				ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+				a.maintainInvalidQuarkLibrary(ctx, card, now)
+				cancel()
+			}
+			if _, ok := quarkLibraryCardAt(a.store.snapshotWithLogLimit(0), card.ID); !ok {
+				continue
+			}
+			if !card.Enabled || card.Cron == "" || result.NextRun.After(now) {
 				continue
 			}
 			ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)

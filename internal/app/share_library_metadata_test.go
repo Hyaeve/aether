@@ -58,6 +58,7 @@ func TestShareLibraryCronSavePreservesOutputsAndRuntimeWithoutCloud(t *testing.T
 			json.Unmarshal(raw, &body)
 			delete(body, "secret")
 			delete(body, "shareName")
+			delete(body, "scheduleAnchor")
 			body["url"] = old.Secret
 			body["cron"] = "0 12 * * *"
 			body["name"] = "新别名"

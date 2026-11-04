@@ -294,7 +294,21 @@ func TestTelegramBootstrapSkipsBacklogAndDurablyConsumesNewMessages(t *testing.T
 	defer cancel()
 	a.ctx = ctx
 	polls := 0
+	menus := 0
 	shareMock(t, func(r *http.Request) string {
+		if strings.HasSuffix(r.URL.Path, "/getMyCommands") {
+			return `{"ok":true,"result":[{"command":"start","description":"开始"}]}`
+		}
+		if strings.HasSuffix(r.URL.Path, "/setMyCommands") {
+			var body struct {
+				Commands []telegramMenuCommand `json:"commands"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Commands) != 3 || body.Commands[0].Command != "start" || body.Commands[1].Command != "share" || body.Commands[2].Command != "cas" {
+				t.Fatal("commands not merged", body, err)
+			}
+			menus++
+			return `{"ok":true,"result":true}`
+		}
 		if strings.HasSuffix(r.URL.Path, "/getWebhookInfo") {
 			return `{"ok":true,"result":{"url":""}}`
 		}
@@ -321,6 +335,9 @@ func TestTelegramBootstrapSkipsBacklogAndDurablyConsumesNewMessages(t *testing.T
 	})
 	a.wg.Add(1)
 	a.telegramPoll()
+	if menus != 1 {
+		t.Fatal("command menu not registered once", menus)
+	}
 	runtime := a.store.snapshot().TelegramRuntime
 	if runtime.Bot != telegramDigest(cfg.Token) || runtime.Offset != 12 || len(runtime.Jobs) != 1 || !strings.Contains(runtime.Jobs[0].Link, "/new") {
 		t.Fatal("bootstrap or offset durability failed", runtime.Offset, len(runtime.Jobs))

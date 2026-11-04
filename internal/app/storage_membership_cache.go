@@ -49,10 +49,13 @@ func (a *App) cachedStorageMembership(ctx context.Context, s Storage) (*storageM
 		}
 	}
 	a.usageMu.Unlock()
-	lookup, cancel := context.WithTimeout(ctx, 12*time.Second)
+	// The lookup belongs to this credential revision, not to the first page that
+	// happened to request it. Navigation must not cancel every coalesced waiter.
+	lookup, cancel := context.WithTimeout(a.ctx, 12*time.Second)
 	value := a.readStorageMembership(lookup, s)
+	lookupErr := lookup.Err()
 	cancel()
-	if ctx.Err() == nil {
+	if lookupErr == nil {
 		_ = a.store.update(func(st *State) error {
 			for i := range st.Storages {
 				current := &st.Storages[i]
@@ -62,7 +65,9 @@ func (a *App) cachedStorageMembership(ctx context.Context, s Storage) (*storageM
 				if current.Usage == nil || current.Usage.Stamp != storageRevision(*current) {
 					current.Usage = &storageUsageState{Stamp: storageRevision(*current)}
 				}
-				current.Usage.Membership = value
+				if value != nil || displayMembership(current.Usage.Membership) == nil {
+					current.Usage.Membership = value
+				}
 			}
 			return nil
 		})
@@ -73,7 +78,7 @@ func (a *App) cachedStorageMembership(ctx context.Context, s Storage) (*storageM
 	if value != nil {
 		entry.until = time.Now().Add(5 * time.Minute)
 	}
-	if ctx.Err() != nil {
+	if lookupErr != nil {
 		entry.until = time.Time{}
 	}
 	close(entry.ready)
@@ -103,6 +108,9 @@ func (a *App) storageMembershipAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !current.Enabled || usageStamp(current) != usageStamp(s) {
 		jsonResponse(w, 409, map[string]string{"error": "存储配置已更改，请刷新"})
 		return
+	}
+	if value == nil && current.Usage != nil && current.Usage.Stamp == storageRevision(current) {
+		value = displayMembership(current.Usage.Membership)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	jsonResponse(w, 200, struct {

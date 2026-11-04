@@ -56,6 +56,15 @@ func (a *App) planMobileLibrary(ctx context.Context, storage Storage, card quark
 			return walk(items[0].Path, "", depth+1)
 		}
 		for _, item := range items {
+			if present, ok := ctx.Value(librarySourceInventoryKey{}).(map[string]bool); ok {
+				relative := path.Join(directory, item.Name)
+				if item.Directory {
+					present[relative+"/"] = true
+				} else {
+					present[relative] = true
+					present[relative+shareSTRMSuffix] = true
+				}
+			}
 			if quarkLibraryExcluded(card, directory, item.Name) {
 				continue
 			}
@@ -90,74 +99,26 @@ func (a *App) planMobileLibrary(ctx context.Context, storage Storage, card quark
 
 func (a *App) ensureMobileLibraryOwner(ctx context.Context, card quarkLibraryCard, root *os.Root) error {
 	st := a.store.snapshotWithLogLimit(0)
-	record := st.MobileLibraryRuntime.Roots[card.ID]
-	same := record.Directory == quarkLibraryRoot(card) && record.Token != ""
-	if same {
-		if err := verifyQuarkLibraryOwner(root, record); err == nil {
-			return nil
-		}
-	}
-	if _, err := root.Lstat(quarkLibraryMarker); !os.IsNotExist(err) {
-		return errors.New("移动链库生成目录归属标记不符，未覆盖或清理")
-	}
-	// Missing markers may be reconstructed only from a complete unchanged manifest.
-	entries, err := scanQuarkLibraryDisk(ctx, root)
-	if err != nil {
-		return err
-	}
-	known := map[string]quarkLibraryFile{}
-	for _, f := range st.MobileLibraryRuntime.Files {
-		if f.CardID == card.ID && f.Digest != "" {
-			known[f.Relative] = f
-		}
-	}
-	for _, entry := range entries {
-		if entry.info.IsDir() {
-			continue
-		}
-		f, ok := known[entry.name]
-		digest, err := quarkLibraryDigest(root, entry.name)
-		if !ok || err != nil || digest != f.Digest {
-			return errors.New("移动链库生成目录含未登记或已修改文件，未接管目录")
-		}
-	}
-	if !same {
-		record = quarkLibraryOwnership{Directory: quarkLibraryRoot(card), Token: id()}
-	}
-	if err := a.mobileLibraryCheck(card, nil); err != nil {
-		return err
-	}
-	if err := a.store.update(func(st *State) error {
-		if current, ok := mobileLibraryCardAt(*st, card.ID); !ok || current != card {
-			return errors.New("移动链库配置已改变，未登记目录归属")
-		}
-		initMobileLibrary(st)
-		st.MobileLibraryRuntime.Roots[card.ID] = record
-		return nil
-	}); err != nil {
-		return err
-	}
-	temp := ".aether-mobile-owner-" + id()
-	f, err := root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	defer root.Remove(temp)
-	_, err = io.WriteString(f, record.Token)
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = a.mobileLibraryCheck(card, nil)
-	}
-	if err == nil {
-		err = root.Link(temp, quarkLibraryMarker)
-	}
-	return err
+	return a.ensureLibraryIdentity(ctx, card, root, st.MobileLibraryRuntime.Roots[card.ID], st.MobileLibraryRuntime.Files,
+		func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return a.mobileLibraryCheck(card, nil)
+		},
+		func(previous, record quarkLibraryOwnership) error {
+			return a.store.update(func(st *State) error {
+				if current, ok := mobileLibraryCardAt(*st, card.ID); !ok || current != card {
+					return errors.New("移动链库配置已改变，未登记目录身份")
+				}
+				initMobileLibrary(st)
+				if st.MobileLibraryRuntime.Roots[card.ID] != previous {
+					return errors.New("移动链库目录登记已改变")
+				}
+				st.MobileLibraryRuntime.Roots[card.ID] = record
+				return nil
+			})
+		})
 }
 
 func (a *App) checkMobileLibraryRoot(card quarkLibraryCard, root *os.Root) error {
@@ -274,6 +235,10 @@ func (a *App) reconcileMobileLibrary(ctx context.Context, card quarkLibraryCard,
 	if err := verifyQuarkLibraryOwner(root, record); err != nil {
 		return 0, err
 	}
+	companions, err := mobileLibraryCompanions(ctx, root, card, st.MobileLibraryRuntime.Files, wanted)
+	if err != nil {
+		return 0, err
+	}
 	removed := 0
 	for key, file := range st.MobileLibraryRuntime.Files {
 		if file.CardID != card.ID || wanted[file.Relative] {
@@ -324,7 +289,8 @@ func (a *App) reconcileMobileLibrary(ctx context.Context, card quarkLibraryCard,
 		}
 		removed++
 	}
-	return removed, nil
+	count, err := a.removeMobileLibraryCompanions(ctx, card, root, companions)
+	return removed + count, err
 }
 
 func (a *App) runMobileLibrary(ctx context.Context, card quarkLibraryCard) (result quarkLibraryResult, runErr error) {
@@ -358,6 +324,14 @@ func (a *App) runMobileLibrary(ctx context.Context, card quarkLibraryCard) (resu
 			result.InvalidSince = time.Time{}
 			result.Status, result.Message = "completed", fmt.Sprintf("新增STRM %d 条，元数据 %d 个，跳过 %d 个，清理 %d 个", result.Generated, result.Metadata, result.Skipped, result.Removed)
 		}
+		if result.Status == "invalid" {
+			removed, e := a.cleanInvalidMobileLibrary(ctx, card)
+			result.Removed += removed
+			if e != nil {
+				result.Message += "；失效产物清理待重试：" + e.Error()
+				runErr = errors.Join(runErr, e)
+			}
+		}
 		err := a.store.update(func(st *State) error {
 			if current, ok := mobileLibraryCardAt(*st, card.ID); !ok || current != card {
 				return errors.New("移动链库配置已改变，未覆盖新结果")
@@ -376,6 +350,7 @@ func (a *App) runMobileLibrary(ctx context.Context, card quarkLibraryCard) (resu
 	if err != nil {
 		return result, err
 	}
+	ctx = context.WithValue(ctx, librarySourceInventoryKey{}, map[string]bool{})
 	plans, share, err := a.planMobileLibrary(ctx, storage, card, cfg)
 	if err != nil {
 		return result, err

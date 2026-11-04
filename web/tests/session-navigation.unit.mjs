@@ -12,6 +12,12 @@ const parents = [
   ['/transfer/backup/settings', '/transfer/backup']
 ]
 
+test('old scrape memory no longer returns to the task module',()=>{
+ const previous=globalThis.sessionStorage
+ try{globalThis.sessionStorage=storage();writeSession('owner','route:/tasks','/tasks/scrape');assert.equal(rememberedRoute('owner','/tasks'),'/tasks/strm')
+ rememberRoute('owner','/scrape/library');assert.equal(rememberedRoute('owner','/scrape'),'/scrape/library')}finally{globalThis.sessionStorage=previous}
+})
+
 function storage() {
   const items = new Map()
   return { getItem: key => items.get(key) ?? null, setItem: (key, value) => items.set(key, value) }

@@ -23,6 +23,8 @@ type upgradeCatalogGroup struct {
 	Extras   []string `json:"extras"`
 }
 
+var upgradeWeights = [...]float64{10, 8, 6, 5, 4, 3, 2, 2, 1, 0.6}
+
 func upgradeCatalogGroups() []upgradeCatalogGroup {
 	return []upgradeCatalogGroup{
 		{"resolution", "分辨率", strings.Split("2160p,4K,1440p,1080p,720p,480p", ","), strings.Split("8K,1080P,1080I,720P,SD", ",")},
@@ -107,7 +109,7 @@ type upgradeVersion struct {
 }
 type upgradeScore struct {
 	ID       string  `json:"id"`
-	Weight   int     `json:"weight"`
+	Weight   float64 `json:"weight"`
 	Existing float64 `json:"existing"`
 	Incoming float64 `json:"incoming"`
 }
@@ -160,17 +162,14 @@ func compareUpgrade(c upgradeDefinition, old, next upgradeVersion, task organize
 	if old.Size < 0 || next.Size < 0 {
 		return upgradeComparison{}, errors.New("文件大小不能为负数")
 	}
-	weight := 0
-	for _, g := range c.Groups {
-		if g.Enabled {
-			weight++
-		}
-	}
+	index := 0
 	r := upgradeComparison{Winner: "existing", LoserAction: "keep", Groups: []upgradeScore{}}
 	for _, g := range c.Groups {
 		if !g.Enabled {
 			continue
 		}
+		weight := upgradeWeights[index]
+		index++
 		a, b := upgradePreference(g, old.Facts[g.ID]), upgradePreference(g, next.Facts[g.ID])
 		if g.ID == "file_size" {
 			largest := max(old.Size, next.Size)
@@ -179,10 +178,10 @@ func compareUpgrade(c upgradeDefinition, old, next upgradeVersion, task organize
 				b = 100 * float64(next.Size) / float64(largest)
 			}
 		}
+		a, b = a*weight/100, b*weight/100
 		r.Groups = append(r.Groups, upgradeScore{g.ID, weight, a, b})
-		r.Existing += a * float64(weight)
-		r.Incoming += b * float64(weight)
-		weight--
+		r.Existing += a
+		r.Incoming += b
 	}
 	if r.Incoming-r.Existing > 1e-9 {
 		r.Winner = "incoming"
@@ -202,7 +201,7 @@ func compareUpgrade(c upgradeDefinition, old, next upgradeVersion, task organize
 }
 func (a *App) upgradeCatalog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	jsonResponse(w, 200, map[string]any{"groups": upgradeCatalogGroups(), "defaults": defaultUpgrade(nil), "weightMode": "linear"})
+	jsonResponse(w, 200, map[string]any{"groups": upgradeCatalogGroups(), "defaults": defaultUpgrade(nil), "weightMode": "priority", "weights": upgradeWeights})
 }
 func (a *App) upgradePreview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")

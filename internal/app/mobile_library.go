@@ -13,7 +13,9 @@ import (
 )
 
 type mobileLibrarySettings struct {
+	ScrapeEnabled      bool     `json:"scrapeEnabled"`
 	StorageIDs         []string `json:"storageIds"`
+	UpdateDays         *int     `json:"updateDays,omitempty"`
 	Directory          string   `json:"directory"`
 	MediaExtensions    string   `json:"mediaExtensions"`
 	MetadataExtensions string   `json:"metadataExtensions"`
@@ -63,6 +65,8 @@ func effectiveMobileLibrary(st State) mobileLibrarySettings {
 	if cfg.RotationHours == 0 {
 		cfg.RotationHours = 24
 	}
+	days := libraryUpdateDays(cfg.UpdateDays)
+	cfg.UpdateDays = &days
 	cfg.StorageIDs = append([]string{}, cfg.StorageIDs...)
 	for _, s := range st.Storages {
 		if nativeMobile(s) && s.Enabled {
@@ -94,16 +98,16 @@ func validateMobileLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
 		return errors.New("请输入有效的移动云盘官方分享链接和提取码")
 	}
 	card.Secret = mobileLibrarySecret(code, pass)
-	if card.CascadeCleanup == "on" {
-		return errors.New("移动分享直接取链，不支持夸克临时转存的级联清理")
+	if card.CascadeCleanup == "" {
+		card.CascadeCleanup = "off"
 	}
-	card.CascadeCleanup = "off"
 	return validateShareLibraryFields(card, legacy...)
 }
 
 func validateShareLibraryOutputs(st State) error {
 	all := append(append([]quarkLibraryCard{}, st.QuarkLibraryCards...), st.MobileLibraryCards...)
 	all = append(all, st.CASLibraryCards...)
+	all = append(all, st.Library115Cards...)
 	for i, card := range all {
 		for _, previous := range all[:i] {
 			if quarkLibraryOutputsOverlap(card, previous) {
@@ -116,6 +120,9 @@ func validateShareLibraryOutputs(st State) error {
 
 func validateMobileLibrary(st State, legacy ...bool) error {
 	if cfg := st.MobileLibrary; cfg != nil {
+		if err := validateLibraryUpdateDays(cfg.UpdateDays); err != nil {
+			return err
+		}
 		if cfg.PlaybackMode != "redirect" && cfg.PlaybackMode != "share" && cfg.PlaybackMode != "transfer" && cfg.PlaybackMode != "relay" && cfg.PlaybackMode != "" {
 			return errors.New("移动链库播放模式须为以太中继、分享直链或转存直链")
 		}
@@ -369,6 +376,7 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			*pair.field = *pair.value
 		}
 	}
+	setLibrarySchedule(&card, old, time.Now())
 	if card.Enabled && strings.TrimSpace(card.Directory) == "" {
 		card.Directory = effectiveMobileLibrary(st).Directory
 	}
@@ -377,9 +385,13 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if exists {
-		if saved, err := a.saveShareLibraryMetadata("mobile", old, card); saved {
+		if saved, err := a.saveShareLibraryMetadata(r.Context(), "mobile", old, card); saved {
 			if err != nil {
-				fail(w, 409, err)
+				if errors.Is(err, errShareLibraryDirectory) {
+					jsonResponse(w, 409, map[string]string{"error": err.Error(), "field": "directoryName"})
+				} else {
+					fail(w, 409, err)
+				}
 			} else {
 				jsonResponse(w, 200, map[string]string{"id": sid, "message": "链接配置已保存"})
 			}
@@ -459,9 +471,7 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// The migration helper only reads its manifest argument and local files.
-	projection.QuarkLibraryRuntime.Files = st.MobileLibraryRuntime.Files
-	migration, err := a.prepareQuarkLibraryMove(ctx, old, card, projection)
+	migration, err := a.prepareShareLibraryMove(ctx, old, card, st.MobileLibraryRuntime.Files, st.MobileLibraryRuntime.Roots[old.ID])
 	if err != nil {
 		fail(w, 400, err)
 		return
@@ -483,6 +493,7 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 			st.MobileLibraryCards = append(st.MobileLibraryCards, card)
 		}
 		initMobileLibrary(st)
+		updateShareLibraryRenamedRoot(st.MobileLibraryRuntime.Roots, old, card)
 		st.MobileLibraryRuntime.Results[sid] = quarkLibraryResult{Status: "idle", Message: "等待执行", NextRun: quarkLibraryNext(card, time.Now())}
 		return validateMobileLibrary(*st)
 	})
@@ -588,7 +599,7 @@ func (a *App) mobileLibraryTick(now time.Time) {
 		if !card.Enabled || card.Cron == "" {
 			continue
 		}
-		if _, err := cronParser.Parse(card.Cron); err != nil {
+		if _, err := parseLibraryCron(card.Cron); err != nil {
 			continue
 		}
 		result := st.MobileLibraryRuntime.Results[card.ID]
