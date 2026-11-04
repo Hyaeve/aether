@@ -72,6 +72,12 @@ func TestStorageMembershipReturnsBeforeSlowQuota(t *testing.T) {
 
 func TestStorageMembershipCoalescesAndRejectsChangedCredentials(t *testing.T) {
 	a, s, _ := strm115Fixture(t)
+	// The fixture inserted s.Config by reference. Real callers obtain a detached
+	// snapshot, which must not change while a request hashes or reads credentials.
+	s, err := a.store.storage(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	started, release := make(chan struct{}), make(chan struct{})
 	var count atomic.Int32
 	var once sync.Once

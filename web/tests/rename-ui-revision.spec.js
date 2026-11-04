@@ -56,7 +56,7 @@ test('rule headers keep selectors inline and numbering supports zero and no sepa
   await page.getByRole('group',{name:'可选规则'}).getByRole('button',{name:'添加字符',exact:true}).click()
   await expect(page.getByRole('button',{name:'删除规则',exact:true})).toHaveCount(2)
   const sizes=await page.locator('.rename-rules').evaluate(el=>[...el.querySelectorAll('.rename-rule header .rounded-select-trigger,.rename-field>input,.rename-field .number-control,.rename-field .rounded-select-trigger')].map(e=>e.getBoundingClientRect().height))
-  expect(new Set(sizes).size,JSON.stringify(sizes)).toBe(1);expect(sizes[0]).toBeGreaterThan(28)
+  expect(new Set(sizes).size,JSON.stringify(sizes)).toBe(1);expect(sizes[0]).toBe(32)
   await page.screenshot({path:info.outputPath('rename-headers.png')})
   expect(f.unexpected).toEqual([])
 })

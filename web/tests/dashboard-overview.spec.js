@@ -40,8 +40,8 @@ test('cache ring uses live counters and supports no samples, all hits and all mi
   await expect(page.getByRole('img',{name:'缓存命中率 0%'})).toBeVisible()
 })
 
-test('shortcut viewport exposes six pools, scrolls without a scrollbar and retains keyboard navigation', async ({page},info) => {
-  await setup(page)
+test('shortcuts keep only the first six pools without scrolling and retain keyboard navigation', async ({page},info) => {
+  const data=await setup(page)
   const shortcuts = page.getByRole('region',{name:'存储快捷访问',exact:true})
   await expect(shortcuts.locator('.provider-icon').first()).toHaveCSS('width','40px')
   await expect(shortcuts.locator('.provider-icon').first()).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
@@ -52,22 +52,31 @@ test('shortcut viewport exposes six pools, scrolls without a scrollbar and retai
   })
   for(const width of [1920,1440,1024,768,390,320]) {
     await page.setViewportSize({width,height:1000})
-    await shortcuts.evaluate(el=>el.scrollLeft=0)
+    await expect(shortcuts.locator('button > span[data-tooltip]')).toHaveText(data.storages.slice(0,6).map(s=>s.name))
     await expect.poll(visibleCount).toBe(6)
-    await expect(shortcuts).toHaveCSS('scrollbar-width','none')
-    expect(await shortcuts.evaluate(el=>el.scrollWidth>el.clientWidth)).toBe(true)
+    await expect(shortcuts).toHaveCSS('overflow-x','clip')
+    expect(await shortcuts.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
+    expect(await shortcuts.evaluate(el=>{el.scrollLeft=1000;return el.scrollLeft})).toBe(0)
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
     expect(await page.locator('.page-content').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
     if(width===1440||width===390)await page.screenshot({path:info.outputPath(`dashboard-overview-${width}.png`),fullPage:true})
   }
   await shortcuts.hover()
   await page.mouse.wheel(0,350)
-  await expect.poll(()=>shortcuts.evaluate(el=>el.scrollLeft)).toBeGreaterThan(0)
-  await expect(shortcuts.locator('button').nth(8)).toBeDisabled()
-  await shortcuts.locator('button').nth(10).focus()
-  await expect(shortcuts.locator('button').nth(10)).toBeFocused()
+  expect(await shortcuts.evaluate(el=>el.scrollLeft)).toBe(0)
+  await expect(shortcuts.getByRole('button')).toHaveCount(6)
+  data.storages[1].enabled=false
+  await page.reload()
+  await expect(shortcuts.locator('button').nth(1)).toBeDisabled()
+  await expect(shortcuts.locator('button > span[data-tooltip]')).toHaveText(data.storages.slice(0,6).map(s=>s.name))
+  await shortcuts.locator('button').nth(5).focus()
+  await expect(shortcuts.locator('button').nth(5)).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/storage=pool10/)
+  await expect(page).toHaveURL(/storage=pool5/)
+  data.storages=data.storages.slice(0,3)
+  await page.goto('/dashboard')
+  await expect(shortcuts.getByRole('button')).toHaveCount(3)
+  await expect(shortcuts.locator('button > span[data-tooltip]')).toHaveText(data.storages.map(s=>s.name))
 })
 
 test('recent activity shows module, severity and compact time, with themed layout and a precise log link',async({page},info)=>{

@@ -180,7 +180,7 @@ test('background generation remains visible after reload and cleanup setting reo
  await page.goto('/virtual/quark')
  await page.locator('.quark-library-card').first().getByRole('button',{name:'立即生成',exact:true}).click()
  const confirmation=page.getByRole('dialog',{name:'同步夸克分享',exact:true})
- await expect(confirmation).toContainText('无 STRM 的子目录')
+ await expect(confirmation).toContainText('同步生成目录，清理过期登记产物；保留未登记或已修改的文件。')
  await confirmation.getByRole('button',{name:'确认同步',exact:true}).click()
  await expect(page.locator('.quark-library-card').first().getByRole('button',{name:'生成中',exact:true})).toBeDisabled()
  await page.reload()

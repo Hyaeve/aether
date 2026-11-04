@@ -85,10 +85,20 @@ func (r *mobilePCProbeReader) Read([]byte) (int, error) {
 	return 0, io.EOF
 }
 
+// Keep the aggregate staging budget distinct from the provider's file limit.
+func mobilePCStagingApp(t *testing.T) *App {
+	t.Helper()
+	a := testApp(t)
+	if err := a.store.update(func(st *State) error { st.TransferSettings.TempMaxGiB = 200; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
 func TestMobilePCUploadAndBackupSizeGates(t *testing.T) {
 	const large = int64(100<<30) + 1
 	t.Run("browser-pc", func(t *testing.T) {
-		a := testApp(t)
+		a := mobilePCStagingApp(t)
 		input := &mobilePCProbeReader{}
 		err := a.receiveFile(context.Background(), mobilePCFixture("pc"), "/", "large.mkv", input, large)
 		if input.reads == 0 || err == nil || !strings.Contains(err.Error(), "不完整") {
@@ -104,7 +114,7 @@ func TestMobilePCUploadAndBackupSizeGates(t *testing.T) {
 		}
 	})
 	t.Run("backup-pc", func(t *testing.T) {
-		a := testApp(t)
+		a := mobilePCStagingApp(t)
 		source := Storage{ID: "source", Type: "local", Config: map[string]string{"root": t.TempDir()}}
 		err := a.copyBackupFile(context.Background(), source, mobilePCFixture("pc"), File{ID: "/missing.mkv", Name: "missing.mkv", Size: large}, "/", "large.mkv", "skip")
 		if !errors.Is(err, os.ErrNotExist) {
@@ -122,6 +132,18 @@ func TestMobilePCUploadAndBackupSizeGates(t *testing.T) {
 			t.Fatal("oversized upload created staged content")
 		}
 	})
+}
+
+func TestMobilePCUploadRespectsConfiguredTempBudget(t *testing.T) {
+	a := testApp(t)
+	input := &mobilePCProbeReader{}
+	err := a.receiveFile(context.Background(), mobilePCFixture("pc"), "/", "large.mkv", input, int64(100<<30)+1)
+	if input.reads != 0 || err == nil || !strings.Contains(err.Error(), "临时文件体积达到上限（100 G）") {
+		t.Fatalf("PC protocol allowance bypassed aggregate staging quota: reads=%d error=%v", input.reads, err)
+	}
+	if files, _ := filepath.Glob(filepath.Join(a.transferTempDirectory(), "file-upload", "*")); len(files) != 0 {
+		t.Fatal("over-budget upload created a staged file")
+	}
 }
 
 func TestMobilePCConfigPersistence(t *testing.T) {
@@ -378,7 +400,7 @@ func TestMobilePCSyncAndStagingLimits(t *testing.T) {
 	if _, err := syncUploadStageLimit(replicas, []syncOperation{op}); err == nil {
 		t.Fatal("Web mobile sync target inherited PC limit")
 	}
-	a := testApp(t)
+	a := mobilePCStagingApp(t)
 	dir := t.TempDir()
 	source := Storage{Type: "local", Config: map[string]string{"root": dir}}
 	_, err := a.stageBackupSource(context.Background(), source, File{ID: "/missing", Size: large}, dir, mobilePCUploadFileLimit)

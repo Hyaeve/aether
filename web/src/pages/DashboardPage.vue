@@ -7,6 +7,7 @@ import CacheHitChart from '../components/CacheHitChart.vue'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
 import { noticeTime } from '../library-notices'
 const recent = computed(() => state.logs.slice(-6).reverse())
+const shortcutStorages = computed(() => state.storages.slice(0, 6))
 const modules = {
   audit: ['操作审计','ShieldCheck'], files: ['文件与备份','FolderOpen'], storage: ['存储与服务','HardDrive'],
   tasks: ['任务中心','ListTodo'], links: ['以太链接','Waypoints'], system: ['系统','Server']
@@ -14,12 +15,6 @@ const modules = {
 const levels = { info: '信息', warn: '警告', error: '错误', debug: '调试', success: '完成', cancelled: '取消', interrupted: '中断' }
 const moduleOf = log => modules[log.module] || modules.system
 const severity = log => ['error','warn','success'].includes(log.level) ? log.level : ['cancelled','interrupted'].includes(log.level) ? 'warn' : 'info'
-function scrollShortcuts(event) {
-  const area = event.currentTarget
-  if (Math.abs(event.deltaX) >= Math.abs(event.deltaY) || event.ctrlKey) return
-  const next = Math.max(0, Math.min(area.scrollWidth - area.clientWidth, area.scrollLeft + event.deltaY))
-  if (next !== area.scrollLeft) { event.preventDefault(); area.scrollLeft = next }
-}
 </script>
 <template>
   <div class="dashboard-page">
@@ -34,8 +29,8 @@ function scrollShortcuts(event) {
       <section class="shortcut-section" aria-label="存储快捷入口">
         <div class="section-label"><h2>存储快捷入口</h2><button class="text-btn" @click="$router.push('/storage')">管理存储<Icon name="ArrowRight" :size="15" /></button></div>
         <div v-if="!state.storages.length" class="empty-state compact"><Icon name="Cloud" :size="36" /><h3>连接你的第一个存储空间</h3><button class="btn primary" @click="$router.push('/storage')"><Icon name="Plus" />添加存储池</button></div>
-        <div v-else class="shortcut-viewport"><div class="storage-shortcuts" role="region" aria-label="存储快捷访问" tabindex="0" @wheel="scrollShortcuts">
-          <button v-for="s in state.storages" :key="s.id" :disabled="!s.enabled" @click="$router.push({path:'/files',query:{storage:s.id}})"><ProviderIcon :type="s.type" /><span :data-tooltip="s.name">{{ s.name }}</span></button>
+        <div v-else class="shortcut-viewport"><div class="storage-shortcuts" role="region" aria-label="存储快捷访问">
+          <button v-for="s in shortcutStorages" :key="s.id" :disabled="!s.enabled" @click="$router.push({path:'/files',query:{storage:s.id}})"><ProviderIcon :type="s.type" /><span :data-tooltip="s.name">{{ s.name }}</span></button>
         </div></div>
       </section>
       <section class="dashboard-cache" aria-label="缓存命中统计">
@@ -76,15 +71,14 @@ function scrollShortcuts(event) {
 .section-label .text-btn { font-size:12px; gap:5px; white-space:nowrap; }
 .section-label > svg { color:var(--muted); }
 .shortcut-viewport { padding:12px 12px 16px; }
-.storage-shortcuts { display:grid; grid-template-rows:repeat(2,84px); grid-auto-flow:column; grid-auto-columns:calc((100% - 16px) / 3); gap:8px; overflow-x:auto; overflow-y:hidden; max-width:100%; scrollbar-width:none; overscroll-behavior-x:contain; scroll-snap-type:x proximity; border-radius:6px; }
-.storage-shortcuts::-webkit-scrollbar { display:none; }
-.storage-shortcuts button { display:flex; flex-direction:column; gap:8px; align-items:center; justify-content:center; padding:8px; border:0; border-radius:6px; background:transparent; color:var(--text); min-width:0; scroll-snap-align:start; transition:background .18s; }
+.storage-shortcuts { display:grid; grid-template-rows:repeat(2,84px); grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; overflow:clip; max-width:100%; border-radius:6px; }
+.storage-shortcuts button { display:flex; flex-direction:column; gap:8px; align-items:center; justify-content:center; padding:8px; border:0; border-radius:6px; background:transparent; color:var(--text); min-width:0; transition:background .18s; }
 .storage-shortcuts button:hover:not(:disabled) { background:var(--bg); }
 .storage-shortcuts button:disabled { opacity:.4; }
 .storage-shortcuts span { max-width:100%; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .storage-shortcuts :deep(.provider-icon) { flex-shrink:0; width:40px; height:40px; padding:0; border:0; border-radius:0; background:none; }
 .storage-shortcuts :deep(.provider-logo),.storage-shortcuts :deep(.provider-icon > svg) { width:40px; height:40px; }
-.storage-shortcuts:focus-visible, .storage-shortcuts button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
+.storage-shortcuts button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
 .dashboard-cache { --cache-chart-size:112px; --cache-hit-color:#55a78d; --cache-miss-color:#d5b578; }
 .dashboard-cache-body { display:flex; align-items:center; justify-content:center; gap:22px; min-height:156px; padding:18px; }
 .hit-legend { display:grid; gap:15px; margin:0; min-width:0; }
@@ -132,7 +126,7 @@ function scrollShortcuts(event) {
 :global([data-theme=dark] .dashboard-page .activity-row[data-level=error] .activity-level) { color:#f09aa9; }
 :global([data-theme=dark] .dashboard-page .activity-row[data-level=warn] .activity-level) { color:#dfbc7a; }
 :global([data-theme=dark] .dashboard-page .activity-row[data-level=success] .activity-level) { color:#78c5a7; }
-@media(max-width:1250px) { .dashboard-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.shortcut-section { grid-column:1 / -1; }.storage-shortcuts { grid-template-rows:84px; grid-auto-columns:calc((100% - 40px) / 6); }.metric-strip { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } }
-@media(max-width:600px) { .dashboard-grid { grid-template-columns:minmax(0,1fr); gap:16px; }.storage-shortcuts { grid-template-rows:repeat(2,84px); grid-auto-columns:calc((100% - 16px) / 3); }.activity-section .activity-row { grid-template-columns:36px minmax(0,1fr) 16px; gap:10px; }.activity-section .activity-row time { grid-column:2; grid-row:2; padding:0; width:auto; }.activity-arrow { grid-column:3; grid-row:1 / 3; }.activity-icon { align-self:start; }.metric-strip > div { flex-wrap:wrap; padding:14px; gap:10px; }.metric-strip strong { font-size:23px; }.section-label { padding:12px 14px; } }
+@media(max-width:1250px) { .dashboard-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.shortcut-section { grid-column:1 / -1; }.storage-shortcuts { grid-template-rows:84px; grid-template-columns:repeat(6,minmax(0,1fr)); }.metric-strip { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } }
+@media(max-width:600px) { .dashboard-grid { grid-template-columns:minmax(0,1fr); gap:16px; }.storage-shortcuts { grid-template-rows:repeat(2,84px); grid-template-columns:repeat(3,minmax(0,1fr)); }.activity-section .activity-row { grid-template-columns:36px minmax(0,1fr) 16px; gap:10px; }.activity-section .activity-row time { grid-column:2; grid-row:2; padding:0; width:auto; }.activity-arrow { grid-column:3; grid-row:1 / 3; }.activity-icon { align-self:start; }.metric-strip > div { flex-wrap:wrap; padding:14px; gap:10px; }.metric-strip strong { font-size:23px; }.section-label { padding:12px 14px; } }
 @media(prefers-reduced-motion:reduce) { .storage-shortcuts button, .activity-section .activity-row { transition:none; } }
 </style>

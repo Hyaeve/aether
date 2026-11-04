@@ -81,9 +81,9 @@ const widths = [
 .rename-type-fields { min-width:0; }
 .rename-field { display:grid;grid-template-columns:92px minmax(0,1fr);align-items:center;gap:8px;margin-top:10px;font-size:12px; }
 .rename-field > :last-child { min-width:0;width:100%; }
-.rename-field input, .rename-field :deep(input), .rename-field :deep(.rounded-select-trigger) { height:var(--rename-control-height,36px);min-height:var(--rename-control-height,36px);padding-top:3px;padding-bottom:3px;font-size:12px;border-radius:6px; }
-.rename-type-fields .rename-field>input{height:var(--rename-control-height,36px);min-height:var(--rename-control-height,36px)}
-.rename-field :deep(.number-control){height:var(--rename-control-height,36px);min-height:var(--rename-control-height,36px)}
+.rename-field input, .rename-field :deep(input), .rename-field :deep(.rounded-select-trigger) { height:var(--rename-control-height,32px);min-height:var(--rename-control-height,32px);padding-top:3px;padding-bottom:3px;font-size:12px;border-radius:6px; }
+.rename-type-fields .rename-field>input{height:var(--rename-control-height,32px);min-height:var(--rename-control-height,32px)}
+.rename-field :deep(.number-control){height:var(--rename-control-height,32px);min-height:var(--rename-control-height,32px)}
 .rename-field :deep(.number-control input){height:100%;min-height:0}
 .rename-field :deep(.select-label) { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .rename-field :deep(.rounded-select-popup) { width:100%;min-width:0;border-radius:8px;max-height:220px; }
@@ -99,7 +99,6 @@ const widths = [
 .rename-directions { justify-content:flex-end; }
 @media (max-width:760px) {
   .rename-field { grid-template-columns:88px minmax(0,1fr); }
-  .rename-field input, .rename-field :deep(input), .rename-field :deep(.rounded-select-trigger) { height:36px;min-height:36px; }
   .rename-check { min-height:32px; }
 }
 </style>

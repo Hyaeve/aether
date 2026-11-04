@@ -210,7 +210,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); generation++; document
 .rename-preview-row.ignored > div:not(.rename-item-actions) { opacity: .45; }
 .rename-preview-row .rename-item-actions { position: absolute; right: 8px; top: 18px; opacity: 0; }
 .rename-preview-row:hover .rename-item-actions, .rename-preview-row:focus-within .rename-item-actions { opacity: 1; }
-.rename-rules { --rename-control-height:36px;display: flex; flex-direction: column; overflow:hidden; }
+.rename-rules { --rename-control-height:32px;display: flex; flex-direction: column; overflow:hidden; }
 .rename-rules-scroll { flex:1; min-height:0; }
 .rename-rules-scroll :deep(.thin-scroll-area) { padding-right:6px; }
 .rename-save { flex-shrink:0; margin-top:0; padding-top:10px; background:var(--surface); }

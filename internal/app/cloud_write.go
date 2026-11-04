@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/net/webdav"
 )
 
 type mountPutLength struct{}
@@ -45,6 +47,15 @@ type cloudWriteFile struct {
 	expected     int64
 	closed       bool
 	writeErr     error
+}
+
+// Native handles must retain quota accounting and release the reservation on
+// close, without invoking the DAV Close method that also publishes the file.
+func (f *cloudWriteFile) stagingHandle() webdav.File {
+	if f.temp != nil {
+		return f.temp
+	}
+	return f.File
 }
 
 func (f *cloudWriteFile) WriteAt(p []byte, offset int64) (int, error) {

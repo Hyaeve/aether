@@ -320,7 +320,13 @@ test('compact storage authorization, about and plugin views', async ({ page }, t
   expect(await page.locator('.plugin-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4)
   await page.screenshot({ path: testInfo.outputPath('plugins-desktop.png'), fullPage: true })
   await page.getByRole('link', { name: '以太识律', exact: true }).click()
-  await expect(page.getByRole('region',{name:'识别规则',exact:true})).toContainText('最小视频、整理黑名单、自定义识别词、自定义匹配')
+  const recognition = page.getByRole('form', { name: '识别规则', exact: true })
+  await expect(recognition).toBeVisible()
+  for (const name of ['匹配替换', '归档黑名单', '命名替换', '发布组扩展', '文件体积过滤']) {
+    await expect(recognition.getByRole('region', { name, exact: true })).toBeVisible()
+  }
+  await expect(recognition.getByRole('textbox', { name: '示例名称', exact: true })).toBeEnabled()
+  await expect(recognition.getByRole('spinbutton', { name: '文件体积过滤', exact: true })).toHaveValue('0')
 })
 
 test('native mobile CAS task creation and persistence', async ({ page }, testInfo) => {

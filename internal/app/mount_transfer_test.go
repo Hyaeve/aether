@@ -3,15 +3,93 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/net/webdav"
 )
+
+func TestMountExistingCloudFileStaging(t *testing.T) {
+	a := testApp(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "book.txt"), []byte("HELLOworld"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	remote := httptest.NewServer(&webdav.Handler{FileSystem: webdav.Dir(root), LockSystem: webdav.NewMemLS()})
+	defer remote.Close()
+	s := Storage{ID: "cloud", Type: "webdav", Enabled: true, Config: map[string]string{"address": remote.URL, "root": "/"}}
+	if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	mount := mountFS{app: a, config: MountConfig{StorageID: s.ID, Source: "/"}}
+	staged, err := mount.openCloudWrite(a.ctx, s, "/", "book.txt", os.O_TRUNC|os.O_RDWR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := staged.stagingHandle()
+	defer handle.Close()
+	ctx := context.WithValue(a.ctx, transferOwnedKey{}, true)
+	old, err := mount.OpenFile(ctx, "/book.txt", os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	if _, err := io.Copy(handle, old); err != nil {
+		t.Fatal("read existing cloud file into staging", err)
+	}
+	if data, err := os.ReadFile(staged.Name()); err != nil || string(data) != "HELLOworld" {
+		t.Fatal(string(data), err)
+	}
+	if err := handle.Close(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := mount.openCloudWrite(a.ctx, s, "/", "book.txt", os.O_TRUNC|os.O_RDWR)
+	if err != nil {
+		t.Fatal("reopen after native handle release", err)
+	}
+	defer next.temp.Close()
+}
+
+func TestMountNativeStagingHandleHonorsTempBudget(t *testing.T) {
+	for _, method := range []string{"random-write", "copy"} {
+		t.Run(method, func(t *testing.T) {
+			a, _ := tempBudgetFixture(t, 8)
+			remote := httptest.NewServer(&webdav.Handler{FileSystem: webdav.Dir(t.TempDir()), LockSystem: webdav.NewMemLS()})
+			defer remote.Close()
+			s := Storage{ID: "cloud", Type: "webdav", Enabled: true, Config: map[string]string{"address": remote.URL, "root": "/"}}
+			if err := a.store.update(func(st *State) error { st.Storages = []Storage{s}; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			mount := mountFS{app: a, config: MountConfig{StorageID: s.ID, Source: "/"}}
+			staged, err := mount.openCloudWrite(a.ctx, s, "/", "book.txt", os.O_TRUNC|os.O_RDWR)
+			if err != nil {
+				t.Fatal(err)
+			}
+			handle := staged.stagingHandle()
+			defer handle.Close()
+			if method == "copy" {
+				_, err = io.Copy(handle, strings.NewReader("123456789"))
+			} else {
+				if _, err := handle.Seek(8, io.SeekStart); err != nil {
+					t.Fatal(err)
+				}
+				_, err = handle.Write([]byte("x"))
+			}
+			if err == nil || !strings.Contains(err.Error(), "临时文件体积达到上限") {
+				t.Fatal("native staging bypassed the aggregate quota", err)
+			}
+			if info, err := staged.Stat(); err != nil || info.Size() != 0 {
+				t.Fatal("over-budget staging mutated file", info, err)
+			}
+		})
+	}
+}
 
 func TestMountTransferSeparatesRequestAndHandleLifetime(t *testing.T) {
 	a := testApp(t)

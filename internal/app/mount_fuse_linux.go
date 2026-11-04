@@ -219,11 +219,11 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 		if s.Type != "local" {
 			staged, err = n.backend.openCloudWrite(n.backend.app.ctx, s, source, rel, os.O_TRUNC|os.O_RDWR)
 			if err == nil {
-				file = staged.File
+				file = staged.stagingHandle()
 				if flags&syscall.O_TRUNC == 0 {
 					old, openErr := n.backend.OpenFile(fileContext, n.name(), os.O_RDONLY, 0)
 					if openErr == nil {
-						_, err = io.Copy(staged.File, old)
+						_, err = io.Copy(file, old)
 						old.Close()
 					} else if !errors.Is(openErr, os.ErrNotExist) || flags&syscall.O_CREAT == 0 {
 						err = openErr
@@ -231,7 +231,7 @@ func (n *nativeFuseNode) Open(ctx context.Context, flags uint32) (fs.FileHandle,
 				}
 			}
 			if err != nil && staged != nil {
-				staged.File.Close()
+				staged.stagingHandle().Close()
 				os.Remove(staged.File.Name())
 			}
 		} else {
