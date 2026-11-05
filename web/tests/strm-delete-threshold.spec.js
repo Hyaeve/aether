@@ -52,11 +52,18 @@ for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[375,812
     })
     expect(layout.ratio).toBeGreaterThan(.4);expect(layout.ratio).toBeLessThan(.51)
     expect(layout.inside).toBe(true);expect(layout.overflow).toBe(false);expect(layout.scrollbar).toBe('none')
-    if(width<=480){
-      const top=await input.evaluate(el=>el.closest('.number-control').getBoundingClientRect().top)
-      const scrape=await dialog.getByRole('button',{name:'STRM 刮削',exact:true}).boundingBox()
-      expect(Math.abs(top-scrape.y)).toBeLessThan(1)
-    }
+    const positions=await dialog.locator('.more-options').evaluate(el=>{
+      const threshold=el.querySelector('.delete-threshold-field .number-control').getBoundingClientRect()
+      const excluded=el.querySelector('input[placeholder="回收站;预告片"]').getBoundingClientRect()
+      const cascade=el.querySelector('.cascade-delete-field').getBoundingClientRect()
+      const scrape=el.querySelector('[aria-label="STRM 刮削"]').getBoundingClientRect()
+      return{thresholdTop:threshold.top,thresholdRight:threshold.right,excludedTop:excluded.top,excludedLeft:excluded.left,cascadeTop:cascade.top,cascadeBottom:cascade.bottom,cascadeWidth:cascade.width,gridWidth:el.getBoundingClientRect().width,scrapeBottom:scrape.bottom}
+    })
+    expect(Math.abs(positions.thresholdTop-positions.excludedTop)).toBeLessThan(1)
+    expect(positions.thresholdRight).toBeLessThanOrEqual(positions.excludedLeft)
+    expect(positions.cascadeTop).toBeGreaterThan(positions.scrapeBottom)
+    expect(positions.cascadeBottom).toBeLessThan(positions.thresholdTop)
+    expect(Math.abs(positions.cascadeWidth-positions.gridWidth)).toBeLessThan(1)
     await captureScreenshot(page,{path:info.outputPath(`threshold-${width}-${theme}.png`)})
     await input.fill('0');await dialog.getByRole('button',{name:'保存任务',exact:true}).click()
     await expect(dialog).toHaveCount(0);expect(f.writes.at(-1).body.deleteThreshold).toBe(0)

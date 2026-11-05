@@ -126,10 +126,16 @@ test('storage, STRM, cache, themes and responsive workspace', async ({ page }, t
   await page.screenshot({ path: testInfo.outputPath('strm-dialog-desktop.png'), fullPage: true })
   await page.getByRole('button', { name: '保存任务', exact: true }).click()
   await expect(page.getByText('电影增量同步', { exact: true })).toBeVisible()
+  const completedState=page.waitForResponse(async response=>{
+    if(new URL(response.url()).pathname!=='/api/state'||response.request().method()!=='GET'||!response.ok())return false
+    const data=await response.json()
+    return data.tasks?.some(task=>task.name==='电影增量同步'&&task.status==='success'&&task.lastRun&&!task.lastRun.startsWith('0001'))
+  })
   await page.getByRole('button', { name: '立即执行', exact: true }).click()
   await expect.poll(async () => (await (await page.request.get('/api/state')).json()).tasks.find(t => t.name === '电影增量同步')?.status, {timeout:20000}).toBe('success')
   const strm = readFileSync(path.join(process.env.AETHER_E2E_ROOT, 'data', 'strm', 'Movies', 'Arrival.strm'), 'utf8')
   expect(strm.trim()).toBe(path.join(process.env.AETHER_E2E_ROOT, 'media', 'Movies', 'Arrival.MP4'))
+  await completedState
   await page.screenshot({ path: testInfo.outputPath('tasks-desktop.png'), fullPage: true })
   await expect(page.locator('.notification-badge')).toHaveText('1')
   await page.getByRole('button', { name: '任务通知', exact: true }).click()

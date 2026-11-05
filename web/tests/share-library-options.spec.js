@@ -82,8 +82,8 @@ for(const layout of layouts)test(`share card more options roundtrip and scrape o
   await expect(field).toHaveCSS('height','40px')
   await expect.poll(()=>field.evaluate(el=>{
    const r=el.getBoundingClientRect(),dialog=el.closest('.modal')
-   return r.top>=dialog.querySelector('.modal-header').getBoundingClientRect().bottom&&r.bottom<=dialog.querySelector('.modal-footer').getBoundingClientRect().top
-  })).toBe(true)
+   return{afterHeader:r.top>=dialog.querySelector('.modal-header').getBoundingClientRect().bottom,beforeFooter:r.bottom<=dialog.querySelector('.modal-footer').getBoundingClientRect().top}
+  }),{message:`${await field.getAttribute('aria-label')} stays between the fixed header and footer`}).toEqual({afterHeader:true,beforeFooter:true})
  }
  await expect(dialog.locator('.quark-library-editor')).toHaveCSS('scrollbar-width','none')
  await expect.poll(()=>dialog.evaluate(el=>el.scrollWidth<=el.clientWidth&&document.documentElement.scrollWidth<=innerWidth)).toBe(true)

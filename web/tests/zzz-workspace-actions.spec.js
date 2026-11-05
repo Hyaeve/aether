@@ -27,9 +27,13 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
     await page.getByRole('button', { name: '登录工作空间', exact: true }).click()
   }
   await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
+  await expect(page).toHaveURL(/\/dashboard$/)
   const mediaStorage = await ensureWorkspaceMedia(page)
+  await page.goto('/storage')
+  await expect(page.getByRole('heading',{name:'家庭影音库',exact:true})).toBeVisible()
+  const beforeBrand=page.url()
   await page.locator('.brand').click()
-  await expect(page).not.toHaveURL(/dashboard/)
+  await expect(page).toHaveURL(beforeBrand)
   await page.goto('/tasks/strm')
   const taskPositions = await page.locator('[aria-label="任务栏目"] a').evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().x))
   for (const name of ['整理归档', '缓存任务', 'STRM 任务']) {

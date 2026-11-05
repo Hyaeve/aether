@@ -1,5 +1,37 @@
 import { test, expect } from '@playwright/test'
 
+test('task unread badge follows the page completion poll and keeps read state after reload',async({page})=>{
+  const now=new Date('2026-11-05T12:00:00Z'),unexpected=[]
+  const task={id:'completed-poll',name:'影视同步',kind:'strm',status:'running',lastRun:now.toISOString(),processed:0}
+  await page.clock.install({time:now})
+  await page.route('**/api/**',route=>{
+    const r=route.request(),p=new URL(r.url()).pathname
+    if(p==='/api/auth/status')return route.fulfill({json:{initialized:true,authenticated:true}})
+    if(p==='/api/state')return route.fulfill({json:{username:'poll-notice',storages:[],tasks:[task],settings:{},cache:{},traffic:{}}})
+    if(p==='/api/traffic')return route.fulfill({json:{}})
+    if(p==='/api/strm-replace')return route.fulfill({json:[]})
+    unexpected.push(`${r.method()} ${p}`);return route.fulfill({status:500,json:{error:'Unexpected '+p}})
+  })
+  await page.goto('/storage')
+  await expect(page.getByRole('button',{name:'任务通知',exact:true})).toBeVisible()
+  await expect(page.locator('.notification-badge')).toHaveCount(0)
+  Object.assign(task,{status:'success',processed:1,message:'新增 1'})
+  const completion=page.waitForResponse(async r=>new URL(r.url()).pathname==='/api/state'&&r.ok()&&(await r.json()).tasks?.[0]?.status==='success')
+  await page.clock.runFor(5000);await completion
+  await expect(page.locator('.notification-badge')).toHaveText('1')
+  await page.getByRole('button',{name:'任务通知',exact:true}).click()
+  await expect(page.locator('.notification-dropdown')).toContainText('影视同步')
+  await expect(page.locator('.notification-dropdown')).toContainText('已处理 1 项')
+  await expect(page.locator('.notification-badge')).toHaveCount(0)
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('aether-read:poll-notice')))).toEqual([`completed-poll:${now.toISOString()}:success`])
+  await page.reload()
+  await expect(page.getByRole('button',{name:'任务通知',exact:true})).toBeVisible()
+  await expect(page.locator('.notification-badge')).toHaveCount(0)
+  await page.getByRole('button',{name:'任务通知',exact:true}).click()
+  await expect(page.locator('.notification-dropdown')).toContainText('影视同步')
+  expect(unexpected).toEqual([])
+})
+
 test('notifications identify library actions and provider logos fill their bounds', async ({ page }, info) => {
 	await page.route('**/api/115-recycle-cleanup', r => r.fulfill({ json: { enabled: false, rules: [] } }))
 	await page.route('**/api/115-simulcast/enabled', r => r.fulfill({ json: { enabled: true } }))

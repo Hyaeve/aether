@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -53,7 +54,7 @@ func TestShareLibraryCascadeExtensionSelection(t *testing.T) {
 	}
 	a := testApp(t)
 	dir := t.TempDir()
-	for _, name := range []string{"Film.mkv.share.strm", "Film.nfo", "Film.jpg", "Film.txt", "Other.txt"} {
+	for _, name := range []string{"Film.mkv.share.strm", "Film.nfo", "Film.jpg", "Film.txt", "Film.png", "Other.txt"} {
 		writeTest(t, filepath.Join(dir, name), name)
 	}
 	root, err := os.OpenRoot(dir)
@@ -69,16 +70,20 @@ func TestShareLibraryCascadeExtensionSelection(t *testing.T) {
 	for _, selection := range []struct {
 		value    string
 		expected []string
-	}{{"nfo", []string{"Film.nfo"}}, {"jpg;txt", []string{"Film.jpg", "Film.txt"}}} {
+	}{{"nfo", []string{"Film.nfo"}}, {"jpg;txt", []string{"Film.jpg", "Film.txt"}}, {".TXT;png", []string{"Film.png", "Film.txt"}}} {
 		card := quarkLibraryCard{ID: "c", CascadeCleanup: selection.value}
 		plan, err := mobileLibraryCompanions(a.ctx, root, card, files, map[string]bool{})
 		if err != nil || len(plan) != len(selection.expected) {
 			t.Fatal(selection, plan, err)
 		}
+		names := make([]string, len(plan))
 		for i, p := range plan {
-			if p.name != selection.expected[i] {
-				t.Fatal("unselected/unrelated companion", p.name, selection)
-			}
+			names[i] = p.name
+		}
+		// ReadDir returns filesystem order; cleanup selects files, not an order.
+		slices.Sort(names)
+		if !slices.Equal(names, selection.expected) {
+			t.Fatalf("cascade %q selected %q, want exactly %q", selection.value, names, selection.expected)
 		}
 		plan, err = mobileLibraryCompanions(a.ctx, root, card, files, map[string]bool{"Film.mkv.share.strm": true})
 		if err != nil || len(plan) != 0 {

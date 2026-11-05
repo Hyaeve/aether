@@ -251,5 +251,5 @@ async function toggle(t) {
 .extension-heading { display: flex; align-items: center; gap: 12px; min-height: 32px; }
 .extension-heading label { margin: 0; flex: none; white-space: nowrap; }
 .extension-heading > span { display: flex; gap: 4px; margin-left: auto; }
-@media(max-width:480px){.more-options>.retained-extension-field{grid-column:1 / -1}.delete-threshold-field>label{min-height:32px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start}}
+@media(max-width:480px){.more-options>.retained-extension-field{grid-column:1 / -1}}
 </style>
