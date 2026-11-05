@@ -68,23 +68,60 @@ test('file count appears only at list end or when no scroll is necessary',async(
  await expect(count).toBeVisible();await expect(count).toHaveText('1 项')
 })
 
-test('virtual library generates previewed structure and shares the ED2K pool',async({page},info)=>{
+test('115 snapshot cards save the selected output and execute confirmed generation',async({page},info)=>{
  await mock(page)
- await page.route('**/api/virtual-library/115/*',route=>route.fulfill({json:route.request().url().endsWith('/preview')?{preview:'key',files:[{path:'Show/one.mkv.share.strm',content:'http://host/115-share/code-abcd/one.mkv',size:2048}]}:{generated:1,skipped:0}}))
+ const cards=[],writes=[],runs=[],unexpected=[]
+ const settings={storageId:'pan',directory:'/media',scrapeEnabled:false}
+ await page.route('**/api/virtual-library/115**',route=>{
+  const request=route.request(),p=new URL(request.url()).pathname,base='/api/virtual-library/115'
+  if(p===base&&request.method()==='GET')return route.fulfill({json:{cards,settings,stats:{strm:runs.length}}})
+  if(p===base+'/resolve')return route.fulfill({json:{name:'Show'}})
+  if(p===base&&request.method()==='POST'){
+   const input=request.postDataJSON();writes.push(input);const card={...input,id:'show',result:{status:'idle',message:'等待执行'}};cards.push(card)
+   return route.fulfill({status:201,json:card})
+  }
+  if(p===base+'/show/run'&&request.method()==='POST'){
+   runs.push(p);cards[0].result={status:'completed',lastRun:'2026-11-05T00:00:00Z',message:'生成 1 个 STRM：Show/one.mkv.share.strm'}
+   return route.fulfill({status:202,json:cards[0].result})
+  }
+  unexpected.push(request.method()+' '+p);return route.fulfill({status:500,json:{error:'测试未定义接口'}})
+ })
  await page.route('**/api/local-directories**',route=>route.fulfill({json:{path:'/media',items:[]}}))
  await page.goto('/virtual/115')
  await expect(page.getByRole('navigation',{name:'虚拟链库栏目'}).getByRole('link')).toHaveCount(4)
- await page.getByRole('textbox',{name:'115分享链接',exact:true}).fill('https://115.com/s/code?password=abcd')
- await page.getByRole('button',{name:'解析',exact:true}).click();await expect(page.locator('.virtual-results')).toContainText('Show/one.mkv.share.strm')
- await page.locator('.source-trigger').click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click()
- await page.getByRole('button',{name:'生成 STRM',exact:true}).click();await expect(page.locator('.toast')).toContainText('生成 1 个 STRM')
+ await page.getByRole('button',{name:'添加链接',exact:true}).click()
+ let dialog=page.getByRole('dialog',{name:'添加115链接',exact:true})
+ await dialog.getByRole('textbox',{name:'分享链接',exact:true}).fill('https://115.com/s/code?password=abcd')
+ await dialog.getByRole('textbox',{name:'分享名称',exact:true}).focus()
+ await expect(dialog.getByRole('textbox',{name:'分享名称',exact:true})).toHaveValue('Show')
+ await expect(dialog.getByRole('textbox',{name:'目录名称',exact:true})).toHaveValue('Show')
+ await dialog.getByRole('button',{name:'选择生成位置',exact:true}).click();await page.getByRole('button',{name:'选择当前目录',exact:true}).click()
+ await expect(dialog.getByRole('textbox',{name:'生成位置',exact:true})).toHaveValue('/media')
+ await expect(dialog.getByRole('button',{name:'解析存储池',exact:true})).toHaveText('115影视')
+ await expect(dialog.getByRole('textbox',{name:'Cron表达式',exact:true})).toHaveCount(0)
+ await dialog.getByRole('button',{name:'保存链接',exact:true}).click()
+ await expect.poll(()=>writes.length).toBe(1)
+ expect(writes[0]).toEqual({id:'',storageId:'pan',url:'https://115.com/s/code?password=abcd',name:'Show',cron:'',directory:'/media',directoryName:'Show',mediaExtensions:'',metadataExtensions:'',enabled:true,cascadeCleanup:'off',scrapeEnabled:false,excludeDirs:'',excludeFiles:'',excludeTypes:''})
+ const card=page.getByRole('article',{name:'Show',exact:true})
+ await expect(card).toContainText('/media/Show');expect(runs).toEqual([])
+ await card.getByRole('button',{name:'执行',exact:true}).click()
+ const confirmation=page.getByRole('dialog',{name:'同步115分享',exact:true});await expect(confirmation).toBeVisible();expect(runs).toEqual([])
+ await confirmation.getByRole('button',{name:'确认同步',exact:true}).click()
+ await expect.poll(()=>runs).toEqual(['/api/virtual-library/115/show/run'])
+ await expect(card).toContainText('Show/one.mkv.share.strm');await expect(page.locator('.toast-stack')).toContainText('生成 1 个 STRM')
+ await page.reload();await expect(card).toContainText('Show/one.mkv.share.strm')
+ await card.getByRole('button',{name:'编辑 Show',exact:true}).click();dialog=page.getByRole('dialog',{name:'编辑115链接',exact:true})
+ await expect(dialog.getByRole('textbox',{name:'目录名称',exact:true})).toHaveValue('Show')
  await page.evaluate(()=>document.documentElement.dataset.theme='dark')
- await expect(page.locator('.virtual-library-panel .source-trigger')).toHaveCSS('background-color','rgb(41, 44, 52)')
- await expect(page.locator('.virtual-library-panel .rounded-select-trigger')).toHaveCSS('background-color','rgb(41, 44, 52)')
+ await expect(dialog.getByRole('textbox',{name:'生成位置',exact:true})).toHaveCSS('background-color','rgb(41, 44, 52)')
+ await expect(dialog.getByRole('button',{name:'解析存储池',exact:true})).toHaveCSS('background-color','rgb(41, 44, 52)')
  await expect(page.getByRole('navigation',{name:'虚拟链库栏目'}).locator('a:not(.active)').first()).toHaveCSS('color','rgb(237, 240, 248)')
  await expect(page.getByRole('navigation',{name:'虚拟链库栏目'}).locator('a.active')).toHaveCSS('color','rgb(244, 237, 189)')
  await page.screenshot({path:info.outputPath('virtual-library-dark.png')})
- await page.getByRole('button',{name:'存储绑定池',exact:true}).click();await expect(page).toHaveURL(/\/tasks\/ed2k\/pool$/)
+ await dialog.getByRole('button',{name:'取消',exact:true}).click()
+ await page.getByRole('button',{name:'115链库设置',exact:true}).click();await expect(page).toHaveURL(/\/virtual\/115\/settings$/)
+ await expect(page.getByRole('button',{name:'默认解析存储池',exact:true})).toHaveText('115影视')
+ expect(unexpected).toEqual([])
 })
 
 test('full and over-capacity storage cards keep gradient meters in both themes',async({page},info)=>{
@@ -192,5 +229,7 @@ test('removed Tianyi virtual library address returns to the available 115 librar
  await page.goto('/virtual/tianyi')
  await expect(page).toHaveURL(/\/virtual\/115$/)
  await expect(page.getByRole('navigation',{name:'虚拟链库栏目',exact:true}).getByRole('link',{name:'115链库',exact:true})).toHaveClass(/active/)
- await expect(page.getByText('115分享链接',{exact:true})).toBeVisible()
+ await expect(page.getByRole('region',{name:'115分享链接',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'添加链接',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'添加115链接',exact:true}).getByRole('textbox',{name:'分享链接',exact:true})).toBeVisible()
 })

@@ -32,9 +32,17 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   await expect(page).not.toHaveURL(/dashboard/)
   await page.goto('/tasks/strm')
   const taskPositions = await page.locator('[aria-label="任务栏目"] a').evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().x))
-  for (const name of ['整理归档', 'STRM 刮削', 'STRM 任务']) {
+  for (const name of ['整理归档', '缓存任务', 'STRM 任务']) {
     await page.getByRole('link', { name, exact: true }).click()
     expect(await page.locator('[aria-label="任务栏目"] a').evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().x))).toEqual(taskPositions)
+  }
+  await page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name:'刮削平台',exact:true}).click()
+  const scrapeTabs=page.getByRole('navigation',{name:'刮削平台栏目'})
+  await expect(scrapeTabs.getByRole('link')).toHaveText(['STRM刮削','链库刮削','目录刮削'])
+  const scrapePositions=await scrapeTabs.getByRole('link').evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().x))
+  for(const name of ['链库刮削','目录刮削','STRM刮削']){
+    await scrapeTabs.getByRole('link',{name,exact:true}).click()
+    expect(await scrapeTabs.getByRole('link').evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().x))).toEqual(scrapePositions)
   }
   await page.goto('/files/mounts')
   const heading = await page.locator('.mount-heading').boundingBox()

@@ -52,7 +52,7 @@ test('115 uses card management without live settings, archive filter or Cron',as
  await panel.getByRole('button',{name:'筛选链库状态',exact:true}).click();await expect(page.getByRole('option',{name:'封存中',exact:true})).toHaveCount(0);await page.keyboard.press('Escape')
  await page.getByRole('button',{name:'编辑 作品 1',exact:true}).click();const dialog=page.getByRole('dialog',{name:'编辑115链接',exact:true});await expect(dialog.getByRole('textbox',{name:'Cron表达式',exact:true})).toHaveCount(0);await expect(dialog.getByRole('button',{name:'解析存储池',exact:true})).toContainText('解析账号');await dialog.getByRole('button',{name:'取消',exact:true}).click()
  await page.goto('/virtual/115/settings');await expect(page.getByRole('spinbutton',{name:'更新周期',exact:true})).toHaveCount(0);await expect(page.getByRole('spinbutton',{name:'轮换时间',exact:true})).toHaveCount(0)
- await page.getByRole('button',{name:'保存设置',exact:true}).click();await expect.poll(()=>f.writes.length).toBe(1);expect(f.writes[0]).toEqual({storageId:'pool',directory:'/media'})
+ await page.getByRole('button',{name:'保存设置',exact:true}).click();await expect.poll(()=>f.writes.length).toBe(1);expect(f.writes[0]).toEqual({storageId:'pool',directory:'/media',scrapeEnabled:false})
  await captureScreenshot(page,{path:info.outputPath('115-settings.png')})
 })
 
