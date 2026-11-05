@@ -80,7 +80,7 @@ func mobileLibraryCompanions(ctx context.Context, root *os.Root, card quarkLibra
 			continue
 		}
 		digest, e := quarkLibraryDigest(root, f.Relative)
-		if !wanted[f.Relative] && (card.CascadeCleanup == "on" || sourceLibraryMediaGone(ctx, f.Relative)) && (os.IsNotExist(e) || e == nil && digest == f.Digest) {
+		if !wanted[f.Relative] && (card.CascadeCleanup != "off" || sourceLibraryMediaGone(ctx, f.Relative)) && (os.IsNotExist(e) || e == nil && digest == f.Digest) {
 			stale = append(stale, f.Relative)
 		} else {
 			live = append(live, f.Relative)
@@ -96,10 +96,10 @@ func mobileLibraryCompanions(ctx context.Context, root *os.Root, card quarkLibra
 	}
 	planned := []quarkLibraryDiskEntry{}
 	for _, entry := range entries {
-		if entry.info.IsDir() || !quarkLibrarySidecar(entry.name) || wanted[entry.name] {
+		if entry.info.IsDir() || !shareLibraryCascadeType(card, entry.name) || wanted[entry.name] {
 			continue
 		}
-		same := func(media string) bool { return quarkLibraryCompanion(entry.name, media) }
+		same := func(media string) bool { return shareLibraryCascadeCompanion(card, entry.name, media) }
 		group := func(media string) bool {
 			return path.Dir(entry.name) == path.Dir(media) || stringsHasDirectory(media, path.Dir(entry.name))
 		}
@@ -191,7 +191,7 @@ func (a *App) cleanMissingLibraryFile(ctx context.Context, provider string, card
 		}
 	}
 	for name := range wanted {
-		if quarkLibraryCompanion(name, missing.Relative) && !slices.ContainsFunc(live, func(media string) bool { return quarkLibraryCompanion(name, media) }) {
+		if shareLibraryCascadeCompanion(card, name, missing.Relative) && !slices.ContainsFunc(live, func(media string) bool { return shareLibraryCascadeCompanion(card, name, media) }) {
 			delete(wanted, name)
 		}
 	}

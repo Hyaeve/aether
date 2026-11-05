@@ -371,6 +371,12 @@ func (a *App) backupIgnored(ctx context.Context, name string) bool {
 }
 
 func validateResourceState(st *State, allowLegacyPIN ...bool) error {
+	if err := validateMediaDisplay(st.MediaDisplay); err != nil {
+		return err
+	}
+	if err := validateMediaSubscriptions(st.MediaSubscriptions); err != nil {
+		return err
+	}
 	if err := validateRulesWorkspace(*st); err != nil {
 		return err
 	}

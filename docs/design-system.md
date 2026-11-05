@@ -1,5 +1,9 @@
 # Aether Design System
 
+“探索发现”位于以太视界与以太工坊之间，资源推荐用Star、媒体订阅用Bell，保持现有22px线形图标和图标页签。推荐采用2:3海报横排、类型与评分角标，更多和搜索改为响应式网格；详情用背景图叠加主题遮罩。订阅使用海报与背景组合卡片，待接入状态明确显示，不用动画伪造任务进度。编辑窗口复用Modal、RoundedSelect、NumberInput，基础/进阶等分页签、标准40px控件、固定页头页尾，正文可滚动且隐藏轨道；桌面三列基础字段在手机单列展示。海报与订阅为按用户MoviePilot参考图确立的媒体卡片样式，圆角按此专用组件处理，不影响普通配置卡片规范。
+
+STRM刮削使用播放卡片加两条信息线，链库刮削使用叠放卡片加信息线，以太识律使用规则括线与三条文本线；均为24单位视框、1.7线宽、圆端点和`currentColor`，保原栏目/侧栏尺寸与日夜主题。去除识律旧图形的眼睛、分支和小圆点，刮削页签不再复用电视或复杂书库图标。
+
 规则预设编辑器去描述，规则名称为半栏40px输入框，命名与分类页签等分宽度且使用语义图标。洗版名称右侧为恢复默认，分组标题显示中文和代码，仅箭头调序；组内标签及命名标签可拖动，浮动卡片跟随指针且不可获焦，保留按钮/键盘替代及Esc取消。命名选中描边为1px混色线。链库设置两个面板使用surface底色、边框和14px圆角，1100px以下改纵向；存储管理下拉标签填满剩余宽度后才省略，不改变135/105/93px外宽。虚拟链库图标使用独立书库与链接组合线形SVG，刮削平台位于其下，档案中心在以太链接前。
 
 整理、刮削档案共用右侧单按钮切换列表/分组，工具栏依次状态、来源、数量、刷新、搜索、视图。折叠分组保留44×66px海报或空图占位，手机使用固定列网格避免海报被旧文本flex规则拉宽。
@@ -62,7 +66,7 @@ LitePan is the primary layout and interaction reference, including its local Adm
 - Accessibility: labeled icon controls, visible focus, modal focus containment and restoration, Escape close, live notifications, reduced motion.
 - States: genuine empty state, pending connection, disabled, error, active task, interrupted task. No fabricated storage or task metrics.
 - Login: 3:2 desktop split, twinkling canvas stars, a cached particulate galaxy with dark dust lanes, faint constellations and occasional meteor trails; three floating elliptical orbits. Provider logos have no added frames, remain upright and complete a revolution in 180 seconds. Motion runs automatically without a playback button; hidden tabs and reduced-motion preferences still suspend animation. Mobile hides the decorative side. Brand assets are bundled locally; sources are recorded in `web/public/providers/SOURCES.md`.
-- Login retains its original starfield, orbiting storage icons and layout; About keeps the same sky design. Painting is capped near 30fps while movement follows elapsed time. The foreground canvas is limited to 1.5x density and 3 million backing pixels; each broad galaxy/nebula cache uses at most 1x density and 1.5 million pixels. Reuse fixed moon, spiral and rock textures across viewport changes; unchanged-size notifications do not rebuild artwork. Hiding the responsive login panel or unmounting releases its backing stores. These bounds describe canvas pixels, not measured browser process/GPU memory.
+- Login and About retain the original sky artwork. Cached sky painting stays near30fps; a separate transparent meteor layer follows each animation frame and elapsed time, capped at800,000 pixels and1.5x density. Preserve the original6.6 million pixel sky budget (foreground3 million, broad caches1.5 million each, bounded fixed textures), with at most0.8 million additional trail pixels. Hidden/reduced-motion states pause rendering; responsive hiding/unmount releases backing stores. Pixel bounds are not measured process/GPU memory or a guaranteed device frame rate.
 - File rename submission closes the inline editor or confirmation immediately and previews the requested label with a small syncing indicator. Keep the authoritative ID, path and playback URL until acknowledged; only then report success. A failure or incomplete acknowledgement restores the displayed name and asks the user to verify storage, without claiming to undo a cloud write.
 - Login input focus stays inside each existing rounded border; password wrapper highlights as one control. A closed eye indicates concealed text, an open eye indicates visible text; accessible labels describe the next action.
 

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { readSession, rememberRoute, rememberedRoute, writeSession } from '../src/session-navigation.js'
 
 const parents = [
+  ['/discover/tv/42', '/discover/tv'],
+  ['/discover/movie/42', '/discover/movie'],
   ['/tasks/cache/settings', '/tasks/cache'],
   ['/tasks/cas/pool', '/tasks/cas'],
   ['/tasks/ed2k/pool', '/tasks/ed2k'],

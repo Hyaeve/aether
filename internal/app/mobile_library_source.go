@@ -15,6 +15,7 @@ import (
 type mobileLibraryShare struct{ Code, Pass, Name string }
 type mobileLibrarySource struct {
 	ID, Parent, Path, Name string
+	Owner                  string
 	StreamURL              string
 	Size                   int64
 	Directory              bool
@@ -138,6 +139,7 @@ func (a *App) mobileLibraryList(ctx context.Context, storage Storage, share mobi
 	}
 	for page := 0; page <= mobileShareScanLimit/100; page++ {
 		var data struct {
+			Owner string          `json:"owner"`
 			Files []entry         `json:"coLst"`
 			Dirs  []entry         `json:"caLst"`
 			Next  json.RawMessage `json:"nextPageCursor"`
@@ -155,7 +157,7 @@ func (a *App) mobileLibraryList(ctx context.Context, storage Storage, share mobi
 			dir  bool
 		}{{data.Dirs, true}, {data.Files, false}} {
 			for _, raw := range group.list {
-				item := mobileLibrarySource{ID: raw.ID, Name: raw.Name, Parent: parent, Directory: group.dir, Size: -1}
+				item := mobileLibrarySource{ID: raw.ID, Name: raw.Name, Parent: parent, Owner: data.Owner, Directory: group.dir, Size: -1}
 				supplied := raw.Path
 				if group.dir {
 					item.ID, item.Name = raw.DirectoryID, raw.DirName

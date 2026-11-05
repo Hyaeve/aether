@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -15,7 +15,7 @@ export default defineConfig({
   workers: 1,
   // Mocked UI requests must not bypass Playwright routes through a Worker.
   // PWA integration tests opt back in and exercise the real lifecycle.
-  use: { baseURL: 'http://127.0.0.1:15159', serviceWorkers: 'block', screenshot: 'only-on-failure', trace: 'retain-on-failure', viewport: { width: 1440, height: 1000 } },
+  use: { baseURL: 'http://127.0.0.1:15159', serviceWorkers: 'block', screenshot: 'only-on-failure', trace: 'retain-on-failure', viewport: { width: 1440, height: 1000 }, storageState:{cookies:[],origins:[{origin:'http://127.0.0.1:15159',localStorage:[{name:'aether-release-seen',value:readFileSync(new URL('../VERSION',import.meta.url),'utf8').trim()}]}]} },
   webServer: {
     command: `go run ./cmd/aether -config-dir "${path.join(testRoot, 'config')}" -data-dir "${path.join(testRoot, 'data')}"`,
     cwd: '..',

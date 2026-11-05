@@ -109,7 +109,7 @@ function open(t) {
     }
     else delete form.strmSource
     form.cascadeDelete??=false
-    form.cascadeExtensions||=''
+    form.cascadeExtensions=form.cascadeDelete?(form.cascadeExtensions||'jpg;jpeg;png;webp;nfo;srt;ass;ssa;sub;vtt'):''
     form.deleteThreshold??=1000
   }
   if (['cas', 'ed2k'].includes(props.kind)) delete form.retainedExtensions
@@ -128,7 +128,8 @@ function open(t) {
 async function save() {
   if (readOnly.value) return
   busy.value = true; error.value = ''
-  for (const [key,label] of [['mediaExtensions','媒体扩展名'],['metadataExtensions','元数据扩展名'],...(props.kind==='strm'?[['retainedExtensions','保留扩展名']]:[])]) { const invalid=extensionError(label,form[key]); if(invalid){ notify(invalid,true); busy.value=false; return } }
+  if(props.kind==='strm'){form.cascadeExtensions=form.cascadeExtensions.trim();form.cascadeDelete=!!form.cascadeExtensions}
+  for (const [key,label] of [['mediaExtensions','媒体扩展名'],['metadataExtensions','元数据扩展名'],...(props.kind==='strm'?[['retainedExtensions','保留扩展名'],['cascadeExtensions','级联删除']]:[])]) { const invalid=extensionError(label,form[key]); if(invalid){ notify(invalid,true); busy.value=false; return } }
   try { await api(editing.value ? `/tasks/${editing.value}` : '/tasks', editing.value ? 'PUT' : 'POST', form); await reload(); modal.value = false; notify('任务已保存') }
   catch (e) { error.value = e.message } finally { busy.value = false }
 }
@@ -213,10 +214,10 @@ async function toggle(t) {
         <div v-if="['cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>完成动作</label></div><RoundedSelect v-model="form.completionAction" label="完成动作" :options="[{value:'keep',label:'保留源文件'},{value:'delete',label:'删除源文件'}]" /></div>
         <div v-if="kind === 'strm'" class="field extension-field retained-extension-field"><div class="extension-heading"><label for="task-retained-extensions">保留扩展名</label><ExtensionPresets v-model="form.retainedExtensions" :groups="['video','audio']" label-prefix="保留" /></div><input id="task-retained-extensions" v-model="form.retainedExtensions" /></div>
         <div v-if="['strm', 'cas', 'ed2k'].includes(kind)" class="field extension-field"><div class="extension-heading"><label>STRM 刮削</label></div><RoundedSelect :model-value="form.scrapeExcluded ? 'exclude' : 'include'" @update:model-value="form.scrapeExcluded = $event === 'exclude'" label="STRM 刮削" :options="[{value:'include',label:'参与'},{value:'exclude',label:'不参与'}]" /></div>
+        <div v-if="kind==='strm'" class="field extension-field cascade-delete-field full"><div class="extension-heading"><label for="task-cascade-extensions">级联删除</label><ExtensionPresets v-model="form.cascadeExtensions" :groups="['image','data']" label-prefix="级联删除" /></div><input id="task-cascade-extensions" v-model="form.cascadeExtensions" aria-label="级联删除扩展名" placeholder="留空不启用，多个扩展名用英文分号隔开" /></div>
         <div v-if="kind==='strm'" class="field delete-threshold-field"><label for="task-delete-threshold">删除阈值</label><NumberInput id="task-delete-threshold" v-model="form.deleteThreshold" aria-label="删除阈值" unit="条" min="0" step="1" required /></div>
         <label>排除目录<input v-model="form.excludeDirs" placeholder="回收站;预告片" /></label><label>排除文件<input v-model="form.excludeFiles" placeholder="sample;trailer" /></label><label>排除类型<input v-model="form.excludeTypes" placeholder="iso;avi" /></label><div class="field" :class="{'strm-cache-field':kind==='strm'&&storage(form.storageId)?.type==='115'}"><label for="strm-cache">缓存期</label><NumberInput id="strm-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
         <div v-if="kind==='strm'&&storage(form.storageId)?.type==='115'" class="field request-interval-field"><label for="strm-api-interval">请求间隔</label><NumberInput id="strm-api-interval" v-model="form.apiInterval" aria-label="请求间隔" unit="ms" min="0" max="60000" step="1" required /><small class="muted">云端请求之间的最短间隔，0为不额外等待；不限制本地写入。</small></div>
-        <template v-if="kind==='strm'"><div class="field cascade-delete-field"><label for="task-cascade-delete">级联删除</label><div class="cascade-toggle-control"><input id="task-cascade-delete" v-model="form.cascadeDelete" class="switch" type="checkbox" role="switch" aria-label="级联删除" @change="form.cascadeDelete&&!form.cascadeExtensions&&(form.cascadeExtensions='jpg;jpeg;png;webp;nfo;srt;ass;ssa;sub;vtt')" /></div></div><label v-if="form.cascadeDelete">级联删除扩展名<input v-model="form.cascadeExtensions" aria-label="级联删除扩展名" /></label></template>
         </fieldset></template>
       <p v-if="form.completionAction === 'delete'" class="inline-note">将删除已成功生成的媒体、已复制的元数据及其他未纳入扩展名范围的文件，只清理本地空子目录，远程空目录保留；未生成、未复制或执行期间新增及变化的文件保留。源目录不能是存储池根目录。</p><p v-if="error" class="error-message" role="alert">{{ error }}</p></div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="modal = false">{{ readOnly ? '关闭' : '取消' }}</button><button class="btn primary" :disabled="readOnly || busy || !form.storageId"><Icon name="Check" />{{ busy ? '保存中…' : '保存任务' }}</button></footer></form>
   </Modal>
@@ -232,7 +233,6 @@ async function toggle(t) {
 .task-editor-form>.modal-body::-webkit-scrollbar{display:none}
 .task-editor-form>.modal-footer{flex:none;position:static}
 .task-fields{margin:0;padding:0;border:0;min-width:0}
-.cascade-toggle-control{height:40px;display:flex;align-items:center}
 .more-options>.strm-cache-field{grid-column:1}
 .task-row-card.health-paused{border-color:var(--red);background:color-mix(in srgb,var(--red) 4%,var(--surface))}.health-paused .task-result{color:var(--red)}
 .task-row-card.delete-paused{border-color:var(--amber);background:color-mix(in srgb,var(--amber) 5%,var(--surface))}

@@ -108,11 +108,15 @@ func (a *App) executeTelegramNativeLibrary(ctx context.Context, job telegramTran
 			name = "移动分享-" + quarkLibraryStamp(code)[:8]
 		}
 		card = quarkLibraryCard{ID: id(), Secret: mobileLibrarySecret(code, pass), Name: title, ShareName: title, Directory: directory, DirectoryName: name, Enabled: directory != "", CascadeCleanup: "off"}
-		card.ScrapeEnabled = effectiveMobileLibrary(st).ScrapeEnabled
-		days := effectiveMobileLibrary(st).UpdateDays
+		cfg := effectiveMobileLibrary(st)
+		card.ScrapeEnabled = cfg.ScrapeEnabled
+		card.MediaExtensions, card.MetadataExtensions = cfg.MediaExtensions, cfg.MetadataExtensions
+		days := cfg.UpdateDays
 		if cas {
-			days = effectiveCASLibrary(st).UpdateDays
-			card.ScrapeEnabled = effectiveCASLibrary(st).ScrapeEnabled
+			cfg := effectiveCASLibrary(st)
+			days = cfg.UpdateDays
+			card.ScrapeEnabled = cfg.ScrapeEnabled
+			card.MediaExtensions, card.MetadataExtensions = cfg.MediaExtensions, ""
 		}
 		botLibrarySchedule(&card, days, job.Created)
 		card.DirectoryName, err = telegramLibraryDirectory(st, card)

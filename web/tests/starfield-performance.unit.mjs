@@ -43,9 +43,10 @@ function sceneHarness(width=1920,height=1080,dpr=2){
   const component=module.exports.default.setup({decorative:true},{expose(){}})
   const panel={clientWidth:width,clientHeight:height},orbit={clientWidth:600,clientHeight:400},canvas=makeCanvas()
   component.universe.value=panel;component.scene.value=orbit;component.canvas.value=canvas
+  const meteorCanvas=makeCanvas();component.meteorCanvas.value=meteorCanvas
   component.satellites.push({style:{}})
   mounted.forEach(fn=>fn());observer.notify()
-  return {component,canvas,textures,panel,orbit,scheduled,
+  return {component,canvas,meteorCanvas,textures,panel,orbit,scheduled,
     resize:(w,h)=>{panel.clientWidth=w;panel.clientHeight=h;observer.notify()},
     notify:()=>observer.notify(),
     frame:now=>{const callbacks=[...scheduled.values()];scheduled.clear();callbacks.forEach(fn=>fn(now))},
@@ -55,7 +56,7 @@ function sceneHarness(width=1920,height=1080,dpr=2){
   }
 }
 
-test('the real sky caps drawing at 30fps across 60/120/144Hz while keeping elapsed motion',()=>{
+test('cached sky stays at 30fps while the small meteor layer follows 60/120/144Hz',()=>{
   const positions=[]
   for(const hz of [60,120,144]){
     const sky=sceneHarness(),before=sky.canvas.paints
@@ -63,6 +64,8 @@ test('the real sky caps drawing at 30fps across 60/120/144Hz while keeping elaps
     for(let i=0;i<=hz*2;i++)sky.frame(i*1000/hz)
     const paints=sky.canvas.paints-before
     assert.ok(paints>=50&&paints<=61,`${hz}Hz produced ${paints} paints in two seconds`)
+    assert.equal(sky.meteorCanvas.paints,hz*2+1)
+    assert.ok(sky.meteorCanvas.width*sky.meteorCanvas.height<=800000)
     assert.notEqual(sky.component.satellites[0].style.transform,original)
     positions.push(sky.component.satellites[0].style.transform.match(/-?[\d.]+(?=px)/g).map(Number))
     sky.unmount();assert.equal(sky.scheduled.size,0)
@@ -74,9 +77,9 @@ test('large and retina skies bound pixels and keep fixed textures across real re
   for(const [width,height,dpr] of [[1920,1080,2],[3840,2160,2],[390,844,3]]){
     const sky=sceneHarness(width,height,dpr)
     assert.ok(sky.canvas.width*sky.canvas.height<=3000000)
-    const backgrounds=sky.textures.slice(1,3)
+    const backgrounds=sky.textures.slice(2,4)
     for(const canvas of backgrounds)assert.ok(canvas.width*canvas.height<=1500000)
-    const fixed=sky.textures.slice(3),counts=fixed.map(canvas=>canvas.fills),total=sky.textures.length,paints=sky.canvas.paints
+    const fixed=sky.textures.slice(4),counts=fixed.map(canvas=>canvas.fills),total=sky.textures.length,paints=sky.canvas.paints
     const fills=sky.textures.map(canvas=>canvas.fills)
     sky.notify();sky.notify()
     assert.equal(sky.canvas.paints,paints)

@@ -185,7 +185,8 @@ func (a *App) executeTelegramLibrary(ctx context.Context, job telegramTransfer) 
 			directoryName = "夸克分享-" + quarkLibraryStamp(code)[:8]
 		}
 		card = quarkLibraryCard{ID: id(), Secret: job.Link, Name: title, ShareName: title, Directory: cfg.Directory,
-			DirectoryName: directoryName, Enabled: cfg.Directory != "" && readErr == nil, ScrapeEnabled: cfg.ScrapeEnabled}
+			DirectoryName: directoryName, Enabled: cfg.Directory != "" && readErr == nil, ScrapeEnabled: cfg.ScrapeEnabled,
+			MediaExtensions: cfg.MediaExtensions, MetadataExtensions: cfg.MetadataExtensions}
 		botLibrarySchedule(&card, cfg.UpdateDays, job.Created)
 		card.DirectoryName, err = telegramLibraryDirectory(st, card)
 		if err != nil {

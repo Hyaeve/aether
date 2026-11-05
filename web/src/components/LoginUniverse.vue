@@ -6,14 +6,14 @@ import GravityWell from './GravityWell.vue'
 import { createMeteorBatch, meteorOpacity, rockPosition } from '../meteor'
 import { createSpiralPair, moonRegion } from '../starfield'
 
-const universe = ref(), canvas = ref(), scene = ref()
+const universe = ref(), canvas = ref(), meteorCanvas = ref(), scene = ref()
 const props = defineProps({ decorative: Boolean })
 const reducedMotion = ref(false)
 const rings = [0.29, 0.36, 0.44]
 const ringByProvider = [0, 2, 1, 2, 1, 2, 2]
 const satellites = []
 let observer, motionPreference, frame = 0, elapsed = 0, previous, lastPaint
-let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx
+let width = 0, height = 0, sceneWidth = 0, sceneHeight = 0, ctx, meteorCtx
 let stars = []
 let galaxy, spiral, moon, rocks = [], nebula, spiralPositions=[]
 let meteorCycle = -1, meteors = []
@@ -21,10 +21,10 @@ const tilt = -18 * Math.PI / 180
 const frameInterval = 1000 / 30
 
 function releaseTextures() {
-  for (const texture of [canvas.value, galaxy, nebula, spiral, moon, ...rocks]) {
+  for (const texture of [canvas.value, meteorCanvas.value, galaxy, nebula, spiral, moon, ...rocks]) {
     if (texture) texture.width = texture.height = 0
   }
-  ctx = galaxy = nebula = spiral = moon = null
+  ctx = meteorCtx = galaxy = nebula = spiral = moon = null
   rocks = []; stars = []
 }
 
@@ -58,6 +58,7 @@ function resize() {
   ctx = canvas.value.getContext('2d')
   if (!ctx) return false
   ctx.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0)
+  if(meteorCanvas.value){const scale=Math.min(window.devicePixelRatio||1,1.5,Math.sqrt(800000/(width*height)));meteorCanvas.value.width=Math.max(1,Math.floor(width*scale));meteorCanvas.value.height=Math.max(1,Math.floor(height*scale));meteorCtx=meteorCanvas.value.getContext('2d');meteorCtx?.setTransform(meteorCanvas.value.width/width,0,0,meteorCanvas.value.height/height,0,0)}
   const random = randomGenerator()
   stars = Array.from({ length: Math.min(850, Math.floor(width * height / 1000)) }, () => ({
     x: random(), y: random(), radius: .35 + random() ** 4 * 1.3,
@@ -156,7 +157,8 @@ function buildRocks(random) {
   })
 }
 
-function paintMeteor(time) {
+function paintMeteor(time,ctx=meteorCtx) {
+  if(!ctx)return
   const cycle = Math.floor(time / 12)
   if (cycle !== meteorCycle) {
     meteorCycle = cycle
@@ -184,6 +186,8 @@ function paintMeteor(time) {
     ctx.restore()
   }
 }
+
+function paintMeteorFrame(time){if(!meteorCtx||!width||!height)return;const lunar=moonRegion(width,height);meteorCtx.clearRect(0,0,width,height);meteorCtx.save();meteorCtx.beginPath();meteorCtx.rect(0,0,width,height);meteorCtx.moveTo(lunar.cx+lunar.radius+2,lunar.cy);meteorCtx.arc(lunar.cx,lunar.cy,lunar.radius+2,0,Math.PI*2);meteorCtx.clip('evenodd');paintMeteor(time);meteorCtx.restore()}
 
 function positionSatellites(time) {
   for (let i = 0; i < satellites.length; i++) {
@@ -252,7 +256,6 @@ function paint(time) {
       ctx.stroke()
     }
   }
-  if (!reducedMotion.value) paintMeteor(time)
   // Faint constellation links stay away from the central brand and form.
   for (const points of [
     [[.07, .17], [.12, .15], [.17, .18], [.21, .23], [.29, .24], [.3, .17], [.23, .16], [.21, .23]],
@@ -290,6 +293,7 @@ function paint(time) {
 function tick(now) {
   if (previous !== undefined) elapsed += Math.min(now - previous, 100) / 1000
   previous = now
+  paintMeteorFrame(elapsed)
   if (lastPaint === undefined || now - lastPaint >= frameInterval - .01) {
     paint(elapsed)
     lastPaint = now
@@ -303,7 +307,7 @@ function syncMotion() {
   previous = lastPaint = undefined
   const hidden = document.hidden || !universe.value?.clientWidth
   if (!reducedMotion.value && !hidden) frame = requestAnimationFrame(tick)
-  else if (!hidden) paint(elapsed)
+  else if (!hidden) {paint(elapsed);paintMeteorFrame(elapsed)}
 }
 function preferenceChanged() {
   reducedMotion.value = motionPreference.matches
@@ -331,6 +335,7 @@ onBeforeUnmount(() => {
 <template>
   <section ref="universe" class="login-universe" :class="{ 'motion-paused': reducedMotion, 'universe-decorative': decorative }">
     <canvas ref="canvas" class="starfield" aria-hidden="true" />
+    <canvas ref="meteorCanvas" class="meteor-field" aria-hidden="true" />
     <div v-if="!decorative" class="login-brand"><img src="/aether.svg" alt="" /><span>Aether<small>以太 · 存储工作空间</small></span></div>
     <div ref="scene" class="orbital-system" aria-label="围绕以太运行的存储连接器">
       <div class="orbital-float">
@@ -354,6 +359,7 @@ onBeforeUnmount(() => {
 .universe-decorative .orbital-center { width: 72px; height: 72px; }
 .universe-decorative .orbital-center img { width: 72px; height: 72px; }
 .starfield { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+.meteor-field{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
 .login-brand, .universe-caption, footer { position: relative; z-index: 1; }
 .orbital-system { max-width: 650px; aspect-ratio: 1.15; width: 100%; margin: auto; }
 .orbital-float { position: absolute; inset: 0; animation: orbital-float 14s ease-in-out infinite; }

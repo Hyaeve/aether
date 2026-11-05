@@ -16,6 +16,9 @@ func organizeAIAvailable(st State) bool {
 }
 
 func normalizeOrganizeOptions(t *organizeTaskDefinition, st State) {
+	if t.ProcessConcurrency == 0 {
+		t.ProcessConcurrency = 1
+	}
 	if excludes, err := normalizeOrganizeExclusions(t.ExcludeList); err == nil {
 		t.ExcludeList = excludes
 	}
@@ -39,6 +42,9 @@ func normalizeOrganizeOptions(t *organizeTaskDefinition, st State) {
 
 func validateOrganizeOptions(t *organizeTaskDefinition, st State, available bool) error {
 	normalizeOrganizeOptions(t, st)
+	if t.ProcessConcurrency < 1 || t.ProcessConcurrency > 3 {
+		return errors.New("处理并发须为1至3的整数")
+	}
 	if t.OptionsVersion != 1 {
 		return errors.New("整理归档配置版本无效")
 	}

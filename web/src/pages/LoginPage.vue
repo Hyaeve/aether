@@ -4,11 +4,13 @@ import { api, state, reload } from '../lib'
 import Icon from '../components/Icon.vue'
 import LoginUniverse from '../components/LoginUniverse.vue'
 import AccountFields from '../components/AccountFields.vue'
+import { useRouter } from 'vue-router'
+const router = useRouter()
 const form = reactive({ username: '', password: '' })
 const busy = ref(false), error = ref('')
 async function submit() {
   busy.value = true; error.value = ''
-  try { await api(state.initialized ? '/auth/login' : '/auth/setup', 'POST', form); state.initialized = true; state.authenticated = true; await reload() }
+  try { await api(state.initialized ? '/auth/login' : '/auth/setup', 'POST', form); await router.replace('/dashboard'); state.initialized = true; state.authenticated = true; await reload() }
   catch (e) { error.value = e.message } finally { busy.value = false }
 }
 </script>

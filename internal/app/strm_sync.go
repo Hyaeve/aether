@@ -206,6 +206,10 @@ func (h *strmTaskSync) observe(filename string) error {
 }
 
 func (h *strmTaskSync) check(ctx context.Context) error {
+	return h.checkRoot(ctx, h.manifest.RootIdentity)
+}
+
+func (h *strmTaskSync) checkRoot(ctx context.Context, expectedIdentity string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -234,7 +238,7 @@ func (h *strmTaskSync) check(ctx context.Context) error {
 		defer live.Close()
 		info, err := live.Stat(".")
 		identity, identityErr := strmRootIdentity(live)
-		if err != nil || !os.SameFile(h.rootInfo, info) || identityErr != nil || identity != h.manifest.RootIdentity {
+		if err != nil || !os.SameFile(h.rootInfo, info) || identityErr != nil || identity != expectedIdentity {
 			return errors.New("STRM生成目录身份已改变")
 		}
 	}

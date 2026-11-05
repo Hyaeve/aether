@@ -38,7 +38,7 @@ test('compact desktop, card menus, file actions and encrypted import', async ({ 
   }
   await page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name:'刮削平台',exact:true}).click()
   const scrapeTabs=page.getByRole('navigation',{name:'刮削平台栏目'})
-  await expect(scrapeTabs.getByRole('link')).toHaveText(['STRM刮削','链库刮削','目录刮削'])
+  await expect(scrapeTabs.getByRole('link')).toHaveText(['STRM刮削','链库刮削','目录刮削','刮削设置'])
   const scrapePositions=await scrapeTabs.getByRole('link').evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().x))
   for(const name of ['链库刮削','目录刮削','STRM刮削']){
     await scrapeTabs.getByRole('link',{name,exact:true}).click()

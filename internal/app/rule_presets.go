@@ -45,6 +45,7 @@ type organizeTaskDefinition struct {
 	FailureLabel        string           `json:"failureLabel,omitempty"`
 	FailureTrail        []DirectoryCrumb `json:"failureTrail,omitempty"`
 	FileFilterMB        int64            `json:"fileFilterMB"`
+	ProcessConcurrency  int              `json:"processConcurrency"`
 	OptionsVersion      int              `json:"optionsVersion"`
 	NamingRuleID        string           `json:"namingRuleId"`
 	MediaCategoryRuleID string           `json:"mediaCategoryRuleId"`

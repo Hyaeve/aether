@@ -17,6 +17,9 @@ var runtimeFields = map[string][]string{
 	"mounts":      {"status", "lastError"},
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
+
+func init() { runtimeRootFields = append(runtimeRootFields, "mediaMissing", "mediaQuality") }
+
 var runtimeRootFields = []string{"libraryNotices", "shareNotices", "shareTransfers", "shareLiveLinks", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "rename115Attempts", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "library115Runtime", "mobileLibraryRuntime", "casLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts", "ali115Receipts"}
 
 func stripRuntimeRecords(value any, fields []string) any {

@@ -6,13 +6,14 @@ import Icon from '../components/Icon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 import ScrapeTabs from '../components/ScrapeTabs.vue'
 import DirectoryScrape from '../components/DirectoryScrape.vue'
+import ScrapeSettings from '../components/ScrapeSettings.vue'
 import Modal from '../components/Modal.vue'
 import ScrapeScopePicker from '../components/ScrapeScopePicker.vue'
 import ScrapeFiles from '../components/ScrapeFiles.vue'
 import { useVirtualList } from '../virtual-list'
 const props=defineProps({section:{type:String,default:'strm'}})
 const libraryProvider=ref('115')
-const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), settingsOpen = ref(false), matching = ref(null), candidates = ref([])
+const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), matching = ref(null), candidates = ref([])
 const query = ref(''), status = ref('all')
 const scopeOpen = ref(false)
 const viewMode = ref('poster'), fileView = ref(null), fileCount = ref(0)
@@ -60,10 +61,9 @@ const workPath = computed(() => {
   const base = libraryRoot.value || (/^(\/|[a-z]:[\\/])/i.test(target) ? target : `/data/strm/${target}`)
   return `${base.replace(/[\\/]+$/, '')}/${matching.value?.path?.split('/').slice(0, -1).join('/') || ''}`
 })
-const settings = reactive({ writeMode: 'missing', episodes: true, fanart: false, actors: false, excluded: '' })
 const match = reactive({ tmdb: '', kind: 'movie' })
 const resetting = ref(null)
-watch([matching, scopeOpen, settingsOpen, resetting, confirmation], values => { if (values.some(Boolean)) exitSelection() }, { flush: 'sync' })
+watch([matching, scopeOpen, resetting, confirmation], values => { if (values.some(Boolean)) exitSelection() }, { flush: 'sync' })
 async function resetMetadata() {
   busy.value = true
   try {
@@ -71,7 +71,7 @@ async function resetMetadata() {
     resetting.value = null; await load(); notify('作品元数据已重置')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-const tasks = computed(() => (props.section==='directory'?[]:props.section==='library'?state.scrapeLibraries.filter(t=>(t.provider||t.id.split('-share:')[0])===libraryProvider.value):state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded)).map(t => ({ value: t.id, label: t.name })))
+const tasks = computed(() => (['directory','settings'].includes(props.section)?[]:props.section==='library'?state.scrapeLibraries.filter(t=>(t.provider||t.id.split('-share:')[0])===libraryProvider.value):state.tasks.filter(t => ['strm', 'cas', 'ed2k'].includes(t.kind) && !t.scrapeExcluded)).map(t => ({ value: t.id, label: t.name })))
 const statuses = { unmatched: '待匹配', pending: '待刮削', ok: '已完成', error: '失败' }
 const itemStatus = item => ['miss','doubt'].includes(item.status) || item.status === 'pending' && !item.tmdb ? 'unmatched' : item.status
 const filtered = computed(() => items.value.filter(i => (i.directories || [i.path.split('/').slice(0,-1).join('/')]).some(d=>!excludedScopes.value.some(s=>s==='.' || d===s || d.startsWith(s+'/'))) && (status.value === 'all' || itemStatus(i) === status.value) && `${i.title} ${i.path}`.toLowerCase().includes(query.value.toLowerCase())))
@@ -120,11 +120,6 @@ async function action(name, item) {
     else notify('正在停止刮削')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
-async function saveSettings() {
-  busy.value = true
-  try { await api('/strm-scrape/settings', 'PUT', settings); settingsOpen.value = false; notify('刮削设置已保存') }
-  catch (e) { notify(e.message, true) } finally { busy.value = false }
-}
 function rematch(item) {
   matching.value = item; candidates.value = []; candidateQuery.value = item.title
   Object.assign(match, { tmdb: item.tmdb || '', kind: item.kind })
@@ -164,20 +159,20 @@ watch([tasks, preferenceKey], ([options, key], previous) => {
 watch(() => [...state.tasks, ...state.scrapeLibraries].find(t => t.id === task.value)?.status, (current, previous) => {
   if (previous === 'running' && current !== 'running') load()
 })
-onMounted(async () => {
-  if(props.section==='directory')return
+onMounted(() => {
+  if(['directory','settings'].includes(props.section))return
   document.addEventListener('keydown', selectionKey)
   document.addEventListener('focusin', overlayFocus)
   poll()
-  try { Object.assign(settings, await api('/strm-scrape/settings')) } catch (e) { notify(e.message, true) }
 })
 onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequest++; directoryRequest++; document.removeEventListener('keydown',selectionKey); document.removeEventListener('focusin',overlayFocus) })
 </script>
 <template>
   <ScrapeTabs :section="section"/>
-  <DirectoryScrape v-if="section==='directory'"/>
+  <ScrapeSettings v-if="section==='settings'"/>
+  <DirectoryScrape v-else-if="section==='directory'"/>
   <template v-else>
-  <section class="task-heading"><div></div><div class="toolbar-right"><button class="btn" @click="settingsOpen = true"><Icon name="Settings2" />刮削设置</button><button v-if="progress.running" class="btn" :disabled="busy" @click="action('stop')"><Icon name="Square" />停止</button></div></section>
+  <section v-if="progress.running" class="task-heading"><div></div><div class="toolbar-right"><button class="btn" :disabled="busy" @click="action('stop')"><Icon name="Square" />停止</button></div></section>
   <section class="scrape-panel" :class="{'selecting':selectionMode}">
     <div class="scrape-toolbar">
       <RoundedSelect v-if="section==='library'" v-model="libraryProvider" label="链库类型" :options="[{value:'115',label:'115链库'},{value:'mobile',label:'移动链库'},{value:'quark',label:'夸克链库'},{value:'cas',label:'CAS链库'}]"/>
@@ -209,13 +204,6 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
   <SelectionDock v-if="selectionMode" class="scrape-dock" :count="selection.length" label="所选作品操作"><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" /><span>全选</span></button><button class="btn" @click="exitSelection"><Icon name="X" /><span>清空</span></button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" /><span>重置</span></button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" /><span>识别</span></button></SelectionDock>
   <Modal v-if="confirmation" :title="confirmation.action === 'reset' ? '重置所选作品' : '确认识别刮削'" compact confirmation @close="!busy && (confirmation = null)"><div class="modal-body"><p v-if="confirmation.action === 'reset'">将删除所选 {{ confirmation.paths.length }} 部作品目录下的所有非 STRM 文件，包括封面、NFO 和其他文件，并清除匹配记录。STRM 与目录保留，此操作不可撤销。</p><p v-else>将按刮削设置重新识别并刮削{{ confirmation.paths?.length ? `所选 ${confirmation.paths.length} 部作品` : '当前范围内的 STRM 库' }}，确认继续？</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="confirmAction">{{ confirmation.action === 'reset' ? '确认重置' : '确认识别' }}</button><button class="btn" :disabled="busy" @click="confirmation = null">取消</button></footer></Modal>
   <Modal v-if="resetting" title="重置作品元数据" compact confirmation @close="!busy && (resetting = null)"><div class="modal-body"><p>重置「{{ resetting.title }}」的识别结果、匹配信息和刮削状态？磁盘上的 NFO、封面和 STRM 文件会保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="resetMetadata">确认重置</button><button class="btn" :disabled="busy" @click="resetting = null">取消</button></footer></Modal>
-  <Modal v-if="settingsOpen" title="STRM 刮削设置" compact wide @close="settingsOpen = false"><form @submit.prevent="saveSettings"><div class="modal-body scrape-settings">
-    <div class="field"><label>写入策略</label><RoundedSelect v-model="settings.writeMode" label="写入策略" :options="[{value:'missing',label:'仅补缺'}, {value:'overwrite',label:'覆盖已有'}]" /></div>
-    <label class="toggle-line"><span>分集 NFO 与预览图</span><input v-model="settings.episodes" type="checkbox" /></label>
-    <label class="toggle-line"><span>背景图</span><input v-model="settings.fanart" type="checkbox" /></label>
-    <label class="toggle-line"><span>演员信息</span><input v-model="settings.actors" type="checkbox" /></label>
-    <label>排除目录<input v-model="settings.excluded" placeholder="英文分号分隔" /></label>
-  </div><footer class="modal-footer"><button class="btn primary" :disabled="busy"><Icon name="Save" />保存设置</button></footer></form></Modal>
   <ScrapeScopePicker v-if="scopeOpen" :task="task" :excluded="excludedScopes" @close="scopeOpen = false" @save="excludedScopes = $event; scopeOpen = false" />
   <Modal v-if="matching" title="选择媒体匹配" compact wide @close="matching = null; candidateRequest++"><form @submit.prevent="saveMatch"><div class="modal-body scrape-settings">
     <div class="match-source-path" :data-tooltip="workPath"><small>作品目录</small>{{ workPath }}</div>

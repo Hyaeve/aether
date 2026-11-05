@@ -108,20 +108,22 @@ func (a *App) mobileLibraryTransferredLink(ctx context.Context, card quarkLibrar
 	if err = check(); err != nil {
 		return Download{}, err
 	}
-	parents, err := a.mobileListAt(ctx, s, host, record.Parent)
-	if err != nil {
-		return Download{}, err
-	}
-	verified := false
-	for _, f := range parents {
-		if f.ID == record.Folder && f.Name == record.FolderName && f.IsDir {
-			verified = true
+	readFiles := func() ([]File, error) {
+		if err := check(); err != nil {
+			return nil, err
 		}
+		parents, err := a.mobileListAt(ctx, s, host, record.Parent)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range parents {
+			if f.ID == record.Folder && f.Name == record.FolderName && f.IsDir {
+				return a.mobileListAt(ctx, s, host, record.Folder)
+			}
+		}
+		return nil, errors.New("移动链库临时目录身份未确认")
 	}
-	if !verified {
-		return Download{}, errors.New("移动链库临时目录身份未确认")
-	}
-	files, err := a.mobileListAt(ctx, s, host, record.Folder)
+	files, err := readFiles()
 	if err != nil {
 		return Download{}, err
 	}
@@ -133,7 +135,7 @@ func (a *App) mobileLibraryTransferredLink(ctx context.Context, card quarkLibrar
 		if err = save(); err != nil {
 			return Download{}, err
 		}
-		record.Task, err = a.generationTransfer(ctx, s, []GenerationEntry{{Mobile: &generationMobileSource{Code: share.Code, Pass: share.Pass, Token: resource}}}, record.Folder)
+		record.Task, err = a.generationTransfer(ctx, s, []GenerationEntry{{Mobile: &generationMobileSource{Code: share.Code, Pass: share.Pass, Token: resource, Owner: source.Owner}}}, record.Folder)
 		if err != nil {
 			return Download{}, err
 		}
@@ -142,12 +144,22 @@ func (a *App) mobileLibraryTransferredLink(ctx context.Context, card quarkLibrar
 		}
 	}
 	if record.FileID == "" {
-		if err = a.generationWaitTransfer(ctx, s, record.Task); err != nil {
-			return Download{}, err
-		}
-		files, err = a.mobileListAt(ctx, s, host, record.Folder)
-		if err != nil {
-			return Download{}, err
+		// A private, initially empty folder and its one verified file prove the
+		// copy completed. The legacy task-query API does not reliably echo taskID.
+		// Keep the durable submit receipt and poll only reads; never resubmit.
+		for {
+			files, err = readFiles()
+			if err != nil {
+				return Download{}, err
+			}
+			if len(files) != 0 {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return Download{}, ctx.Err()
+			case <-time.After(1500 * time.Millisecond):
+			}
 		}
 		if len(files) != 1 || files[0].IsDir || files[0].Name != source.Name || files[0].Size != source.Size || files[0].ID == record.Folder {
 			return Download{}, errors.New("移动链库转存文件身份未确认，未取直链")

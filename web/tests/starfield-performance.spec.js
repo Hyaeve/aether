@@ -37,7 +37,11 @@ for(const [kind,width,height,dpr] of [['login',1440,1000,2],['about',390,844,3],
       const pixels=await canvas.evaluate(el=>el.width*el.height)
       expect(pixels).toBeLessThanOrEqual(3000000)
       const allocated=()=>page.evaluate(()=>window.skyCanvases.reduce((total,el)=>total+el.width*el.height,0))
-      expect(await allocated()).toBeLessThanOrEqual(6600000)
+      // Preserve the original sky budget; the new per-frame trail layer has
+      // its own smaller allocation rather than increasing background density.
+      expect(await page.evaluate(()=>window.skyCanvases.filter(el=>!el.classList.contains('meteor-field')).reduce((total,el)=>total+el.width*el.height,0))).toBeLessThanOrEqual(6600000)
+      expect(await page.locator('.meteor-field').evaluate(el=>el.width*el.height)).toBeLessThanOrEqual(800000)
+      expect(await allocated()).toBeLessThanOrEqual(7400000)
       const first=page.locator('.satellite').first(),position=await first.evaluate(el=>el.style.transform)
       await expect.poll(()=>first.evaluate(el=>el.style.transform)).not.toBe(position)
       const logos=page.locator('.satellite img')

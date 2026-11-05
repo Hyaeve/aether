@@ -1,10 +1,16 @@
 # 模块配置
 
+## 我的媒体与归档并发
+
+主配置`mediaDisplay`保存服务端当前以链选择、缺集所选Emby及各以链的展示媒体库范围，复用原授权。`mediaMissing`、`mediaQuality`为独立运行态结果，不参与配置导出；更改配置或授权后不展示旧范围结果。整理归档新增`processConcurrency`，缺省1、范围1至3，目前仅保存配置，执行器仍待接入。详见[我的媒体](my-media.md)与[整理归档](organize-archive.md)。
+
 刮削平台独立于任务中心，提供STRM、链库与目录三个栏目。四类链库设置新增布尔`scrapeEnabled`（缺省false），只作为新卡片默认，已有卡片仍使用自己的`scrapeEnabled`；不批量迁移参与状态。目录刮削共用现有`organize/strm-scrape.json`设置，只有用户确认后才写回NFO和图片，临时文件计入传输暂存额度。目录识别索引保存在已有刮削缓存目录，真实结果进入加密档案。详见[刮削平台](scrape-platform.md)。
 
 TMDB与AI的界面入口现为“以太识律 → 辅助配置”，继续复用原插件配置、密钥按需查看及测试/保存接口，不迁移或重置存储内容。[命名和洗版预设](naming-upgrade-rules.md)现保存剧集/电影模板及有序评分分组，支持可视化编辑和只读求值；[媒体分类](media-categories.md)已支持多套预设，每张卡片独立保存剧集/电影目录、条件组合、顺序规则及兜底，整理任务用`mediaCategoryRuleId`引用，原`categoryRuleId`兼容读入，详见[以太识律](rules-workspace.md)。[识别规则](recognition-rules.md)现可保存前置匹配、归档黑名单、后置命名替换、发布组及文件体积阈值，前置规则有只读服务端预览。预设`rulePresets`、识别配置`recognitionRules`和整理归档任务定义`organizeTasks`存于主配置，随现有加密备份导出、导入及完整性事务保存；整理归档当前保存规则ID、冗余目录、过滤、元数据/排除名单及四个开关，`optionsVersion`区分旧缺省与显式关闭/留空，读取旧配置不重写磁盘。只提供本阶段配置表单与只读求值，不进入任务执行队列，详见[整理归档](organize-archive.md)。
 
 媒体深度删除配置为 `mediaDeepDelete.enabled/linkIds`，随加密配置备份。通过以链的Aether媒体目录/媒体服务目录映射定位原始STRM，独立回执位于数据目录runtime，不作为可导入的配置或自动执行队列。接入和启用步骤见[媒体深度删除](media-deep-delete.md)。
+
+媒体订阅配置`mediaSubscriptions`保存于主`state.json`模块，随现有完整配置备份与恢复，支持作品及季号去重、选项校验和事务回退。转存目录引用通知服务的目录ID，移除或停用目录不会移除订阅，后续编辑需重新选择或留空。资源来源尚未开放，暂不执行搜索或转存，详见[探索发现与媒体订阅](explore-subscriptions.md)。
 
 配置使用固定名称 JSON，不再为每次保存生成带摘要的文件名。
 

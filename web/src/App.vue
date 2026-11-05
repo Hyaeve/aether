@@ -42,6 +42,11 @@ import VirtualLibraryPage from './pages/VirtualLibraryPage.vue'
 import Rapid115Page from './pages/Rapid115Page.vue'
 import NotificationPage from './pages/NotificationPage.vue'
 import ArchivesPage from './pages/ArchivesPage.vue'
+import RecommendationPage from './pages/RecommendationPage.vue'
+import MediaSubscriptionsPage from './pages/MediaSubscriptionsPage.vue'
+import ReleaseNotice from './components/ReleaseNotice.vue'
+import MediaCalendarPage from './pages/MediaCalendarPage.vue'
+import MyMediaPage from './pages/MyMediaPage.vue'
 
 const route = useRoute(), router = useRouter()
 const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
@@ -76,6 +81,12 @@ const navigationGroups = [
     { path: '/storage', label: '存储管理', icon: 'HardDrive' },
     { path: '/transfer', label: '传输中心', icon: 'FolderSync' }
   ] },
+  { id: 'explore', label: '探索发现', items: [
+    { path: '/discover', label: '资源推荐', icon: 'Star' },
+    { path: '/subscriptions', label: '媒体订阅', icon: 'Bell' },
+    { path: '/calendar', label: '追剧日历', icon: 'CalendarCheck2' },
+    { path: '/my-media', label: '我的媒体', icon: 'Monitor' }
+  ] },
   { id: 'workshop', label: '以太工坊', items: [
     { path: '/rules', label: '以太识律', icon: 'RecognitionRules' },
     { path: '/tasks', label: '任务中心', icon: 'ListTodo' },
@@ -96,7 +107,10 @@ const currentPath = computed(() => route.path === '/' ? '/storage' : route.path 
 const activeNav = computed(() => navigation.find(n => currentPath.value === n.path || currentPath.value.startsWith(n.path + '/')))
 const title = computed(() => activeNav.value?.label || '以太')
 const sectionTitles = {
-  '/scrape/strm':['STRM刮削'], '/scrape/library':['链库刮削'], '/scrape/directory':['目录刮削'],
+  '/discover/all':['全部'], '/discover/tv':['剧集'], '/discover/movie':['电影'], '/discover/anime':['动漫'], '/discover/rankings':['榜单'],
+  '/subscriptions/tv':['剧集订阅'], '/subscriptions/movie':['电影订阅'], '/subscriptions/sources':['资源来源'],
+  '/my-media/panel':['媒体面板'], '/my-media/ranking':['内容排行'], '/my-media/missing':['缺集管理'], '/my-media/control':['控制中心'],
+  '/scrape/strm':['STRM刮削'], '/scrape/library':['链库刮削'], '/scrape/directory':['目录刮削'], '/scrape/settings':['刮削设置'],
   '/rules/recognition':['识别规则'], '/rules/naming':['命名规则'], '/rules/categories':['媒体分类'], '/rules/upgrade':['洗版策略'], '/rules/assist':['辅助配置'],
   '/files':['文件管理'], '/files/webdav':['WebDAV'], '/files/mounts':['本地挂载'],
   '/storage':['存储池'], '/storage/shares':['分享栏'], '/storage/downloads':['云下载'], '/storage/trash':['回收站'],
@@ -114,7 +128,7 @@ const sectionTitles = {
   '/settings':['账号与安全'], '/settings/account':['账号与安全'], '/settings/transfer':['传输设置'],
   '/settings/strm':['STRM 配置'], '/settings/logs':['日志管理'], '/settings/about':['关于以太']
 }
-const breadcrumbs = computed(() => sectionTitles[currentPath.value] || [])
+const breadcrumbs = computed(() => sectionTitles[currentPath.value] || (currentPath.value.startsWith('/discover/') && currentPath.value.split('/').length === 4 ? ['媒体详情'] : []))
 const planned = computed(() => ({
   '/backup': { title: '备份中心', icon: 'ArchiveRestore', items: ['备份计划', '备份历史', '恢复与校验'] },
   '/files/mounts': { title: '本地挂载', icon: 'CloudDownload', items: ['FUSE 挂载管理', '挂载点状态'] },
@@ -196,6 +210,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
 </script>
 <template>
   <OverflowTooltip />
+  <ReleaseNotice v-if="state.loaded&&state.authenticated"/>
   <div v-if="!state.loaded" class="boot-screen"><img src="/aether.svg" alt="Aether" /><h2>Aether 以太</h2><p v-if="connectionError" class="error-message">{{ connectionError }}</p><button v-if="connectionError" class="btn" @click="bootstrap">重新连接</button><p v-else>正在连接…</p></div>
   <LoginPage v-else-if="!state.authenticated" />
   <div v-else class="app-shell">
@@ -251,6 +266,10 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <template v-else-if="currentPath === '/transfer/backup/settings'"><section class="task-heading"><button class="btn" @click="router.push('/transfer/backup')"><Icon name="ArrowLeft" />返回备份规则</button></section><TransferSettings mode="backup" /></template>
         <TransfersPage v-else-if="currentPath.startsWith('/transfer') || currentPath === '/backup'" :rules="currentPath === '/transfer/backup' || currentPath === '/backup'" />
         <DashboardPage v-else-if="currentPath === '/dashboard'" />
+        <RecommendationPage v-else-if="currentPath.startsWith('/discover/')" :key="currentPath" :section="currentPath.split('/')[2]" :media-id="currentPath.split('/')[3]" />
+        <MediaSubscriptionsPage v-else-if="['/subscriptions/tv','/subscriptions/movie','/subscriptions/sources'].includes(currentPath)" :key="currentPath" :section="currentPath.split('/')[2]" />
+        <MediaCalendarPage v-else-if="currentPath==='/calendar'"/>
+        <MyMediaPage v-else-if="['/my-media/panel','/my-media/ranking','/my-media/missing','/my-media/control'].includes(currentPath)" :section="currentPath.split('/')[2]"/>
         <FilesPage v-else-if="currentPath === '/files'" :key="route.fullPath" />
         <MountsPage v-else-if="currentPath === '/files/mounts'" />
         <TaskPanelPage v-else-if="currentPath === '/tasks/panel'" />

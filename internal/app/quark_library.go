@@ -204,9 +204,6 @@ func validateQuarkLibrary(st State, legacy ...bool) error {
 }
 
 func validateQuarkLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
-	if card.CascadeCleanup != "" && card.CascadeCleanup != "on" && card.CascadeCleanup != "off" {
-		return errors.New("级联清理须选择开启或关闭")
-	}
 	provider, code, pass, err := parseShareLink(card.Secret, "")
 	if err != nil || provider != "quark" {
 		return errors.New("请输入有效的夸克分享链接和提取码")
@@ -220,7 +217,19 @@ func validateQuarkLibraryCard(card *quarkLibraryCard, legacy ...bool) error {
 
 func validateShareLibraryFields(card *quarkLibraryCard, legacy ...bool) error {
 	if card.CascadeCleanup != "" && card.CascadeCleanup != "on" && card.CascadeCleanup != "off" {
-		return errors.New("级联清理须选择开启或关闭")
+		value, err := normalizeExtensions(card.CascadeCleanup)
+		if err != nil {
+			return fmt.Errorf("级联删除：%w", err)
+		}
+		for _, ext := range []string{"strm", "cas", "ed2k"} {
+			if excludedType("file."+ext, value) {
+				return errors.New("级联删除扩展名不能包含STRM、CAS或ED2K")
+			}
+		}
+		card.CascadeCleanup = value
+		if value == "" {
+			card.CascadeCleanup = "off"
+		}
 	}
 	var err error
 	card.Name, card.DirectoryName = strings.TrimSpace(card.Name), strings.TrimSpace(card.DirectoryName)

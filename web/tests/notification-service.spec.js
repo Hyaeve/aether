@@ -38,7 +38,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`no
   await expect(page).toHaveURL(/\/notifications\/telegram$/)
   if (width < 700) await page.getByRole('button', { name: '打开导航', exact: true }).click()
   const nav = (await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('link').allTextContents()).map(text => text.trim())
-  expect(nav).toEqual(['信息总览','文件服务','存储管理','传输中心','以太识律','任务中心','虚拟链库','刮削平台','档案中心','以太链接','辅助工具','通知服务','运行日志','系统设置'])
+  expect(nav).toEqual(['信息总览','文件服务','存储管理','传输中心','资源推荐','媒体订阅','追剧日历','我的媒体','以太识律','任务中心','虚拟链库','刮削平台','档案中心','以太链接','辅助工具','通知服务','运行日志','系统设置'])
   if (width < 700) await page.locator('.nav-overlay').click({ position: { x: width - 8, y: 50 } })
   const tg = page.getByRole('form', { name: 'TG Bot', exact: true })
   const qq = page.getByRole('form', { name: 'QQ Bot', exact: true })

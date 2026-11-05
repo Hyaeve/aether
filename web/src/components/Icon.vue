@@ -26,8 +26,12 @@ import ShareTransferIcon from './ShareTransferIcon.vue'
 import RecognitionRulesIcon from './RecognitionRulesIcon.vue'
 import OrganizeArchiveIcon from './OrganizeArchiveIcon.vue'
 import VirtualLibraryIcon from './VirtualLibraryIcon.vue'
+import STRMScrapeIcon from './STRMScrapeIcon.vue'
+import LibraryScrapeIcon from './LibraryScrapeIcon.vue'
 import {LogIn,QrCode} from 'lucide-vue-next'
 const icons = {
+	STRMScrape: STRMScrapeIcon,
+	LibraryScrape: LibraryScrapeIcon,
 	VirtualLibrary: VirtualLibraryIcon,
 	ShareTransferHistory: ShareTransferIcon,
 	RecognitionRules: RecognitionRulesIcon,

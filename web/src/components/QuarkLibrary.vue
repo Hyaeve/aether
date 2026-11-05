@@ -29,6 +29,7 @@ const form = reactive({}), modal = ref(false), picker = ref(false), deleting = r
 const settingsPicker = ref(false)
 const confirmingSync = ref(null)
 const originalForm=ref(null)
+const originalCascade=ref('')
 const generationFields=['storageId','url','directory','mediaExtensions','metadataExtensions','enabled','cascadeCleanup','scrapeEnabled','excludeDirs','excludeFiles','excludeTypes']
 const generationChanged=computed(()=>!originalForm.value||generationFields.some(key=>form[key]!==originalForm.value[key]))
 const more = ref(false)
@@ -65,6 +66,8 @@ function open(card) {
   Object.assign(form,{id:'',storageId:cfg.storageId||firstAccount.value||'',url:'',name:'',cron:'',directory:cfg.directory||'',directoryName:'',mediaExtensions:'',metadataExtensions:'',enabled:!!cfg.directory},
     card ? Object.fromEntries(['id','storageId','url','name','cron','directory','directoryName','mediaExtensions','metadataExtensions','enabled'].map(k=>[k,card[k]])) : {},
     {cascadeCleanup:card?.cascadeCleanup||(mobile.value||pan115.value?'off':'on'),scrapeEnabled:card?card.scrapeEnabled===true:cfg.scrapeEnabled===true,excludeDirs:card?.excludeDirs||'',excludeFiles:card?.excludeFiles||'',excludeTypes:card?.excludeTypes||''})
+  originalCascade.value=form.cascadeCleanup
+  form.cascadeCleanup=form.cascadeCleanup==='off'?'':form.cascadeCleanup==='on'?'jpg;jpeg;png;webp;nfo;srt;ass;ssa;sub;vtt':form.cascadeCleanup
   if(!form.directory)form.directory=cfg.directory||''
   originalForm.value=JSON.parse(JSON.stringify(form))
   modal.value=true
@@ -86,7 +89,7 @@ function resolveName() {
   return promise
 }
 function validExtensions(value) {
-  const error=extensionError('媒体扩展名',value.mediaExtensions)||extensionError('元数据扩展名',value.metadataExtensions)||extensionError('排除类型',value.excludeTypes||'')
+  const error=extensionError('媒体扩展名',value.mediaExtensions)||extensionError('元数据扩展名',value.metadataExtensions)||extensionError('排除类型',value.excludeTypes||'')||(value.cascadeCleanup!==undefined?extensionError('级联删除',value.cascadeCleanup):'')
   if(error) notify(error,true)
   return !error
 }
@@ -99,7 +102,7 @@ async function save(confirmed = false) {
   try{
     if(resolvePending?.url===form.url)await resolvePending.promise
     if(!active)return
-    const value=await api(`${apiRoot}${form.id?'/'+form.id:''}`,form.id?'PUT':'POST',Object.fromEntries(Object.entries(form).filter(([key])=>pan115.value||key!=='storageId')))
+    const value=await api(`${apiRoot}${form.id?'/'+form.id:''}`,form.id?'PUT':'POST',{...Object.fromEntries(Object.entries(form).filter(([key])=>pan115.value||key!=='storageId')),cascadeCleanup:form.cascadeCleanup===originalForm.value?.cascadeCleanup?originalCascade.value:form.cascadeCleanup.trim()||'off'})
     if(active){modal.value=false;notify(value.generationError?`链接已保存，生成失败：${value.generationError}`:value.message||value.result?.message||`${providerLabel.value}${form.id?'链库已更新':'链接已添加'}`,!!value.generationError);await load()}
   }catch(e){if(active){if(e.field==='directoryName')directoryError.value=e.message;notify(e.message,true)}}finally{if(active)saving.value=false}
 }
@@ -165,7 +168,6 @@ defineExpose({open})
       <label>生成位置<div class="quark-directory-field"><input v-model="form.directory" aria-label="生成位置" :required="form.enabled" /><button type="button" class="icon-btn" aria-label="选择生成位置" @click="picker=true"><Icon name="FolderOpen" /></button></div></label>
       <label>目录名称<input v-model="form.directoryName" aria-label="目录名称" maxlength="255" :aria-invalid="invalidDirectory||undefined" :aria-describedby="invalidDirectory?'library-directory-error':undefined" @blur="duplicateDirectory&&notify('保存目录名称已存在，请修改目录名称',true)" /><small v-if="invalidDirectory" id="library-directory-error" class="error-message">{{directoryError||'保存目录名称已存在，请修改目录名称'}}</small></label>
       <label v-if="!pan115">Cron表达式<CronInput v-model="form.cron" share-library aria-label="Cron表达式" /></label><label v-else>解析存储池<RoundedSelect v-model="form.storageId" label="解析存储池" :options="accounts.map(s=>({value:s.id,label:s.name}))"/></label>
-      <label>级联删除<RoundedSelect v-model="form.cascadeCleanup" label="级联清理" hide-check :options="[{value:'on',label:'开启'},{value:'off',label:'关闭'}]" /></label>
       <label class="full"><span class="quark-extension-label">媒体扩展名<ExtensionPresets v-model="form.mediaExtensions" :groups="['video','audio']" /></span><input v-model="form.mediaExtensions" aria-label="媒体扩展名" /></label>
       <label v-if="!cas&&!pan115" class="full"><span class="quark-extension-label">元数据扩展名<ExtensionPresets v-model="form.metadataExtensions" :groups="['image','data']" /></span><input v-model="form.metadataExtensions" aria-label="元数据扩展名" /></label>
       <label class="switch-label full">启用链接<input v-model="form.enabled" class="switch" type="checkbox" role="switch" aria-label="启用链接" :disabled="!form.directory?.trim()" /></label>
@@ -173,6 +175,7 @@ defineExpose({open})
     <button type="button" class="disclosure" :aria-expanded="more" aria-controls="quark-library-more" @click="more=!more;more&&revealOptions($event.currentTarget)"><Icon :name="more?'ChevronDown':'ChevronRight'" />更多选项</button>
     <div v-if="more" id="quark-library-more" class="form-grid quark-library-more">
       <label>链库刮削<RoundedSelect :model-value="form.scrapeEnabled?'include':'exclude'" label="链库刮削" :options="[{value:'exclude',label:'不参与'},{value:'include',label:'参与'}]" @update:model-value="form.scrapeEnabled=$event==='include'" /></label>
+      <label class="full cascade-delete-field"><span class="quark-extension-label">级联删除<ExtensionPresets v-model="form.cascadeCleanup" :groups="['image','data']" label-prefix="级联删除" /></span><input v-model="form.cascadeCleanup" aria-label="级联删除扩展名" placeholder="留空不启用，多个扩展名用英文分号隔开" /></label>
       <label>排除目录<input v-model="form.excludeDirs" aria-label="排除目录" maxlength="4096" /></label>
       <label>排除文件<input v-model="form.excludeFiles" aria-label="排除文件" maxlength="4096" /></label>
       <label>排除类型<input v-model="form.excludeTypes" aria-label="排除类型" /></label>

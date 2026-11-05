@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -53,6 +54,7 @@ type mobilePlaybackPersonal struct {
 	creates, transfers, deletes, links int
 	unknown                            bool
 	onDelete                           func()
+	onList                             func(string)
 }
 
 func mockMobilePlaybackPersonal(t *testing.T, a *App, m *mobileLibraryMock, resources ...string) *mobilePlaybackPersonal {
@@ -63,8 +65,8 @@ func mockMobilePlaybackPersonal(t *testing.T, a *App, m *mobileLibraryMock, reso
 		if r.URL.Path != "/user/route/qryRoutePolicy" && r.URL.Host != "personal-njs.yun.139.com" {
 			return wire.RoundTrip(r)
 		}
-		if r.Header.Get("Authorization") == "" {
-			t.Error("native request missing bound account")
+		if r.Header.Get("Authorization") != "Basic "+a.store.snapshot().Storages[0].Config["authorization"] {
+			t.Error("native request did not reuse the bound storage authorization")
 		}
 		var body map[string]json.RawMessage
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -74,6 +76,9 @@ func mockMobilePlaybackPersonal(t *testing.T, a *App, m *mobileLibraryMock, reso
 		case "/user/route/qryRoutePolicy":
 			data = map[string]any{"routePolicyList": []any{map[string]string{"modName": "personal", "httpsUrl": "https://personal-njs.yun.139.com"}}}
 		case "/file/list":
+			if p.onList != nil {
+				p.onList(str("parentFileId"))
+			}
 			items := []map[string]any{}
 			for _, f := range p.files[str("parentFileId")] {
 				kind := "file"
@@ -218,6 +223,139 @@ func TestMobileLibraryModesTransferReuseCleanupAndRuntime(t *testing.T) {
 	}
 	if _, ok := a.store.snapshot().MobileLibraryRuntime.Files[nextMobileGrant(t, a).Key]; !ok {
 		t.Fatal("cleanup revoked generated STRM")
+	}
+}
+
+func TestMobileLibraryTransferUsesVerifiedCopyWithoutTaskEcho(t *testing.T) {
+	a := testApp(t)
+	m, card := mockMobileLibrary(t, a)
+	p := mockMobilePlaybackPersonal(t, a, m)
+	previous := m.extra
+	queries := 0
+	owner := ""
+	m.extra = func(r *http.Request) (string, bool) {
+		if filepath.Base(r.URL.Path) == "getOutLinkInfoV6" {
+			return `{"resultCode":"0","data":{"owner":"share-owner","coLst":[{"coID":"video","coName":"剧集 [A] #1.mkv","coPath":"root/video","coSize":10}]}}`, true
+		}
+		if filepath.Base(r.URL.Path) == "queryBatchOprTaskDetail" {
+			queries++
+			return `{"resultCode":"0","data":{"taskStatus":"2"}}`, true
+		}
+		if filepath.Base(r.URL.Path) == "createOuterLinkBatchOprTask" {
+			raw, _ := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(strings.NewReader(string(raw)))
+			var body struct {
+				Request struct {
+					Owner string `json:"ownerAccount"`
+				} `json:"createOuterLinkBatchOprTaskReq"`
+			}
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Error(err)
+			}
+			owner = body.Request.Owner
+		}
+		return previous(r)
+	}
+	if err := a.store.update(func(st *State) error {
+		cfg := effectiveMobileLibrary(*st)
+		cfg.PlaybackMode = "transfer"
+		st.MobileLibrary = &cfg
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.runMobileLibrary(a.ctx, card); err != nil {
+		t.Fatal(err)
+	}
+	h, _ := mobileLibraryHandler(t, a)
+	target := "/139-share/CodeAb-Ab12/" + url.PathEscape("剧集 [A] #1.mkv")
+	for i := range 2 {
+		if i == 1 {
+			// Recover a receipt left by the old task-query failure: the submit
+			// task is known, but the already present copy was not recorded yet.
+			if err := a.store.update(func(st *State) error {
+				for key, record := range st.MobileLibraryRuntime.Temporary {
+					if record.Task == "" {
+						t.Fatal("missing durable transfer task")
+					}
+					record.FileID, record.Hash = "", ""
+					st.MobileLibraryRuntime.Temporary[key] = record
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w := request(t, h, "GET", target, nil, nil)
+		if w.Code != 302 || w.Header().Get("Location") != "https://mobile-original.test/original.mkv" {
+			t.Fatal("verified personal copy did not yield a direct link", w.Code, w.Body.String())
+		}
+	}
+	if p.transfers != 1 || p.links != 2 || queries != 0 || owner != "share-owner" {
+		t.Fatal("copy was resubmitted, auth source lost, or unreliable query used", p.transfers, p.links, queries, owner)
+	}
+}
+
+func TestMobileLibraryTransferWaitsForCopyAndRejectsMismatch(t *testing.T) {
+	for _, scenario := range []string{"delayed", "name", "size", "extra", "cancel"} {
+		t.Run(scenario, func(t *testing.T) {
+			a := testApp(t)
+			m, card := mockMobileLibrary(t, a)
+			p := mockMobilePlaybackPersonal(t, a, m)
+			if _, err := a.runMobileLibrary(a.ctx, card); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.store.update(func(st *State) error {
+				cfg := effectiveMobileLibrary(*st)
+				cfg.PlaybackMode = "transfer"
+				st.MobileLibrary = &cfg
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			h, _ := mobileLibraryHandler(t, a)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			reads := 0
+			var copied []File
+			p.onList = func(parent string) {
+				if p.transfers == 0 || parent != "folder-1" {
+					return
+				}
+				reads++
+				if reads == 1 {
+					copied = append([]File{}, p.files[parent]...)
+					switch scenario {
+					case "delayed", "cancel":
+						p.files[parent] = nil
+					case "name":
+						p.files[parent][0].Name = "other.mkv"
+					case "size":
+						p.files[parent][0].Size++
+					case "extra":
+						p.files[parent] = append(p.files[parent], File{ID: "unrelated", Name: "keep.txt", Size: 1})
+					}
+					if scenario == "cancel" {
+						cancel()
+					}
+				} else if scenario == "delayed" {
+					p.files[parent] = copied
+				}
+			}
+			r := httptest.NewRequest("GET", "/139-share/CodeAb-Ab12/"+url.PathEscape("剧集 [A] #1.mkv"), nil).WithContext(ctx)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if scenario == "delayed" {
+				if w.Code != 302 || p.links != 1 || reads != 2 {
+					t.Fatal("pending copy was not checked with reads", w.Code, w.Body.String(), reads, p.links)
+				}
+			} else if w.Code != 502 || w.Header().Get("Location") != "" || p.links != 0 {
+				t.Fatal("mismatched or canceled copy exposed a link", w.Code, w.Body.String(), p.links)
+			}
+			if p.transfers != 1 || p.deletes != 0 {
+				t.Fatal("wait replayed or cleaned an uncertain copy", p.transfers, p.deletes)
+			}
+		})
 	}
 }
 

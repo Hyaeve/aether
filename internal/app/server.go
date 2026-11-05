@@ -29,6 +29,8 @@ import (
 )
 
 type App struct {
+	discoveryMu         sync.Mutex
+	discoveryCache      map[string]discoveryCacheEntry
 	mediaDeepDeleteMu   sync.Mutex
 	ali115Gate          sync.Mutex
 	ali115Session       *aliSession
@@ -107,6 +109,9 @@ type App struct {
 	mounts              *mountManager
 	links               *linkRuntime
 	versionMu           sync.Mutex
+	mediaMu             sync.Mutex
+	mediaClients        map[string]*mediaDashboardClient
+	mediaScans          map[string]*mediaScan
 	versionExpiry       time.Time
 	versionResult       map[string]any
 	tianyiMu            sync.Mutex
@@ -434,6 +439,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/generation/jobs", a.protected(http.HandlerFunc(a.generationJobs)))
 	mux.Handle("/api/strm/settings", a.protected(http.HandlerFunc(a.strmSettings)))
 	mux.Handle("GET /api/version", a.protected(http.HandlerFunc(a.version)))
+	mux.Handle("GET /api/version/notes", a.protected(http.HandlerFunc(a.releaseNotes)))
 	mux.Handle("GET /api/version/check", a.protected(http.HandlerFunc(a.checkVersion)))
 	mux.Handle("POST /api/authorization/{provider}/start", a.protected(http.HandlerFunc(a.startAuthorization)))
 	mux.Handle("POST /api/authorization/{provider}/poll", a.protected(http.HandlerFunc(a.pollAuthorization)))
@@ -497,6 +503,20 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("POST /api/upgrade-rules/preview", a.protected(http.HandlerFunc(a.upgradePreview)))
 	mux.Handle("POST /api/media-categories/preview", a.protected(http.HandlerFunc(a.mediaCategoryPreview)))
 	mux.Handle("POST /api/recognition-rules/preview", a.protected(http.HandlerFunc(a.recognitionRulesPreview)))
+	mux.Handle("GET /api/discovery", a.protected(http.HandlerFunc(a.discoveryFeed)))
+	mux.Handle("GET /api/discovery/{kind}/{id}", a.protected(http.HandlerFunc(a.discoveryDetailAPI)))
+	mux.Handle("GET /api/media-subscriptions", a.protected(http.HandlerFunc(a.mediaSubscriptionsAPI)))
+	mux.Handle("GET /api/media-calendar", a.protected(http.HandlerFunc(a.mediaCalendar)))
+	mux.Handle("GET /api/my-media/config", a.protected(http.HandlerFunc(a.mediaConfigAPI)))
+	mux.Handle("PUT /api/my-media/config", a.protected(http.HandlerFunc(a.mediaConfigAPI)))
+	mux.Handle("GET /api/my-media/{id}/libraries", a.protected(http.HandlerFunc(a.mediaLibrariesAPI)))
+	mux.Handle("GET /api/my-media/{id}/image/{item}", a.protected(http.HandlerFunc(a.mediaImageAPI)))
+	mux.Handle("GET /api/my-media/{id}/scan", a.protected(http.HandlerFunc(a.mediaScanAPI)))
+	mux.Handle("POST /api/my-media/{id}/scan", a.protected(http.HandlerFunc(a.mediaScanAPI)))
+	mux.Handle("GET /api/my-media/{id}/{action}", a.protected(http.HandlerFunc(a.mediaDashboardAPI)))
+	mux.Handle("POST /api/media-subscriptions", a.protected(http.HandlerFunc(a.mediaSubscriptionsAPI)))
+	mux.Handle("PUT /api/media-subscriptions/{id}", a.protected(http.HandlerFunc(a.mediaSubscriptionsAPI)))
+	mux.Handle("DELETE /api/media-subscriptions/{id}", a.protected(http.HandlerFunc(a.mediaSubscriptionsAPI)))
 	mux.Handle("/api/rule-presets/{id}", a.protected(http.HandlerFunc(a.rulePresetsAPI)))
 	mux.Handle("/api/organize-tasks", a.protected(http.HandlerFunc(a.organizeTasksAPI)))
 	mux.Handle("/api/organize-options", a.protected(http.HandlerFunc(a.organizeOptionsAPI)))

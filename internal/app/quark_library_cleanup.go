@@ -267,6 +267,21 @@ func quarkLibraryCompanion(name, media string) bool {
 	if path.Dir(name) != path.Dir(media) || !quarkLibrarySidecar(name) {
 		return false
 	}
+	return shareLibraryCompanionName(name, media)
+}
+
+func shareLibraryCascadeType(card quarkLibraryCard, name string) bool {
+	if card.CascadeCleanup == "" || card.CascadeCleanup == "on" || card.CascadeCleanup == "off" {
+		return quarkLibrarySidecar(name)
+	}
+	return excludedType(name, card.CascadeCleanup)
+}
+
+func shareLibraryCascadeCompanion(card quarkLibraryCard, name, media string) bool {
+	return path.Dir(name) == path.Dir(media) && shareLibraryCascadeType(card, name) && shareLibraryCompanionName(name, media)
+}
+
+func shareLibraryCompanionName(name, media string) bool {
 	stem := strings.TrimSuffix(name, path.Ext(name))
 	plain := quarkLibraryStem(media)
 	full := strings.TrimSuffix(media, ".strm")
@@ -393,7 +408,7 @@ func (a *App) reconcileQuarkLibrary(ctx context.Context, card quarkLibraryCard, 
 				return 0, errors.New("到期目录包含未登记的文件，卡片及目录保留，请人工核对")
 			}
 			remove[entry.name] = true
-		} else if (card.CascadeCleanup != "off" || sourceLibraryCleanup(ctx) || len(staleMedia) > 0) && quarkLibrarySidecar(entry.name) {
+		} else if (card.CascadeCleanup != "off" || sourceLibraryCleanup(ctx) || len(staleMedia) > 0) && shareLibraryCascadeType(card, entry.name) {
 			directory := path.Dir(entry.name)
 			hasMedia := slices.ContainsFunc(liveMedia, func(name string) bool { return directory == "." || strings.HasPrefix(name, directory+"/") })
 			hasStale := slices.ContainsFunc(staleMedia, func(name string) bool { return directory == "." || strings.HasPrefix(name, directory+"/") })
@@ -402,8 +417,8 @@ func (a *App) reconcileQuarkLibrary(ctx context.Context, card quarkLibraryCard, 
 				continue
 			}
 			for _, stale := range staleMedia {
-				if quarkLibraryCompanion(entry.name, stale) && !slices.ContainsFunc(liveMedia, func(name string) bool {
-					return quarkLibraryCompanion(entry.name, name)
+				if shareLibraryCascadeCompanion(card, entry.name, stale) && !slices.ContainsFunc(liveMedia, func(name string) bool {
+					return shareLibraryCascadeCompanion(card, entry.name, name)
 				}) {
 					remove[entry.name] = true
 					break

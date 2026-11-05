@@ -132,6 +132,10 @@ type LogEntry struct {
 }
 
 type State struct {
+	MediaDisplay          mediaDisplaySettings            `json:"mediaDisplay"`
+	MediaMissing          map[string]mediaMissingResult   `json:"mediaMissing,omitempty"`
+	MediaQuality          map[string]mediaQualityResult   `json:"mediaQuality,omitempty"`
+	MediaSubscriptions    []mediaSubscription             `json:"mediaSubscriptions,omitempty"`
 	RecognitionRules      *recognitionSettings            `json:"recognitionRules,omitempty"`
 	RulePresets           []rulePreset                    `json:"rulePresets,omitempty"`
 	OrganizeTasks         []organizeTaskDefinition        `json:"organizeTasks,omitempty"`

@@ -1398,6 +1398,8 @@ html:has(.main-shell), body:has(.main-shell) { overflow: hidden; }
 .page-content:has(> .workspace-empty) { height:calc(100dvh - 48px); }
 .page-content:has(> .automation-list) { min-height:calc(100dvh - 48px); display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
 .page-content:has(> .scrape-panel) { min-height:calc(100dvh - 48px); height:auto; display:flex; flex-direction:column; padding-bottom:var(--workspace-end-gap); }
+.page-content:has(.share-library-window),.page-content:has(> .archive-panel),.page-content:has(> .task-panel-toolbar){min-height:calc(100dvh - 48px);height:auto;display:flex;flex-direction:column;padding-bottom:var(--workspace-end-gap)}
+.page-content>.archive-panel{flex:1;display:flex;flex-direction:column}.archive-panel>.archive-pagination{margin-top:auto}.page-content>.task-panel-empty{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px}
 .page-content:has(> .transfer-content:not(.backup-content)) { padding-bottom:var(--workspace-end-gap); }
 .log-list-shell { height:auto; min-height:0; flex:1; }
 .playback-list-shell { height:calc(100dvh - 88px); }

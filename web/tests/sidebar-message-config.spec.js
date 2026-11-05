@@ -66,9 +66,10 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`sidebar 
  await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
  if(width<800)await page.getByRole('button',{name:'打开导航',exact:true}).click()
  const nav=page.getByRole('navigation',{name:'主导航',exact:true}),links=nav.getByRole('link')
- await expect(nav.getByRole('heading')).toHaveText(['以太视界','以太工坊','系统面板'])
+ await expect(nav.getByRole('heading')).toHaveText(['以太视界','探索发现','以太工坊','系统面板'])
  const sections=[
   ['以太视界',['信息总览','文件服务','存储管理','传输中心']],
+  ['探索发现',['资源推荐','媒体订阅','追剧日历','我的媒体']],
   ['以太工坊',['以太识律','任务中心','虚拟链库','刮削平台','档案中心','以太链接','辅助工具']],
   ['系统面板',['通知服务','运行日志','系统设置']]
  ]
@@ -92,7 +93,7 @@ for(const width of [1440,390])for(const theme of ['light','dark'])test(`sidebar 
   const groups=[...el.querySelectorAll('.nav-group')].map(e=>e.getBoundingClientRect()),brand=document.querySelector('.sidebar .brand').getBoundingClientRect()
   return {gaps:groups.slice(1).map((r,i)=>r.top-groups[i].bottom),brandGap:groups[0].top-brand.bottom,width:el.closest('.sidebar').getBoundingClientRect().width}
  })
- expect(geometry.gaps).toEqual([12,12])
+ expect(geometry.gaps).toEqual([12,12,12])
  expect(geometry.brandGap).toBeLessThanOrEqual(6);expect(geometry.width).toBe(220)
  await expect(nav.getByRole('link',{name:'信息总览',exact:true})).toHaveAttribute('aria-current','page')
  await expect(page.locator('.breadcrumbs strong')).toHaveText('信息总览')
@@ -117,13 +118,13 @@ test('group headings are not links and keyboard navigation preserves archive mem
  await expect(nav.getByRole('link',{name:'档案中心',exact:true})).toHaveAttribute('aria-current','page')
  await expect(page.locator('.breadcrumbs strong')).toHaveText('档案中心')
  await expect(page.locator('.breadcrumbs [aria-current=page]')).toHaveText('任务档案')
- await expect(nav.getByRole('heading')).toHaveCount(3)
+ await expect(nav.getByRole('heading')).toHaveCount(4)
  expect(await nav.getByRole('heading').evaluateAll(nodes=>nodes.every(el=>el.tabIndex<0))).toBe(true)
  const overview=nav.getByRole('link',{name:'信息总览',exact:true})
  await overview.focus();await page.keyboard.press('Enter')
  await expect(page).toHaveURL(/\/dashboard$/)
  await overview.focus()
- const sequence=['文件服务','存储管理','传输中心','以太识律','任务中心','虚拟链库','刮削平台','档案中心','以太链接','辅助工具']
+ const sequence=['文件服务','存储管理','传输中心','资源推荐','媒体订阅','追剧日历','我的媒体','以太识律','任务中心','虚拟链库','刮削平台','档案中心','以太链接','辅助工具']
  for(const name of sequence){
   await page.keyboard.press('Tab')
   await expect(nav.getByRole('link',{name,exact:true})).toBeFocused()

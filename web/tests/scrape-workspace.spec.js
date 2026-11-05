@@ -24,11 +24,43 @@ async function fixture(page){
 }
 test('scrape platform separates ordinary tasks and all four participating libraries',async({page})=>{
  await fixture(page);await page.goto('/scrape/library')
- await expect(page.getByRole('navigation',{name:'刮削平台栏目'}).getByRole('link')).toHaveText(['STRM刮削','链库刮削','目录刮削'])
+ await expect(page.getByRole('navigation',{name:'刮削平台栏目'}).getByRole('link')).toHaveText(['STRM刮削','链库刮削','目录刮削','刮削设置'])
  await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toContainText('115影视')
  for(const [provider,label]of [['mobile','移动链库'],['quark','夸克链库'],['cas','CAS链库']]){await page.getByRole('button',{name:'链库类型',exact:true}).click();await page.getByRole('option',{name:label,exact:true}).click();await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toContainText(`${provider}影视`)}
  await page.getByRole('link',{name:'STRM刮削',exact:true}).click();await expect(page.getByRole('button',{name:'STRM 任务',exact:true})).toContainText('常规影视')
  await page.goto('/tasks/scrape');await expect(page).toHaveURL(/\/scrape\/strm$/)
+})
+for(const [width,theme]of [[1440,'light'],[390,'dark']])test(`scrape settings are a dedicated final tab and preserve saves ${width}`,async({page},info)=>{
+ const f=await fixture(page),writes=[]
+ let cfg={writeMode:'missing',episodes:true,fanart:false,actors:false,excluded:'预告片'},reads=0,failSave=true
+ await page.route('**/api/strm-scrape/settings',route=>{
+  if(route.request().method()==='GET'){
+   if(++reads===1)return route.fulfill({status:503,json:{error:'读取设置失败'}})
+   return route.fulfill({json:cfg})
+  }
+  writes.push(route.request().postDataJSON())
+  if(failSave){failSave=false;return route.fulfill({status:503,json:{error:'保存设置失败'}})}
+  cfg={...writes.at(-1)};return route.fulfill({json:cfg})
+ })
+ await page.setViewportSize({width,height:950});await page.goto('/scrape/settings');await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+ const tabs=page.getByRole('navigation',{name:'刮削平台栏目'}),panel=page.getByRole('region',{name:'刮削设置',exact:true})
+ await expect(tabs.getByRole('link').last()).toHaveText('刮削设置');await expect(tabs.getByRole('link').last()).toHaveClass(/active/)
+ await expect(page.locator('.breadcrumbs strong')).toHaveText('刮削平台');await expect(page.locator('.breadcrumbs [aria-current="page"]')).toHaveText('刮削设置');await expect(panel.getByRole('alert')).toContainText('读取设置失败')
+ await expect(panel.getByRole('button',{name:'保存设置',exact:true})).toBeDisabled()
+ expect(f.requests.some(p=>p.startsWith('/api/strm-scrape/items')||p==='/api/strm-scrape/status')).toBe(false)
+ await panel.getByRole('button',{name:'重新加载',exact:true}).click();await expect(panel.getByRole('textbox',{name:'排除目录',exact:true})).toHaveValue('预告片')
+ await panel.getByRole('button',{name:'写入策略',exact:true}).click();await page.getByRole('option',{name:'覆盖已有',exact:true}).click()
+ await panel.getByRole('switch',{name:'分集 NFO 与预览图',exact:true}).uncheck();await panel.getByRole('switch',{name:'背景图',exact:true}).check();await panel.getByRole('switch',{name:'演员信息',exact:true}).check()
+ await panel.getByRole('textbox',{name:'排除目录',exact:true}).fill('预告片;花絮')
+ await panel.getByRole('button',{name:'保存设置',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('保存设置失败');await expect(panel.getByRole('textbox',{name:'排除目录',exact:true})).toHaveValue('预告片;花絮')
+ await panel.getByRole('button',{name:'保存设置',exact:true}).click();await expect(page.locator('.toast-stack')).toContainText('刮削设置已保存')
+ expect(writes).toEqual(Array(2).fill({writeMode:'overwrite',episodes:false,fanart:true,actors:true,excluded:'预告片;花絮'}))
+ await page.reload();await expect(panel.getByRole('textbox',{name:'排除目录',exact:true})).toHaveValue('预告片;花絮');await expect(panel.getByRole('button',{name:'写入策略',exact:true})).toHaveText('覆盖已有');await expect(panel.getByRole('switch',{name:'演员信息',exact:true})).toBeChecked()
+ await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+ for(const label of await panel.locator('.switch-label').all())await expect(label).toHaveCSS('flex-direction','row')
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ await captureScreenshot(page,{path:info.outputPath(`scrape-settings-${width}-${theme}.png`)})
+ for(const section of ['strm','library','directory']){await tabs.getByRole('link',{name:{strm:'STRM刮削',library:'链库刮削',directory:'目录刮削'}[section],exact:true}).click();await expect(page.getByRole('button',{name:'刮削设置',exact:true})).toHaveCount(0);await expect(panel).toHaveCount(0)}
 })
 for(const [width,theme]of [[1440,'light'],[390,'dark']])test(`directory scrape list and explicit write confirmation ${width}`,async({page},info)=>{
  const f=await fixture(page);await page.setViewportSize({width,height:1000});await page.goto('/scrape/directory');await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
@@ -63,7 +95,7 @@ test('all library settings frame their panels and default scraping applies only 
   await page.goto(`/virtual/${provider}/settings`);const panels=page.locator('.quark-settings-form>section');await expect(panels).toHaveCount(2);for(const panel of await panels.all()){await expect(panel).toHaveCSS('border-top-width','1px');await expect(panel).toHaveCSS('border-radius','14px')}
   await page.getByRole('button',{name:'默认链库刮削',exact:true}).click();await page.getByRole('option',{name:'参与',exact:true}).click();await page.getByRole('button',{name:'保存设置',exact:true}).click();await expect.poll(()=>saves.some(s=>s.provider===provider&&s.scrapeEnabled)).toBe(true)
   if(provider==='mobile')await captureScreenshot(page,{path:info.outputPath('mobile-library-settings.png')})
-  await page.goto(`/virtual/${provider}`);await page.getByRole('button',{name:'添加链接',exact:true}).click();let dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'更多选项',exact:true}).click();await expect(dialog.getByRole('button',{name:'链库刮削',exact:true})).toHaveText('参与');await expect(dialog.getByRole('button',{name:'级联清理',exact:true})).toBeVisible();if(provider==='115')await expect(dialog.getByRole('textbox',{name:'Cron表达式',exact:true})).toHaveCount(0);await dialog.getByRole('button',{name:'取消',exact:true}).click()
+  await page.goto(`/virtual/${provider}`);await page.getByRole('button',{name:'添加链接',exact:true}).click();let dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'更多选项',exact:true}).click();await expect(dialog.getByRole('button',{name:'链库刮削',exact:true})).toHaveText('参与');await expect(dialog.getByRole('textbox',{name:'级联删除扩展名',exact:true})).toBeVisible();if(provider==='115')await expect(dialog.getByRole('textbox',{name:'Cron表达式',exact:true})).toHaveCount(0);await dialog.getByRole('button',{name:'取消',exact:true}).click()
   await page.getByRole('button',{name:'编辑 旧卡片',exact:true}).click();dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'更多选项',exact:true}).click();await expect(dialog.getByRole('button',{name:'链库刮削',exact:true})).toHaveText('不参与');await dialog.getByRole('button',{name:'取消',exact:true}).click()
  }
 })
