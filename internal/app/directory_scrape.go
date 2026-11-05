@@ -22,6 +22,7 @@ type directoryScrapeEntry struct {
 	parent string
 }
 type directoryScrapeInput struct {
+	Group     bool     `json:"group"`
 	StorageID string   `json:"storageId"`
 	Directory string   `json:"directory"`
 	IDs       []string `json:"ids"`
@@ -79,7 +80,7 @@ func (a *App) directoryScrapeAPI(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, map[string]any{"files": files, "items": items, "taskId": key, "directory": dir})
 		return
 	}
-	if r.Method != "POST" || (action != "run" && action != "identify" && action != "match") {
+	if r.Method != "POST" || (action != "run" && action != "identify" && action != "match" && action != "reset") {
 		http.NotFound(w, r)
 		return
 	}
@@ -105,7 +106,7 @@ func (a *App) directoryScrapeAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.store.snapshotWithLogLimit(0)
 	tmdb := pluginDefaults("tmdb", st.Plugins["tmdb"])
-	if !tmdb.Enabled || tmdb.APIKey == "" {
+	if action != "reset" && (!tmdb.Enabled || tmdb.APIKey == "") {
 		fail(w, 400, errors.New("请配置并启用TMDB"))
 		return
 	}
@@ -353,14 +354,58 @@ func (a *App) directoryScrapeOutput(ctx context.Context, s Storage, dirs map[str
 	}}
 }
 func (a *App) runDirectoryScrape(ctx context.Context, s Storage, in directoryScrapeInput, action, key string, tmdb, proxy PluginConfig) (runErr error) {
+	ctx = a.tmdbContext(ctx)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 	entries, dirs, err := a.scanDirectoryScrape(ctx, s, in)
 	if err != nil {
 		return err
 	}
-	if action == "match" && (len(in.IDs) != 1 || len(entries) != 1 || entries[0].file.ID != in.IDs[0]) {
-		return errors.New("手动识别仅允许选择单个媒体文件")
+	if action == "match" {
+		if !in.Group && (len(in.IDs) != 1 || len(entries) != 1 || entries[0].file.ID != in.IDs[0]) {
+			return errors.New("手动识别仅允许选择单个媒体文件")
+		}
+		if in.Group {
+			found := false
+			for rel, id := range dirs {
+				if rel != "." && len(in.IDs) == 1 && id == in.IDs[0] {
+					found = true
+				}
+			}
+			if !found || len(entries) == 0 {
+				return errors.New("手动识别目录范围已变化")
+			}
+		}
+	}
+	if action == "reset" {
+		current, err := a.directoryScrapeStorage(s.ID)
+		if err != nil || storageRevision(current) != storageRevision(s) {
+			return errors.New("存储配置已变化，未重置")
+		}
+		cacheKey := directoryScrapeKey(s, "")
+		index := a.loadDirectoryScrapeIndex(cacheKey)
+		ids := map[string]bool{}
+		for _, entry := range entries {
+			ids[entry.file.ID] = true
+		}
+		kept := make([]scrapeItem, 0, len(index.Items))
+		for _, item := range index.Items {
+			if !ids[item.SourceID] {
+				kept = append(kept, item)
+			}
+		}
+		index.Items, index.ScannedAt, index.Covers = kept, time.Time{}, nil
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := a.saveScrapeIndex(cacheKey, index); err != nil {
+			return err
+		}
+		a.scrapeMu.Lock()
+		a.scrapeProgress.Done = len(entries)
+		a.scrapeProgress.Total = len(entries)
+		a.scrapeMu.Unlock()
+		return nil
 	}
 	client, closeIdle, err := pluginClient(proxy)
 	if err != nil {
@@ -368,6 +413,9 @@ func (a *App) runDirectoryScrape(ctx context.Context, s Storage, in directoryScr
 	}
 	defer closeIdle()
 	cfg := a.scrapeConfig()
+	if action == "match" {
+		cfg.WriteMode = "overwrite"
+	}
 	cacheKey := directoryScrapeKey(s, "")
 	index := a.loadDirectoryScrapeIndex(cacheKey)
 	index.Root = s.ID

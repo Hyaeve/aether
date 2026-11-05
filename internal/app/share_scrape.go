@@ -103,6 +103,10 @@ func (a *App) scrapeSourceConfig(taskID string) scrapeSettings {
 	if isShareScrapeTask(taskID) {
 		card, _ := shareScrapeCard(a.store.snapshotWithLogLimit(0), taskID)
 		cfg.ShareOnly = true
+		cfg.LibraryName = card.ShareName
+		if cfg.LibraryName == "" {
+			cfg.LibraryName = card.Name
+		}
 		if shareScrapeProvider(taskID) == "cas" {
 			cfg.CASOnly = true
 		}

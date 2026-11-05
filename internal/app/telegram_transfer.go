@@ -88,7 +88,7 @@ func (a *App) telegramWorker() {
 			}
 		}
 		for batch := range batches {
-			if err := a.advanceTelegramBatch(a.ctx, batch); err != nil {
+			if err := a.advanceTelegramBatch(context.WithValue(a.ctx, telegramUIAsyncKey{}, true), batch); err != nil {
 				a.store.event("warn", "notifications", "TG 下一批交互未确认："+err.Error())
 			}
 		}

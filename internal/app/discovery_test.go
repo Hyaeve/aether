@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -24,7 +25,7 @@ func discoveryFixture(t *testing.T) (*App, http.Handler, *http.Cookie, *atomic.I
 			t.Error("discovery must reuse TMDB credentials and language")
 		}
 		if strings.HasPrefix(r.URL.Path, "/3/movie/") && r.URL.Path == "/3/movie/42" || r.URL.Path == "/3/tv/42" {
-			if r.URL.Query().Get("append_to_response") != "credits" {
+			if !strings.Contains(","+r.URL.Query().Get("append_to_response")+",", ",credits,") {
 				t.Error("missing credits")
 			}
 			jsonResponse(w, 200, map[string]any{"id": 42, "title": "电影示例", "name": "剧集示例", "original_title": "Original", "original_name": "Series", "release_date": "2026-01-01", "first_air_date": "2025-01-01", "overview": "真实媒体详情", "poster_path": "/poster.jpg", "backdrop_path": "/backdrop.jpg", "vote_average": 8.5, "runtime": 120, "seasons": []any{map[string]any{"season_number": 1, "episode_count": 12, "name": "第一季"}}, "credits": map[string]any{"cast": []any{map[string]any{"name": "演员"}}}})
@@ -109,14 +110,17 @@ func TestDiscoveryFeedsDetailsCacheAndValidation(t *testing.T) {
 
 func TestDiscoveryCacheBoundedAndContext(t *testing.T) {
 	a, _, _, _ := discoveryFixture(t)
+	c := a.tmdbContext(a.ctx).Value(tmdbCacheKey{}).(*tmdbDiskCache)
+	c.maxEntries = 32
 	for i := 0; i < 35; i++ {
 		var out any
 		if err := a.discoveryJSON(context.Background(), "search/multi", url.Values{"query": {fmt.Sprint(i)}}, &out); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(a.discoveryCache) != 32 {
-		t.Fatal("unbounded metadata cache", len(a.discoveryCache))
+	files, err := os.ReadDir(c.dir())
+	if err != nil || len(files) != 32 || c.count != 32 {
+		t.Fatal("unbounded persistent metadata cache", len(files), c.count, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

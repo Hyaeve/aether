@@ -81,6 +81,32 @@ test('scrape folders are virtual, searchable, persistent and preview editable li
   await page.screenshot({path:info.outputPath('scrape-folder-mobile.png')})
 })
 
+for(const [width,theme] of [[1440,'light'],[390,'dark']])test(`parent folder and single STRM actions have exact scopes ${width}`,async({page},info)=>{
+ await fixture(page);const writes=[]
+ await page.route('**/api/strm-scrape/match',route=>{writes.push(route.request().postDataJSON());return route.fulfill({json:{running:false}})})
+ await page.route('**/api/strm-scrape/reset',route=>{writes.push(route.request().postDataJSON());return route.fulfill({json:{ok:true}})})
+ await page.setViewportSize({width,height:900});await page.goto('/scrape/strm');await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+ await page.getByRole('button',{name:'海报墙视图',exact:true}).click()
+ await page.getByRole('textbox',{name:'搜索刮削记录',exact:true}).fill('Folder1')
+ await expect(page.getByRole('button',{name:'识别 Folder1',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'识别 Folder1',exact:true}).click()
+ await page.getByLabel('TMDB ID',{exact:true}).fill('7');await page.getByRole('button',{name:'确认匹配',exact:true}).click()
+ await expect.poll(()=>writes.length).toBe(1)
+ await expect(page.getByRole('dialog',{name:'选择媒体匹配',exact:true})).toHaveCount(0)
+ expect(writes[0]).toMatchObject({taskId:'t',path:'',scope:'Folder1',group:false,scrape:true,tmdb:7})
+ await page.getByRole('textbox',{name:'搜索刮削记录',exact:true}).fill('Show');await page.getByRole('button',{name:'Show',exact:true}).click()
+ await page.getByRole('textbox',{name:'搜索刮削记录',exact:true}).clear()
+ await expect(page.getByRole('button',{name:'识别 one.strm',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'识别 tvshow.nfo',exact:true})).toHaveCount(0)
+ await page.getByRole('button',{name:'重置 one.strm',exact:true}).click();await page.getByRole('button',{name:'确认重置',exact:true}).click()
+ await expect.poll(()=>writes.length).toBe(2);expect(writes[1]).toMatchObject({taskId:'t',path:'Show/one.strm',scope:'',group:false,confirmed:true})
+ await page.getByRole('button',{name:'识别 one.strm',exact:true}).click();await page.getByLabel('TMDB ID',{exact:true}).fill('8');await page.getByRole('button',{name:'确认匹配',exact:true}).click()
+ await expect.poll(()=>writes.length).toBe(3);expect(writes[2]).toMatchObject({path:'Show/one.strm',group:false,scrape:true,tmdb:8});expect(writes[2].scope).toBeUndefined()
+ await expect(page.getByRole('dialog',{name:'选择媒体匹配',exact:true})).toHaveCount(0)
+ await page.locator('.scrape-file-row').filter({has:page.getByRole('button',{name:'one.strm',exact:true})}).hover()
+ await page.screenshot({path:info.outputPath(`single-strm-${width}.png`)})
+})
+
 test('local provider and WebDAV user cards adapt to both themes', async ({page},info) => {
   await fixture(page)
   await page.route('**/api/webdav/users',r=>r.fulfill({json:[{id:'u',username:'Reader',enabled:true,grants:[]}]}))

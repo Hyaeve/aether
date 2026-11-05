@@ -27,16 +27,21 @@ type mediaDashboardClient struct {
 	At       time.Time
 }
 type mediaPoster struct {
-	ID        string  `json:"id"`
-	Title     string  `json:"title"`
-	Subtitle  string  `json:"subtitle"`
-	Overview  string  `json:"overview"`
-	Kind      string  `json:"kind"`
-	Poster    string  `json:"poster"`
-	Backdrop  string  `json:"backdrop"`
-	LibraryID string  `json:"libraryId"`
-	Date      string  `json:"date"`
-	Duration  float64 `json:"duration"`
+	Path        string  `json:"path,omitempty"`
+	LibraryName string  `json:"libraryName,omitempty"`
+	TMDB        int     `json:"tmdb,omitempty"`
+	Episodes    *int    `json:"episodes,omitempty"`
+	WebURL      string  `json:"webURL,omitempty"`
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	Subtitle    string  `json:"subtitle"`
+	Overview    string  `json:"overview"`
+	Kind        string  `json:"kind"`
+	Poster      string  `json:"poster"`
+	Backdrop    string  `json:"backdrop"`
+	LibraryID   string  `json:"libraryId"`
+	Date        string  `json:"date"`
+	Duration    float64 `json:"duration"`
 }
 type mediaMetric struct {
 	Label string  `json:"label"`
@@ -44,6 +49,7 @@ type mediaMetric struct {
 	Unit  string  `json:"unit,omitempty"`
 }
 type mediaDashboardData struct {
+	Featured []mediaPoster `json:"featured"`
 	Recent   []mediaPoster `json:"recent"`
 	Stats    []mediaMetric `json:"stats"`
 	Warnings []string      `json:"warnings"`

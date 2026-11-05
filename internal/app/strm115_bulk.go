@@ -21,7 +21,40 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 		root = rootOf(s)
 	}
 	if root == "0" {
-		return nil, errors.New("根目录使用标准目录核验")
+		// The root has no pickcode. Enumerate its immediate children once, then
+		// use bulk subtree pages for each top-level directory instead of full DFS.
+		files, err := a.rawList(ctx, s, source)
+		if err != nil {
+			return nil, err
+		}
+		plan := map[string][]File{source: files}
+		count := len(files)
+		if count > 100000 {
+			return nil, errTaskProgressLimit
+		}
+		for _, f := range files {
+			if f.ID == "" || f.ID == root || !safeName(f.Name) {
+				return nil, errors.New("115根目录条目身份无效")
+			}
+			if !f.IsDir {
+				continue
+			}
+			child, err := a.strm115BulkPlan(ctx, s, f.ID)
+			if err != nil {
+				return nil, err
+			}
+			for key, entries := range child {
+				if _, duplicate := plan[key]; duplicate {
+					return nil, errors.New("115根目录子树重复")
+				}
+				count += len(entries)
+				if count > 100000 {
+					return nil, errTaskProgressLimit
+				}
+				plan[key] = entries
+			}
+		}
+		return plan, ctx.Err()
 	}
 	c, err := client115(ctx, s)
 	if err != nil {
@@ -57,6 +90,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 	}
 	type node struct{ name, parent string }
 	dirs := map[string]node{}
+	folderAPI := "https://webapi.115.com/files/downfolders"
 	for page := 1; ; page++ {
 		if page > 21 {
 			return nil, errTaskProgressLimit
@@ -72,7 +106,17 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 				Next *bool `json:"has_next_page"`
 			} `json:"data"`
 		}
-		if err = read("https://proapi.115.com/app/chrome/downfolders", url.Values{"pickcode": {info.PickCode}, "page": {strconv.Itoa(page)}, "per_page": {"5000"}}, &result); err != nil {
+		query := url.Values{"pickcode": {info.PickCode}, "page": {strconv.Itoa(page)}, "per_page": {"5000"}}
+		err = read(folderAPI, query, &result)
+		if err == nil && (!result.State || result.Data.List == nil || result.Data.Next == nil) {
+			err = errors.New("115目录表不完整")
+		}
+		if err != nil && page == 1 && ctx.Err() == nil {
+			folderAPI = "https://proapi.115.com/app/2.0/chrome/downfolders"
+			result.State, result.Data.List, result.Data.Next = false, nil, nil
+			err = read(folderAPI, query, &result)
+		}
+		if err != nil {
 			return nil, err
 		}
 		if !result.State || result.Data.List == nil || result.Data.Next == nil {
@@ -130,7 +174,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 			Offset *int               `json:"offset"`
 			Data   *[]driver.FileInfo `json:"data"`
 		}
-		if err = read("https://webapi.115.com/files", url.Values{"aid": {"1"}, "cid": {root}, "cur": {"0"}, "show_dir": {"0"}, "o": {"file_id"}, "asc": {"1"}, "offset": {strconv.Itoa(offset)}, "limit": {"1150"}, "format": {"json"}}, &result); err != nil {
+		if err = read("https://webapi.115.com/files", url.Values{"aid": {"1"}, "cid": {root}, "cur": {"0"}, "show_dir": {"0"}, "o": {"user_ptime"}, "asc": {"1"}, "offset": {strconv.Itoa(offset)}, "limit": {"1150"}, "format": {"json"}}, &result); err != nil {
 			return nil, err
 		}
 		count, e := result.Count.Int64()

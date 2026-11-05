@@ -86,7 +86,11 @@ func TestShareLibraryCronSavePreservesOutputsAndRuntimeWithoutCloud(t *testing.T
 			if calls.Load() != 0 || got.Generated != 7 || got.Skipped != 3 || got.Status != before.Status || got.Message != before.Message || !got.LastRun.Equal(before.LastRun) || !got.InvalidSince.Equal(before.InvalidSince) || got.NextRun.IsZero() {
 				t.Fatal("metadata save changed results or made cloud requests", got, calls.Load())
 			}
-			if card.Cron != "0 12 * * *" || card.Name != "新别名" || card.ShareName != old.ShareName || card.Secret != old.Secret || card.CascadeCleanup != old.CascadeCleanup {
+			wantCascade := old.CascadeCleanup
+			if provider == "quark" {
+				wantCascade = "on"
+			}
+			if card.Cron != "0 12 * * *" || card.Name != "新别名" || card.ShareName != old.ShareName || card.Secret != old.Secret || card.CascadeCleanup != wantCascade {
 				t.Fatal(card)
 			}
 			after, _ := os.Stat(file)
@@ -102,42 +106,21 @@ func TestShareLibraryCronSavePreservesOutputsAndRuntimeWithoutCloud(t *testing.T
 	}
 }
 
-func TestShareLibraryMetadataGateIncludesEveryGenerationField(t *testing.T) {
+func TestShareLibraryMetadataGateRejectsSourceAndOutputChanges(t *testing.T) {
+	a := testApp(t)
 	old := quarkLibraryCard{ID: "a", Secret: "https://pan.quark.cn/s/abcde", Name: "显示名", Directory: filepath.Join(t.TempDir(), "out"), DirectoryName: "Title", Enabled: true}
-	next := old
-	next.Cron = "0 12 * * *"
-	next.Name = "另一个显示名"
-	if !shareLibrarySameGeneration("quark", old, next) {
-		t.Fatal("metadata-only changes require generation")
-	}
-	for _, field := range []string{"url", "directory", "directoryName", "media", "metadata", "cascade", "scrape", "dirs", "files", "types", "enabled"} {
-		changed := next
+	for _, field := range []string{"url", "directory", "storageId"} {
+		changed := old
 		switch field {
 		case "url":
 			changed.Secret = "https://pan.quark.cn/s/other"
 		case "directory":
 			changed.Directory += "2"
-		case "directoryName":
-			changed.DirectoryName += "2"
-		case "media":
-			changed.MediaExtensions = "mp4"
-		case "metadata":
-			changed.MetadataExtensions = "nfo"
-		case "cascade":
-			changed.CascadeCleanup = "off"
-		case "scrape":
-			changed.ScrapeEnabled = true
-		case "dirs":
-			changed.ExcludeDirs = "花絮"
-		case "files":
-			changed.ExcludeFiles = "sample"
-		case "types":
-			changed.ExcludeTypes = "mp4"
-		case "enabled":
-			changed.Enabled = false
+		case "storageId":
+			changed.StorageID = "other"
 		}
-		if shareLibrarySameGeneration("quark", old, changed) {
-			t.Fatal("generation change bypassed sync", field)
+		if handled, err := a.saveShareLibraryMetadata(a.ctx, "quark", old, changed); handled || err != nil {
+			t.Fatal("source/output change bypassed generation path", field, handled, err)
 		}
 	}
 }

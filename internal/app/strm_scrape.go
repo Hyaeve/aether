@@ -31,8 +31,10 @@ type scrapeSettings struct {
 	CASOnly      bool   `json:"-"`
 	ExcludeFiles string `json:"-"`
 	ExcludeTypes string `json:"-"`
+	LibraryName  string `json:"-"`
 }
 type scrapeItem struct {
+	LibraryWork    string    `json:"libraryWork,omitempty"`
 	SourceID       string    `json:"sourceId,omitempty"`
 	SourceName     string    `json:"sourceName,omitempty"`
 	SourceParent   string    `json:"sourceParent,omitempty"`
@@ -235,6 +237,7 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 	})
 	if err == nil {
 		inferScrapeWorks(items, tvDirs)
+		applyLibraryScrapeWork(items, cfg.LibraryName)
 		for i := range items {
 			item := &items[i]
 			if saved, ok := old[item.Path]; ok && saved.TMDB > 0 {
@@ -253,6 +256,7 @@ func scanSTRM(ctx context.Context, root *os.Root, previous scrapeIndex, cfg scra
 				}
 			}
 		}
+		applyLibraryScrapeWork(items, cfg.LibraryName)
 	}
 	return items, err
 }
@@ -322,7 +326,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		var result struct {
 			Results []tmdbMedia `json:"results"`
 		}
-		if err := tmdbGet(r.Context(), client, cfg, "search/"+in.Kind, url.Values{"query": {in.Query}}, &result); err != nil {
+		if err := tmdbGet(a.tmdbContext(r.Context()), client, cfg, "search/"+in.Kind, url.Values{"query": {in.Query}}, &result); err != nil {
 			fail(w, 502, err)
 			return
 		}
@@ -414,6 +418,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		items := append([]scrapeItem(nil), index.Items...)
+		applyLibraryScrapeWork(items, a.scrapeSourceConfig(task).LibraryName)
 		if r.URL.Query().Get("group") == "true" {
 			works := scrapeWorks(items)
 			if cached {
@@ -561,6 +566,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	index := a.loadScrapeIndex(in.TaskID, rootName)
+	applyLibraryScrapeWork(index.Items, a.scrapeSourceConfig(in.TaskID).LibraryName)
 	index.ScannedAt = time.Time{}
 	index.Covers = nil
 	selectedWork := ""
@@ -611,7 +617,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return in.Path == "" || item.Path == in.Path || (in.Group && selectedWork != "" && scrapeWorkKey(item) == selectedWork)
 	}
 	if action == "reset" {
-		if !in.Confirmed || (selectedWork == "" && len(selectedWorks) == 0) {
+		if !in.Confirmed || (selectedWork == "" && len(selectedWorks) == 0 && in.Scope == "") {
 			fail(w, 400, errors.New("请确认要重置的作品"))
 			return
 		}
@@ -659,7 +665,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		}
 		found := false
 		for i := range index.Items {
-			if in.Path != "" && selected(index.Items[i]) {
+			if (in.Path != "" || in.Scope != "") && selected(index.Items[i]) {
 				index.Items[i].TMDB = in.TMDB
 				index.Items[i].Kind = in.Kind
 				index.Items[i].Manual = true
@@ -697,12 +703,15 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.store.snapshotWithLogLimit(0)
 	cfg, tmdb := a.scrapeSourceConfig(in.TaskID), pluginDefaults("tmdb", st.Plugins["tmdb"])
+	if in.Scrape || in.Reidentify || in.ArchiveID != "" {
+		cfg.WriteMode = "overwrite"
+	}
 	if (action == "run" || action == "identify") && (!tmdb.Enabled || tmdb.APIKey == "") {
 		root.Close()
 		fail(w, 400, errors.New("请配置并启用 TMDB 插件"))
 		return
 	}
-	ctx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(a.tmdbContext(a.ctx))
 	a.scrapeCancel = cancel
 	a.scrapeProgress = scrapeProgress{Running: true, TaskID: in.TaskID, Message: "正在扫描"}
 	a.wg.Add(1)
@@ -890,11 +899,16 @@ type tmdbMedia struct {
 }
 
 func tmdbGet(ctx context.Context, client *http.Client, cfg PluginConfig, endpoint string, q url.Values, out any) error {
-	if err := waitTMDB(ctx, cfg); err != nil {
-		return err
+	values := url.Values{}
+	for k, v := range q {
+		values[k] = append([]string(nil), v...)
 	}
-	if q == nil {
-		q = url.Values{}
+	q = values
+	parts := strings.Split(endpoint, "/")
+	if len(parts) == 2 && (parts[0] == "tv" || parts[0] == "movie") {
+		if n, e := strconv.Atoi(parts[1]); e == nil && n > 0 {
+			q.Set("append_to_response", "credits,recommendations,similar")
+		}
 	}
 	q.Set("language", cfg.Language)
 	key := cfg.APIKey
@@ -902,7 +916,23 @@ func tmdbGet(ctx context.Context, client *http.Client, cfg PluginConfig, endpoin
 		q.Set("api_key", key)
 		key = ""
 	}
-	return pluginJSON(ctx, client, "GET", strings.TrimRight(cfg.APIURL, "/")+"/3/"+endpoint+"?"+q.Encode(), key, nil, out)
+	fetch := func() (json.RawMessage, error) {
+		if err := waitTMDB(ctx, cfg); err != nil {
+			return nil, err
+		}
+		var raw json.RawMessage
+		err := pluginJSON(ctx, client, "GET", strings.TrimRight(cfg.APIURL, "/")+"/3/"+endpoint+"?"+q.Encode(), key, nil, &raw)
+		return raw, err
+	}
+	if cache, ok := ctx.Value(tmdbCacheKey{}).(*tmdbDiskCache); ok {
+		scope := tmdbCacheScope(cfg)
+		return cache.get(ctx, scope, endpoint, archiveStamp(scope, endpoint, q.Encode()), fetch, out)
+	}
+	raw, err := fetch()
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
 }
 func normalizedTitle(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.NewReplacer(".", " ", "_", " ", "-", " ").Replace(s)), " "))

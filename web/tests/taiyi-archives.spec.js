@@ -55,7 +55,7 @@ for (const width of [1440,375]) for (const theme of ['light','dark']) {
     expect(names.indexOf('档案中心')).toBe(names.indexOf('刮削平台')+1)
     expect(names.indexOf('档案中心')).toBe(names.indexOf('以太链接')-1)
     await expect(page.locator('.breadcrumbs strong')).toHaveText('档案中心')
-    await expect(page.getByRole('navigation',{name:'档案中心栏目',exact:true}).getByRole('link')).toHaveText(['整理档案','刮削档案','任务档案'])
+    await expect(page.getByRole('navigation',{name:'档案中心栏目',exact:true}).getByRole('link')).toHaveText(['整理档案','刮削档案','任务档案','缓存档案'])
     if(width<760) await page.locator('.nav-overlay').click({position:{x:width-5,y:400}})
     await expect(page.locator('.archive-row')).toHaveCount(3)
     await expect(page.locator('.archive-row').first()).toContainText('识别的剧集')

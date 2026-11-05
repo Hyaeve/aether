@@ -11,6 +11,21 @@ type strm115Output struct {
 	name string
 }
 
+type strmBatchEnsureKey struct{}
+type strmBatchEnsure struct {
+	h    *strmTaskSync
+	once sync.Once
+	err  error
+}
+
+func ensureSTRMOutput(ctx context.Context, h *strmTaskSync, root *os.Root) error {
+	if batch, ok := ctx.Value(strmBatchEnsureKey{}).(*strmBatchEnsure); ok && batch.h == h {
+		batch.once.Do(func() { batch.err = h.ensure(ctx, root) })
+		return batch.err
+	}
+	return h.ensure(ctx, root)
+}
+
 // Only local reference/STRM IO is parallel; cloud enumeration and deletion are
 // unchanged. The caller feeds bounded batches and owns all progress updates.
 func (a *App) publish115Batch(ctx context.Context, h *strmTaskSync, s Storage, root *os.Root, jobs []strm115Output, missing bool, progress func(bool)) error {
@@ -23,14 +38,15 @@ func (a *App) publish115Batch(ctx context.Context, h *strmTaskSync, s Storage, r
 	var markErr error
 	original := ctx
 	ctx = context.WithValue(ctx, strmLifeWorkKey{}, func() error { mark.Do(func() { markErr = recordSTRMLifeWork(original) }); return markErr })
+	ctx = context.WithValue(ctx, strmBatchEnsureKey{}, &strmBatchEnsure{h: h})
 	type result struct {
 		changed bool
 		err     error
 	}
-	results := make(chan result, 4)
+	results := make(chan result, 16)
 	queue := make(chan strm115Output)
 	var workers sync.WaitGroup
-	for i := 0; i < min(4, len(jobs)); i++ {
+	for i := 0; i < min(16, len(jobs)); i++ {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()

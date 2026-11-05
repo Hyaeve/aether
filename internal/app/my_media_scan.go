@@ -187,7 +187,7 @@ func (a *App) scanMediaMissing(ctx context.Context, st State, l MediaLink, c *me
 	series := []videoMediaItem{}
 	libraries := map[string]string{}
 	for _, lib := range st.MediaDisplay.Libraries[l.ID] {
-		items, err := a.allVideoItems(ctx, c, "/Items", url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Series"}, "Fields": {"ProviderIds,Overview"}})
+		items, err := a.allVideoItems(ctx, c, "/Items", url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Series"}, "Fields": {"ProviderIds,Overview,Path"}})
 		if err != nil {
 			return result, err
 		}
@@ -277,7 +277,13 @@ func (a *App) scanMediaMissing(ctx context.Context, st State, l MediaLink, c *me
 		}
 		result.Scanned++
 		if len(missing) > 0 {
-			result.Items = append(result.Items, missingMediaWork{videoPoster(l, c, work, libraries[work.ID]), missing, len(present), expected})
+			poster := videoPoster(l, c, work, libraries[work.ID])
+			for _, lib := range st.MediaDisplay.Libraries[l.ID] {
+				if lib.ID == poster.LibraryID {
+					poster.LibraryName = lib.Name
+				}
+			}
+			result.Items = append(result.Items, missingMediaWork{poster, missing, len(present), expected})
 		}
 	}
 	a.mediaScanProgress(scan, len(series), len(series), "扫描完成")

@@ -252,7 +252,9 @@ func (a *App) list115(ctx context.Context, s Storage, dir string) ([]File, error
 		return nil, err
 	}
 	out := []File{}
-	for offset := int64(0); ; offset += 200 {
+	seen := map[string]bool{}
+	total := int64(-1)
+	for offset := int64(0); ; {
 		if err := a.waitAPI(ctx, s.ID); err != nil {
 			return nil, err
 		}
@@ -266,11 +268,22 @@ func (a *App) list115(ctx context.Context, s Storage, dir string) ([]File, error
 		if string(page.CategoryID) != dir {
 			return nil, errors.New("115 返回的目录与请求不一致，请刷新后重试")
 		}
+		if total < 0 {
+			total = int64(page.Count)
+		}
+		if int64(page.Count) != total || total < 0 || offset+int64(len(page.Files)) > total {
+			return nil, errors.New("115目录在分页期间变化，请重试")
+		}
 		for _, raw := range page.Files {
 			f := (&driver.File{}).From(&raw)
+			if f.FileID == "" || seen[f.FileID] {
+				return nil, errors.New("115目录分页条目无效或重复，请重试")
+			}
+			seen[f.FileID] = true
 			out = append(out, File{ID: f.FileID, Name: f.Name, IsDir: f.IsDirectory, Size: f.Size, Modified: f.UpdateTime, Created: f.CreateTime, PickCode: f.PickCode})
 		}
-		if offset+int64(len(page.Files)) >= int64(page.Count) {
+		offset += int64(len(page.Files))
+		if offset == total {
 			return out, nil
 		}
 		if len(page.Files) == 0 {

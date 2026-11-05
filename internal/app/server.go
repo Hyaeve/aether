@@ -30,7 +30,7 @@ import (
 
 type App struct {
 	discoveryMu         sync.Mutex
-	discoveryCache      map[string]discoveryCacheEntry
+	tmdbDisk            *tmdbDiskCache
 	mediaDeepDeleteMu   sync.Mutex
 	ali115Gate          sync.Mutex
 	ali115Session       *aliSession
@@ -106,6 +106,8 @@ type App struct {
 	strmReferenceMu     [64]sync.Mutex
 	telegramPromptMu    [32]sync.Mutex
 	telegramTitles      chan telegramTransfer
+	telegramUI          chan func(context.Context) error
+	telegramUISlots     chan struct{}
 	mounts              *mountManager
 	links               *linkRuntime
 	versionMu           sync.Mutex
@@ -206,6 +208,8 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	a.casGate = make(chan struct{}, 1)
 	a.notificationQueue = make(chan channelNotice, 64)
 	a.telegramTitles = make(chan telegramTransfer, 32)
+	a.telegramUI = make(chan func(context.Context) error, 64)
+	a.telegramUISlots = make(chan struct{}, 64)
 	a.transfers.restore(filepath.Join(dataDir, "cache", "transfers.json"))
 	a.simulcast = newPan115Simulcast(a, linkTrustedProxies())
 	if err := a.restoreSessions(); err != nil {
@@ -269,6 +273,10 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.telegramWorker()
 	go a.telegramInteractionCleaner()
 	go a.telegramTitleWorker()
+	a.wg.Add(telegramUIWorkers)
+	for range telegramUIWorkers {
+		go a.telegramUIWorker()
+	}
 	a.wg.Add(1)
 	go a.shareLiveMonitor()
 	a.wg.Add(1)
@@ -530,6 +538,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/strm-scrape/{action}", a.protected(http.HandlerFunc(a.strmScrape)))
 	mux.Handle("/api/directory-scrape/{action}", a.protected(http.HandlerFunc(a.directoryScrapeAPI)))
 	mux.Handle("GET /api/archives/{category}", a.protected(http.HandlerFunc(a.archiveList)))
+	mux.Handle("GET /api/archives/cache", a.protected(http.HandlerFunc(a.cacheArchiveAPI)))
 	mux.Handle("POST /api/archives/scrape/{id}/retry", a.protected(http.HandlerFunc(a.archiveRetry)))
 	mux.Handle("/api/tasks/{id}", a.protected(http.HandlerFunc(a.taskItem)))
 	mux.Handle("/api/tasks/{id}/{action}", a.protected(http.HandlerFunc(a.taskAction)))

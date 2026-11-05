@@ -5,16 +5,18 @@ import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import RoundedSelect from './RoundedSelect.vue'
 import NumberInput from './NumberInput.vue'
-const props=defineProps({media:Object,targets:{type:Array,default:()=>[]}}),emit=defineEmits(['close','saved'])
+const props=defineProps({media:Object,targets:{type:Array,default:()=>[]},requireTarget:Boolean}),emit=defineEmits(['close','saved'])
 const tab=ref('basic'),busy=ref(false),error=ref('')
 const initialSeason=props.media.kind==='tv'?(props.media.season??props.media.seasons?.find(s=>s.number>0)?.number??1):0
 const form=reactive({season:initialSeason,keyword:'',totalEpisodes:props.media.seasons?.find(s=>s.number===initialSeason)?.episodes||0,startEpisode:1,quality:'',resolution:'',effect:'',sourceIds:[],targetId:'',searchHours:null,include:'',exclude:'',mediaCategory:'',customWords:'',...Object.fromEntries(['season','keyword','totalEpisodes','startEpisode','quality','resolution','effect','targetId','searchHours','include','exclude','mediaCategory','customWords'].filter(k=>props.media[k]!==undefined).map(k=>[k,props.media[k]]))})
 const searchMode=computed({get:()=>form.searchHours==null?'system':'custom',set:value=>form.searchHours=value==='custom'?24:null})
+form.missingEpisodes=[...(props.media.missingEpisodes||[])]
 const targetOptions=computed(()=>[{value:'',label:'暂不指定'},...props.targets.map(t=>({value:t.id,label:`${t.name} · ${t.path}`})),...(form.targetId&&!props.targets.some(t=>t.id===form.targetId)?[{value:form.targetId,label:'原转存目录已不可用，请重新选择'}]:[])])
 const options=values=>[{value:'',label:'不限制'},...values.map(value=>({value,label:value}))]
 async function save(){
+ if(props.requireTarget&&!form.targetId){error.value='请选择转存目录';return}
  if(busy.value)return;busy.value=true;error.value=''
- try{const result=await api(`/media-subscriptions${props.media.key?'/'+props.media.key:''}`,props.media.key?'PUT':'POST',{id:props.media.id,kind:props.media.kind,...form});emit('saved',result);notify(props.media.key?'订阅已保存':'已添加订阅')}
+ try{const {missingEpisodes,...options}=form;const result=await api(`/media-subscriptions${props.media.key?'/'+props.media.key:''}`,props.media.key?'PUT':'POST',{id:props.media.id,kind:props.media.kind,...options,...(missingEpisodes.length?{missingEpisodes}:{})});emit('saved',result);notify(props.media.key?'订阅已保存':'已添加订阅')}
  catch(e){error.value=e.message;notify(e.message,true)}finally{busy.value=false}
 }
 </script>
@@ -22,7 +24,7 @@ async function save(){
  <Modal :title="media.key?'编辑订阅':'添加订阅'" :eyebrow="`${media.title}${media.kind==='tv'?' · S'+String(form.season).padStart(2,'0'):''}`" wide @close="!busy&&emit('close')">
   <form class="subscription-editor" @submit.prevent="save">
    <div class="subscription-editor-tabs" role="tablist" aria-label="订阅编辑栏目"><button v-for="item in [['basic','基础'],['advanced','进阶']]" :key="item[0]" type="button" role="tab" :aria-selected="tab===item[0]" :class="{active:tab===item[0]}" @click="tab=item[0]">{{item[1]}}</button></div>
-   <div class="modal-body"><fieldset :disabled="busy" class="subscription-fields">
+   <div class="modal-body"><p v-if="media.missingEpisodes?.length" class="subscription-missing-range">缺集范围：{{media.missingEpisodes.join('、')}}</p><fieldset :disabled="busy" class="subscription-fields">
     <div v-if="tab==='basic'" class="form-grid subscription-basic">
      <label :class="{full:media.kind==='movie'}">搜索关键词<input v-model="form.keyword" aria-label="搜索关键词" maxlength="300" :placeholder="media.title"/></label>
      <label v-if="media.kind==='tv'">总集数<NumberInput v-model="form.totalEpisodes" aria-label="总集数" min="0" max="100000" step="1" required/></label>

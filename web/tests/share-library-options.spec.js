@@ -105,6 +105,8 @@ for(const layout of layouts)test(`share card more options roundtrip and scrape o
  await edit.getByRole('button',{name:'取消',exact:true}).click()
  await page.goto('/scrape/library')
  await page.getByRole('button',{name:'链库类型',exact:true}).click();await page.getByRole('option',{name:'夸克链库',exact:true}).click()
+ await expect(page.getByRole('button',{name:'打开分享目录 电影合集',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'打开分享目录 电影合集',exact:true}).click()
  await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toHaveText('电影合集')
  await page.getByRole('button',{name:'链库卡片',exact:true}).click()
  await expect(page.getByRole('option',{name:'旧分享',exact:true})).toHaveCount(0)

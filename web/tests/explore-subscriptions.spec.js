@@ -45,7 +45,7 @@ for(const [width,theme]of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark
  await captureScreenshot(page,{path:info.outputPath(`recommendations-${width}-${theme}.png`)})
  await page.getByRole('button',{name:'星河旅人 详情',exact:true}).first().click()
  await expect(page.locator('.breadcrumbs [aria-current=page]')).toHaveText('媒体详情')
- await expect(page.getByRole('heading',{name:'星河旅人',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'星河旅人 (2026)',exact:true})).toBeVisible()
  await expect(page.locator('.discovery-facts')).toContainText('42')
  await captureScreenshot(page,{path:info.outputPath(`detail-${width}-${theme}.png`)})
  await page.getByRole('button',{name:'添加订阅',exact:true}).click()

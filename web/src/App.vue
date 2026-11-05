@@ -123,7 +123,7 @@ const sectionTitles = {
   '/virtual/115/settings':['115链库','链库设置'], '/virtual/quark/settings':['夸克链库','链库设置'], '/virtual/mobile/settings':['移动链库','链库设置'], '/virtual/cas':['CAS链库'], '/virtual/cas/settings':['CAS链库','链库设置'],
   '/links/manage':['以链管理'], '/links/cache':['直链缓存'],
   '/tools':['我的插件'], '/tools/market':['插件市场'], '/tools/115-rapid':['115秒传中心'],
-  '/archives':['整理档案'], '/archives/organize':['整理档案'], '/archives/scrape':['刮削档案'], '/archives/tasks':['任务档案'],
+  '/archives':['整理档案'], '/archives/organize':['整理档案'], '/archives/scrape':['刮削档案'], '/archives/tasks':['任务档案'], '/archives/cache':['缓存档案'],
   '/notifications/telegram':['消息配置'], '/notifications/transfers':['链接转存'],
   '/settings':['账号与安全'], '/settings/account':['账号与安全'], '/settings/transfer':['传输设置'],
   '/settings/strm':['STRM 配置'], '/settings/logs':['日志管理'], '/settings/about':['关于以太']
@@ -288,7 +288,7 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
         <Rapid115Page v-else-if="currentPath === '/tools/115-rapid'" />
         <NotificationPage v-else-if="currentPath.startsWith('/notifications')" :section="currentPath.endsWith('transfers') ? 'transfers' : 'telegram'" />
         <VirtualLibraryPage v-else-if="currentPath.startsWith('/virtual')" />
-        <ArchivesPage v-else-if="['/archives','/archives/organize','/archives/scrape','/archives/tasks'].includes(currentPath)" :section="currentPath.endsWith('/scrape') ? 'scrape' : currentPath.endsWith('/tasks') ? 'tasks' : 'organize'" />
+        <ArchivesPage v-else-if="['/archives','/archives/organize','/archives/scrape','/archives/tasks','/archives/cache'].includes(currentPath)" :section="currentPath.endsWith('/cache') ? 'cache' : currentPath.endsWith('/scrape') ? 'scrape' : currentPath.endsWith('/tasks') ? 'tasks' : 'organize'" />
         <LogsPage v-else-if="currentPath === '/logs'" />
         <PlannedPage v-else-if="planned" v-bind="planned" />
         <div v-else class="empty-state"><h1>页面不存在</h1><RouterLink class="btn" to="/storage">返回存储管理</RouterLink></div>

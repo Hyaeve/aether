@@ -172,6 +172,12 @@ func (p *embyProvider) RewriteResponse(originalPath string, response *http.Respo
 		if !isEmbyStrmPlaybackSource(source) || embyBool(source, "IsInfiniteStream") {
 			continue
 		}
+		// Emby may label an HLS pointer as "hls". Android players choose the
+		// media source before following redirects, so advertise the playlist type.
+		if strings.EqualFold(embyString(source, "Container"), "hls") || strings.EqualFold(embyString(source, "Container"), "m3u8") {
+			source["Container"] = "m3u8"
+			source["MimeType"] = "application/vnd.apple.mpegurl"
+		}
 		directPlayAllowed := embyAllowsDirectPlay(source)
 		// 上游这句判定不再采纳，两半都压成 DirectStream 引回 AetherLink：
 		//
@@ -432,6 +438,9 @@ func embyDirectStreamPrefix(fallback, existingPath string) string {
 
 func embyPlaybackContainer(source map[string]any) string {
 	container := strings.ToLower(strings.TrimSpace(embyString(source, "Container")))
+	if container == "hls" {
+		return "m3u8"
+	}
 	if container != "" && container != "strm" && embyContainerRe.MatchString(container) {
 		return container
 	}

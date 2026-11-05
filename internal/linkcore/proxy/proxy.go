@@ -403,7 +403,9 @@ func (s *Server) serveMedia(writer http.ResponseWriter, request *http.Request, r
 		// 302 这一行是它唯一的输出口，附加说明必须写进去——不然「跟着上游跳了
 		// 几跳」「直链是内网地址」这几件事用户看不到。
 		notes := make([]string, 0, 3)
-		if len(resolution.Hops) > 0 {
+		if resolver.IsPlaylistURL(playURL) {
+			notes = append(notes, "HLS播放列表交由客户端请求，未预取CDN签名地址")
+		} else if len(resolution.Hops) > 0 {
 			notes = append(notes, fmt.Sprintf("直链为跟随上游 %d 次重定向后的最终地址，客户端无需再跳", len(resolution.Hops)))
 		}
 		if privateTarget := privateTargetNote(playURL); privateTarget != "" {

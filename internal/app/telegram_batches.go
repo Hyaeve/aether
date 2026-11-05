@@ -102,19 +102,16 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 			}
 		}
 		if len(selected) == 0 {
-			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "未找到对应链库的分享链接；/cas 只接受移动云盘分享链接。", nil)
-			return err
+			return a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "未找到对应链库的分享链接；/cas 只接受移动云盘分享链接。")
 		}
 		links = selected
 	}
 	for _, link := range links {
 		if library && (mode == "cas-library" && link.Provider != "mobile" || link.Kind == "ed2k") {
-			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "/cas 只接受移动云盘分享链接；/share 请使用对应网盘的分享链接，不接受ED2K链接。", nil)
-			return err
+			return a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "/cas 只接受移动云盘分享链接；/share 请使用对应网盘的分享链接，不接受ED2K链接。")
 		}
 		if library && link.Kind == "ali-rapid" {
-			_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "阿里云盘链接用于阿里云盘秒传，请直接发送链接；不支持加入虚拟链库。", nil)
-			return err
+			return a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "阿里云盘链接用于阿里云盘秒传，请直接发送链接；不支持加入虚拟链库。")
 		}
 	}
 	rank := map[string]int{"115": 0, "mobile": 1, "quark": 2, "aliyun": 3}
@@ -170,8 +167,7 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 				}
 			}
 			if len(job.Targets) == 0 && len(links) == 1 {
-				_, err := a.telegramSend(ctx, cfg, m.Chat.ID, "该类型未配置已启用的"+telegramAction(link.Kind)+"目录，未执行操作。", nil)
-				return err
+				return a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "该类型未配置已启用的"+telegramAction(link.Kind)+"目录，未执行操作。")
 			}
 		}
 		jobs = append(jobs, job)
@@ -231,7 +227,7 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 	if err != nil {
 		current := a.store.snapshotWithLogLimit(0).Notifications.Telegram
 		if telegramDigest(current) == telegramDigest(cfg) && telegramAllowed(current, m.Chat.ID, m.From.ID) {
-			_, sendErr := a.telegramSend(ctx, cfg, m.Chat.ID, "未添加任务：配置已变化、待处理队列已满或状态保存失败，请检查运行日志后重发。", nil)
+			sendErr := a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "未添加任务：配置已变化、待处理队列已满或状态保存失败，请检查运行日志后重发。")
 			return errors.Join(err, sendErr)
 		}
 		return err
@@ -244,23 +240,31 @@ func (a *App) queueTelegramLinks(ctx context.Context, cfg telegramConfig, m tele
 				labels = append(labels, label)
 			}
 		}
-		// Workers cannot start before this initial notice has been attempted.
-		_, sendErr := a.telegramSend(ctx, cfg, m.Chat.ID, "已加入"+strings.Join(labels, "、")+"任务队列，共"+fmt.Sprint(len(jobs))+"条分享链接；正在等待执行。", nil)
-		releaseErr := a.store.update(func(st *State) error {
-			for i := range st.TelegramRuntime.Jobs {
-				if st.TelegramRuntime.Jobs[i].BatchID == batch {
-					st.TelegramRuntime.Jobs[i].QueuePending = false
-				}
-			}
-			return nil
+		return telegramReply(ctx, func(ctx context.Context) (err error) {
+			// Workers cannot start before this initial notice has been attempted.
+			defer func() {
+				err = errors.Join(err, a.store.update(func(st *State) error {
+					for i := range st.TelegramRuntime.Jobs {
+						if st.TelegramRuntime.Jobs[i].BatchID == batch {
+							st.TelegramRuntime.Jobs[i].QueuePending = false
+						}
+					}
+					return nil
+				}))
+			}()
+			return a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "已加入"+strings.Join(labels, "、")+"任务队列，共"+fmt.Sprint(len(jobs))+"条分享链接；正在等待执行。")
 		})
-		return errors.Join(sendErr, releaseErr)
 	}
 	return a.advanceTelegramBatch(ctx, batch)
 }
 
 // Only the first unfinished provider group in a message may open a prompt.
 func (a *App) advanceTelegramBatch(ctx context.Context, batch string) error {
+	ctx, release, reserveErr := a.reserveTelegramReply(ctx)
+	if reserveErr != nil {
+		return reserveErr
+	}
+	defer release()
 	var selected telegramTransfer
 	st := a.store.snapshotWithLogLimit(0)
 	ready := false
@@ -298,12 +302,14 @@ func (a *App) advanceTelegramBatch(ctx context.Context, batch string) error {
 			if !valid {
 				job.Status, job.Link = "failed", ""
 			}
+			job.QueuePending = job.Status == "queued"
 			job.LastActivity = time.Now()
 			selected = *job
 			for j := range st.TelegramRuntime.Jobs {
 				member := &st.TelegramRuntime.Jobs[j]
 				if member.ID != job.ID && telegramSameGroup(*job, *member) && member.Status == "waiting" && (job.Status == "queued" || job.Status == "failed") {
 					member.Status, member.Selected = job.Status, job.Selected
+					member.QueuePending = job.QueuePending
 					if job.Status == "failed" {
 						member.Link = ""
 					}
@@ -313,39 +319,55 @@ func (a *App) advanceTelegramBatch(ctx context.Context, batch string) error {
 		}
 		return nil
 	})
-	if err != nil || selected.ID == "" || selected.Status == "queued" {
+	if err != nil || selected.ID == "" {
 		return err
 	}
-	cfg := a.store.snapshotWithLogLimit(0).Notifications.Telegram
-	if telegramDigest(cfg) != selected.Auth || !telegramAllowed(cfg, selected.ChatID, selected.UserID) {
-		a.finishTelegram(selected.ID, "failed", "TG 授权已改变，未发送交互消息", 0)
-		return nil
-	}
-	text, keyboard := telegramDirectoryPage(a.store.snapshotWithLogLimit(0), selected)
-	if selected.Status == "failed" {
-		text, keyboard = telegramProviderName(selected.Provider)+"：未配置可用目录或目录/授权已变化，未转存。", nil
-		a.store.event("warn", "notifications", fmt.Sprintf("[TG:%s] %s", selected.ID, text))
-	} else if selected.Status == "confirming" {
-		text, keyboard = telegramConfirmation(a.store.snapshotWithLogLimit(0), selected)
-	}
-	message, err := a.telegramSend(ctx, cfg, selected.ChatID, text, keyboard)
-	if err != nil {
-		a.finishTelegram(selected.ID, "failed", "TG 交互消息未确认，不会自动重新发送", 0)
-		return err
-	}
-	if selected.Status == "failed" {
-		return nil
-	}
-	return a.store.update(func(st *State) error {
-		for i := range st.TelegramRuntime.Jobs {
-			job := &st.TelegramRuntime.Jobs[i]
-			if job.ID == selected.ID {
-				job.MessageID = message
-				if job.Status != selected.Status {
-					job.CleanupPending = true
-				}
+	return telegramReply(ctx, func(ctx context.Context) (err error) {
+		defer func() {
+			if selected.Status == "queued" {
+				err = errors.Join(err, a.releaseTelegramQueue(selected))
+			}
+		}()
+		cfg := a.store.snapshotWithLogLimit(0).Notifications.Telegram
+		if telegramDigest(cfg) != selected.Auth || !telegramAllowed(cfg, selected.ChatID, selected.UserID) {
+			a.finishTelegram(selected.ID, "failed", "TG 授权已改变，未发送交互消息", 0)
+			return nil
+		}
+		if selected.Status != "failed" {
+			if _, err := currentTelegramPrompt(a.store.snapshotWithLogLimit(0), selected); err != nil {
+				return err
 			}
 		}
-		return nil
+		text, keyboard := telegramDirectoryPage(a.store.snapshotWithLogLimit(0), selected)
+		if selected.Status == "failed" {
+			text, keyboard = telegramProviderName(selected.Provider)+"：未配置可用目录或目录/授权已变化，未转存。", nil
+			a.store.event("warn", "notifications", fmt.Sprintf("[TG:%s] %s", selected.ID, text))
+		} else if selected.Status == "confirming" {
+			text, keyboard = telegramConfirmation(a.store.snapshotWithLogLimit(0), selected)
+		} else if selected.Status == "queued" {
+			text, keyboard = "已加入"+telegramAction(selected.Kind)+"队列，正在等待后台执行。", nil
+		}
+		message, err := a.telegramSend(ctx, cfg, selected.ChatID, text, keyboard)
+		if err != nil {
+			if selected.Status != "queued" {
+				a.finishTelegram(selected.ID, "failed", "TG 交互消息未确认，不会自动重新发送", 0)
+			}
+			return err
+		}
+		if selected.Status == "failed" {
+			return nil
+		}
+		return a.store.update(func(st *State) error {
+			for i := range st.TelegramRuntime.Jobs {
+				job := &st.TelegramRuntime.Jobs[i]
+				if job.ID == selected.ID {
+					job.MessageID = message
+					if job.Status != selected.Status {
+						job.CleanupPending = true
+					}
+				}
+			}
+			return nil
+		})
 	})
 }

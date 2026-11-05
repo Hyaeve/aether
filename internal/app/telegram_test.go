@@ -124,7 +124,7 @@ func TestTelegramAuthorizedMessagesAndOrderedConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 	jobs := a.store.snapshot().TelegramRuntime.Jobs
-	if len(jobs) != 1 || jobs[0].Status != "queued" || len(sent) != 0 {
+	if len(jobs) != 1 || jobs[0].Status != "queued" || jobs[0].QueuePending || len(sent) != 1 || !strings.Contains(sent[0]["text"].(string), "已加入转存队列") {
 		t.Fatal("single target did not queue exactly once", len(jobs), len(sent))
 	}
 	a.store.update(func(st *State) error {
@@ -139,7 +139,7 @@ func TestTelegramAuthorizedMessagesAndOrderedConfirmation(t *testing.T) {
 	if job.Status != "choosing" || job.Targets[0].ID != "first" || job.MessageID != 77 {
 		t.Fatal(job.Status, job.Targets)
 	}
-	keyboard := sent[0]["reply_markup"].(map[string]any)["inline_keyboard"].([]any)
+	keyboard := sent[1]["reply_markup"].(map[string]any)["inline_keyboard"].([]any)
 	if !strings.HasPrefix(keyboard[0].([]any)[0].(map[string]any)["text"].(string), "1. 夸克影视 · /First") {
 		t.Fatal(keyboard)
 	}

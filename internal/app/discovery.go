@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,10 +11,6 @@ import (
 	"time"
 )
 
-type discoveryCacheEntry struct {
-	Data  []byte
-	Until time.Time
-}
 type discoveryMedia struct {
 	ID            int     `json:"id"`
 	Kind          string  `json:"kind"`
@@ -34,15 +29,25 @@ type discoverySeason struct {
 }
 type discoveryDetail struct {
 	discoveryMedia
-	Genres    []string          `json:"genres"`
-	Runtime   int               `json:"runtime"`
-	Status    string            `json:"status"`
-	Language  string            `json:"language"`
-	IMDb      string            `json:"imdb"`
-	Countries []string          `json:"countries"`
-	Companies []string          `json:"companies"`
-	Cast      []string          `json:"cast"`
-	Seasons   []discoverySeason `json:"seasons"`
+	Genres          []string          `json:"genres"`
+	Runtime         int               `json:"runtime"`
+	Status          string            `json:"status"`
+	Language        string            `json:"language"`
+	IMDb            string            `json:"imdb"`
+	Countries       []string          `json:"countries"`
+	Companies       []string          `json:"companies"`
+	Cast            []string          `json:"cast"`
+	Seasons         []discoverySeason `json:"seasons"`
+	Release         string            `json:"release"`
+	People          []discoveryPerson `json:"people"`
+	Crew            []discoveryPerson `json:"crew"`
+	Recommendations []discoveryMedia  `json:"recommendations"`
+	Similar         []discoveryMedia  `json:"similar"`
+}
+type discoveryPerson struct {
+	Name  string `json:"name"`
+	Role  string `json:"role"`
+	Photo string `json:"photo"`
 }
 type tmdbDiscovery struct {
 	ID             int     `json:"id"`
@@ -78,9 +83,21 @@ type tmdbDiscovery struct {
 	} `json:"seasons"`
 	Credits struct {
 		Cast []struct {
-			Name string `json:"name"`
+			Name      string `json:"name"`
+			Character string `json:"character"`
+			Photo     string `json:"profile_path"`
 		} `json:"cast"`
+		Crew []struct {
+			Name string `json:"name"`
+			Job  string `json:"job"`
+		} `json:"crew"`
 	} `json:"credits"`
+	Recommendations struct {
+		Results []tmdbDiscovery `json:"results"`
+	} `json:"recommendations"`
+	Similar struct {
+		Results []tmdbDiscovery `json:"results"`
+	} `json:"similar"`
 }
 
 func discoveryImage(p, size string) string {
@@ -108,47 +125,12 @@ func (a *App) discoveryJSON(ctx context.Context, endpoint string, q url.Values, 
 	if !cfg.Enabled || cfg.APIKey == "" {
 		return errors.New("请先在以太识律的辅助配置中配置并启用TMDB")
 	}
-	key := archiveStamp(telegramDigest(cfg), telegramDigest(st.Plugins["proxy"]), endpoint, q.Encode())
-	a.discoveryMu.Lock()
-	cached, ok := a.discoveryCache[key]
-	a.discoveryMu.Unlock()
-	if ok && time.Now().Before(cached.Until) {
-		return json.Unmarshal(cached.Data, out)
-	}
 	client, closeIdle, err := pluginClient(st.Plugins["proxy"])
 	if err != nil {
 		return err
 	}
 	defer closeIdle()
-	var raw json.RawMessage
-	if err := tmdbGet(ctx, client, cfg, endpoint, q, &raw); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return errors.New("TMDB数据格式无效")
-	}
-	if len(raw) <= 1<<20 {
-		a.discoveryMu.Lock()
-		if a.discoveryCache == nil {
-			a.discoveryCache = map[string]discoveryCacheEntry{}
-		}
-		if len(a.discoveryCache) >= 32 {
-			for k, v := range a.discoveryCache {
-				if time.Now().After(v.Until) {
-					delete(a.discoveryCache, k)
-				}
-			}
-			if len(a.discoveryCache) >= 32 {
-				for k := range a.discoveryCache {
-					delete(a.discoveryCache, k)
-					break
-				}
-			}
-		}
-		a.discoveryCache[key] = discoveryCacheEntry{append([]byte(nil), raw...), time.Now().Add(15 * time.Minute)}
-		a.discoveryMu.Unlock()
-	}
-	return nil
+	return tmdbGet(a.tmdbContext(ctx), client, cfg, endpoint, q, out)
 }
 
 type discoveryFeedSpec struct {
@@ -239,13 +221,17 @@ func (a *App) discoveryMediaDetail(ctx context.Context, kind string, id int) (di
 		return discoveryDetail{}, errors.New("媒体类型或TMDB编号无效")
 	}
 	var v tmdbDiscovery
-	if err := a.discoveryJSON(ctx, fmt.Sprintf("%s/%d", kind, id), url.Values{"append_to_response": {"credits"}}, &v); err != nil {
+	if err := a.discoveryJSON(ctx, fmt.Sprintf("%s/%d", kind, id), url.Values{"append_to_response": {"credits,recommendations,similar"}}, &v); err != nil {
 		return discoveryDetail{}, err
 	}
 	if v.ID != id {
 		return discoveryDetail{}, errors.New("TMDB返回的媒体编号不符")
 	}
 	d := discoveryDetail{discoveryMedia: v.media(kind), Runtime: v.Runtime, Status: v.Status, Language: v.Language, IMDb: v.IMDb, Genres: []string{}, Countries: []string{}, Companies: []string{}, Cast: []string{}, Seasons: []discoverySeason{}}
+	d.Release = v.Date
+	if kind == "tv" {
+		d.Release = v.FirstDate
+	}
 	if d.Runtime == 0 && len(v.EpisodeRuntime) > 0 {
 		d.Runtime = v.EpisodeRuntime[0]
 	}
@@ -263,6 +249,25 @@ func (a *App) discoveryMediaDetail(ctx context.Context, kind string, id int) (di
 			break
 		}
 		d.Cast = append(d.Cast, x.Name)
+		d.People = append(d.People, discoveryPerson{x.Name, x.Character, discoveryImage(x.Photo, "w185")})
+	}
+	for _, person := range v.Credits.Crew {
+		if len(d.Crew) >= 12 {
+			break
+		}
+		if person.Job == "Director" || person.Job == "Producer" || person.Job == "Writer" || person.Job == "Editor" {
+			d.Crew = append(d.Crew, discoveryPerson{Name: person.Name, Role: person.Job})
+		}
+	}
+	for _, m := range v.Recommendations.Results {
+		if m.ID > 0 && len(d.Recommendations) < 20 {
+			d.Recommendations = append(d.Recommendations, m.media(kind))
+		}
+	}
+	for _, m := range v.Similar.Results {
+		if m.ID > 0 && len(d.Similar) < 20 {
+			d.Similar = append(d.Similar, m.media(kind))
+		}
 	}
 	for _, x := range v.Seasons {
 		d.Seasons = append(d.Seasons, discoverySeason{x.Number, x.Name, x.Episodes})

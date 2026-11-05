@@ -206,8 +206,9 @@ func (a *App) telegramPoll() {
 			continue
 		}
 		for _, update := range updates {
-			if err := a.handleTelegramUpdate(a.ctx, cfg, update); err != nil {
+			if err := a.handleTelegramUpdate(context.WithValue(a.ctx, telegramUIAsyncKey{}, true), cfg, update); err != nil {
 				a.store.event("warn", "notifications", "TG 交互处理停止："+err.Error())
+				telegramPause(a.ctx, time.Second)
 				break
 			}
 		}
@@ -331,6 +332,11 @@ func (a *App) telegramSend(ctx context.Context, cfg telegramConfig, chat int64, 
 }
 
 func (a *App) handleTelegramUpdate(ctx context.Context, cfg telegramConfig, update telegramUpdate) error {
+	ctx, release, reserveErr := a.reserveTelegramReply(ctx)
+	if reserveErr != nil {
+		return reserveErr
+	}
+	defer release()
 	accepted := false
 	err := a.store.update(func(st *State) error {
 		if telegramDigest(st.Notifications.Telegram) != telegramDigest(cfg) || st.TelegramRuntime.Bot != telegramDigest(cfg.Token) {
@@ -368,16 +374,14 @@ func (a *App) handleTelegramUpdate(ctx context.Context, cfg telegramConfig, upda
 	}
 	links, err := telegramLinks(content)
 	if err != nil {
-		_, e := a.telegramSend(ctx, cfg, m.Chat.ID, err.Error(), nil)
-		return e
+		return a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, err.Error())
 	}
 	if len(links) == 0 {
 		if library {
-			_, err = a.telegramSend(ctx, cfg, m.Chat.ID, "请在 /share（分享链库）或 /cas（仅移动CAS链库）后填写对应分享链接。", nil)
-			return err
+			return a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "请在 /share（分享链库）或 /cas（仅移动CAS链库）后填写对应分享链接。")
 		}
 		if strings.HasPrefix(text, "/start") {
-			_, err = a.telegramSend(ctx, cfg, m.Chat.ID, "Aether 已连接。", nil)
+			err = a.telegramTextReply(ctx, cfg, m.Chat.ID, m.From.ID, "Aether 已连接。")
 		}
 		return err
 	}
@@ -427,8 +431,16 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 }
 
 func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, chat, user, message int64, queryID, data string) (resultErr error) {
-	answer := func(err error) {
+	ctx, release, reserveErr := a.reserveTelegramReply(ctx)
+	if reserveErr != nil {
+		return reserveErr
+	}
+	defer release()
+	answer := func(ctx context.Context, err error) {
 		if queryID == "" {
+			return
+		}
+		if telegramDigest(a.store.snapshotWithLogLimit(0).Notifications.Telegram) != telegramDigest(cfg) {
 			return
 		}
 		text := ""
@@ -442,7 +454,7 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 	answered := false
 	defer func() {
 		if !answered {
-			answer(resultErr)
+			_ = telegramReply(ctx, func(ctx context.Context) error { answer(ctx, resultErr); return nil })
 		}
 	}()
 	parts := strings.Split(data, ":")
@@ -491,6 +503,7 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 					}
 				}
 				job.Status = "queued"
+				job.QueuePending = true
 			} else if parts[0] == "b" && job.Status == "confirming" && job.Selected == index {
 				job.Status, job.Selected = "choosing", -1
 			} else if parts[0] == "x" && job.Status == "confirming" {
@@ -504,6 +517,7 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 					member := &st.TelegramRuntime.Jobs[j]
 					if member.ID != job.ID && telegramSameGroup(*job, *member) && member.Status == "waiting" {
 						member.Status, member.Selected = job.Status, job.Selected
+						member.QueuePending = job.QueuePending
 						if job.Status == "cancelled" {
 							member.Link = ""
 						}
@@ -518,21 +532,28 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 	if err != nil {
 		return err
 	}
-	if queryID != "" {
-		// Acknowledge only after the validated state is durable, without holding up the prompt.
-		answered = true
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			answer(nil)
+	answered = true
+	return telegramReply(ctx, func(ctx context.Context) (err error) {
+		defer func() {
+			if selected.Status == "queued" {
+				err = errors.Join(err, a.releaseTelegramQueue(selected))
+			}
 		}()
-		defer func() { <-done }()
-	}
-	if err := a.editTelegramPrompt(ctx, cfg, selected, false); err != nil {
-		return err
-	}
-	// The confirmation is already visible; optional cloud metadata never holds up
-	// this callback or the next getUpdates poll.
-	a.queueTelegramTitle(selected)
-	return nil
+		if queryID != "" {
+			// Acknowledge only after the validated state is durable, without holding up the prompt.
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				answer(ctx, nil)
+			}()
+			defer func() { <-done }()
+		}
+		if err := a.editTelegramPrompt(ctx, cfg, selected, false); err != nil {
+			return err
+		}
+		// The confirmation is already visible; optional cloud metadata never holds up
+		// this callback or the next getUpdates poll.
+		a.queueTelegramTitle(selected)
+		return nil
+	})
 }

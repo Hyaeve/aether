@@ -623,7 +623,7 @@ func TestMobileLibraryForeignMarkerAndBrokenPagingFailClosed(t *testing.T) {
 
 func TestMobileLibraryResolveActivationAndSafeMigration(t *testing.T) {
 	a := testApp(t)
-	_, card := mockMobileLibrary(t, a)
+	m, card := mockMobileLibrary(t, a)
 	h, cookie := mobileLibraryHandler(t, a)
 	w := request(t, h, "POST", "/api/virtual-library/mobile/resolve", map[string]string{"url": card.Secret}, cookie)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "移动影视") {
@@ -633,9 +633,16 @@ func TestMobileLibraryResolveActivationAndSafeMigration(t *testing.T) {
 		t.Fatal("resolve endpoint not protected")
 	}
 	body := map[string]any{"url": card.Secret, "name": card.Name, "directory": card.Directory, "directoryName": card.DirectoryName, "enabled": true}
+	before := len(m.calls)
 	w = request(t, h, "PUT", "/api/virtual-library/mobile/"+card.ID, body, cookie)
-	if w.Code != 202 {
-		t.Fatal("enabled save was not accepted in background", w.Code, w.Body.String())
+	if w.Code != 200 || len(m.calls) != before {
+		t.Fatal("unchanged source/output save must not generate", w.Code, w.Body.String(), len(m.calls)-before)
+	}
+	if _, err := os.Stat(quarkLibraryRoot(card)); !os.IsNotExist(err) {
+		t.Fatal("configuration save created output", err)
+	}
+	if w := request(t, h, "POST", "/api/virtual-library/mobile/"+card.ID+"/run", nil, cookie); w.Code != 202 {
+		t.Fatal("explicit generation was not queued", w.Code, w.Body.String())
 	}
 	a.wg.Wait()
 	if result := a.store.snapshot().MobileLibraryRuntime.Results[card.ID]; result.Status != "completed" {
@@ -668,8 +675,12 @@ func TestMobileLibraryResolveActivationAndSafeMigration(t *testing.T) {
 		t.Fatal("unchanged old registered file remained", err)
 	}
 	body["enabled"] = true
-	if w := request(t, h, "PUT", "/api/virtual-library/mobile/"+card.ID, body, cookie); w.Code != 202 {
+	before = len(m.calls)
+	if w := request(t, h, "PUT", "/api/virtual-library/mobile/"+card.ID, body, cookie); w.Code != 200 || len(m.calls) != before {
 		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := request(t, h, "POST", "/api/virtual-library/mobile/"+card.ID+"/run", nil, cookie); w.Code != 202 {
+		t.Fatal("explicit generation after migration was not queued", w.Code, w.Body.String())
 	}
 	a.wg.Wait()
 	if result := a.store.snapshot().MobileLibraryRuntime.Results[card.ID]; result.Status != "completed" {

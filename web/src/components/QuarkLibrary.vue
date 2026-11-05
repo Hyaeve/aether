@@ -30,7 +30,7 @@ const settingsPicker = ref(false)
 const confirmingSync = ref(null)
 const originalForm=ref(null)
 const originalCascade=ref('')
-const generationFields=['storageId','url','directory','mediaExtensions','metadataExtensions','enabled','cascadeCleanup','scrapeEnabled','excludeDirs','excludeFiles','excludeTypes']
+const generationFields=['storageId','url','directory']
 const generationChanged=computed(()=>!originalForm.value||generationFields.some(key=>form[key]!==originalForm.value[key]))
 const more = ref(false)
 const directoryError = ref('')
@@ -69,6 +69,7 @@ function open(card) {
   originalCascade.value=form.cascadeCleanup
   form.cascadeCleanup=form.cascadeCleanup==='off'?'':form.cascadeCleanup==='on'?'jpg;jpeg;png;webp;nfo;srt;ass;ssa;sub;vtt':form.cascadeCleanup
   if(!form.directory)form.directory=cfg.directory||''
+  if(!pan115.value)form.enabled=!!form.directory.trim()
   originalForm.value=JSON.parse(JSON.stringify(form))
   modal.value=true
 }
@@ -128,7 +129,7 @@ async function saveSettings() {
   catch(e){if(active)notify(e.message,true)}finally{if(active)saving.value=false}
 }
 function toggle(id){if(id===firstAccount.value)return;cfg.storageIds=cfg.storageIds.includes(id)?cfg.storageIds.filter(v=>v!==id):[...cfg.storageIds,id]}
-watch(()=>form.directory,value=>{if(!value?.trim())form.enabled=false})
+watch(()=>form.directory,value=>{if(!pan115.value)form.enabled=!!value?.trim();else if(!value?.trim())form.enabled=false})
 onMounted(()=>{load();timer=setInterval(()=>{if(!modal.value&&!settingsPage.value&&!saving.value)load()},10000)})
 onBeforeUnmount(()=>{active=false;clearInterval(timer)})
 defineExpose({open})
@@ -144,7 +145,7 @@ defineExpose({open})
       </section>
       <section v-else-if="pan115" class="quark-account-section" aria-label="115解析存储池"><h3><Icon name="Database"/>115解析存储池</h3><label>默认解析存储池<RoundedSelect v-model="cfg.storageId" label="默认解析存储池" :options="accounts.map(s=>({value:s.id,label:s.name}))"/></label><p class="muted">115分享按快照手动执行，不设置活链或更新周期。</p></section>
       <section v-else class="quark-account-section" aria-label="CAS生成说明"><h3><Icon name="Box"/>移动分享CAS</h3><p>仅接受移动云盘分享链接，生成“原文件名.扩展名.cas.strm”。已有文件直接跳过。</p><p>分享没有返回SHA256时，会临时转存到CAS绑定的移动存储，取得特征并确认生成后清理本次副本。结果未确认时保留回执，不重复转存。</p><RouterLink class="btn" to="/tasks/cas/pool"><Icon name="Database"/>CAS存储绑定池</RouterLink></section>
-      <section class="quark-settings-fields" aria-label="链库生成设置"><h3><Icon name="Settings2" />链库设置</h3><div class="form-grid">
+      <section class="quark-settings-fields" aria-label="链库生成设置"><header class="library-settings-heading"><h3><Icon name="Settings2" />链库设置</h3><button class="btn primary" :disabled="saving||loading"><Icon name="Save" />保存设置</button></header><div class="form-grid">
         <label :class="{full:mobile}">生成位置<div class="quark-directory-field"><input v-model="cfg.directory" aria-label="默认生成位置" :disabled="saving||loading" /><button type="button" class="icon-btn" aria-label="选择默认生成位置" :disabled="saving||loading" @click="settingsPicker=true"><Icon name="FolderOpen" /></button></div></label>
         <label v-if="mobile&&!cas">播放模式<RoundedSelect v-model="cfg.playbackMode" label="播放模式" :options="[{value:'relay',label:'以太中继'},{value:'share',label:'分享直链'},{value:'transfer',label:'转存直链'}]" /></label>
         <label v-if="!cas&&!pan115" class="library-rotation-field">轮换时间<NumberInput v-model="cfg.rotationHours" aria-label="轮换时间" unit="h" :min="1" :max="8760" :disabled="!rotationEnabled||saving||loading" required /></label>
@@ -154,7 +155,7 @@ defineExpose({open})
         <label>链库刮削<RoundedSelect :model-value="cfg.scrapeEnabled?'include':'exclude'" label="默认链库刮削" :options="[{value:'exclude',label:'不参与'},{value:'include',label:'参与'}]" @update:model-value="cfg.scrapeEnabled=$event==='include'" /></label>
         <label v-if="!pan115" class="full"><span class="quark-extension-label">默认媒体扩展名<ExtensionPresets v-model="cfg.mediaExtensions" :groups="['video','audio']" /></span><input v-model="cfg.mediaExtensions" aria-label="默认媒体扩展名" /></label>
         <label v-if="!cas&&!pan115" class="full"><span class="quark-extension-label">默认元数据扩展名<ExtensionPresets v-model="cfg.metadataExtensions" :groups="['image','data']" /></span><input v-model="cfg.metadataExtensions" aria-label="默认元数据扩展名" /></label>
-      </div><footer><button class="btn primary" :disabled="saving||loading"><Icon name="Save" />保存设置</button></footer></section>
+      </div></section>
     </form>
   </div>
   <template v-else>
@@ -170,7 +171,7 @@ defineExpose({open})
       <label v-if="!pan115">Cron表达式<CronInput v-model="form.cron" share-library aria-label="Cron表达式" /></label><label v-else>解析存储池<RoundedSelect v-model="form.storageId" label="解析存储池" :options="accounts.map(s=>({value:s.id,label:s.name}))"/></label>
       <label class="full"><span class="quark-extension-label">媒体扩展名<ExtensionPresets v-model="form.mediaExtensions" :groups="['video','audio']" /></span><input v-model="form.mediaExtensions" aria-label="媒体扩展名" /></label>
       <label v-if="!cas&&!pan115" class="full"><span class="quark-extension-label">元数据扩展名<ExtensionPresets v-model="form.metadataExtensions" :groups="['image','data']" /></span><input v-model="form.metadataExtensions" aria-label="元数据扩展名" /></label>
-      <label class="switch-label full">启用链接<input v-model="form.enabled" class="switch" type="checkbox" role="switch" aria-label="启用链接" :disabled="!form.directory?.trim()" /></label>
+      <label v-if="pan115" class="switch-label full">启用链接<input v-model="form.enabled" class="switch" type="checkbox" role="switch" aria-label="启用链接" :disabled="!form.directory?.trim()" /></label>
     </div>
     <button type="button" class="disclosure" :aria-expanded="more" aria-controls="quark-library-more" @click="more=!more;more&&revealOptions($event.currentTarget)"><Icon :name="more?'ChevronDown':'ChevronRight'" />更多选项</button>
     <div v-if="more" id="quark-library-more" class="form-grid quark-library-more">
@@ -187,6 +188,7 @@ defineExpose({open})
   <Modal v-if="confirmingSync" compact confirmation :title="`同步${providerLabel}分享`" @close="confirmingSync=null"><div class="modal-body"><template v-if="cas">将生成缺少的CAS文件，已有文件直接跳过。分享没有SHA256时，将临时转存到CAS绑定的移动存储；确认生成后清理本次副本，未知结果保留回执。</template><template v-else>同步生成目录，清理过期登记产物；保留未登记或已修改的文件。</template></div><footer class="modal-footer"><button class="btn" @click="confirmingSync=null">取消</button><button class="btn primary" @click="confirmSync">{{cas?'确认生成':'确认同步'}}</button></footer></Modal>
 </template>
 <style scoped>
+.library-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}.quark-settings-form .library-settings-heading h3{margin:0}.library-settings-heading .btn{flex:none}
 .quark-settings-fields :deep(.rounded-select),.quark-settings-fields :deep(.rounded-select-trigger){min-width:0;width:100%}
 @media(min-width:701px) and (max-width:1100px){.quark-library-settings .quark-settings-form{grid-template-columns:minmax(0,1fr)}}
 .quark-settings-form>section{min-width:0;border:1px solid var(--border);border-radius:14px;padding:22px;background:var(--surface)}

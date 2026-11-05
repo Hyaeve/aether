@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ func strmBulkFixture(t *testing.T, n int, broken string) (*App, Storage, Task, *
 		switch r.URL.Path {
 		case "/files/get_info":
 			response = map[string]any{"state": true, "data": []any{map[string]any{"cid": "10", "pid": "0", "n": "Show", "pc": "folderpick12345"}}}
-		case "/app/chrome/downfolders":
+		case "/files/downfolders":
 			dirs := []any{}
 			for i := 0; i < n; i++ {
 				parent := "10"
@@ -98,6 +99,108 @@ func Test115STRMBulkSubtreeReducesDirectoryRequests(t *testing.T) {
 			t.Fatal("bulk list lost playback identity", f)
 		}
 	}
+}
+
+func Test115STRMBulkUsesWebFoldersAndVersionedFallback(t *testing.T) {
+	for _, fallback := range []bool{false, true} {
+		t.Run(fmt.Sprint(fallback), func(t *testing.T) {
+			a, s, task, _ := strmBulkFixture(t, 2, "")
+			original := apiClient.Transport
+			var endpoints []string
+			apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+				if strings.Contains(r.URL.Path, "downfolders") {
+					endpoints = append(endpoints, r.URL.Host+r.URL.Path)
+					if r.URL.Path == "/files/downfolders" && fallback {
+						return &http.Response{StatusCode: 403, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("unavailable")), Request: r}, nil
+					}
+					if r.URL.Path == "/app/2.0/chrome/downfolders" {
+						clone := r.Clone(r.Context())
+						copyURL := *r.URL
+						copyURL.Host = "webapi.115.com"
+						copyURL.Path = "/files/downfolders"
+						clone.URL = &copyURL
+						return original.RoundTrip(clone)
+					}
+				}
+				return original.RoundTrip(r)
+			})
+			defer func() { apiClient.Transport = original }()
+			plan, err := a.strm115BulkPlan(a.ctx, s, task.Source)
+			if err != nil || len(plan) != 3 {
+				t.Fatal(plan, err)
+			}
+			expected := 1
+			if fallback {
+				expected = 2
+			}
+			if len(endpoints) != expected || endpoints[0] != "webapi.115.com/files/downfolders" {
+				t.Fatal("wrong primary bulk endpoint", endpoints)
+			}
+			if fallback && endpoints[1] != "proapi.115.com/app/2.0/chrome/downfolders" {
+				t.Fatal("fallback omitted API version", endpoints)
+			}
+		})
+	}
+}
+
+func Test115STRMBulkRootUsesSubtreePages(t *testing.T) {
+	a, s, _, _ := strmBulkFixture(t, 2, "")
+	base := apiClient.Transport
+	var rootReads int
+	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/files" && r.URL.Query().Get("cid") == "0" {
+			rootReads++
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"state":true,"cid":"0","count":2,"offset":0,"data":[{"cid":"10","pid":"0","n":"Show","pc":"folderpick12345"},{"fid":"9","cid":"0","n":"root.mkv","pc":"rootpick123456","s":10}]}`)), Request: r}, nil
+		}
+		return base.RoundTrip(r)
+	})
+	defer func() { apiClient.Transport = base }()
+	plan, err := a.strm115BulkPlan(a.ctx, s, "/")
+	if err != nil || rootReads != 1 || len(plan) != 4 || len(plan["/"]) != 2 || plan["20"][0].PickCode != "pick000000000000" {
+		t.Fatal("root fell back to full DFS or lost pickcodes", len(plan), rootReads, err)
+	}
+}
+
+func Test115STRMLifeFullSyncTenThousandWithOneSecondAPI(t *testing.T) {
+	a, s, task, _ := strmBulkFixture(t, 1, "")
+	task.STRMSource = "life"
+	task.fullSyncGeneration = true
+	task.APIInterval = 1000
+	if err := a.store.update(func(st *State) error { st.Tasks = []Task{task}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	a.intervals[s.ID] = 1000
+	base := apiClient.Transport
+	var calls int
+	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.URL.Path == "/behavior/detail" {
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"state":true,"data":{"list":[]}}`)), Request: r}, nil
+		}
+		if r.URL.Path == "/files" && r.URL.Query().Get("cur") == "0" {
+			offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			list := []any{}
+			for i := offset; i < min(10000, offset+1150); i++ {
+				list = append(list, map[string]any{"fid": strconv.Itoa(10000 + i), "cid": "20", "n": fmt.Sprintf("Episode%05d.mkv", i), "pc": fmt.Sprintf("pick%012d", i), "s": 42})
+			}
+			raw, _ := json.Marshal(map[string]any{"state": true, "cid": "10", "count": 10000, "offset": offset, "data": list})
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(string(raw))), Request: r}, nil
+		}
+		return base.RoundTrip(r)
+	})
+	defer func() { apiClient.Transport = base }()
+	started := time.Now()
+	n, err := a.executeTask(a.ctx, task, s)
+	if err != nil || n != 10000 || calls != 12 {
+		t.Fatal("life full sync used per-file cloud calls or omitted pages", n, calls, err)
+	}
+	for i := 0; i < 10000; i++ {
+		raw, err := os.ReadFile(filepath.Join(task.Target, "Show", "Season0000", fmt.Sprintf("Episode%05d.strm", i)))
+		if err != nil || !strings.Contains(string(raw), fmt.Sprintf("/pick%012d/", i)) {
+			t.Fatal("output missing exact pickcode", i, err)
+		}
+	}
+	t.Logf("10000 STRM with 1s API gate: %s, %d cloud requests; local fixture, not NAS/cloud timing", time.Since(started), calls)
 }
 
 func Test115STRMBulkWritesPickcodeOutputsLocally(t *testing.T) {

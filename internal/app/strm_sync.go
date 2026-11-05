@@ -362,7 +362,7 @@ func publishSTRMOutput(ctx context.Context, h *strmTaskSync, root *os.Root, file
 		if err := recordSTRMLifeWork(ctx); err != nil {
 			return false, err
 		}
-		if err := h.ensure(ctx, root); err != nil {
+		if err := ensureSTRMOutput(ctx, h, root); err != nil {
 			return false, err
 		}
 	}

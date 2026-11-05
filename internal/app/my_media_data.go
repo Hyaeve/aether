@@ -20,6 +20,7 @@ type videoMediaStream struct {
 	Height int    `json:"Height"`
 }
 type videoMediaItem struct {
+	Path        string            `json:"Path"`
 	ID          string            `json:"Id"`
 	Name        string            `json:"Name"`
 	Type        string            `json:"Type"`
@@ -57,7 +58,14 @@ func videoPoster(l MediaLink, c *mediaDashboardClient, v videoMediaItem, library
 		imageID = v.SeriesID
 		title = fmt.Sprintf("%s · S%02dE%02d", v.SeriesName, v.Season, v.Episode)
 	}
-	return mediaPoster{ID: v.ID, Title: title, Subtitle: subtitle, Overview: v.Overview, Kind: v.Type, Poster: mediaImageURL(l, c.Stamp, imageID, "Primary"), Backdrop: mediaImageURL(l, c.Stamp, imageID, "Backdrop"), LibraryID: library, Date: v.Date, Duration: float64(v.Runtime) / 1e7}
+	poster := mediaPoster{ID: v.ID, Title: title, Subtitle: subtitle, Overview: v.Overview, Kind: v.Type, Poster: mediaImageURL(l, c.Stamp, imageID, "Primary"), Backdrop: mediaImageURL(l, c.Stamp, imageID, "Backdrop"), LibraryID: library, Date: v.Date, Duration: float64(v.Runtime) / 1e7, Path: v.Path}
+	for key, value := range v.ProviderIDs {
+		if strings.EqualFold(key, "tmdb") {
+			poster.TMDB, _ = strconv.Atoi(value)
+		}
+	}
+	poster.WebURL = strings.TrimRight(l.Address, "/") + "/web/index.html#!/item?id=" + url.QueryEscape(v.ID)
+	return poster
 }
 func finishRecent(d *mediaDashboardData) {
 	sort.SliceStable(d.Recent, func(i, j int) bool { return d.Recent[i].Date > d.Recent[j].Date })
@@ -69,6 +77,17 @@ func (a *App) loadVideoDashboard(ctx context.Context, st State, l MediaLink, c *
 	totals := map[string]int{"Movie": 0, "Series": 0, "Episode": 0}
 	known := map[string]bool{"Movie": true, "Series": true, "Episode": true}
 	for _, lib := range st.MediaDisplay.Libraries[l.ID] {
+		var featured videoMediaPage
+		if err := upstream.DashboardRead(ctx, c.Provider, "/Items", url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series"}, "SortBy": {"DateCreated"}, "SortOrder": {"Descending"}, "Limit": {"5"}, "Fields": {"Overview,DateCreated,ProviderIds,Path"}}, &featured); err == nil {
+			for _, v := range featured.Items {
+				if v.Type != "Movie" && v.Type != "Series" {
+					continue
+				}
+				poster := videoPoster(l, c, v, lib.ID)
+				poster.LibraryName = lib.Name
+				d.Featured = append(d.Featured, poster)
+			}
+		}
 		var recent videoMediaPage
 		if err := upstream.DashboardRead(ctx, c.Provider, "/Items", url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Movie,Episode"}, "SortBy": {"DateCreated"}, "SortOrder": {"Descending"}, "Limit": {"24"}, "Fields": {"Overview,DateCreated,SeriesName"}}, &recent); err != nil {
 			dashboardWarning(d, lib.Name+"：最近入库读取失败")
@@ -93,6 +112,18 @@ func (a *App) loadVideoDashboard(ctx context.Context, st State, l MediaLink, c *
 		}
 	}
 	finishRecent(d)
+	sort.SliceStable(d.Featured, func(i, j int) bool { return d.Featured[i].Date > d.Featured[j].Date })
+	if len(d.Featured) > 5 {
+		d.Featured = d.Featured[:5]
+	}
+	for i := range d.Featured {
+		if d.Featured[i].Kind == "Series" {
+			var episodes videoMediaPage
+			if err := upstream.DashboardRead(ctx, c.Provider, "/Shows/"+url.PathEscape(d.Featured[i].ID)+"/Episodes", url.Values{"Limit": {"1"}, "IsMissing": {"false"}}, &episodes); err == nil {
+				d.Featured[i].Episodes = episodes.Total
+			}
+		}
+	}
 	return ctx.Err()
 }
 

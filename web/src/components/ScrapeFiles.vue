@@ -35,8 +35,15 @@ const directoryWorks = computed(() => {
   }
   return result
 })
-function work(f) { return directoryWorks.value.get(f.id)?.item }
-function recognizedWork(f) { return f.isDir && directoryWorks.value.get(f.id)?.recognized }
+function directoryEntry(f) {
+  return directoryWorks.value.get(f.isDir?f.id:f.id.split('/').slice(0,-1).join('/')||'.')
+}
+function work(f) {
+  const item=directoryEntry(f)?.item
+  return {...item,title:f.isDir?f.name:item?.title||f.name,kind:item?.kind||'movie',path:f.isDir?'':f.id,scope:f.isDir?f.id:'',group:false}
+}
+function recognizedWork(f) { return directoryEntry(f)?.recognized }
+function actionable(f) { return f.isDir || /\.strm$/i.test(f.name) }
 async function load(path = '') {
   const request = ++run
   editRun++; editor.value = null; image.value = null
@@ -66,7 +73,7 @@ defineExpose({ refresh: () => load(dir.value) })
     <article v-for="f in shown" :key="f.id" class="scrape-file-row" :class="{recognized:!!recognizedWork(f)}">
       <button class="file-name" :aria-label="f.name" :aria-description="recognizedWork(f) ? `${recognizedWork(f).kind==='tv'?'剧集':'电影'}，${recognizedWork(f).matchedTitle || recognizedWork(f).title}，TMDB ${recognizedWork(f).tmdb}` : undefined" @click="open(f)"><Icon :name="f.isDir ? 'Folder' : documentIcon(f.name) || 'Image'" :size="24" :class="{'folder-color':f.isDir}" /><span class="scrape-file-label"><strong :data-tooltip="f.name">{{ f.name }}</strong></span></button>
       <span v-if="recognizedWork(f)" class="scrape-folder-identity"><b>{{recognizedWork(f).kind==='tv'?'剧集':'电影'}}</b><span :data-tooltip="recognizedWork(f).matchedTitle || recognizedWork(f).title">{{recognizedWork(f).matchedTitle || recognizedWork(f).title}}</span><small>TMDB {{recognizedWork(f).tmdb}}</small></span>
-      <div v-if="f.isDir && work(f)" class="scrape-folder-actions"><button class="text-btn" :disabled="running" @click="emit('reset',work(f))"><Icon name="RotateCcw" />重置</button><button class="text-btn" :disabled="busy" @click="emit('identify',work(f))"><Icon name="ScanSearch" />识别</button></div>
+      <div v-if="actionable(f)" class="scrape-folder-actions"><button class="text-btn" :aria-label="`重置 ${f.name}`" :disabled="running" @click="emit('reset',work(f))"><Icon name="RotateCcw" />重置</button><button class="text-btn" :aria-label="`识别 ${f.name}`" :disabled="busy" @click="emit('identify',work(f))"><Icon name="ScanSearch" />识别</button></div>
     </article>
     <div v-if="bottom" :style="{height:`${bottom}px`}" />
     <p v-if="loading || error || !filtered.length" class="small-empty" :role="error ? 'alert' : 'status'">{{ loading ? '正在读取目录…' : error || '暂无文件' }}</p>

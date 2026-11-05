@@ -562,7 +562,7 @@ func (a *App) mobileLibraryRunAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
-	jsonResponse(w, 202, map[string]string{"message": "已在后台开始生成，可离开或刷新页面"})
+	jsonResponse(w, 202, map[string]string{"message": "已在后台开始生成"})
 }
 
 func (a *App) mobileLibraryMonitor() {

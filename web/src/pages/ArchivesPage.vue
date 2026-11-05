@@ -7,6 +7,7 @@ import RoundedSelect from '../components/RoundedSelect.vue'
 import ArchiveScrapeRow from '../components/ArchiveScrapeRow.vue'
 import ArchiveOrganizeRow from '../components/ArchiveOrganizeRow.vue'
 import ArchivePoster from '../components/ArchivePoster.vue'
+import CacheArchives from '../components/CacheArchives.vue'
 import PageJumpInput from '../components/PageJumpInput.vue'
 import { noticeTime } from '../library-notices'
 import { archiveStatuses, archiveTriggers, archiveKinds, archiveStatusClass } from '../archive-display'
@@ -24,6 +25,7 @@ function parameters(page=1) {
 }
 async function load(page=1, polling=false) {
   clearTimeout(timer)
+  if(props.section==='cache')return
   const generation=++request, section=props.section
   if(!polling) loading.value=true
   try {
@@ -96,8 +98,10 @@ onUnmounted(()=>{alive=false;request++;clearTimeout(timer);clearTimeout(searchTi
     <RouterLink to="/archives/organize" :class="{active:section==='organize'}"><Icon name="FolderTree" />整理档案</RouterLink>
     <RouterLink to="/archives/scrape" :class="{active:section==='scrape'}"><Icon name="ScanSearch" />刮削档案</RouterLink>
     <RouterLink to="/archives/tasks" :class="{active:section==='tasks'}"><Icon name="FileClock" />任务档案</RouterLink>
+    <RouterLink to="/archives/cache" :class="{active:section==='cache'}"><Icon name="Database" />缓存档案</RouterLink>
   </nav>
-  <section class="archive-panel" :aria-label="section==='organize'?'整理档案':section==='scrape'?'刮削档案':'任务档案'">
+  <CacheArchives v-if="section==='cache'"/>
+  <section v-else class="archive-panel" :aria-label="section==='organize'?'整理档案':section==='scrape'?'刮削档案':'任务档案'">
     <div class="archive-toolbar">
       <RoundedSelect v-model="status" label="档案状态" :options="statusOptions" />
       <RoundedSelect v-model="trigger" label="触发来源" :options="[{value:'',label:'全部来源'},...Object.entries(archiveTriggers).map(([value,label])=>({value,label}))]" />
@@ -126,5 +130,5 @@ onUnmounted(()=>{alive=false;request++;clearTimeout(timer);clearTimeout(searchTi
     </div>
     <form class="archive-pagination" aria-label="档案分页" @submit.prevent="changePage(jumpPage)"><button type="button" class="icon-btn" aria-label="第一页" :disabled="loading || result.page===1" @click="changePage(1)"><Icon name="ChevronsLeft" /></button><button type="button" class="icon-btn" aria-label="上一页" :disabled="loading || result.page===1" @click="changePage(result.page-1)"><Icon name="ChevronLeft" /></button><span>{{ result.page }} / {{ result.pages }}</span><button type="button" class="icon-btn" aria-label="下一页" :disabled="loading || result.page===result.pages" @click="changePage(result.page+1)"><Icon name="ChevronRight" /></button><button type="button" class="icon-btn" aria-label="最后一页" :disabled="loading || result.page===result.pages" @click="changePage(result.pages)"><Icon name="ChevronsRight" /></button><PageJumpInput v-model="jumpPage" :pages="result.pages" /><button class="icon-btn" aria-label="跳转到指定页" :disabled="loading"><Icon name="CornerDownLeft" /></button></form>
   </section>
-  <Modal v-if="retry" title="重新识别刮削" compact confirmation @close="!submitting && (retry=null)"><div class="modal-body"><p>重新识别并刮削「{{ retry.filename }}」？元数据按当前刮削设置补缺或覆盖，原 STRM 保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="submitting" @click="confirmRetry">确认识别</button><button class="btn" :disabled="submitting" @click="retry=null">取消</button></footer></Modal>
+  <Modal v-if="retry" title="重新识别刮削" compact confirmation @close="!submitting && (retry=null)"><div class="modal-body"><p>重新识别并刮削「{{ retry.filename }}」？覆盖此文件的元数据，原 STRM 保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="submitting" @click="confirmRetry">确认识别</button><button class="btn" :disabled="submitting" @click="retry=null">取消</button></footer></Modal>
 </template>

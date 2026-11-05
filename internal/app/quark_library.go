@@ -675,7 +675,7 @@ func (a *App) quarkLibraryRunAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
-	jsonResponse(w, http.StatusAccepted, map[string]string{"status": "running", "message": "已在后台开始生成，可离开或刷新页面"})
+	jsonResponse(w, http.StatusAccepted, map[string]string{"status": "running", "message": "已在后台开始生成"})
 }
 
 // The caller transfers the library lock only after the running state is saved.

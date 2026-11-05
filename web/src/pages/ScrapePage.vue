@@ -13,7 +13,12 @@ import ScrapeFiles from '../components/ScrapeFiles.vue'
 import { useVirtualList } from '../virtual-list'
 const props=defineProps({section:{type:String,default:'strm'}})
 const libraryProvider=ref('115')
+const libraryHome=ref(props.section==='library')
+function enterLibrary(id){libraryHome.value=false;task.value=id}
+function showLibraryRoot(){libraryHome.value=true;task.value='';items.value=[]}
+watch(libraryProvider,()=>{if(props.section==='library')showLibraryRoot()})
 const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), matching = ref(null), candidates = ref([])
+watch(()=>props.section,section=>{if(section==='library')showLibraryRoot()})
 const query = ref(''), status = ref('all')
 const scopeOpen = ref(false)
 const viewMode = ref('poster'), fileView = ref(null), fileCount = ref(0)
@@ -59,7 +64,7 @@ async function loadDirectories(dir = '') {
 const workPath = computed(() => {
   const target = state.tasks.find(t => t.id === task.value)?.target || '/data/strm'
   const base = libraryRoot.value || (/^(\/|[a-z]:[\\/])/i.test(target) ? target : `/data/strm/${target}`)
-  return `${base.replace(/[\\/]+$/, '')}/${matching.value?.path?.split('/').slice(0, -1).join('/') || ''}`
+  return `${base.replace(/[\\/]+$/, '')}/${matching.value?.scope || matching.value?.path?.split('/').slice(0, -1).join('/') || ''}`
 })
 const match = reactive({ tmdb: '', kind: 'movie' })
 const resetting = ref(null)
@@ -67,7 +72,7 @@ watch([matching, scopeOpen, resetting, confirmation], values => { if (values.som
 async function resetMetadata() {
   busy.value = true
   try {
-    await api('/strm-scrape/reset', 'POST', { taskId: task.value, path: resetting.value.path, group: true, confirmed: true })
+    await api('/strm-scrape/reset', 'POST', { taskId: task.value, path: resetting.value.path, scope:resetting.value.scope||'', group: resetting.value.group!==false, confirmed: true })
     resetting.value = null; await load(); notify('作品元数据已重置')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
@@ -138,12 +143,13 @@ async function searchCandidates() {
 async function saveMatch() {
   busy.value = true
   try {
-    const result = await api('/strm-scrape/match', 'POST', { taskId: task.value, path: matching.value.path, tmdb: Number(match.tmdb), kind: match.kind, group: true, scrape:true })
+    const result = await api('/strm-scrape/match', 'POST', { taskId: task.value, path: matching.value.path, ...(matching.value.scope?{scope:matching.value.scope}:{}),tmdb: Number(match.tmdb), kind: match.kind, group: matching.value.group!==false, scrape:true })
     matching.value = null; progress.value = result; if (!result.queued) await load(); notify(result.queued ? `手动识别已排队，等待 ${result.queued} 项` : '匹配已应用，正在刮削')
   } catch (e) { notify(e.message, true) } finally { busy.value = false }
 }
 const preferenceKey = computed(() => `aether-scrape-task:${state.username || ''}:${props.section}:${libraryProvider.value}`)
 watch(task, value => {
+  if(value&&props.section==='library')libraryHome.value=false
   excludedScopes.value = []; exitSelection()
   libraryRoot.value = ''; directoryRequest++
   if (value) { try { localStorage.setItem(preferenceKey.value, value) } catch {} }
@@ -151,6 +157,7 @@ watch(task, value => {
   if (value) loadDirectories('')
 })
 watch([tasks, preferenceKey], ([options, key], previous) => {
+  if(props.section==='library'&&libraryHome.value){task.value='';return}
   if (!options.length) { task.value = ''; return }
   let saved = ''
   try { saved = localStorage.getItem(preferenceKey.value) || '' } catch {}
@@ -185,7 +192,9 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
       <button class="icon-btn" :aria-label="viewMode === 'poster' ? '海报墙视图' : '文件夹视图'" :aria-pressed="viewMode === 'folder'" @click="viewMode = viewMode === 'poster' ? 'folder' : 'poster'"><Icon :name="viewMode === 'poster' ? 'LayoutGrid' : 'List'" /></button>
     </div>
     <div v-if="progress.running" class="scrape-progress"><span>{{ progress.message }}<template v-if="progress.queued"> · 排队 {{ progress.queued }} 项</template></span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
-    <ScrapeFiles v-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" :busy="busy" @reset="resetting = $event" @identify="rematch" @count="fileCount = $event" />
+    <div v-if="section==='library'" class="scrape-file-path library-scrape-path"><button class="text-btn" @click="showLibraryRoot"><Icon name="Folder"/>链库</button><template v-if="!libraryHome"><Icon name="ChevronRight" :size="14"/><span>{{tasks.find(t=>t.value===task)?.label}}</span></template></div>
+    <div v-if="section==='library'&&libraryHome" class="scrape-library-home"><article v-for="entry in tasks.filter(t=>t.label.toLowerCase().includes(query.toLowerCase()))" :key="entry.value" class="scrape-library-folder"><button class="text-btn" :aria-label="`打开分享目录 ${entry.label}`" @click="enterLibrary(entry.value)"><Icon name="Folder" :size="24" class="folder-color"/><span :data-tooltip="entry.label">{{entry.label}}</span><Icon name="ChevronRight" :size="16"/></button></article><p v-if="!tasks.length" class="small-empty">暂无参与刮削的分享链接</p></div>
+    <ScrapeFiles v-else-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" :busy="busy" @reset="resetting = $event" @identify="rematch" @count="fileCount = $event" />
     <div v-else class="scrape-poster-shell"><div ref="viewport" class="scrape-body">
       <div v-if="filtered.length" class="scrape-wall" :style="{gridTemplateColumns: `repeat(${columns}, minmax(0,1fr))`}">
         <div v-if="top" :style="{height: `${top}px`, gridColumn: '1 / -1'}" aria-hidden="true" />
@@ -199,7 +208,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
       <div v-else class="small-empty">{{ task ? '暂无刮削记录' : '请选择 STRM 任务' }}</div>
     </div>
     </div>
-    <footer>{{ viewMode === 'poster' ? `${filtered.length} 部作品` : `${fileCount} 项` }}</footer>
+    <footer>{{section==='library'&&libraryHome?`${tasks.length} 个分享目录`:viewMode === 'poster' ? `${filtered.length} 部作品` : `${fileCount} 项` }}</footer>
   </section>
   <SelectionDock v-if="selectionMode" class="scrape-dock" :count="selection.length" label="所选作品操作"><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" /><span>全选</span></button><button class="btn" @click="exitSelection"><Icon name="X" /><span>清空</span></button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" /><span>重置</span></button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" /><span>识别</span></button></SelectionDock>
   <Modal v-if="confirmation" :title="confirmation.action === 'reset' ? '重置所选作品' : '确认识别刮削'" compact confirmation @close="!busy && (confirmation = null)"><div class="modal-body"><p v-if="confirmation.action === 'reset'">将删除所选 {{ confirmation.paths.length }} 部作品目录下的所有非 STRM 文件，包括封面、NFO 和其他文件，并清除匹配记录。STRM 与目录保留，此操作不可撤销。</p><p v-else>将按刮削设置重新识别并刮削{{ confirmation.paths?.length ? `所选 ${confirmation.paths.length} 部作品` : '当前范围内的 STRM 库' }}，确认继续？</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="confirmAction">{{ confirmation.action === 'reset' ? '确认重置' : '确认识别' }}</button><button class="btn" :disabled="busy" @click="confirmation = null">取消</button></footer></Modal>
@@ -214,6 +223,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
   </template>
 </template>
 <style scoped>
+.library-scrape-path{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--muted)}.library-scrape-path button{color:var(--muted)}.library-scrape-path button:hover{color:var(--primary)}.scrape-library-home{flex:1;min-height:180px}.scrape-library-folder{height:56px;border-bottom:1px solid color-mix(in srgb,var(--border) 45%,transparent)}.scrape-library-folder>button{display:flex;align-items:center;gap:12px;padding:8px 14px;width:100%;height:100%;justify-content:flex-start}.scrape-library-folder>button:hover{background:var(--primary-soft)}.scrape-library-folder span{flex:1;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .scrape-panel.selecting { padding-bottom:86px; }
 .scrape-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; background:var(--surface); border-radius:7px 7px 0 0; border-bottom:1px solid var(--border); }

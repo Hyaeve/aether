@@ -154,6 +154,9 @@ func (a *App) playMobileLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 		a.store.event("info", "virtual", "移动分享播放："+card.Name+" · "+name)
 		if cfg.PlaybackMode != "relay" {
+			if cfg.PlaybackMode == "share" && source.StreamURL != "" {
+				w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			}
 			redirectDownload(w, r, download.URL)
 			return
 		}

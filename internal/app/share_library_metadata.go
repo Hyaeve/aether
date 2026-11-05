@@ -6,42 +6,11 @@ import (
 	"time"
 )
 
-// Compare generation settings after normalizing legacy defaults and URL spelling.
-// The metadata save path checks directory-name edits separately as local renames.
-func shareLibrarySameGeneration(provider string, before, after quarkLibraryCard) bool {
-	before.Cron, after.Cron = "", ""
-	before.ScheduleAnchor, after.ScheduleAnchor = time.Time{}, time.Time{}
-	before.Name, after.Name, before.ShareName, after.ShareName = "", "", "", ""
-	for _, c := range []*quarkLibraryCard{&before, &after} {
-		var err error
-		switch provider {
-		case "115":
-			err = validateShareLibraryFields(c)
-		case "quark":
-			if c.CascadeCleanup == "" {
-				c.CascadeCleanup = "on"
-			}
-			err = validateQuarkLibraryCard(c)
-		case "mobile", "cas":
-			if c.CascadeCleanup == "" {
-				c.CascadeCleanup = "off"
-			}
-			err = validateMobileLibraryCard(c)
-		default:
-			return false
-		}
-		if err != nil {
-			return false
-		}
-	}
-	return before == after
-}
-
 func (a *App) saveShareLibraryMetadata(ctx context.Context, provider string, old, card quarkLibraryCard) (bool, error) {
-	comparison := old
-	comparison.DirectoryName = card.DirectoryName
 	rename := old.DirectoryName != card.DirectoryName
-	if !shareLibrarySameGeneration(provider, comparison, card) || rename && (card.DirectoryName == "" || !validShareDirectory(card.DirectoryName)) {
+	// Saving filters, extensions, scraping or scheduling does not synchronize the
+	// library. Only a new source/output location needs a fresh generation pass.
+	if old.Secret != card.Secret || old.Directory != card.Directory || old.StorageID != card.StorageID || rename && (card.DirectoryName == "" || !validShareDirectory(card.DirectoryName)) {
 		return false, nil
 	}
 	card.ShareName = old.ShareName
@@ -51,13 +20,6 @@ func (a *App) saveShareLibraryMetadata(ctx context.Context, provider string, old
 			card.Name = old.Name
 		}
 	}
-	// Keep the exact generation fields, including legacy URL/default spellings,
-	// so existing file grants and ownership stamps remain valid.
-	updated := old
-	updated.Cron, updated.Name = card.Cron, card.Name
-	updated.ScheduleAnchor = card.ScheduleAnchor
-	updated.DirectoryName = card.DirectoryName
-	card = updated
 	finish := func(bool) error { return nil }
 	err := a.store.update(func(st *State) error {
 		var cards *[]quarkLibraryCard
@@ -106,7 +68,7 @@ func (a *App) saveShareLibraryMetadata(ctx context.Context, provider string, old
 		if err := shareLibraryNamesAvailable(*st, card); err != nil {
 			return err
 		}
-		if old.Cron != card.Cron {
+		if old.Cron != card.Cron || old.Enabled != card.Enabled {
 			result := results[card.ID]
 			result.NextRun = quarkLibraryNext(card, time.Now())
 			results[card.ID] = result

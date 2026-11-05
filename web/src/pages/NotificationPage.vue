@@ -178,7 +178,7 @@ const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCar
 @media(min-width:1101px){:global(.page-content:has(.telegram-pools)){height:calc(100dvh - 48px);min-height:0;overflow:hidden}.telegram-pool{height:100%;overflow:hidden}}
 .telegram-pools{flex:none;align-items:stretch}.telegram-pool{height:auto;min-height:0;--pool-accent:#299bce;background:color-mix(in srgb,var(--pool-accent) 7%,var(--surface))}.telegram-pool[data-provider="115"]{--pool-accent:#268be8}.telegram-pool[data-provider="mobile"]{--pool-accent:#3da38d}.telegram-pool[data-provider="quark"]{--pool-accent:#3e7ce8}.telegram-target-list{flex:none;height:284px;overflow:auto;scrollbar-width:none;gap:10px}.telegram-target-list::-webkit-scrollbar{display:none}.telegram-target-card{height:88px;min-height:88px;padding:10px 8px;gap:6px;background:var(--surface)}.telegram-target-avatar{display:grid;place-items:center;flex:none;width:38px;height:42px;border-radius:8px;background:color-mix(in srgb,var(--pool-accent) 13%,var(--surface));color:color-mix(in srgb,var(--pool-accent) 60%,var(--text));font-size:16px;font-weight:600}.telegram-add{margin-top:12px;height:42px;min-height:42px}.telegram-target-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}.telegram-target-fields.has-cycle{grid-template-columns:minmax(0,1fr) 140px}.telegram-target-fields label{min-width:0}.telegram-target-fields .source-trigger{height:40px}.telegram-target-fields .source-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.telegram-target-fields .source-trigger svg{flex:none}
 :global(.page-content:has(.telegram-pools)){height:auto;overflow:visible}
-.telegram-target-list{height:287px}
+.telegram-target-list{height:239px}.telegram-target-card{height:72px;min-height:72px;padding-block:8px}
 :global(.modal:has(.telegram-target-form)){scrollbar-width:none}
 :global(.modal:has(.telegram-target-form)::-webkit-scrollbar){display:none}
 @media(max-width:680px){.telegram-target-fields.has-cycle{grid-template-columns:minmax(0,1fr) 110px}.telegram-pool{height:auto;min-height:0}}
@@ -186,7 +186,7 @@ const { armed, dragging, dropTarget, hold, cardClick, cancel: dragEnd } = useCar
 .telegram-target-card{background:var(--input)}
 .telegram-target-title{display:flex;align-items:center;gap:6px;min-width:0}.telegram-target-title>strong{flex:0 1 auto;min-width:0}
 .telegram-purposes{flex:none;flex-wrap:nowrap;gap:4px}.telegram-purposes>span{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;border-radius:5px}
-.telegram-target-list>.telegram-add{height:88px;min-height:88px;margin:0;width:100%;background:transparent;border:1px dashed color-mix(in srgb,var(--pool-accent) 35%,var(--border));border-radius:8px;box-sizing:border-box}
+.telegram-target-list>.telegram-add{height:72px;min-height:72px;margin:0;width:100%;background:transparent;border:1px dashed color-mix(in srgb,var(--pool-accent) 35%,var(--border));border-radius:8px;box-sizing:border-box}
 .telegram-target-list>.telegram-add:hover{background:color-mix(in srgb,var(--pool-accent) 5%,var(--input));border-color:var(--pool-accent)}
 :global(.modal:has(.telegram-target-form)){background:var(--layer-frame)}
 </style>

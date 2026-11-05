@@ -25,10 +25,33 @@ async function fixture(page){
 test('scrape platform separates ordinary tasks and all four participating libraries',async({page})=>{
  await fixture(page);await page.goto('/scrape/library')
  await expect(page.getByRole('navigation',{name:'刮削平台栏目'}).getByRole('link')).toHaveText(['STRM刮削','链库刮削','目录刮削','刮削设置'])
+ await expect(page.getByRole('button',{name:'打开分享目录 115影视',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'打开分享目录 115影视',exact:true}).click()
  await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toContainText('115影视')
- for(const [provider,label]of [['mobile','移动链库'],['quark','夸克链库'],['cas','CAS链库']]){await page.getByRole('button',{name:'链库类型',exact:true}).click();await page.getByRole('option',{name:label,exact:true}).click();await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toContainText(`${provider}影视`)}
+ for(const [provider,label]of [['mobile','移动链库'],['quark','夸克链库'],['cas','CAS链库']]){await page.getByRole('button',{name:'链库类型',exact:true}).click();await page.getByRole('option',{name:label,exact:true}).click();await page.getByRole('button',{name:`打开分享目录 ${provider}影视`,exact:true}).click();await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toContainText(`${provider}影视`)}
  await page.getByRole('link',{name:'STRM刮削',exact:true}).click();await expect(page.getByRole('button',{name:'STRM 任务',exact:true})).toContainText('常规影视')
  await page.goto('/tasks/scrape');await expect(page).toHaveURL(/\/scrape\/strm$/)
+})
+
+test('directory breadcrumbs and folder actions remain scoped without a global action row',async({page})=>{
+ const f=await fixture(page),directories=[]
+ await page.route('**/api/directory-scrape/files?**',route=>{
+  const dir=new URL(route.request().url()).searchParams.get('directory');directories.push(dir)
+  return route.fulfill({json:{directory:dir||'0',taskId:'directory:one',files:dir==='folder'?[{id:'season',name:'Season 1',isDir:true}]:dir==='season'?[{id:'video',name:'Episode.mkv',size:123}]:[{id:'folder',name:'剧集',isDir:true}],items:[]}})
+ })
+ await page.goto('/scrape/directory')
+ await expect(page.locator('.directory-scrape-actions')).toHaveCount(0)
+ await page.getByRole('button',{name:'识别 剧集',exact:true}).click();await page.getByRole('textbox',{name:'TMDB ID',exact:true}).fill('1')
+ expect(f.writes).toHaveLength(0);await page.getByRole('button',{name:'识别并刮削',exact:true}).click()
+ await expect.poll(()=>f.writes.length).toBe(1);expect(f.writes[0]).toMatchObject({action:'match',directory:'0',ids:['folder'],group:true})
+ await page.getByRole('button',{name:'剧集',exact:true}).click();await page.getByRole('button',{name:'Season 1',exact:true}).click()
+ const path=page.getByRole('navigation',{name:'刮削目录路径',exact:true});await expect(path).toContainText('根目录剧集Season 1')
+ await path.getByRole('button',{name:'剧集',exact:true}).click();await expect(page.getByRole('button',{name:'Season 1',exact:true})).toBeVisible()
+ await path.getByRole('button',{name:'根目录',exact:true}).click();await expect(page.getByRole('button',{name:'剧集',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'重置 剧集',exact:true}).click();expect(f.writes).toHaveLength(1);await page.getByRole('button',{name:'确认重置',exact:true}).click()
+ await expect.poll(()=>f.writes.length).toBe(2);expect(f.writes[1]).toMatchObject({action:'reset',ids:['folder'],directory:'0'})
+ expect(directories).toContain('folder');expect(directories).toContain('season');expect(directories.at(-1)).toBe('0')
+ const count=await page.getByRole('status',{name:'当前目录数量',exact:true}).boundingBox(),refresh=await page.getByRole('button',{name:'刷新目录',exact:true}).boundingBox();expect(count.x+count.width).toBeLessThanOrEqual(refresh.x)
 })
 for(const [width,theme]of [[1440,'light'],[390,'dark']])test(`scrape settings are a dedicated final tab and preserve saves ${width}`,async({page},info)=>{
  const f=await fixture(page),writes=[]
@@ -66,9 +89,17 @@ for(const [width,theme]of [[1440,'light'],[390,'dark']])test(`directory scrape l
  const f=await fixture(page);await page.setViewportSize({width,height:1000});await page.goto('/scrape/directory');await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
  await expect(page.locator('.directory-scrape-row')).toHaveCount(3);expect(f.writes).toHaveLength(0)
  await expect(page.getByRole('button',{name:'海报墙视图',exact:true})).toHaveCount(0)
- await page.getByRole('checkbox',{name:'选择 Arrival.2016.mkv',exact:true}).check();await page.getByRole('button',{name:'刮削',exact:true}).click()
- await expect(page.getByRole('dialog',{name:'确认目录刮削'})).toContainText('NFO和海报');expect(f.writes).toHaveLength(0)
- await page.getByRole('button',{name:'确认刮削',exact:true}).click();await expect.poll(()=>f.writes.length).toBe(1);expect(f.writes[0]).toMatchObject({storageId:'pool',directory:'0',ids:['video'],action:'run'})
+ await expect(page.locator('.directory-scrape-actions')).toHaveCount(0)
+ await expect(page.getByRole('status',{name:'当前目录数量',exact:true})).toHaveText('3 项')
+ const count=await page.getByRole('status',{name:'当前目录数量',exact:true}).boundingBox(),refresh=await page.getByRole('button',{name:'刷新目录',exact:true}).boundingBox()
+ expect(count.x+count.width).toBeLessThanOrEqual(refresh.x);expect(Math.abs(count.y+count.height/2-refresh.y-refresh.height/2)).toBeLessThan(1)
+ await page.locator('.directory-scrape-row').filter({has:page.getByRole('button',{name:'Arrival.2016.mkv',exact:true})}).hover()
+ await expect(page.locator('.directory-scrape-row').filter({has:page.getByRole('button',{name:'Arrival.2016.mkv',exact:true})}).locator('.scrape-folder-actions')).toHaveCSS('opacity','1')
+ await captureScreenshot(page,{path:info.outputPath(`directory-hover-${width}-${theme}.png`)})
+ await page.getByRole('button',{name:'识别 Arrival.2016.mkv',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'手动识别目录媒体'})).toBeVisible();expect(f.writes).toHaveLength(0)
+ await page.getByRole('textbox',{name:'TMDB ID',exact:true}).fill('1')
+ await page.getByRole('button',{name:'识别并刮削',exact:true}).click();await expect.poll(()=>f.writes.length).toBe(1);expect(f.writes[0]).toMatchObject({storageId:'pool',directory:'0',ids:['video'],action:'match',tmdb:1,group:false})
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  await captureScreenshot(page,{path:info.outputPath(`directory-${width}-${theme}.png`)})
 })

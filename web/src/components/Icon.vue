@@ -1,6 +1,6 @@
 <script setup>
 import {
-  Crown, Diamond, Gem, BadgeCheck, CalendarCheck2,
+  Heart, Crown, Diamond, Gem, BadgeCheck, CalendarCheck2,
   Blocks, Archive, Building2, Bot, Feather, CircleHelp, MessageSquareText, Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,
   ListOrdered, ListMusic, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
@@ -39,7 +39,7 @@ const icons = {
 	Ali115Rapid: Ali115Icon,
 	LogIn,
 	QrCode,
-  Crown, Diamond, Gem, BadgeCheck, CalendarCheck2,
+  Heart, Crown, Diamond, Gem, BadgeCheck, CalendarCheck2,
   Blocks, Archive, Building2, Bot, Feather, CircleHelp, MessageSquareText,
   Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,

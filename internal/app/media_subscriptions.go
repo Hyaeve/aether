@@ -6,25 +6,29 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
 
+var subscriptionEpisode = regexp.MustCompile(`^S[0-9]{2,3}E[0-9]{2,5}$`)
+
 type mediaSubscriptionOptions struct {
-	Season        int      `json:"season"`
-	Keyword       string   `json:"keyword"`
-	TotalEpisodes int      `json:"totalEpisodes"`
-	StartEpisode  int      `json:"startEpisode"`
-	Quality       string   `json:"quality"`
-	Resolution    string   `json:"resolution"`
-	Effect        string   `json:"effect"`
-	SourceIDs     []string `json:"sourceIds"`
-	TargetID      string   `json:"targetId"`
-	SearchHours   *int     `json:"searchHours"`
-	Include       string   `json:"include"`
-	Exclude       string   `json:"exclude"`
-	MediaCategory string   `json:"mediaCategory"`
-	CustomWords   string   `json:"customWords"`
+	MissingEpisodes []string `json:"missingEpisodes,omitempty"`
+	Season          int      `json:"season"`
+	Keyword         string   `json:"keyword"`
+	TotalEpisodes   int      `json:"totalEpisodes"`
+	StartEpisode    int      `json:"startEpisode"`
+	Quality         string   `json:"quality"`
+	Resolution      string   `json:"resolution"`
+	Effect          string   `json:"effect"`
+	SourceIDs       []string `json:"sourceIds"`
+	TargetID        string   `json:"targetId"`
+	SearchHours     *int     `json:"searchHours"`
+	Include         string   `json:"include"`
+	Exclude         string   `json:"exclude"`
+	MediaCategory   string   `json:"mediaCategory"`
+	CustomWords     string   `json:"customWords"`
 }
 type mediaSubscription struct {
 	discoveryMedia
@@ -42,6 +46,16 @@ func validDiscoveryImage(value string) bool {
 	return err == nil && u.Scheme == "https" && u.Host == "image.tmdb.org" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && strings.HasPrefix(u.Path, "/t/p/") && !strings.Contains(u.Path, "..")
 }
 func validateSubscriptionOptions(c mediaSubscriptionOptions) error {
+	if len(c.MissingEpisodes) > 100000 {
+		return errors.New("缺集范围过大")
+	}
+	seen := map[string]bool{}
+	for _, value := range c.MissingEpisodes {
+		if !subscriptionEpisode.MatchString(value) || seen[value] {
+			return errors.New("缺集范围须为不重复的S01E01格式")
+		}
+		seen[value] = true
+	}
 	if c.Season < 0 || c.Season > 1000 || c.TotalEpisodes < 0 || c.TotalEpisodes > 100000 || c.StartEpisode < 1 || c.StartEpisode > 100000 {
 		return errors.New("季号、总集数或开始集数超出范围")
 	}

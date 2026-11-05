@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -490,6 +491,11 @@ func (r *Resolver) followRedirects(ctx context.Context, startURL, userAgent stri
 	current := startURL
 	hops := make([]string, 0, r.config.MaxFollowHops)
 	for hop := 0; hop < r.config.MaxFollowHops; hop++ {
+		// Do not pre-negotiate a CDN playlist signature with HEAD or Range.
+		// The player must request the manifest itself, using its own connection.
+		if IsPlaylistURL(current) {
+			return current, hops, nil
+		}
 		method := http.MethodHead
 		deferred := sharePlaybackURL(current)
 		headOnly := ctx.Value(requestMethodKey{}) == http.MethodHead
@@ -517,6 +523,15 @@ func (r *Resolver) followRedirects(ctx context.Context, startURL, userAgent stri
 		current = resolved
 	}
 	return current, hops, fmt.Errorf("exceeded %d redirect hops", r.config.MaxFollowHops)
+}
+
+func IsPlaylistURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	name := strings.ToLower(u.Path)
+	return strings.HasSuffix(name, ".m3u8") || strings.HasSuffix(name, ".m3u")
 }
 
 // probeOnce issues one request and returns the Location header when the

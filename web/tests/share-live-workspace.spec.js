@@ -34,15 +34,19 @@ for(const [width,height,theme] of [[1440,900,'light'],[1440,900,'dark'],[390,900
   await expect(page.locator('.telegram-target-avatar').first()).toHaveText('Ta')
   await expect(page.locator('.telegram-target-card>.provider-icon')).toHaveCount(0)
   for(const list of await page.locator('.telegram-target-list').all()){
+    await expect(list).toHaveCSS('height','239px')
     const value=await list.evaluate(el=>{const parent=el.getBoundingClientRect();const rows=[...el.children].map(child=>child.getBoundingClientRect());return {scroll:el.scrollHeight>el.clientHeight,third:rows[2].bottom<=parent.bottom+3,fourth:rows[3].top>=parent.bottom-3,bar:getComputedStyle(el).scrollbarWidth}})
     expect(value).toEqual({scroll:true,third:true,fourth:true,bar:'none'})
   }
   const colors=await page.locator('.telegram-pool').evaluateAll(els=>els.map(el=>getComputedStyle(el).backgroundColor))
   expect(new Set(colors).size).toBe(3)
+  const poolHeights=await page.locator('.telegram-pool').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().height))
+  expect(new Set(poolHeights).size).toBe(1)
   await expect(page.locator('.telegram-pool>header button')).toHaveCount(0)
   for(const pool of await page.locator('.telegram-pool').all()){
     const add=pool.locator('.telegram-add'),card=pool.locator('.telegram-target-card').first()
     await expect(add).toHaveCount(1);await expect(add).toHaveCSS('border-top-style','dashed')
+    await expect(card).toHaveCSS('height','72px')
     expect(await add.evaluate(el=>el.parentElement.classList.contains('telegram-target-list')&&el===el.parentElement.lastElementChild)).toBe(true)
     expect((await add.boundingBox()).height).toBe((await card.boundingBox()).height)
     expect((await add.boundingBox()).width).toBe((await card.boundingBox()).width)

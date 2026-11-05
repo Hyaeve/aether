@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 )
 
 type scrapeRequest struct {
@@ -54,10 +56,10 @@ func (a *App) queueScrapeMatch(in scrapeRequest) error {
 	if len(a.scrapeQueue) >= 100 {
 		return errors.New("手动识别队列已满，请等待当前队列完成")
 	}
-	if in.TMDB < 1 || (in.Kind != "movie" && in.Kind != "tv") || in.Path == "" {
+	if in.TMDB < 1 || (in.Kind != "movie" && in.Kind != "tv") || in.Path == "" && in.Scope == "" {
 		return errors.New("请输入有效的作品、TMDB ID 和媒体类型")
 	}
-	if in.ArchiveID != "" || in.Scope != "" || len(in.Scopes)+len(in.ExcludedScopes)+len(in.Paths) > 0 || in.DeleteFiles {
+	if in.ArchiveID != "" || in.Scope != "" && (!fs.ValidPath(in.Scope) || in.Scope == "." || in.Path != "") || len(in.Scopes)+len(in.ExcludedScopes)+len(in.Paths) > 0 || in.DeleteFiles {
 		return errors.New("手动匹配排队只允许选择单个作品")
 	}
 	root, err := a.scrapeRoot(in.TaskID)
@@ -71,7 +73,7 @@ func (a *App) queueScrapeMatch(in scrapeRequest) error {
 	index := a.loadScrapeIndex(in.TaskID, root)
 	found := false
 	for _, item := range index.Items {
-		if item.Path == in.Path {
+		if item.Path == in.Path || in.Scope != "" && strings.HasPrefix(item.Path, in.Scope+"/") {
 			found = true
 			break
 		}
@@ -80,7 +82,7 @@ func (a *App) queueScrapeMatch(in scrapeRequest) error {
 		return errors.New("作品已变化，请刷新后重新选择")
 	}
 	for _, q := range a.scrapeQueue {
-		if q.request.TaskID == in.TaskID && q.request.Path == in.Path {
+		if q.request.TaskID == in.TaskID && q.request.Path == in.Path && q.request.Scope == in.Scope {
 			return errors.New("该作品已在手动识别队列中")
 		}
 	}

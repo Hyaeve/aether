@@ -191,11 +191,49 @@ type scrapeWork struct {
 }
 
 func scrapeWorkKey(item scrapeItem) string {
+	if item.LibraryWork != "" {
+		return "library:" + item.LibraryWork
+	}
 	dir := scrapeWorkDir(item.Path)
 	if !genericMediaDir(path.Base(dir)) {
 		return strings.Join([]string{dir, item.Kind}, "\x00")
 	}
 	return item.Path
+}
+
+// A participating share card is one work, including media placed directly in
+// its generated root. Keep paths unchanged for file access and scoped actions.
+func applyLibraryScrapeWork(items []scrapeItem, name string) {
+	if name == "" {
+		return
+	}
+	media := recognizeSTRM(name + ".strm")
+	for _, item := range items {
+		if item.Kind == "tv" {
+			media.Kind = "tv"
+		}
+	}
+	for i := range items {
+		item := &items[i]
+		item.LibraryWork = name
+		if !item.Manual {
+			item.Title = media.Title
+			if media.Year != "" {
+				item.Year = media.Year
+			}
+			item.Kind = media.Kind
+		}
+		if item.Kind == "tv" {
+			if item.Season == 0 {
+				item.Season = 1
+			}
+			if item.Episode == 0 {
+				if m := scrapeNumericEpisode.FindStringSubmatch(scrapeMediaStem(path.Base(item.Path))); m != nil {
+					item.Episode = scrapeNumber(m[1])
+				}
+			}
+		}
+	}
 }
 
 // Classify the whole work before applying saved matches. One unnumbered file

@@ -52,6 +52,9 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     const picker = page.getByRole('dialog', { name: '选择容器目录', exact: true })
     await picker.getByRole('button', { name: '选择当前目录', exact: true }).click()
     await expect(output).toHaveValue('/media/share-strm')
+    const settingsPanel=page.getByRole('region',{name:'链库生成设置',exact:true}),save=settingsPanel.getByRole('button',{name:'保存设置',exact:true})
+    const position=await save.evaluate(el=>{const r=el.getBoundingClientRect(),panel=el.closest('section').getBoundingClientRect(),title=el.parentElement.querySelector('h3').getBoundingClientRect();return {sameRow:Math.abs((r.y+r.height/2)-(title.y+title.height/2))<1,right:r.right>panel.x+panel.width*.75,inside:r.right<=panel.right}})
+    expect(position).toEqual({sameRow:true,right:true,inside:true})
     await page.getByRole('button', { name: '保存设置', exact: true }).click()
     await expect.poll(() => saves.length).toBe(1)
     expect(saves[0]).toMatchObject({ storageIds: ['q'], directory: '/media/share-strm' })
@@ -67,7 +70,7 @@ test('no Quark storage shows an explicit empty state', async ({ page }) => {
   await expect(page.locator('.quark-account')).toHaveCount(0)
 })
 
-test('draft requires an output before it can be enabled and retains the original card', async ({ page }, info) => {
+test('draft requires an output and retains the original archived card without an enable switch', async ({ page }, info) => {
   const { saves } = await mockLibrary(page)
   await page.goto('/virtual/quark')
   const card = page.getByRole('article', { name: '机器人草稿', exact: true })
@@ -76,11 +79,9 @@ test('draft requires an output before it can be enabled and retains the original
   await expect(card.getByRole('button', { name: '执行', exact: true })).toBeDisabled()
   await card.getByRole('button', { name: '编辑 机器人草稿', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '编辑夸克链接', exact: true })
-  const enabled = dialog.getByRole('switch', { name: '启用链接', exact: true })
-  await expect(enabled).toBeDisabled()
+  await expect(dialog.getByRole('switch', { name: '启用链接', exact: true })).toHaveCount(0)
   await dialog.getByRole('textbox', { name: '生成位置', exact: true }).fill('/media/strm')
-  await expect(enabled).toBeEnabled()
-  await enabled.check()
+  await expect(dialog.getByRole('textbox',{name:'Cron表达式',exact:true})).toHaveValue('')
   await captureScreenshot(page, { path: info.outputPath('draft-enabled.png') })
   await dialog.getByRole('button', { name: '保存链接', exact: true }).click()
   await page.getByRole('dialog', { name: '同步夸克分享', exact: true }).getByRole('button', { name: '确认同步', exact: true }).click()
