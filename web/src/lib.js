@@ -28,10 +28,22 @@ export function loadLinks() {
   return request
 }
 export const notices = reactive([])
+const noticeTimers = new Map()
 export function notify(message, error = false) {
+  const existing = notices.find(n => n.message === message && n.error === error)
+  if (existing) {
+    clearTimeout(noticeTimers.get(existing.id))
+    noticeTimers.set(existing.id, setTimeout(() => {
+      const i = notices.findIndex(n => n.id === existing.id)
+      if (i >= 0) notices.splice(i, 1)
+      noticeTimers.delete(existing.id)
+    }, 5000))
+    return existing
+  }
   const id = Date.now() + Math.random()
   notices.push({ id, message, error })
-  setTimeout(() => { const i = notices.findIndex(n => n.id === id); if (i >= 0) notices.splice(i, 1) }, 5000)
+  noticeTimers.set(id, setTimeout(() => { const i = notices.findIndex(n => n.id === id); if (i >= 0) notices.splice(i, 1); noticeTimers.delete(id) }, 5000))
+  return notices.at(-1)
 }
 export async function api(url, method = 'GET', body) {
 	const removed=prepareConfigRemoval(url,method,body)

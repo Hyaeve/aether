@@ -38,7 +38,7 @@ function keydown(event) {
 }
 function outside(event) { if (!root.value?.contains(event.target) && !popup.value?.contains(event.target)) close() }
 function viewportChanged(event){if(opened.value&&!popup.value?.contains(event.target))positionPopup()}
-function popupLeaving(el){el.inert=true;el.setAttribute('aria-hidden','true')}
+function popupLeaving(el){el.inert=true;el.setAttribute('aria-hidden','true');el.querySelectorAll('[role="option"], [aria-label], [aria-selected]').forEach(node=>{node.removeAttribute('role');node.removeAttribute('aria-label');node.removeAttribute('aria-selected')})}
 function popupEntering(el){el.inert=false;el.removeAttribute('aria-hidden')}
 onMounted(() => {document.addEventListener('pointerdown', outside);if(props.fixedPopup){document.addEventListener('scroll',viewportChanged,true);window.addEventListener('resize',close)}})
 onUnmounted(() => {clearTimeout(hoverTimer);document.removeEventListener('pointerdown', outside);document.removeEventListener('scroll',viewportChanged,true);window.removeEventListener('resize',close)})
