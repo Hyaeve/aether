@@ -74,6 +74,34 @@ for(const [width,theme]of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark
  expect(f.unknown).toEqual([])
 })
 
+for(const width of [375,844])test(`fixed subscription menus follow modal scroll and hand off without blocking ${width}`,async({page},info)=>{
+ const f=await fixture(page);await page.setViewportSize({width,height:width===844?500:844});await page.goto('/discover/tv/42')
+ await page.getByRole('button',{name:'添加订阅',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'添加订阅',exact:true}),body=dialog.locator('.modal-body'),target=dialog.getByRole('button',{name:'转存目录',exact:true})
+ await target.click()
+ const menu=page.getByRole('listbox',{name:'转存目录选项',exact:true})
+ await expect(menu).toBeVisible();await expect(menu).toHaveCSS('opacity','1')
+ const before=await body.evaluate(el=>el.scrollTop);expect(before).toBeGreaterThan(0)
+ await body.evaluate(el=>el.scrollBy({top:-18,behavior:'instant'}))
+ await expect.poll(()=>body.evaluate(el=>el.scrollTop)).toBeLessThan(before)
+ await expect(menu).toBeVisible();await expect(target).toHaveAttribute('aria-expanded','true')
+ await expect.poll(async()=>{const [a,b]=await Promise.all([target.boundingBox(),menu.boundingBox()]);return Math.abs(a.x-b.x)<1&&Math.abs(a.width-b.width)<1&&Math.min(Math.abs(b.y-a.y-a.height-6),Math.abs(b.y+b.height-a.y+6))<1}).toBe(true)
+ await menu.press('Escape');await expect(menu).toHaveCount(0);await expect(target).toBeFocused();await expect(dialog).toBeVisible()
+ // Keep an exiting menu in the DOM to verify that it cannot block the next control.
+ await page.addStyleTag({content:'.select-popup-leave-active{transition-duration:10s!important}'})
+ await target.click();await expect(menu).toHaveCSS('opacity','1')
+ await menu.getByRole('option',{name:'移动影视 · /家庭影音/剧集',exact:true}).click()
+ const leaving=page.locator('[role="listbox"][aria-label="转存目录选项"]')
+ await expect(leaving).toHaveAttribute('inert','');await expect(leaving).toHaveAttribute('aria-hidden','true');await expect(leaving).toHaveCSS('pointer-events','none');await expect(menu).toHaveCount(0)
+ const period=dialog.getByRole('button',{name:'搜索周期',exact:true});await period.click()
+ const periodMenu=page.getByRole('listbox',{name:'搜索周期选项',exact:true})
+ await periodMenu.getByRole('option',{name:'自定义',exact:true}).click();await expect(dialog.getByRole('spinbutton',{name:'间隔小时',exact:true})).toHaveValue('24')
+ await period.focus();await period.press('ArrowDown');await periodMenu.press('Home');await periodMenu.press('Enter');await expect(period).toContainText('跟随系统');await expect(dialog.getByRole('spinbutton',{name:'间隔小时',exact:true})).toHaveCount(0)
+ await period.click();await expect(periodMenu).toBeVisible();await dialog.getByRole('tab',{name:'基础',exact:true}).click();await expect(periodMenu).toHaveCount(0)
+ expect(f.writes).toEqual([]);expect(f.unknown).toEqual([])
+ await captureScreenshot(page,{path:info.outputPath(`menu-handoff-${width}.png`)})
+})
+
 test('discovery categories search paging and configuration error',async({page})=>{
  const f=await fixture(page);await page.goto('/discover')
  for(const name of ['剧集','电影','动漫','榜单','全部']){await page.getByRole('navigation',{name:'资源推荐栏目'}).getByRole('link',{name,exact:true}).click();await expect(page.locator('.recommendation-section')).not.toHaveCount(0)}
