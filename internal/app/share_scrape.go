@@ -70,6 +70,12 @@ func (a *App) checkShareScrapeCard(taskID string, card quarkLibraryCard) error {
 
 func shareScrapeSources(st State) []map[string]any {
 	sources := []map[string]any{}
+	displayName := func(card quarkLibraryCard) string {
+		if strings.TrimSpace(card.DirectoryName) != "" {
+			return card.DirectoryName
+		}
+		return card.Name
+	}
 	for _, source := range []struct {
 		provider, prefix string
 		cards            []quarkLibraryCard
@@ -77,21 +83,21 @@ func shareScrapeSources(st State) []map[string]any {
 		for _, card := range source.cards {
 			if card.Enabled && card.ScrapeEnabled && card.Directory != "" {
 				result := shareScrapeResult(st, source.prefix+card.ID, card)
-				sources = append(sources, map[string]any{"id": source.prefix + card.ID, "provider": source.provider, "name": card.Name, "status": result.Status, "lastRun": result.LastRun})
+				sources = append(sources, map[string]any{"id": source.prefix + card.ID, "provider": source.provider, "name": displayName(card), "status": result.Status, "lastRun": result.LastRun})
 			}
 		}
 	}
 	for _, card := range st.QuarkLibraryCards {
 		if card.Enabled && card.ScrapeEnabled && card.Directory != "" {
 			result := st.QuarkLibraryRuntime.Results[card.ID]
-			sources = append(sources, map[string]any{"id": quarkScrapePrefix + card.ID, "provider": "quark", "name": card.Name,
+			sources = append(sources, map[string]any{"id": quarkScrapePrefix + card.ID, "provider": "quark", "name": displayName(card),
 				"status": result.Status, "lastRun": result.LastRun})
 		}
 	}
 	for _, card := range st.MobileLibraryCards {
 		if card.Enabled && card.ScrapeEnabled && card.Directory != "" {
 			result := st.MobileLibraryRuntime.Results[card.ID]
-			sources = append(sources, map[string]any{"id": mobileScrapePrefix + card.ID, "provider": "mobile", "name": card.Name,
+			sources = append(sources, map[string]any{"id": mobileScrapePrefix + card.ID, "provider": "mobile", "name": displayName(card),
 				"status": result.Status, "lastRun": result.LastRun})
 		}
 	}

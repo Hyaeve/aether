@@ -596,6 +596,9 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 				return false
 			}
 		}
+		if in.All {
+			return true
+		}
 		if len(in.Scopes) > 0 {
 			matched := false
 			for _, scope := range in.Scopes {
@@ -617,7 +620,7 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 		return in.Path == "" || item.Path == in.Path || (in.Group && selectedWork != "" && scrapeWorkKey(item) == selectedWork)
 	}
 	if action == "reset" {
-		if !in.Confirmed || (selectedWork == "" && len(selectedWorks) == 0 && in.Scope == "") {
+		if !in.Confirmed || (!in.All && selectedWork == "" && len(selectedWorks) == 0 && in.Scope == "") {
 			fail(w, 400, errors.New("请确认要重置的作品"))
 			return
 		}

@@ -56,6 +56,13 @@ for(const[width,theme]of[[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark']
  await page.getByRole('button',{name:/^\d{4}-\d{2}-05 1集$/}).click();await expect(page.locator('.calendar-agenda')).toContainText('S01E02');const before=await page.locator('.media-calendar header strong').textContent();await page.getByRole('button',{name:'下个月',exact:true}).click();await expect(page.locator('.media-calendar header strong')).not.toHaveText(before)
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await captureScreenshot(page,{path:info.outputPath(`calendar-${width}-${theme}.png`)});expect(f.unknown).toEqual([])
 })
+test('media banner auto-rotates, pauses on hover, and resumes after leaving',async({page})=>{
+ const f=await fixture(page);await page.setViewportSize({width:1440,height:1000});await page.goto('/my-media')
+ const hero=page.getByRole('region',{name:'推荐媒体'}),currentTitle=()=>hero.locator('.media-feature-layer').last().locator('h1').textContent();await expect.poll(currentTitle).toBe('星河旅人0')
+ await page.waitForTimeout(6200);await expect.poll(currentTitle).toBe('星河旅人1')
+ await hero.hover();const paused=await currentTitle();await page.waitForTimeout(6200);await expect.poll(currentTitle).toBe(paused)
+ await hero.getByRole('button',{name:'展示海报 4 星河旅人3',exact:true}).click();await expect.poll(currentTitle).toBe('星河旅人3');await page.mouse.move(1,1);await page.waitForTimeout(6200);await expect.poll(currentTitle).not.toBe('星河旅人3');expect(f.unknown).toEqual([])
+})
 test('control save failure preserves libraries, missing and ranking paginate and scans require a click',async({page},info)=>{
  const f=await fixture(page,{many:true});await page.goto('/my-media/control');await expect(page.locator('.media-display-row')).toHaveCount(3)
  await page.getByRole('button',{name:'编辑媒体展示 家庭影视'}).click();const d=page.getByRole('dialog',{name:'编辑媒体展示'});await expect(d.getByRole('checkbox',{name:'电影剧集'})).toBeChecked();await d.getByRole('checkbox',{name:'私藏'}).check();f.fail();await d.getByRole('button',{name:'保存',exact:true}).click();await expect(d.getByRole('alert')).toContainText('保存失败');await expect(d.getByRole('checkbox',{name:'私藏'})).toBeChecked();await d.getByRole('button',{name:'保存',exact:true}).click();await expect(d).toHaveCount(0)

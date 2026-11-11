@@ -176,7 +176,7 @@ defineExpose({open})
     <button type="button" class="disclosure" :aria-expanded="more" aria-controls="quark-library-more" @click="more=!more;more&&revealOptions($event.currentTarget)"><Icon :name="more?'ChevronDown':'ChevronRight'" />更多选项</button>
     <div v-if="more" id="quark-library-more" class="form-grid quark-library-more">
       <label>链库刮削<RoundedSelect :model-value="form.scrapeEnabled?'include':'exclude'" label="链库刮削" :options="[{value:'exclude',label:'不参与'},{value:'include',label:'参与'}]" @update:model-value="form.scrapeEnabled=$event==='include'" /></label>
-      <label class="full cascade-delete-field"><span class="quark-extension-label">级联删除<ExtensionPresets v-model="form.cascadeCleanup" :groups="['image','data']" label-prefix="级联删除" /></span><input v-model="form.cascadeCleanup" aria-label="级联删除扩展名" placeholder="留空不启用，多个扩展名用英文分号隔开" /></label>
+      <label class="cascade-delete-field"><span class="quark-extension-label">级联删除<ExtensionPresets v-model="form.cascadeCleanup" :groups="['image','data']" label-prefix="级联删除" /></span><input v-model="form.cascadeCleanup" aria-label="级联删除扩展名" placeholder="留空不启用，多个扩展名用英文分号隔开" /></label>
       <label class="full">排除目录<input v-model="form.excludeDirs" aria-label="排除目录" maxlength="4096" /></label>
       <label>排除文件<input v-model="form.excludeFiles" aria-label="排除文件" maxlength="4096" /></label>
       <label>排除类型<input v-model="form.excludeTypes" aria-label="排除类型" /></label>

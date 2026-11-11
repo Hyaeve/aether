@@ -66,6 +66,10 @@ type shareHTTPError struct {
 
 func (e *shareHTTPError) Error() string { return e.message }
 
+type shareRejectedError struct{ message string }
+
+func (e *shareRejectedError) Error() string { return e.message }
+
 func read115Share(ctx context.Context, s Storage, query url.Values, out any) error {
 	err := shareRequest(ctx, s, http.MethodGet, driver115.ApiShareSnap+"?"+query.Encode(), nil, out)
 	var failure *shareHTTPError
@@ -277,8 +281,11 @@ func shareSessionRequest(ctx context.Context, session *Storage, method, address 
 		code = strings.Trim(string(envelope.ResultCode), `"`)
 	}
 	if s.Type == "115" {
-		if envelope.State == nil || !*envelope.State {
-			return errors.New("115 拒绝分享请求，请检查提取码、链接有效期和账号权限")
+		if envelope.State == nil {
+			return errors.New("分享服务响应格式异常")
+		}
+		if !*envelope.State {
+			return &shareRejectedError{message: "115 拒绝分享请求，请检查提取码、链接有效期和账号权限"}
 		}
 	} else if code != "0" && code != "0000" {
 		// Token expiry, credentials, permissions and network failures are not

@@ -1,6 +1,6 @@
 <script setup>
 import {
-  Heart, Crown, Diamond, Gem, BadgeCheck, CalendarCheck2,
+  Heart, Crown, Diamond, Gem, BadgeCheck, CalendarCheck2, Trophy,
   Blocks, Archive, Building2, Bot, Feather, CircleHelp, MessageSquareText, Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,
   ListOrdered, ListMusic, Repeat, Repeat1, Volume2, VolumeX, FileSymlink, Shuffle, SkipBack, SkipForward,
@@ -28,10 +28,12 @@ import OrganizeArchiveIcon from './OrganizeArchiveIcon.vue'
 import VirtualLibraryIcon from './VirtualLibraryIcon.vue'
 import STRMScrapeIcon from './STRMScrapeIcon.vue'
 import LibraryScrapeIcon from './LibraryScrapeIcon.vue'
+import DiscoveryAnimeIcon from './DiscoveryAnimeIcon.vue'
 import {LogIn,QrCode} from 'lucide-vue-next'
 const icons = {
-	STRMScrape: STRMScrapeIcon,
+  STRMScrape: STRMScrapeIcon,
 	LibraryScrape: LibraryScrapeIcon,
+  DiscoveryAnime: DiscoveryAnimeIcon,
 	VirtualLibrary: VirtualLibraryIcon,
 	ShareTransferHistory: ShareTransferIcon,
 	RecognitionRules: RecognitionRulesIcon,
@@ -39,7 +41,7 @@ const icons = {
 	Ali115Rapid: Ali115Icon,
 	LogIn,
 	QrCode,
-  Heart, Crown, Diamond, Gem, BadgeCheck, CalendarCheck2,
+  Heart, Crown, Diamond, Gem, BadgeCheck, CalendarCheck2, Trophy,
   Blocks, Archive, Building2, Bot, Feather, CircleHelp, MessageSquareText,
   Braces, Link2Off, Clock3, Warehouse, Puzzle, ListRestart, Undo2, Captions, Volume1, TextCursorInput, Zap, Clock, FolderSearch, Music2,
   FolderClock, Cable, LibraryBig, File, Workflow, KeyRound, Target, SlidersHorizontal, ListChecks, FileX2,

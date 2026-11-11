@@ -548,12 +548,6 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 			}()
 			defer func() { <-done }()
 		}
-		if err := a.editTelegramPrompt(ctx, cfg, selected, false); err != nil {
-			return err
-		}
-		// The confirmation is already visible; optional cloud metadata never holds up
-		// this callback or the next getUpdates poll.
-		a.queueTelegramTitle(selected)
-		return nil
+		return a.editTelegramPrompt(ctx, cfg, selected)
 	})
 }

@@ -24,10 +24,10 @@ onUnmounted(()=>{alive=false})
 </script>
 <template>
  <section class="scrape-settings-panel" aria-label="刮削设置" :aria-busy="loading">
-  <header class="settings-section-title"><Icon name="Settings2"/><h2>刮削设置</h2></header>
+  <header class="settings-section-title"><Icon name="Settings2"/><h2>刮削设置</h2><button class="btn primary" type="submit" form="scrape-settings-form" :disabled="!ready||busy"><Icon :name="busy?'LoaderCircle':'Save'" :class="{spin:busy}"/>{{busy?'保存中…':'保存设置'}}</button></header>
   <p v-if="loading" class="muted" role="status">正在读取刮削设置…</p>
   <p v-if="error" class="error-message" role="alert">{{error}} <button v-if="!ready&&!loading" type="button" class="text-btn" @click="load">重新加载</button></p>
-  <form @submit.prevent="save">
+  <form id="scrape-settings-form" @submit.prevent="save">
    <fieldset :disabled="!ready||busy">
     <div class="field"><label>写入策略</label><RoundedSelect v-model="settings.writeMode" label="写入策略" :disabled="!ready||busy" :options="[{value:'missing',label:'仅补缺'},{value:'overwrite',label:'覆盖已有'}]"/></div>
     <label>排除目录<input v-model="settings.excluded" aria-label="排除目录" placeholder="英文分号分隔"/></label>
@@ -35,12 +35,11 @@ onUnmounted(()=>{alive=false})
     <label class="switch-label">背景图<input v-model="settings.fanart" class="switch" type="checkbox" role="switch"/></label>
     <label class="switch-label">演员信息<input v-model="settings.actors" class="switch" type="checkbox" role="switch"/></label>
    </fieldset>
-   <footer><button class="btn primary" :disabled="!ready||busy"><Icon :name="busy?'LoaderCircle':'Save'" :class="{spin:busy}"/>{{busy?'保存中…':'保存设置'}}</button></footer>
   </form>
  </section>
 </template>
 <style scoped>
 .scrape-settings-panel{width:100%;max-width:640px;align-self:flex-start;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-sizing:border-box}
-.scrape-settings-panel h2{font-size:16px;margin:0}.scrape-settings-panel fieldset{display:grid;gap:20px;border:0;margin:20px 0 0;padding:0;min-width:0}.scrape-settings-panel fieldset>label{margin:0}.scrape-settings-panel .field{min-width:0}.scrape-settings-panel .switch-label{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:16px;min-height:32px}.scrape-settings-panel footer{display:flex;justify-content:flex-end;margin-top:24px}.scrape-settings-panel .switch{flex:none}
+.scrape-settings-panel h2{font-size:16px;margin:0}.scrape-settings-panel .settings-section-title{display:flex;align-items:center;gap:8px;margin:0}.scrape-settings-panel .settings-section-title h2{flex:1}.scrape-settings-panel fieldset{display:grid;gap:20px;border:0;margin:20px 0 0;padding:0;min-width:0}.scrape-settings-panel fieldset>label{margin:0}.scrape-settings-panel .field{min-width:0}.scrape-settings-panel .switch-label{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:16px;min-height:32px}.scrape-settings-panel .switch{flex:none}
 @media(max-width:600px){.scrape-settings-panel{padding:16px}}
 </style>

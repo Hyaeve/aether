@@ -11,7 +11,7 @@ import '../explore.css'
 import '../discovery-revision.css'
 const props=defineProps({section:{default:'all'},mediaId:String})
 const route=useRoute(),router=useRouter(),sections=ref([]),detail=ref(null),query=ref(''),group=ref(''),page=ref(1),pageInput=ref('1'),loading=ref(false),error=ref(''),editing=ref(null),targets=ref([]),subscribing=ref(false)
-const tabs=[['all','全部','LayoutGrid'],['tv','剧集','Tv'],['movie','电影','Film'],['anime','动漫','Layers3'],['rankings','榜单','ListOrdered']]
+const tabs=[['all','全部','LayoutGrid'],['tv','剧集','Tv'],['movie','电影','Film'],['anime','动漫','DiscoveryAnime'],['rankings','榜单','Trophy']]
 const category=computed(()=>tabs.some(t=>t[0]===props.section)?props.section:'all')
 const resourceSearch=ref(null)
 async function searchResources(media){resourceSearch.value={media,loading:true,ready:false};try{const data=await api('/media-subscriptions');if(resourceSearch.value?.media===media)Object.assign(resourceSearch.value,{loading:false,ready:!!data.sourceReady})}catch(e){if(resourceSearch.value?.media===media)Object.assign(resourceSearch.value,{loading:false,error:e.message})}}

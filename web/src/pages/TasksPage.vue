@@ -202,7 +202,7 @@ async function toggle(t) {
         <div v-if="kind !== 'cache'" class="field"><label for="task-target">生成目录</label><div class="directory-input"><input id="task-target" v-model="form.target" :placeholder="`默认：${state.strmRoot}`" @keydown.enter.prevent /><button type="button" class="icon-btn" aria-label="选择生成目录" @click="targetPicker = true"><Icon name="FolderOpen" /></button></div></div>
         <div v-else class="field"><label for="task-depth">扫描层级</label><NumberInput id="task-depth" v-model="form.depth" aria-label="扫描层级" unit="层" min="0" max="128" required /></div>
         <div class="field"><label for="task-api-interval">API 间隔</label><NumberInput id="task-api-interval" v-model="form.apiInterval" aria-label="API 间隔" unit="ms" min="0" max="60000" required /></div>
-        <label v-if="kind !== 'cache'">Cron 表达式<CronInput v-model="form.cron" label="Cron 表达式" /><small v-if="kind==='strm'&&form.strmSource==='life'" class="muted">留空则持续监控所选目录，约5秒检查生活事件；需在115 App开启生活记录。</small></label>
+        <label v-if="kind !== 'cache'"><span class="task-label-row">Cron 表达式<span v-if="kind==='strm'&&form.strmSource==='life'" class="task-help" role="img" aria-label="生活事件模式说明" data-tooltip="留空则持续监控所选目录，约5秒检查生活事件；需在115 App开启生活记录。" data-tooltip-always data-tooltip-stationary><Icon name="CircleAlert" :size="15" /></span></span><CronInput v-model="form.cron" label="Cron 表达式" /></label>
         <div v-else class="field"><label for="task-cache">缓存期</label><NumberInput id="task-cache" v-model="form.cacheTTL" aria-label="缓存期" unit="分钟" min="0" /></div>
         <label v-if="kind === 'strm' && storage(form.storageId)?.type === 'openlist'" class="toggle-line full"><span>编码路径</span><input v-model="form.encodePath" type="checkbox" role="switch" class="switch" /></label>
         <div v-for="field in kind === 'cache' ? [] : [{ key: 'mediaExtensions', id: 'task-media-extensions', label: '媒体扩展名', groups: ['video', 'audio'] }, { key: 'metadataExtensions', id: 'task-metadata-extensions', label: '元数据扩展名', groups: ['image', 'data'] }]" :key="field.key" class="field full extension-field">
@@ -250,5 +250,6 @@ async function toggle(t) {
 .extension-heading { display: flex; align-items: center; gap: 12px; min-height: 32px; }
 .extension-heading label { margin: 0; flex: none; white-space: nowrap; }
 .extension-heading > span { display: flex; gap: 4px; margin-left: auto; }
+.task-label-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}.task-help{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;color:var(--primary);background:var(--primary-soft);cursor:help;flex:none}.task-help svg{display:block}
 @media(max-width:480px){.more-options>.retained-extension-field{grid-column:1 / -1}}
 </style>

@@ -17,6 +17,9 @@ const libraryHome=ref(props.section==='library')
 function enterLibrary(id){libraryHome.value=false;task.value=id}
 function showLibraryRoot(){libraryHome.value=true;task.value='';items.value=[]}
 watch(libraryProvider,()=>{if(props.section==='library')showLibraryRoot()})
+const libraryProviderKey=computed(()=>`aether-scrape-library-provider:${state.username||''}`)
+watch([()=>props.section,libraryProviderKey],([section,key])=>{if(section!=='library')return;try{const saved=localStorage.getItem(key);if(['115','mobile','quark','cas'].includes(saved))libraryProvider.value=saved}catch{}} ,{immediate:true})
+watch(libraryProvider,value=>{if(props.section==='library'){try{localStorage.setItem(libraryProviderKey.value,value)}catch{}}})
 const task = ref(''), items = ref([]), progress = ref({}), busy = ref(false), matching = ref(null), candidates = ref([])
 watch(()=>props.section,section=>{if(section==='library')showLibraryRoot()})
 const query = ref(''), status = ref('all')
@@ -46,7 +49,7 @@ async function confirmAction() {
   const command = confirmation.value
   busy.value = true
   try {
-    const result = await api(`/strm-scrape/${command.action}`, 'POST', { taskId: task.value, paths: command.paths || [], excludedScopes: excludedScopes.value, group:true, confirmed:true, deleteFiles: command.action === 'reset', scrape:true, reidentify:command.action === 'identify' })
+    const result = await api(`/strm-scrape/${command.action}`, 'POST', { taskId: command.taskId || task.value, paths: command.paths || [], excludedScopes: excludedScopes.value, all:!!command.all, group:true, confirmed:true, deleteFiles: command.action === 'reset', scrape:true, reidentify:command.action === 'identify' })
     confirmation.value = null
     if(command.action === 'reset') { await load(); notify('所选作品已重置') } else progress.value = result
   } catch(e) { notify(e.message,true) } finally { busy.value = false }
@@ -130,6 +133,9 @@ function rematch(item) {
   Object.assign(match, { tmdb: item.tmdb || '', kind: item.kind })
   candidateRequest++; candidateBusy.value = false; candidateError.value = ''
 }
+function libraryAction(entry, action) {
+  confirmation.value = { action, taskId: entry.value, all: true, paths: [], name: entry.label }
+}
 async function searchCandidates() {
   if (!matching.value || !candidateQuery.value.trim()) return
   const run = ++candidateRequest, item = matching.value
@@ -183,7 +189,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
   <section class="scrape-panel" :class="{'selecting':selectionMode}">
     <div class="scrape-toolbar">
       <RoundedSelect v-if="section==='library'" v-model="libraryProvider" label="链库类型" :options="[{value:'115',label:'115链库'},{value:'mobile',label:'移动链库'},{value:'quark',label:'夸克链库'},{value:'cas',label:'CAS链库'}]"/>
-      <RoundedSelect v-model="task" :label="section==='library'?'链库卡片':'STRM 任务'" :placeholder="section==='library'?'选择参与刮削的链库':'选择 STRM 任务'" :options="tasks" />
+      <RoundedSelect v-if="section!=='library'" v-model="task" label="STRM 任务" placeholder="选择 STRM 任务" :options="tasks" />
       <button class="btn" aria-label="筛选库目录" :disabled="!task || progress.running" @click="scopeOpen = true"><Icon name="Folder" />{{ excludedScopes.length ? `已排除 ${excludedScopes.length} 个目录` : '全部目录' }}</button>
       <RoundedSelect v-model="status" label="刮削状态" :options="[{ value: 'all', label: '全部状态' }, ...Object.entries(statuses).map(([value,label]) => ({value,label,marker:value}))]" />
       <button class="btn" :disabled="!task || busy || progress.running" @click="confirmation = {action:'identify'}"><Icon name="ScanSearch" />识别 STRM 库</button>
@@ -193,7 +199,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     </div>
     <div v-if="progress.running" class="scrape-progress"><span>{{ progress.message }}<template v-if="progress.queued"> · 排队 {{ progress.queued }} 项</template></span><small>{{ progress.done || 0 }} / {{ progress.total || 0 }}</small><progress :value="progress.done || 0" :max="progress.total || 1" /></div>
     <div v-if="section==='library'" class="scrape-file-path library-scrape-path"><button class="text-btn" @click="showLibraryRoot"><Icon name="Folder"/>链库</button><template v-if="!libraryHome"><Icon name="ChevronRight" :size="14"/><span>{{tasks.find(t=>t.value===task)?.label}}</span></template></div>
-    <div v-if="section==='library'&&libraryHome" class="scrape-library-home"><article v-for="entry in tasks.filter(t=>t.label.toLowerCase().includes(query.toLowerCase()))" :key="entry.value" class="scrape-library-folder"><button class="text-btn" :aria-label="`打开分享目录 ${entry.label}`" @click="enterLibrary(entry.value)"><Icon name="Folder" :size="24" class="folder-color"/><span :data-tooltip="entry.label">{{entry.label}}</span><Icon name="ChevronRight" :size="16"/></button></article><p v-if="!tasks.length" class="small-empty">暂无参与刮削的分享链接</p></div>
+    <div v-if="section==='library'&&libraryHome" class="scrape-library-home"><article v-for="entry in tasks.filter(t=>t.label.toLowerCase().includes(query.toLowerCase()))" :key="entry.value" class="scrape-library-folder"><button class="text-btn" :aria-label="`打开分享目录 ${entry.label}`" @click="enterLibrary(entry.value)"><Icon name="Folder" :size="24" class="folder-color"/><span :data-tooltip="entry.label">{{entry.label}}</span><Icon name="ChevronRight" :size="16"/></button><div class="scrape-library-actions"><button class="icon-btn" :aria-label="`重置 ${entry.label}`" :data-tooltip="`重置 ${entry.label}`" data-tooltip-always @click.stop="libraryAction(entry,'reset')"><Icon name="RotateCcw" :size="16"/></button><button class="icon-btn" :aria-label="`识别 ${entry.label}`" :data-tooltip="`识别 ${entry.label}`" data-tooltip-always @click.stop="libraryAction(entry,'identify')"><Icon name="ScanSearch" :size="16"/></button></div></article><p v-if="!tasks.length" class="small-empty">暂无参与刮削的分享链接</p></div>
     <ScrapeFiles v-else-if="viewMode === 'folder'" ref="fileView" :task="task" :query="query" :works="filtered" :excluded="excludedScopes" :running="progress.running || busy" :busy="busy" @reset="resetting = $event" @identify="rematch" @count="fileCount = $event" />
     <div v-else class="scrape-poster-shell"><div ref="viewport" class="scrape-body">
       <div v-if="filtered.length" class="scrape-wall" :style="{gridTemplateColumns: `repeat(${columns}, minmax(0,1fr))`}">
@@ -211,7 +217,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
     <footer>{{section==='library'&&libraryHome?`${tasks.length} 个分享目录`:viewMode === 'poster' ? `${filtered.length} 部作品` : `${fileCount} 项` }}</footer>
   </section>
   <SelectionDock v-if="selectionMode" class="scrape-dock" :count="selection.length" label="所选作品操作"><button class="btn" @click="selection = filtered.map(i=>i.path)"><Icon name="CheckCheck" /><span>全选</span></button><button class="btn" @click="exitSelection"><Icon name="X" /><span>清空</span></button><button class="btn" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'reset',paths:[...selection]}"><Icon name="RotateCcw" /><span>重置</span></button><button class="btn primary" :disabled="!selection.length || busy || progress.running" @click="confirmation = {action:'identify',paths:[...selection]}"><Icon name="ScanSearch" /><span>识别</span></button></SelectionDock>
-  <Modal v-if="confirmation" :title="confirmation.action === 'reset' ? '重置所选作品' : '确认识别刮削'" compact confirmation @close="!busy && (confirmation = null)"><div class="modal-body"><p v-if="confirmation.action === 'reset'">将删除所选 {{ confirmation.paths.length }} 部作品目录下的所有非 STRM 文件，包括封面、NFO 和其他文件，并清除匹配记录。STRM 与目录保留，此操作不可撤销。</p><p v-else>将按刮削设置重新识别并刮削{{ confirmation.paths?.length ? `所选 ${confirmation.paths.length} 部作品` : '当前范围内的 STRM 库' }}，确认继续？</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="confirmAction">{{ confirmation.action === 'reset' ? '确认重置' : '确认识别' }}</button><button class="btn" :disabled="busy" @click="confirmation = null">取消</button></footer></Modal>
+  <Modal v-if="confirmation" :title="confirmation.action === 'reset' ? '重置所选作品' : '确认识别刮削'" compact confirmation @close="!busy && (confirmation = null)"><div class="modal-body"><p v-if="confirmation.action === 'reset'">将删除{{confirmation.name?`「${confirmation.name}」下`:''}}所选 {{ confirmation.paths.length || '全部' }} 部作品目录下的所有非 STRM 文件，包括封面、NFO 和其他文件，并清除匹配记录。STRM 与目录保留，此操作不可撤销。</p><p v-else>将按刮削设置重新识别并刮削{{ confirmation.name ? `「${confirmation.name}」下的全部 STRM 库` : confirmation.paths?.length ? `所选 ${confirmation.paths.length} 部作品` : '当前范围内的 STRM 库' }}，确认继续？</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="confirmAction">{{ confirmation.action === 'reset' ? '确认重置' : '确认识别' }}</button><button class="btn" :disabled="busy" @click="confirmation = null">取消</button></footer></Modal>
   <Modal v-if="resetting" title="重置作品元数据" compact confirmation @close="!busy && (resetting = null)"><div class="modal-body"><p>重置「{{ resetting.title }}」的识别结果、匹配信息和刮削状态？磁盘上的 NFO、封面和 STRM 文件会保留。</p></div><footer class="modal-footer"><button class="btn primary" :disabled="busy" @click="resetMetadata">确认重置</button><button class="btn" :disabled="busy" @click="resetting = null">取消</button></footer></Modal>
   <ScrapeScopePicker v-if="scopeOpen" :task="task" :excluded="excludedScopes" @close="scopeOpen = false" @save="excludedScopes = $event; scopeOpen = false" />
   <Modal v-if="matching" title="选择媒体匹配" compact wide @close="matching = null; candidateRequest++"><form @submit.prevent="saveMatch"><div class="modal-body scrape-settings">
@@ -223,7 +229,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
   </template>
 </template>
 <style scoped>
-.library-scrape-path{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--muted)}.library-scrape-path button{color:var(--muted)}.library-scrape-path button:hover{color:var(--primary)}.scrape-library-home{flex:1;min-height:180px}.scrape-library-folder{height:56px;border-bottom:1px solid color-mix(in srgb,var(--border) 45%,transparent)}.scrape-library-folder>button{display:flex;align-items:center;gap:12px;padding:8px 14px;width:100%;height:100%;justify-content:flex-start}.scrape-library-folder>button:hover{background:var(--primary-soft)}.scrape-library-folder span{flex:1;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.library-scrape-path{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--muted)}.library-scrape-path button{color:var(--muted)}.library-scrape-path button:hover{color:var(--primary)}.scrape-library-home{flex:1;min-height:180px}.scrape-library-folder{position:relative;display:flex;align-items:center;height:56px;border-bottom:1px solid color-mix(in srgb,var(--border) 45%,transparent)}.scrape-library-folder>button:first-child{display:flex;align-items:center;gap:12px;padding:8px 14px;width:100%;height:100%;justify-content:flex-start}.scrape-library-folder>button:first-child:hover{background:var(--primary-soft)}.scrape-library-folder span{flex:1;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.scrape-library-actions{position:absolute;right:10px;display:flex;gap:4px;opacity:0;transform:translateX(4px);transition:opacity .18s,transform .18s;background:var(--surface);padding-left:6px}.scrape-library-folder:hover .scrape-library-actions,.scrape-library-folder:focus-within .scrape-library-actions{opacity:1;transform:none}.scrape-library-actions .icon-btn{width:32px;height:32px}.scrape-library-actions .icon-btn:hover{color:var(--primary);background:var(--primary-soft)}
 .scrape-panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .scrape-panel.selecting { padding-bottom:86px; }
 .scrape-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; background:var(--surface); border-radius:7px 7px 0 0; border-bottom:1px solid var(--border); }
@@ -288,6 +294,7 @@ onUnmounted(() => { alive = false; clearTimeout(timer); request++; candidateRequ
 @media(max-width:900px) { .candidate-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .candidate-grid { grid-template-columns: minmax(0,1fr); }.candidate-search { grid-template-columns:90px minmax(0,1fr); }.candidate-search > button { grid-column:2; justify-self:end; }.scrape-actions { gap:4px; left:4px; right:4px; } }
 @media(prefers-reduced-motion:reduce) { .scrape-actions, .scrape-actions :deep(button), .selecting .scrape-card { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .scrape-library-actions { transition:none; } }
 @media(max-width:760px) { .scrape-toolbar { flex-wrap: wrap; }.scrape-toolbar .search-field { margin-left: 0; width: 160px; }.scrape-head,.scrape-row { grid-template-columns: minmax(0,1fr) 70px 80px; gap: 6px; }.scrape-head > :nth-child(2),.scrape-row > :nth-child(2) { display: none; } }
 </style>
 <style scoped>.scrape-toolbar :is(.btn,.search-field){height:36px;min-height:36px}.scrape-toolbar :deep(.rounded-select-trigger){height:36px;min-height:36px}.scrape-toolbar .search-field input{height:34px;min-height:0}.candidate-search :is(input,.btn),.candidate-search :deep(.rounded-select-trigger){height:40px;min-height:40px;padding-block:0}</style>

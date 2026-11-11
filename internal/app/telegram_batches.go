@@ -73,7 +73,16 @@ func telegramConfirmation(st State, job telegramTransfer) (string, [][]map[strin
 	}
 	action := telegramAction(job.Kind)
 	text := telegramGroupLabel(job) + "确认" + action + "到：" + destination
-	if job.Name != "" {
+	if job.Kind != "ed2k" && job.Kind != "ali-rapid" {
+		label, name := "分享名称", job.Name
+		if job.GroupSize > 1 {
+			label = "首条分享名称"
+		}
+		if name == "" {
+			name = "暂未获取"
+		}
+		text = label + "：" + name + "\n" + text
+	} else if job.Name != "" {
 		text = "分享内容：" + job.Name + "\n" + text
 	}
 	back := map[string]string{"text": "返回", "callback_data": fmt.Sprintf("b:%s:%d", job.ID, job.Selected)}
@@ -343,6 +352,10 @@ func (a *App) advanceTelegramBatch(ctx context.Context, batch string) error {
 			text, keyboard = telegramProviderName(selected.Provider)+"：未配置可用目录或目录/授权已变化，未转存。", nil
 			a.store.event("warn", "notifications", fmt.Sprintf("[TG:%s] %s", selected.ID, text))
 		} else if selected.Status == "confirming" {
+			selected, err = a.prepareTelegramConfirmation(ctx, selected)
+			if err != nil {
+				return err
+			}
 			text, keyboard = telegramConfirmation(a.store.snapshotWithLogLimit(0), selected)
 		} else if selected.Status == "queued" {
 			text, keyboard = "已加入"+telegramAction(selected.Kind)+"队列，正在等待后台执行。", nil

@@ -8,7 +8,7 @@ async function setup(page) {
   const request=route.request(),url=new URL(request.url()),p=url.pathname,method=request.method()
   let json
   if(p==='/api/auth/status')json={initialized:true,authenticated:true}
-  else if(p==='/api/state')json={username:'share-options',storages:[{id:'q',name:'夸克',type:'quark',enabled:true,config:{}}],tasks:[],settings:{},cache:{},traffic:{},scrapeLibraries:cards.filter(c=>c.enabled&&c.scrapeEnabled).map(c=>({id:`quark-share:${c.id}`,name:c.name,status:c.result?.status||'completed'}))}
+  else if(p==='/api/state')json={username:'share-options',storages:[{id:'q',name:'夸克',type:'quark',enabled:true,config:{}}],tasks:[],settings:{},cache:{},traffic:{},scrapeLibraries:cards.filter(c=>c.enabled&&c.scrapeEnabled).map(c=>({id:`quark-share:${c.id}`,name:c.directoryName,status:c.result?.status||'completed'}))}
   else if(p==='/api/traffic')json={}
   else if(p==='/api/strm-replace')json={running:false}
   else if(p==='/api/generation/jobs')json=[]
@@ -105,11 +105,7 @@ for(const layout of layouts)test(`share card more options roundtrip and scrape o
  await edit.getByRole('button',{name:'取消',exact:true}).click()
  await page.goto('/scrape/library')
  await page.getByRole('button',{name:'链库类型',exact:true}).click();await page.getByRole('option',{name:'夸克链库',exact:true}).click()
- await expect(page.getByRole('button',{name:'打开分享目录 电影合集',exact:true})).toBeVisible()
- await page.getByRole('button',{name:'打开分享目录 电影合集',exact:true}).click()
- await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toHaveText('电影合集')
- await page.getByRole('button',{name:'链库卡片',exact:true}).click()
- await expect(page.getByRole('option',{name:'旧分享',exact:true})).toHaveCount(0)
- await expect(page.getByRole('option',{name:'电影合集',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'打开分享目录 电影合集',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'重置 电影合集',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'打开分享目录 电影合集',exact:true}).click();await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'重置 电影合集',exact:true})).toHaveCount(0)
  expect(fixture.unknown).toEqual([])
 })

@@ -408,4 +408,16 @@ func TestVirtual115FilenameGETUsesExistingPlaybackPipeline(t *testing.T) {
 		!strings.Contains(w.Body.String(), "获取下载链接失败") {
 		t.Fatal("short URL did not use the verified temporary and ticket pipeline", w.Code, w.Body.String(), lists, downloads, f.reads)
 	}
+	found := false
+	for _, entry := range f.a.store.logSnapshot() {
+		if entry.Module == "virtual" && strings.Contains(entry.Message, "115分享播放失败") {
+			found = true
+			if !strings.Contains(entry.Message, "获取临时文件下载链接") || strings.Contains(entry.Message, f.pass) || strings.Contains(entry.Message, "mock-ticket-rejected") {
+				t.Fatal("playback diagnostic lost the stage or exposed upstream data", entry.Message)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing 115 playback failure diagnostic")
+	}
 }

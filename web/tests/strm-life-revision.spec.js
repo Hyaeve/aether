@@ -104,7 +104,7 @@ test('115 retains both normal generation modes through save and reopen, with lif
   await page.locator('.task-row-copy').click()
   const dialog=page.getByRole('dialog',{name:'编辑 STRM 任务',exact:true})
   await dialog.getByRole('button',{name:'生成方式',exact:true}).click();await page.getByRole('option',{name:'生活事件',exact:true}).click()
-  await expect(dialog).toContainText('留空则持续监控所选目录')
+  await expect(dialog.getByRole('img',{name:'生活事件模式说明',exact:true})).toHaveAttribute('data-tooltip','留空则持续监控所选目录，约5秒检查生活事件；需在115 App开启生活记录。')
   await dialog.getByRole('button',{name:'保存任务',exact:true}).click();await expect(dialog).toHaveCount(0)
   expect(f.writes.at(-1).body).toMatchObject({strmSource:'life',mode:'incremental_update',cron:''})
   await page.getByRole('button',{name:'添加 STRM 任务卡片',exact:true}).click()

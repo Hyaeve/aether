@@ -21,7 +21,7 @@ for(const provider of ['115','mobile','quark','cas'])for(const width of [1440,39
   await expect(input).toHaveValue('');await d.getByRole('button',{name:'级联删除图片扩展名',exact:true}).click();await expect(input).toHaveValue('jpg;jpeg;png;webp')
   await d.getByRole('button',{name:'级联删除数据扩展名',exact:true}).click();await expect(input).toHaveValue('jpg;jpeg;png;webp;nfo;ass;srt;ssa;sub')
   await input.fill('nfo;png');await input.scrollIntoViewIfNeeded()
-  expect(await input.evaluate(el=>{const field=el.closest('label');return field.previousElementSibling.textContent.includes('链库刮削')&&Math.abs(field.getBoundingClientRect().width-field.parentElement.getBoundingClientRect().width)<1})).toBe(true)
+  expect(await input.evaluate(el=>{const field=el.closest('label'),previous=field.previousElementSibling,a=field.getBoundingClientRect(),b=previous?.getBoundingClientRect();return previous?.textContent.includes('链库刮削')&&!!b&&Math.abs(a.width-b.width)<1&&Math.abs(a.y-b.y)<1&&a.width<field.parentElement.getBoundingClientRect().width})).toBe(true)
   expect(await d.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
   await captureScreenshot(page,{path:info.outputPath('cascade-input.png')})
   await d.getByRole('button',{name:'保存链接',exact:true}).click();await expect(d).toHaveCount(0);expect(writes[0].cascadeCleanup).toBe('nfo;png')

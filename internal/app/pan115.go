@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -16,6 +18,29 @@ import (
 	"github.com/go-resty/resty/v2"
 	"golang.org/x/net/publicsuffix"
 )
+
+// Only read-only, transient ticket failures may be retried while a newly
+// received share becomes visible. Explicit API refusals and bad CK are final.
+type pan115DownloadError struct {
+	message   string
+	temporary bool
+}
+
+func (e *pan115DownloadError) Error() string { return e.message }
+
+func retryable115Read(err error) bool {
+	var auth *storageAuthError
+	if errors.As(err, &auth) {
+		return false
+	}
+	var ticket *pan115DownloadError
+	if errors.As(err, &ticket) {
+		return ticket.temporary
+	}
+	var network net.Error
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.As(err, &network) && network.Timeout()
+}
 
 const pan115UA = "Mozilla/5.0 115Browser/27.0.5.7"
 const pan115ReadUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
@@ -46,17 +71,20 @@ func download115API(ctx context.Context, s Storage, pick, ua string, alternate b
 		endpoint = "android/2.0/ufile/download"
 	}
 	status, code := 0, int64(0)
+	denied := false
 	var downloadCookies []*http.Cookie
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	c.Client.OnAfterResponse(func(_ *resty.Client, r *resty.Response) error {
 		status = r.StatusCode()
 		downloadCookies = r.Cookies()
 		var envelope struct {
+			State *bool       `json:"state"`
 			Errno json.Number `json:"errno"`
 			Code  json.Number `json:"code"`
 			ErrNo json.Number `json:"errNo"`
 		}
 		if json.Unmarshal(r.Body(), &envelope) == nil {
+			denied = envelope.State != nil && !*envelope.State
 			code, _ = envelope.Errno.Int64()
 			if code == 0 {
 				code, _ = envelope.ErrNo.Int64()
@@ -97,7 +125,14 @@ func download115API(ctx context.Context, s Storage, pick, ua string, alternate b
 		if status >= 300 && status < 400 {
 			reason = "上游返回重定向而非下载数据，未携带CK跟随；请检查CK有效性、设备与上游风控"
 		}
-		return nil, fmt.Errorf("115 获取下载链接失败（接口 %s，HTTP %d，错误码 %d）：%s", endpoint, status, code, reason)
+		return nil, &pan115DownloadError{
+			message: fmt.Sprintf("115 获取下载链接失败（接口 %s，HTTP %d，错误码 %d）：%s", endpoint, status, code, reason),
+			temporary: code == 0 && (retryable115Read(err) || status >= 500 && status <= 599 ||
+				status == http.StatusRequestTimeout || status == http.StatusOK && !denied && errors.Is(err, driver.ErrUnexpected)),
+		}
+	}
+	if info == nil || info.Url.Url == "" {
+		return nil, &pan115DownloadError{message: "115 下载接口尚未返回文件链接", temporary: true}
 	}
 	// The download API issues CDN tickets for its returned URL, which can be
 	// outside the response cookie's API domain.

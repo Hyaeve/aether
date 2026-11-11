@@ -481,6 +481,30 @@ func isStrmMedia(target upstream.MediaTarget) bool {
 // GET for backends that reject HEAD) so that clients which do not follow 302
 // still receive a directly playable URL.
 func (r *Resolver) followRedirects(ctx context.Context, startURL, userAgent string) (string, []string, error) {
+	current := startURL
+	hops := make([]string, 0, r.config.MaxFollowHops)
+	headOnly := ctx.Value(requestMethodKey{}) == http.MethodHead
+	// A cold 115 share GET prepares a cloud copy before issuing its redirect.
+	// The ordinary 15s CDN probe budget used to cancel that preparation, leaving
+	// the copy behind for the player's second attempt. Keep preparation in this
+	// request, then apply the ordinary probe budget to the resulting CDN URL.
+	if u, err := urlx.Parse(current); err == nil && sharePlaybackURL(current) &&
+		strings.HasPrefix(u.Path, "/115-share/") && !headOnly && r.config.MaxFollowHops > 0 {
+		prepare, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		location, err := r.probeOnce(prepare, http.MethodGet, current, userAgent)
+		cancel()
+		if err != nil {
+			return "", hops, err
+		}
+		if location == "" {
+			return current, hops, nil
+		}
+		current, err = resolveRelative(current, location)
+		if err != nil {
+			return "", hops, err
+		}
+		hops = append(hops, current)
+	}
 	timeout := r.config.ProbeTimeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -488,9 +512,7 @@ func (r *Resolver) followRedirects(ctx context.Context, startURL, userAgent stri
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	current := startURL
-	hops := make([]string, 0, r.config.MaxFollowHops)
-	for hop := 0; hop < r.config.MaxFollowHops; hop++ {
+	for hop := len(hops); hop < r.config.MaxFollowHops; hop++ {
 		// Do not pre-negotiate a CDN playlist signature with HEAD or Range.
 		// The player must request the manifest itself, using its own connection.
 		if IsPlaylistURL(current) {
@@ -498,7 +520,6 @@ func (r *Resolver) followRedirects(ctx context.Context, startURL, userAgent stri
 		}
 		method := http.MethodHead
 		deferred := sharePlaybackURL(current)
-		headOnly := ctx.Value(requestMethodKey{}) == http.MethodHead
 		if deferred && !headOnly {
 			method = http.MethodGet
 		}

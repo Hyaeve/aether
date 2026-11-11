@@ -97,9 +97,14 @@ func TestTelegramAsyncChooseAndConfirmPersistBeforeSlowEdit(t *testing.T) {
 	var editsMu sync.Mutex
 	var edits []string
 	var editCount atomic.Int32
+	var titleReads atomic.Int32
 	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host != "api.telegram.org" {
-			t.Error("choosing or confirming contacted cloud storage")
+			if r.URL.Host == "drive.quark.cn" && strings.HasSuffix(r.URL.Path, "/token") {
+				titleReads.Add(1)
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"code":0,"data":{"stoken":"readonly","title":"影片标题"}}`)), Request: r}, nil
+			}
+			t.Error("choosing or confirming read share contents or submitted a transfer")
 			return nil, errors.New("unexpected cloud request")
 		}
 		if strings.HasSuffix(r.URL.Path, "/editMessageText") {
@@ -155,7 +160,7 @@ func TestTelegramAsyncChooseAndConfirmPersistBeforeSlowEdit(t *testing.T) {
 	current = a.store.snapshot().TelegramRuntime.Jobs[0]
 	editsMu.Lock()
 	defer editsMu.Unlock()
-	if current.Status != "queued" || current.QueuePending || len(edits) != 2 || !strings.Contains(edits[1], "已加入转存队列") {
+	if current.Status != "queued" || current.QueuePending || len(edits) != 2 || !strings.Contains(edits[0], "分享名称：影片标题") || !strings.Contains(edits[1], "已加入转存队列") || titleReads.Load() != 1 {
 		t.Fatal("late confirmation replaced queued response or queue stayed blocked", current.Status, current.QueuePending, edits)
 	}
 }
@@ -261,6 +266,7 @@ func TestTelegramAsyncTransferWorkerKeepsInteractionsAvailable(t *testing.T) {
 	queued := job
 	queued.ID, queued.Status, queued.Selected = "background", "queued", 0
 	if err := a.store.update(func(st *State) error {
+		st.TelegramRuntime.Jobs[0].Name = "已读取的分享名称"
 		st.TelegramRuntime.Jobs = append([]telegramTransfer{queued}, st.TelegramRuntime.Jobs...)
 		return nil
 	}); err != nil {

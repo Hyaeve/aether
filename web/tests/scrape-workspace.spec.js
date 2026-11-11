@@ -9,7 +9,7 @@ async function fixture(page){
  await page.route('**/api/**',route=>{
   const r=route.request(),u=new URL(r.url()),p=u.pathname;requests.push(p);let json={}
   if(p==='/api/auth/status')json={initialized:true,authenticated:true}
-  else if(p==='/api/state')json={username:'scrape-platform',storages:[{id:'pool',type:'115',name:'115-月见风信',enabled:true,config:{}}],tasks:[{id:'strm',kind:'strm',name:'常规影视'}],scrapeLibraries:sources,settings:{},cache:{},traffic:{}}
+  else if(p==='/api/state')json={username:'scrape-platform',storages:[{id:'pool',type:'115',name:'115-月见风信',enabled:true,config:{}},{id:'pool2',type:'local',name:'本地媒体',enabled:true,config:{}}],tasks:[{id:'strm',kind:'strm',name:'常规影视'}],scrapeLibraries:sources,settings:{},cache:{},traffic:{}}
   else if(p==='/api/strm-scrape/items')json=[]
   else if(p==='/api/strm-scrape/directories')json={root:'/media',directories:[]}
   else if(p==='/api/strm-scrape/status')json={running:false,done:1,total:1}
@@ -25,10 +25,9 @@ async function fixture(page){
 test('scrape platform separates ordinary tasks and all four participating libraries',async({page})=>{
  await fixture(page);await page.goto('/scrape/library')
  await expect(page.getByRole('navigation',{name:'刮削平台栏目'}).getByRole('link')).toHaveText(['STRM刮削','链库刮削','目录刮削','刮削设置'])
- await expect(page.getByRole('button',{name:'打开分享目录 115影视',exact:true})).toBeVisible()
- await page.getByRole('button',{name:'打开分享目录 115影视',exact:true}).click()
- await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toContainText('115影视')
- for(const [provider,label]of [['mobile','移动链库'],['quark','夸克链库'],['cas','CAS链库']]){await page.getByRole('button',{name:'链库类型',exact:true}).click();await page.getByRole('option',{name:label,exact:true}).click();await page.getByRole('button',{name:`打开分享目录 ${provider}影视`,exact:true}).click();await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toContainText(`${provider}影视`)}
+ await expect(page.getByRole('button',{name:'打开分享目录 115影视',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'重置 115影视',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'打开分享目录 115影视',exact:true}).click();await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toHaveCount(0)
+ for(const [provider,label]of [['mobile','移动链库'],['quark','夸克链库'],['cas','CAS链库']]){await page.getByRole('button',{name:'链库类型',exact:true}).click();await page.getByRole('option',{name:label,exact:true}).click();await expect(page.getByRole('button',{name:`打开分享目录 ${provider}影视`,exact:true})).toBeVisible();await expect(page.getByRole('button',{name:`重置 ${provider}影视`,exact:true})).toBeVisible();await page.getByRole('button',{name:`打开分享目录 ${provider}影视`,exact:true}).click();await expect(page.getByRole('button',{name:'链库卡片',exact:true})).toHaveCount(0)}
  await page.getByRole('link',{name:'STRM刮削',exact:true}).click();await expect(page.getByRole('button',{name:'STRM 任务',exact:true})).toContainText('常规影视')
  await page.goto('/tasks/scrape');await expect(page).toHaveURL(/\/scrape\/strm$/)
 })
@@ -52,6 +51,11 @@ test('directory breadcrumbs and folder actions remain scoped without a global ac
  await expect.poll(()=>f.writes.length).toBe(2);expect(f.writes[1]).toMatchObject({action:'reset',ids:['folder'],directory:'0'})
  expect(directories).toContain('folder');expect(directories).toContain('season');expect(directories.at(-1)).toBe('0')
  const count=await page.getByRole('status',{name:'当前目录数量',exact:true}).boundingBox(),refresh=await page.getByRole('button',{name:'刷新目录',exact:true}).boundingBox();expect(count.x+count.width).toBeLessThanOrEqual(refresh.x)
+})
+test('directory scrape remembers the selected storage and path',async({page})=>{
+ await fixture(page);await page.goto('/scrape/directory')
+ await page.getByRole('button',{name:'刮削存储池',exact:true}).click();await page.getByRole('option',{name:'本地媒体',exact:true}).click();await page.getByRole('button',{name:'剧集',exact:true}).click()
+ await page.reload();await expect(page.getByRole('button',{name:'刮削存储池',exact:true})).toContainText('本地媒体');await expect(page.getByRole('navigation',{name:'刮削目录路径',exact:true})).toContainText('根目录剧集')
 })
 for(const [width,theme]of [[1440,'light'],[390,'dark']])test(`scrape settings are a dedicated final tab and preserve saves ${width}`,async({page},info)=>{
  const f=await fixture(page),writes=[]

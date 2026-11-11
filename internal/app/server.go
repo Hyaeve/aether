@@ -105,7 +105,6 @@ type App struct {
 	strmIndexMu         sync.RWMutex
 	strmReferenceMu     [64]sync.Mutex
 	telegramPromptMu    [32]sync.Mutex
-	telegramTitles      chan telegramTransfer
 	telegramUI          chan func(context.Context) error
 	telegramUISlots     chan struct{}
 	mounts              *mountManager
@@ -207,7 +206,6 @@ func newWithDirectories(ctx context.Context, configDir, dataDir, output string) 
 	}
 	a.casGate = make(chan struct{}, 1)
 	a.notificationQueue = make(chan channelNotice, 64)
-	a.telegramTitles = make(chan telegramTransfer, 32)
 	a.telegramUI = make(chan func(context.Context) error, 64)
 	a.telegramUISlots = make(chan struct{}, 64)
 	a.transfers.restore(filepath.Join(dataDir, "cache", "transfers.json"))
@@ -268,11 +266,10 @@ func RunWithDirectories(ctx context.Context, configDir, dataDir string) error {
 	go a.folderCleanupMonitor()
 	a.wg.Add(1)
 	go a.pan115SigninMonitor()
-	a.wg.Add(4)
+	a.wg.Add(3)
 	go a.telegramPoll()
 	go a.telegramWorker()
 	go a.telegramInteractionCleaner()
-	go a.telegramTitleWorker()
 	a.wg.Add(telegramUIWorkers)
 	for range telegramUIWorkers {
 		go a.telegramUIWorker()

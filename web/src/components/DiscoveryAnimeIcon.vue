@@ -1,0 +1,1 @@
+<template><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M8 11h.01M16 11h.01M8.5 15c1 .9 2.1 1.3 3.5 1.3s2.5-.4 3.5-1.3"/><path d="M3.5 3.5 6 6M20.5 3.5 18 6"/></svg></template>

@@ -20,6 +20,7 @@ type scrapeRequest struct {
 	Kind           string   `json:"kind"`
 	Group          bool     `json:"group"`
 	Confirmed      bool     `json:"confirmed"`
+	All            bool     `json:"all"`
 	Scope          string   `json:"scope"`
 	Scopes         []string `json:"scopes"`
 	ExcludedScopes []string `json:"excludedScopes"`

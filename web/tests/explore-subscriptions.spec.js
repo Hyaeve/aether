@@ -47,6 +47,7 @@ for(const [width,theme]of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark
  await expect(page.locator('.breadcrumbs [aria-current=page]')).toHaveText('媒体详情')
  await expect(page.getByRole('heading',{name:'星河旅人 (2026)',exact:true})).toBeVisible()
  await expect(page.locator('.discovery-facts')).toContainText('42')
+ const actor=page.locator('.discovery-person-shelf article').first();await expect(actor).toBeVisible();const actorBefore=await actor.boundingBox();await actor.hover();await expect.poll(async()=>{const box=await actor.boundingBox();return box?.y||0}).toBeLessThan(actorBefore.y)
  await captureScreenshot(page,{path:info.outputPath(`detail-${width}-${theme}.png`)})
  await page.getByRole('button',{name:'添加订阅',exact:true}).click()
  const dialog=page.getByRole('dialog',{name:'添加订阅',exact:true})

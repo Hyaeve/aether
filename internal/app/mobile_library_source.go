@@ -49,11 +49,7 @@ func (a *App) mobileLibraryRequest(ctx context.Context, storage Storage, method 
 	return mobileGenerationRequest(ctx, method, payload, out, &storage)
 }
 
-func (a *App) mobileLibraryShareInfo(ctx context.Context, storage Storage, secret string) (mobileLibraryShare, error) {
-	provider, code, pass, err := parseShareLink(secret, "")
-	if err != nil || provider != "mobile" {
-		return mobileLibraryShare{}, errors.New("请输入有效的移动云盘官方分享链接和提取码")
-	}
+func (a *App) mobileShareGeneral(ctx context.Context, storage Storage, code string) (mobileLibraryShare, error) {
 	var data struct {
 		Response struct {
 			Links []struct {
@@ -62,7 +58,7 @@ func (a *App) mobileLibraryShareInfo(ctx context.Context, storage Storage, secre
 			} `json:"outLinkGeneral"`
 		} `json:"getOutLinkGeneralResp"`
 	}
-	err = a.mobileLibraryRequest(ctx, storage, "getOutLinkGeneral",
+	err := a.mobileLibraryRequest(ctx, storage, "getOutLinkGeneral",
 		map[string]any{"getOutLinkGeneralReq": map[string]any{"linkID": code, "isPasswd": 1}}, &data)
 	if err != nil {
 		return mobileLibraryShare{}, fmt.Errorf("读取移动分享信息：%w", err)
@@ -74,13 +70,25 @@ func (a *App) mobileLibraryShareInfo(ctx context.Context, storage Storage, secre
 		return mobileLibraryShare{}, errors.New("移动分享信息不完整，请核对链接及访问权限")
 	}
 	info := data.Response.Links[0]
+	return mobileLibraryShare{Code: code, Pass: info.Pass, Name: strings.TrimSpace(info.Name)}, nil
+}
+
+func (a *App) mobileLibraryShareInfo(ctx context.Context, storage Storage, secret string) (mobileLibraryShare, error) {
+	provider, code, pass, err := parseShareLink(secret, "")
+	if err != nil || provider != "mobile" {
+		return mobileLibraryShare{}, errors.New("请输入有效的移动云盘官方分享链接和提取码")
+	}
+	info, err := a.mobileShareGeneral(ctx, storage, code)
+	if err != nil {
+		return mobileLibraryShare{}, err
+	}
 	if pass == "" {
 		pass = info.Pass
 	}
 	if pass != "" && (!shareCodePattern.MatchString(pass) || len(pass) > 32) {
 		return mobileLibraryShare{}, errors.New("移动分享返回了无效提取码")
 	}
-	name := strings.TrimSpace(info.Name)
+	name := info.Name
 	if name == "" {
 		name = "移动分享-" + quarkLibraryStamp(code)[:8]
 	}

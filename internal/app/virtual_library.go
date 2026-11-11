@@ -357,6 +357,14 @@ func (a *App) playVirtualShare(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, err)
 		return
 	}
+	playbackFailure := func(err error) {
+		reason := strings.NewReplacer("\r", " ", "\n", " ").Replace(err.Error())
+		if strings.Contains(reason, "://") || len([]rune(reason)) > 300 {
+			reason = safeStorageError(err)
+		}
+		a.store.event("warn", "virtual", "115分享播放失败；存储池「"+s.Name+"」；"+reason)
+		fail(w, 502, err)
+	}
 	stPool := a.store.snapshotWithLogLimit(0)
 	for _, temporary := range stPool.ED2KTemporary {
 		if time.Now().After(temporary.ExpiresAt) {
@@ -406,7 +414,7 @@ func (a *App) playVirtualShare(w http.ResponseWriter, r *http.Request) {
 	}
 	_, items, err := a.readShareAt(ctx, s, match[1], match[2], parent)
 	if err != nil {
-		fail(w, 502, err)
+		playbackFailure(fmt.Errorf("读取源分享目录：%w", err))
 		return
 	}
 	var source *shareEntry
@@ -461,11 +469,11 @@ func (a *App) playVirtualShare(w http.ResponseWriter, r *http.Request) {
 		download: func(ctx context.Context, file *driver.File) (Download, error) {
 			return a.downloadWithUA(ctx, s, file.FileID, file.PickCode, r.UserAgent())
 		},
-		interval: 2 * time.Second,
+		interval: 500 * time.Millisecond,
 	}
 	d, err := a.virtualShareDownload(ctx, s, pool, key, *source, ops)
 	if err != nil {
-		fail(w, 502, err)
+		playbackFailure(err)
 		return
 	}
 	redirectDownload(w, r, d.URL)
@@ -504,7 +512,7 @@ func (a *App) virtualShareDownload(ctx context.Context, s Storage, pool ED2KPool
 		}
 		folder, e := ops.folder(ctx)
 		if e != nil {
-			return Download{}, e
+			return Download{}, fmt.Errorf("创建临时转存目录：%w", e)
 		}
 		if folder == "" {
 			return Download{}, errors.New("临时目录无效")
@@ -518,29 +526,50 @@ func (a *App) virtualShareDownload(ctx context.Context, s Storage, pool ED2KPool
 		}
 		e = ops.submit(ctx, folder)
 		if e != nil {
-			return Download{}, errors.New("分享接收结果未确认；保留提交记录，不会自动重试")
+			var rejected *shareRejectedError
+			var httpError *shareHTTPError
+			var auth *storageAuthError
+			if errors.As(e, &rejected) || errors.As(e, &auth) || errors.As(e, &httpError) && httpError.status >= 400 && httpError.status < 500 && httpError.status != 408 {
+				return Download{}, fmt.Errorf("提交分享转存：%w", e)
+			}
+			// A lost response does not imply a failed receive. Reconcile this same
+			// isolated folder now; the durable intent still forbids another POST.
+			if err := check(); err != nil {
+				return Download{}, err
+			}
 		}
 	}
+	readRetries, ticketRetries := 0, 0
 	for {
 		if e := check(); e != nil {
 			return Download{}, e
 		}
 		files, e := ops.files(ctx, record.Folder)
 		if e != nil {
-			return Download{}, e
+			if !retryable115Read(e) || readRetries >= 2 || ctx.Err() != nil {
+				return Download{}, fmt.Errorf("确认临时转存文件：%w", e)
+			}
+			readRetries++
+			files = nil // Never use partial results from a failed listing.
 		}
 		for _, f := range files {
 			if f != nil && f.FileID != "" && (record.FileID == "" || f.FileID == record.FileID) && f.ParentID == record.Folder && !f.IsDirectory && f.Name == source.Name && f.Size == source.Size && strings.EqualFold(f.Sha1, source.SHA1) && f.PickCode != "" {
 				if e = check(); e != nil {
 					return Download{}, e
 				}
-				record.FileID = f.FileID
-				if e = a.writeED2KRecord(key, record); e != nil {
-					return Download{}, e
+				if record.FileID == "" {
+					record.FileID = f.FileID
+					if e = a.writeED2KRecord(key, record); e != nil {
+						return Download{}, e
+					}
 				}
 				d, e := ops.download(ctx, f)
 				if e != nil {
-					return Download{}, e
+					if retryable115Read(e) && ticketRetries < 2 && ctx.Err() == nil {
+						ticketRetries++
+						break // Recheck parent, file ID and digest before retrying a ticket.
+					}
+					return Download{}, fmt.Errorf("获取临时文件下载链接：%w", e)
 				}
 				if e = check(); e != nil {
 					return Download{}, e
@@ -566,7 +595,7 @@ func (a *App) virtualShareDownload(ctx context.Context, s Storage, pool ED2KPool
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return Download{}, errors.New("分享接收尚未确认；不重复提交，请稍后重试")
+			return Download{}, fmt.Errorf("确认分享转存尚未完成；已保留记录，不重复提交：%w", ctx.Err())
 		case <-timer.C:
 		}
 	}

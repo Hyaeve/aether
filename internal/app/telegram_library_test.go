@@ -20,6 +20,14 @@ func telegramLibraryFixture(t *testing.T) (*App, telegramConfig, *quarkLibraryMo
 	cloud := apiClient.Transport
 	messages := []string{}
 	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "115cdn.com" && r.URL.Path == "/webapi/share/snap" && r.Method == http.MethodGet {
+			query := r.URL.Query()
+			if query.Get("cid") != "0" || query.Get("offset") != "0" || query.Get("limit") != "2" {
+				t.Error("115 batch confirmation read more than the share title response")
+			}
+			body := `{"state":true,"data":{"shareinfo":{"share_title":"115首条分享"},"count":101}}`
+			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+		}
 		if r.URL.Host != "api.telegram.org" {
 			return cloud.RoundTrip(r)
 		}
@@ -131,13 +139,16 @@ func TestTelegramLibraryDifferentLinksUseNumericDirectories(t *testing.T) {
 }
 
 func TestTelegramMultipleSharesRequireConfirmation(t *testing.T) {
-	a, cfg, _, _ := telegramLibraryFixture(t)
+	a, cfg, _, messages := telegramLibraryFixture(t)
 	if err := a.handleTelegramUpdate(context.Background(), cfg, telegramTextUpdate(1, 123, 123, "https://pan.quark.cn/s/one\nhttps://pan.quark.cn/s/two")); err != nil {
 		t.Fatal(err)
 	}
 	jobs := a.store.snapshot().TelegramRuntime.Jobs
 	if len(jobs) != 2 || jobs[0].Status != "confirming" || jobs[1].Status != "waiting" {
 		t.Fatal("multiple links must not bypass confirmation with one target", jobs)
+	}
+	if len(*messages) != 1 || !strings.Contains((*messages)[0], "首条分享名称：Share title") || !strings.Contains((*messages)[0], "2条链接") {
+		t.Fatal("batch confirmation did not show its first title in the initial message", *messages)
 	}
 	if err := a.telegramCallback(context.Background(), cfg, 123, 123, 70, "c:"+jobs[0].ID+":0"); err != nil {
 		t.Fatal(err)

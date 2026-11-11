@@ -79,7 +79,7 @@ func TestVirtual115TemporaryPlaybackSafety(t *testing.T) {
 				return a.virtualShareDownload(ctx, s, normalizedED2KPool(ED2KPoolConfig{}), "test-key", source, opsCopy)
 			}
 			_, err := call()
-			if mode == "success" || mode == "different-file-id" {
+			if mode == "success" || mode == "different-file-id" || mode == "uncertain" {
 				if err != nil || downloads != 1 {
 					t.Fatal(downloads, err)
 				}
@@ -105,7 +105,7 @@ func TestVirtual115TemporaryPlaybackSafety(t *testing.T) {
 			}
 			if mode == "uncertain" {
 				_, err = call()
-				if err != nil || submits != 1 {
+				if err != nil || submits != 1 || downloads != 2 {
 					t.Fatal("uncertain POST replayed or not recovered", submits, err)
 				}
 			}

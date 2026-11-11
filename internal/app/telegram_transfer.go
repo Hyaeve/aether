@@ -42,11 +42,87 @@ func (a *App) telegramResourceName(ctx context.Context, job telegramTransfer, ta
 	}
 	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
-	_, items, err := a.readShareSessionPages(ctx, &s, code, pass, "root", "", true)
+	name, err := a.readTelegramShareName(ctx, s, code, pass)
 	if err != nil {
 		return ""
 	}
-	return telegramShareName(items)
+	name = strings.TrimSpace(name)
+	if chars := []rune(name); len(chars) > 1024 {
+		name = string(chars[:1023]) + "…"
+	}
+	return name
+}
+
+func (a *App) readTelegramShareName(ctx context.Context, s Storage, code, pass string) (string, error) {
+	switch s.Type {
+	case "mobile":
+		info, err := a.mobileShareGeneral(ctx, s, code)
+		return info.Name, err
+	case "115":
+		if err := a.waitAPI(ctx, s.ID); err != nil {
+			return "", err
+		}
+		var result struct {
+			Data struct {
+				Info struct {
+					Title string `json:"share_title"`
+				} `json:"shareinfo"`
+				List []struct {
+					Name string `json:"n"`
+				} `json:"list"`
+			} `json:"data"`
+		}
+		query := url.Values{"share_code": {code}, "receive_code": {pass}, "cid": {"0"}, "offset": {"0"}, "limit": {"2"}, "asc": {"0"}, "format": {"json"}}
+		if err := read115Share(ctx, s, query, &result); err != nil {
+			return "", err
+		}
+		if title := strings.TrimSpace(result.Data.Info.Title); title != "" {
+			return title, nil
+		}
+		names := make([]shareEntry, 0, 2)
+		for _, entry := range result.Data.List[:min(2, len(result.Data.List))] {
+			names = append(names, shareEntry{Name: entry.Name})
+		}
+		return telegramShareName(names), nil
+	case "quark":
+		if err := a.waitAPI(ctx, s.ID); err != nil {
+			return "", err
+		}
+		var token struct {
+			Data struct {
+				Title string `json:"title"`
+				Token string `json:"stoken"`
+			} `json:"data"`
+		}
+		if err := shareSessionRequest(ctx, &s, "POST", "https://drive.quark.cn/1/clouddrive/share/sharepage/token?pr=ucpro&fr=pc",
+			map[string]string{"pwd_id": code, "passcode": pass}, &token); err != nil {
+			return "", err
+		}
+		title := strings.TrimSpace(token.Data.Title)
+		if title != "" || token.Data.Token == "" {
+			return title, nil
+		}
+		if err := a.waitAPI(ctx, s.ID); err != nil {
+			return "", err
+		}
+		var detail struct {
+			Data struct {
+				List []struct {
+					Name string `json:"file_name"`
+				} `json:"list"`
+			} `json:"data"`
+		}
+		query := url.Values{"pr": {"ucpro"}, "fr": {"pc"}, "pwd_id": {code}, "stoken": {token.Data.Token}, "pdir_fid": {"0"}, "_page": {"1"}, "_size": {"2"}}
+		if err := shareSessionRequest(ctx, &s, "GET", "https://drive.quark.cn/1/clouddrive/share/sharepage/detail?"+query.Encode(), nil, &detail); err != nil {
+			return "", err
+		}
+		names := make([]shareEntry, 0, 2)
+		for _, entry := range detail.Data.List[:min(2, len(detail.Data.List))] {
+			names = append(names, shareEntry{Name: entry.Name})
+		}
+		return telegramShareName(names), nil
+	}
+	return "", nil
 }
 
 func (a *App) finishTelegram(key, status, message string, processed int) {

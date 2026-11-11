@@ -172,6 +172,9 @@ func TestScrapeWorkspaceFourLibrariesAndCASFilter(t *testing.T) {
 	}
 	for _, source := range sources {
 		key := source["id"].(string)
+		if source["name"] != "库" {
+			t.Fatal("share scrape source should use saved directory name", source)
+		}
 		if _, ok := shareScrapeCard(st, key); !ok {
 			t.Fatal(key)
 		}

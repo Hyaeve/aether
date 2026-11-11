@@ -8,13 +8,17 @@ import Modal from './Modal.vue'
 const storage=ref(''),directory=ref(''),trail=ref([]),files=ref([]),items=ref([]),query=ref(''),loading=ref(false),busy=ref(false),progress=ref({}),taskId=ref(''),matching=ref(null),confirmation=ref(null),root=ref('')
 const match=reactive({tmdb:'',kind:'movie'})
 const pools=computed(()=>state.storages.filter(s=>s.enabled).map(s=>({value:s.id,label:s.name,provider:s.type})))
+const preferenceKey=computed(()=>`aether-scrape-directory:${state.username||''}`)
 const filtered=computed(()=>files.value.filter(f=>f.isDir||/\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mkvb|rmvb|rm|3gp|mpg|mpeg|iso|strm)$/i.test(f.name)).filter(f=>f.name.toLowerCase().includes(query.value.toLowerCase())))
 let alive=true,request=0,timer
+function savedPreference(){try{return JSON.parse(localStorage.getItem(preferenceKey.value)||'null')||{}}catch{return {}}}
+function rememberDirectory(){if(!storage.value)return;try{localStorage.setItem(preferenceKey.value,JSON.stringify({storage:storage.value,directory:directory.value,trail:trail.value}))}catch{}}
 const status=item=>({ok:'已完成',pending:'待刮削',miss:'未识别',doubt:'待确认',error:'失败'}[item?.status]||'未识别')
 function result(file){return items.value.find(i=>i.path===file.name)}
 async function load(){const ticket=++request,sid=storage.value,dir=directory.value;if(!sid)return;loading.value=true;try{const data=await api(`/directory-scrape/files?${new URLSearchParams({storageId:sid,directory:dir})}`);if(alive&&ticket===request){files.value=data.files;items.value=data.items;taskId.value=data.taskId;directory.value=data.directory;if(!trail.value.length)root.value=data.directory}}catch(e){if(alive&&ticket===request)notify(e.message,true)}finally{if(alive&&ticket===request)loading.value=false}}
-watch(storage,()=>{request++;directory.value='';trail.value=[];files.value=[];items.value=[];load()})
-watch(pools,options=>{if(!options.some(s=>s.value===storage.value))storage.value=options[0]?.value||''},{immediate:true})
+watch(storage,(value,old)=>{request++;files.value=[];items.value=[];const saved=savedPreference();if(!old&&saved.storage===value){directory.value=saved.directory||'';trail.value=Array.isArray(saved.trail)?saved.trail:[]}else{directory.value='';trail.value=[]}rememberDirectory();load()})
+watch([pools,preferenceKey],([options])=>{if(!options.some(s=>s.value===storage.value)){const saved=savedPreference();storage.value=options.find(s=>s.value===saved.storage)?.value||options[0]?.value||''}},{immediate:true})
+watch([directory,trail],rememberDirectory,{deep:true})
 function enter(file){trail.value.push({id:file.id,name:file.name});directory.value=file.id;load()}
 function jump(index){trail.value=trail.value.slice(0,index+1);directory.value=trail.value.at(-1)?.id||root.value;load()}
 function back(){jump(trail.value.length-2)}
