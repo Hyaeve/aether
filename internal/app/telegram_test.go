@@ -24,13 +24,43 @@ func telegramFixture(t *testing.T) (*App, telegramConfig) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return a, cfg
+	// Match telegramPoll: callbacks retain a snapshot, not the store's UserIDs slice.
+	return a, a.store.snapshotWithLogLimit(0).Notifications.Telegram
 }
 
 func telegramTextUpdate(id, user, chat int64, text string) telegramUpdate {
 	m := &telegramMessage{ID: id, Text: text, From: telegramUser{ID: user}}
 	m.Chat.ID = chat
 	return telegramUpdate{ID: id, Message: m}
+}
+
+func TestTelegramFixtureConfigIsolation(t *testing.T) {
+	t.Run("caller changes do not change authorization", func(t *testing.T) {
+		a, cfg := telegramFixture(t)
+		cfg.UserIDs[0] = "456"
+		got := a.store.snapshotWithLogLimit(0).Notifications.Telegram.UserIDs
+		if len(got) != 1 || got[0] != "123" {
+			t.Fatal("returned config shares authorization users with store", got)
+		}
+	})
+	t.Run("store rollback does not mutate retained config", func(t *testing.T) {
+		a, cfg := telegramFixture(t)
+		before := telegramDigest(cfg)
+		var duringUpdate string
+		if err := a.store.update(func(st *State) error {
+			st.Notifications.Telegram.UserIDs[0] = "789"
+			duringUpdate = cfg.UserIDs[0]
+			return fmt.Errorf("abort fixture update")
+		}); err == nil {
+			t.Fatal("failed update was accepted")
+		}
+		if duringUpdate != "123" || telegramDigest(cfg) != before {
+			t.Fatal("store update mutated retained authorization config", duringUpdate, cfg.UserIDs)
+		}
+		if got := telegramDigest(a.store.snapshotWithLogLimit(0).Notifications.Telegram); got != before {
+			t.Fatal("store rollback did not restore authorization")
+		}
+	})
 }
 
 func TestTelegramSettingsPersistenceAndRedaction(t *testing.T) {
