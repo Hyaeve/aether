@@ -276,7 +276,7 @@ func (a *App) library115API(w http.ResponseWriter, r *http.Request) {
 	}
 	migration(true)
 	if card.Enabled {
-		if err := a.startLibrary115Locked(card); err != nil {
+		if err := a.startLibrary115Locked(card, false); err != nil {
 			fail(w, 500, err)
 			return
 		}
@@ -319,14 +319,14 @@ func (a *App) library115RunAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("115链接不存在或未启用"))
 		return
 	}
-	if err := a.startLibrary115Locked(card); err != nil {
+	if err := a.startLibrary115Locked(card, true); err != nil {
 		a.library115Mu.Unlock()
 		fail(w, 500, err)
 		return
 	}
 	jsonResponse(w, 202, map[string]string{"message": "已加入115链库执行队列"})
 }
-func (a *App) startLibrary115Locked(card quarkLibraryCard) error {
+func (a *App) startLibrary115Locked(card quarkLibraryCard, manual bool) error {
 	if err := a.ctx.Err(); err != nil {
 		return err
 	}
@@ -343,6 +343,7 @@ func (a *App) startLibrary115Locked(card quarkLibraryCard) error {
 		defer a.library115Mu.Unlock()
 		ctx, cancel := context.WithTimeout(a.ctx, 5*time.Minute)
 		defer cancel()
+		ctx = context.WithValue(ctx, libraryManualRunKey{}, manual)
 		_, _ = a.runLibrary115(ctx, card)
 	}()
 	return nil
@@ -426,7 +427,7 @@ func (a *App) runLibrary115(ctx context.Context, card quarkLibraryCard) (result 
 		return nil
 	}
 	st := a.store.snapshotWithLogLimit(0)
-	err = a.ensureLibraryIdentity(ctx, card, root, st.Library115Runtime.Roots[card.ID], st.Library115Runtime.Files, check, func(previous, record quarkLibraryOwnership) error {
+	err = a.ensureLibraryIdentity(ctx, card, root, st.Library115Runtime.Roots[card.ID], st.Library115Runtime.Files, libraryManualRun(ctx), check, func(previous, record quarkLibraryOwnership) error {
 		return a.store.update(func(st *State) error {
 			initLibrary115(st)
 			if current, ok := library115CardAt(*st, card.ID); !ok || current != card || st.Library115Runtime.Roots[card.ID] != previous {

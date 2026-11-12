@@ -629,7 +629,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	a.store.event("info", "virtual", "夸克链库保存卡片："+card.Name)
 	response := map[string]any{"id": sid}
 	if card.Enabled {
-		if err := a.startQuarkLibraryLocked(card); err != nil {
+		if err := a.startQuarkLibraryLocked(card, false); err != nil {
 			fail(w, 500, err)
 			return
 		}
@@ -670,7 +670,7 @@ func (a *App) quarkLibraryRunAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("卡片不存在或已停用"))
 		return
 	}
-	if err := a.startQuarkLibraryLocked(card); err != nil {
+	if err := a.startQuarkLibraryLocked(card, true); err != nil {
 		a.quarkLibraryMu.Unlock()
 		fail(w, 500, err)
 		return
@@ -679,7 +679,7 @@ func (a *App) quarkLibraryRunAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // The caller transfers the library lock only after the running state is saved.
-func (a *App) startQuarkLibraryLocked(card quarkLibraryCard) error {
+func (a *App) startQuarkLibraryLocked(card quarkLibraryCard, manual bool) error {
 	if err := a.ctx.Err(); err != nil {
 		return err
 	}
@@ -701,6 +701,7 @@ func (a *App) startQuarkLibraryLocked(card quarkLibraryCard) error {
 		defer a.quarkLibraryMu.Unlock()
 		ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
 		defer cancel()
+		ctx = context.WithValue(ctx, libraryManualRunKey{}, manual)
 		_, _ = a.runQuarkLibrary(ctx, card)
 	}()
 	return nil

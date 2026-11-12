@@ -508,7 +508,7 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	migration(true)
 	if card.Enabled {
-		if err := a.startMobileLibraryLocked(card); err != nil {
+		if err := a.startMobileLibraryLocked(card, false); err != nil {
 			fail(w, 500, err)
 			return
 		}
@@ -519,7 +519,7 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]string{"id": sid})
 }
 
-func (a *App) startMobileLibraryLocked(card quarkLibraryCard) error {
+func (a *App) startMobileLibraryLocked(card quarkLibraryCard, manual bool) error {
 	if err := a.ctx.Err(); err != nil {
 		return err
 	}
@@ -541,6 +541,7 @@ func (a *App) startMobileLibraryLocked(card quarkLibraryCard) error {
 		defer a.mobileLibraryMu.Unlock()
 		ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
 		defer cancel()
+		ctx = context.WithValue(ctx, libraryManualRunKey{}, manual)
 		_, _ = a.runMobileLibrary(ctx, card)
 	}()
 	return nil
@@ -557,7 +558,7 @@ func (a *App) mobileLibraryRunAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, errors.New("移动分享不存在或未启用"))
 		return
 	}
-	if err := a.startMobileLibraryLocked(card); err != nil {
+	if err := a.startMobileLibraryLocked(card, true); err != nil {
 		a.mobileLibraryMu.Unlock()
 		fail(w, 500, err)
 		return
@@ -613,7 +614,7 @@ func (a *App) mobileLibraryTick(now time.Time) {
 			continue
 		}
 		if !result.NextRun.After(now) {
-			if err := a.startMobileLibraryLocked(card); err == nil {
+			if err := a.startMobileLibraryLocked(card, false); err == nil {
 				keep = true
 			}
 			return

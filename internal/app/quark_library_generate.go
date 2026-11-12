@@ -417,7 +417,7 @@ func (a *App) runQuarkLibrary(ctx context.Context, card quarkLibraryCard) (resul
 		return result, err
 	}
 	defer root.Close()
-	if err := a.ensureQuarkLibraryOwnership(ctx, card, root); err != nil {
+	if err := a.ensureQuarkLibraryOwnership(ctx, card, root, libraryManualRun(ctx)); err != nil {
 		return result, err
 	}
 	media, metadata := card.MediaExtensions, card.MetadataExtensions

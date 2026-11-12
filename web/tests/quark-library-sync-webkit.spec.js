@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test'
 import {captureScreenshot} from './helpers/screenshot.js'
+import {expectLibraryCascadePair} from './helpers/library-layout.js'
 
 test.use({browserName:'webkit',isMobile:true,hasTouch:true,deviceScaleFactor:3})
 
@@ -33,7 +34,7 @@ for(const [width,height,theme] of [[375,812,'light'],[844,390,'dark']]){
   await editor.getByRole('button',{name:'级联删除图片扩展名',exact:true}).click()
   await editor.getByRole('button',{name:'级联删除数据扩展名',exact:true}).click()
   await expect(cleanup).toHaveValue('jpg;jpeg;png;webp;nfo;ass;srt;ssa;sub')
-  expect(await cleanup.evaluate(el=>{const field=el.closest('label');return Math.abs(field.getBoundingClientRect().width-field.parentElement.getBoundingClientRect().width)<1&&field.previousElementSibling.textContent.includes('链库刮削')})).toBe(true)
+  await expectLibraryCascadePair(editor)
   await expect(editor).toHaveCSS('scrollbar-width','none')
   await captureScreenshot(page,{path:info.outputPath(`cleanup-webkit-${width}-${theme}.png`)})
  })

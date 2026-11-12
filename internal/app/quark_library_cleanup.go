@@ -21,9 +21,18 @@ type quarkLibraryOwnership struct {
 	Identity  string `json:"identity,omitempty"`
 }
 
-func (a *App) ensureQuarkLibraryOwnership(ctx context.Context, card quarkLibraryCard, root *os.Root) error {
+// Only the authenticated card execution endpoint grants recovery. Cleanup and
+// scheduled runs keep strict identity checks, including after a failed read.
+type libraryManualRunKey struct{}
+
+func libraryManualRun(ctx context.Context) bool {
+	manual, _ := ctx.Value(libraryManualRunKey{}).(bool)
+	return manual
+}
+
+func (a *App) ensureQuarkLibraryOwnership(ctx context.Context, card quarkLibraryCard, root *os.Root, recoverIdentity bool) error {
 	st := a.store.snapshotWithLogLimit(0)
-	return a.ensureLibraryIdentity(ctx, card, root, st.QuarkLibraryRuntime.Roots[card.ID], st.QuarkLibraryRuntime.Files,
+	return a.ensureLibraryIdentity(ctx, card, root, st.QuarkLibraryRuntime.Roots[card.ID], st.QuarkLibraryRuntime.Files, recoverIdentity,
 		func() error { return a.quarkLibraryCheckExecution(ctx, card) },
 		func(previous, record quarkLibraryOwnership) error {
 			return a.store.update(func(st *State) error {
@@ -41,8 +50,9 @@ func (a *App) ensureQuarkLibraryOwnership(ctx context.Context, card quarkLibrary
 }
 
 // Persist the native identity internally before removing a legacy marker.
-// Replacing a directory, even with identical files, cannot acquire authority.
-func (a *App) ensureLibraryIdentity(ctx context.Context, card quarkLibraryCard, root *os.Root, previous quarkLibraryOwnership, files map[string]quarkLibraryFile, check func() error, save func(quarkLibraryOwnership, quarkLibraryOwnership) error) error {
+// Manual generation can recover a changed identity after a complete inventory;
+// automatic work cannot inherit authority over a replacement directory.
+func (a *App) ensureLibraryIdentity(ctx context.Context, card quarkLibraryCard, root *os.Root, previous quarkLibraryOwnership, files map[string]quarkLibraryFile, recoverIdentity bool, check func() error, save func(quarkLibraryOwnership, quarkLibraryOwnership) error) error {
 	if err := check(); err != nil {
 		return err
 	}
@@ -59,19 +69,28 @@ func (a *App) ensureLibraryIdentity(ctx context.Context, card quarkLibraryCard, 
 	if e != nil || liveIdentity != identity {
 		return errors.New("生成目录路径身份已改变，未登记或清理")
 	}
+	recovering := false
 	if previous.Identity != "" && previous.Directory == quarkLibraryRoot(card) {
 		if previous.Identity != identity {
-			return errors.New("生成目录身份与内部登记不符，未接管或清理")
+			if !recoverIdentity {
+				return errors.New("生成目录身份与内部登记不符，未接管或清理；请核对生成位置后手动执行卡片")
+			}
+			recovering = true
+		} else {
+			if err := verifyQuarkLibraryOwner(root, previous); err != nil {
+				return err
+			}
+			return removeLegacyLibraryMarker(root, previous)
 		}
-		if err := verifyQuarkLibraryOwner(root, previous); err != nil {
-			return err
-		}
-		return removeLegacyLibraryMarker(root, previous)
 	}
 	marker := false
 	if _, err := root.Lstat(quarkLibraryMarker); err == nil {
 		marker = true
-		if previous.Directory != quarkLibraryRoot(card) || verifyQuarkLibraryOwner(root, previous) != nil {
+		legacy := previous
+		if recovering {
+			legacy.Identity = ""
+		}
+		if previous.Directory != quarkLibraryRoot(card) || verifyQuarkLibraryOwner(root, legacy) != nil {
 			return errors.New("生成目录已有其他归属标记，未接管或覆盖")
 		}
 	} else if !os.IsNotExist(err) {
@@ -90,6 +109,7 @@ func (a *App) ensureLibraryIdentity(ctx context.Context, card quarkLibraryCard, 
 			}
 		}
 	}
+	matched := 0
 	for i := range entries {
 		entry := &entries[i]
 		if entry.info.IsDir() {
@@ -103,11 +123,15 @@ func (a *App) ensureLibraryIdentity(ctx context.Context, card quarkLibraryCard, 
 			if file.Digest == "" || entry.digest != file.Digest {
 				return errors.New("生成目录存在已修改文件，未接管自动清理")
 			}
+			matched++
 		} else if !slices.ContainsFunc(media, func(name string) bool {
 			return quarkLibraryCompanion(entry.name, name) || quarkLibrarySidecar(entry.name) && path.Dir(entry.name) == path.Dir(name)
 		}) {
 			return errors.New("生成目录已有未登记的文件，请选择独立目录")
 		}
+	}
+	if recovering && matched == 0 && len(entries) != 0 {
+		return errors.New("生成目录没有可核验的登记产物，未恢复关联；请核对生成位置")
 	}
 	if err := check(); err != nil {
 		return err
@@ -141,14 +165,31 @@ func (a *App) ensureLibraryIdentity(ctx context.Context, card quarkLibraryCard, 
 			}
 		}
 	}
+	if err := check(); err != nil {
+		return err
+	}
+	live, err = openStrmReplaceRoot(quarkLibraryRoot(card))
+	if err != nil {
+		return err
+	}
+	freshIdentity, err = strmRootIdentity(live)
+	live.Close()
+	if err != nil || freshIdentity != identity {
+		return errors.New("生成目录核验期间身份变化，未登记")
+	}
 	record := quarkLibraryOwnership{Directory: quarkLibraryRoot(card), Identity: identity, Token: previous.Token}
 	if err := save(previous, record); err != nil {
 		return err
 	}
 	if marker {
-		return removeLegacyLibraryMarker(root, record)
+		err = removeLegacyLibraryMarker(root, record)
+	} else {
+		err = verifyQuarkLibraryOwner(root, record)
 	}
-	return verifyQuarkLibraryOwner(root, record)
+	if err == nil && recovering {
+		a.store.event("info", "virtual", "链库「"+card.Name+"」：已核验登记产物并恢复生成目录关联")
+	}
+	return err
 }
 
 func removeLegacyLibraryMarker(root *os.Root, record quarkLibraryOwnership) error {

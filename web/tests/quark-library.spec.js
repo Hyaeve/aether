@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test'
 import {captureScreenshot} from './helpers/screenshot.js'
+import {expectLibraryCascadePair} from './helpers/library-layout.js'
 
 async function mock(page) {
  const settings={storageIds:['q'],invalidDays:15,retentionHours:12,mediaExtensions:'mkv;mp4',metadataExtensions:'nfo;jpg'}
@@ -100,7 +101,7 @@ for(const width of [1440,390])for(const theme of ['light','dark']){
   const cascade=dialog.getByRole('textbox',{name:'级联删除扩展名',exact:true})
   await expect(cascade).toHaveValue('jpg;jpeg;png;webp;nfo;srt;ass;ssa;sub;vtt')
   await cascade.fill('')
-  expect(await cascade.evaluate(el=>{const label=el.closest('label');return Math.abs(label.getBoundingClientRect().width-label.parentElement.getBoundingClientRect().width)<1})).toBe(true)
+  await expectLibraryCascadePair(dialog)
   await dialog.getByRole('textbox',{name:'分享链接',exact:true}).focus()
   await page.mouse.move(1,1)
   await expect.poll(()=>dialog.locator('.extension-preset').evaluateAll(els=>els.every(e=>getComputedStyle(e,'::after').opacity==='0'))).toBe(true)

@@ -42,7 +42,7 @@ func (a *App) cleanInvalidQuarkLibrary(ctx context.Context, card quarkLibraryCar
 		return 0, err
 	}
 	defer root.Close()
-	if err := a.ensureQuarkLibraryOwnership(ctx, card, root); err != nil {
+	if err := a.ensureQuarkLibraryOwnership(ctx, card, root, false); err != nil {
 		return 0, err
 	}
 	return a.reconcileQuarkLibrary(context.WithValue(ctx, librarySourceCleanupKey{}, true), card, root, nil, false)
@@ -56,7 +56,7 @@ func (a *App) cleanInvalidMobileLibrary(ctx context.Context, card quarkLibraryCa
 		return 0, err
 	}
 	defer root.Close()
-	if err := a.ensureMobileLibraryOwner(ctx, card, root); err != nil {
+	if err := a.ensureMobileLibraryOwner(ctx, card, root, false); err != nil {
 		return 0, err
 	}
 	return a.reconcileMobileLibrary(context.WithValue(ctx, librarySourceCleanupKey{}, true), card, root, nil)
@@ -202,11 +202,11 @@ func (a *App) cleanMissingLibraryFile(ctx context.Context, provider string, card
 	defer root.Close()
 	ctx = context.WithValue(ctx, librarySourceCleanupKey{}, true)
 	if provider == "mobile" {
-		if a.ensureMobileLibraryOwner(ctx, card, root) == nil {
+		if a.ensureMobileLibraryOwner(ctx, card, root, false) == nil {
 			_, err = a.reconcileMobileLibrary(ctx, card, root, wanted)
 		}
 	} else {
-		if a.ensureQuarkLibraryOwnership(ctx, card, root) == nil {
+		if a.ensureQuarkLibraryOwnership(ctx, card, root, false) == nil {
 			_, err = a.reconcileQuarkLibrary(ctx, card, root, wanted, false)
 		}
 	}

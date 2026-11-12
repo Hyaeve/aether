@@ -97,9 +97,9 @@ func (a *App) planMobileLibrary(ctx context.Context, storage Storage, card quark
 	return plans, share, err
 }
 
-func (a *App) ensureMobileLibraryOwner(ctx context.Context, card quarkLibraryCard, root *os.Root) error {
+func (a *App) ensureMobileLibraryOwner(ctx context.Context, card quarkLibraryCard, root *os.Root, recoverIdentity bool) error {
 	st := a.store.snapshotWithLogLimit(0)
-	return a.ensureLibraryIdentity(ctx, card, root, st.MobileLibraryRuntime.Roots[card.ID], st.MobileLibraryRuntime.Files,
+	return a.ensureLibraryIdentity(ctx, card, root, st.MobileLibraryRuntime.Roots[card.ID], st.MobileLibraryRuntime.Files, recoverIdentity,
 		func() error {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -368,7 +368,7 @@ func (a *App) runMobileLibrary(ctx context.Context, card quarkLibraryCard) (resu
 		return result, err
 	}
 	defer root.Close()
-	if err := a.ensureMobileLibraryOwner(ctx, card, root); err != nil {
+	if err := a.ensureMobileLibraryOwner(ctx, card, root, libraryManualRun(ctx)); err != nil {
 		return result, err
 	}
 	known := map[string]quarkLibraryFile{}

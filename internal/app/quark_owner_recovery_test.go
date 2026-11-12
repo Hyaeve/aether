@@ -83,7 +83,7 @@ func TestQuarkLibraryRecoversMissingOwnerOnlyAfterInventory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = a.ensureQuarkLibraryOwnership(ctx, card, root)
+			err = a.ensureQuarkLibraryOwnership(ctx, card, root, false)
 			root.Close()
 			allowed := mode == "empty-intent" || mode == "unchanged-files"
 			if allowed && err != nil || !allowed && err == nil {
