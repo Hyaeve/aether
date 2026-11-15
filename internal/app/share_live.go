@@ -47,6 +47,8 @@ type shareLiveLink struct {
 	Message           string    `json:"message"`
 	Intent            string    `json:"intent,omitempty"`
 	DeleteTaskID      string    `json:"deleteTaskId,omitempty"`
+	TransferTaskID    string    `json:"transferTaskId,omitempty"`
+	PendingCursor     string    `json:"pendingCursor,omitempty"`
 	IncrementalCursor string    `json:"incrementalCursor,omitempty"`
 	LastSuccess       time.Time `json:"lastSuccess,omitempty"`
 	Excluded          []string  `json:"excluded,omitempty"`
@@ -353,9 +355,13 @@ func (a *App) startShareLive(key, source string) error {
 			link = current
 		}
 	}
-	if link.ID == "" || link.Status == "running" || link.Intent != "" {
+	if link.ID == "" {
 		a.shareLiveMu.Unlock()
-		return errors.New("活链不存在、正在执行或上次写入未确认，请核对云盘")
+		return errors.New("活链记录已移除，请刷新活动链接列表")
+	}
+	if link.Intent != "" && !shareLiveTransferRecoverable(link) {
+		a.shareLiveMu.Unlock()
+		return shareLiveUnconfirmedError(link)
 	}
 	if _, err := a.shareLiveGuard(link); err != nil {
 		_ = a.store.update(func(st *State) error {
@@ -395,13 +401,15 @@ func (a *App) startShareLive(key, source string) error {
 }
 
 func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record shareTransferRecord) {
-	oldCursor := link.IncrementalCursor
 	if record.Time.IsZero() {
 		record.Time = time.Now()
 	}
 	s, err := a.shareLiveGuard(link)
 	if err == nil && link.DirectoryID != "" {
 		err = a.verifyShareLiveDirectory(ctx, s, link)
+	}
+	if err == nil {
+		err = a.reconcileShareLiveTransfer(ctx, &link, s)
 	}
 	var batches []shareBatch
 	var preview sharePreview
@@ -457,26 +465,50 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		batches, checkpoint, skipped, baseline, err = a.planShareLiveIncremental(link, batches, record.Time)
 		record.Skipped += skipped
 	}
+	if err == nil && !baseline && link.IncrementalCursor == "" {
+		// A managed first run needs an explicit empty checkpoint. LastRun alone
+		// must not make a failed initial transfer look like a legacy imported library.
+		var emptyCursor string
+		emptyCursor, err = a.stageShareLiveCheckpoint(link, map[string]bool{}, record.Time)
+		if err == nil {
+			err = a.commitShareLiveBatch(&link, "", emptyCursor, "")
+		}
+	}
 	if err == nil && link.DirectoryID == "" {
 		err = a.initializeShareLiveDirectory(ctx, s, &link)
+	}
+	var seen map[string]bool
+	if err == nil && len(batches) > 0 {
+		seen, err = a.loadShareLiveCheckpoint(link)
 	}
 	for i, batch := range batches {
 		if err != nil {
 			break
 		}
 		err = guard()
-		if err == nil {
-			err = a.setShareLiveIntent(link.ID, fmt.Sprintf("batch:%s:%d", record.ID, i))
-		}
 		if err != nil {
 			break
 		}
-		task, skipped, submitted, submitErr := a.submitPlannedShareBatch(ctx, &s, preview, link.DirectoryID, batch, guard)
+		if err = shareLiveObserved([]shareBatch{batch}, seen); err != nil {
+			break
+		}
+		partialCursor, stageErr := a.stageShareLiveCheckpoint(link, seen, record.Time)
+		if stageErr != nil {
+			err = stageErr
+			break
+		}
+		intent := fmt.Sprintf("batch:%s:%d", record.ID, i)
+		receipt := a.shareLiveBatchReceipt(link, intent, partialCursor)
+		batchCtx := context.WithValue(ctx, shareBatchReceiptKey{}, receipt)
+		task, skipped, submitted, submitErr := a.submitPlannedShareBatch(batchCtx, &s, preview, link.DirectoryID, batch, guard)
 		record.Submitted += submitted
 		record.Skipped += skipped
 		err = submitErr
 		if err == nil && s.Type == "quark" && task != "" {
 			err = waitShareQuark(ctx, &s, task, guard)
+		}
+		if err == nil {
+			err = a.commitShareLiveBatch(&link, intent, partialCursor, task)
 		}
 		a.cache.clear()
 	}
@@ -492,8 +524,21 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		record.Message = fmt.Sprintf("已建立新增转存基线，跳过%d个历史文件；后续仅转存新增文件", record.Skipped)
 	}
 	if err != nil {
-		record.Status, record.Message = "failed", "活链更新未完成，请核对云盘及运行日志"
-		a.store.event("error", "notifications", fmt.Sprintf("[活链:%s] %s", link.ID, transferFailureReason(err)))
+		record.Status, record.Message = "failed", "活链更新未完成："+transferFailureReason(err)
+		for _, current := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
+			if current.ID != link.ID || current.Intent == "" {
+				continue
+			}
+			if shareLiveTransferRecoverable(current) {
+				record.Message = "夸克转存回执尚未确认，再次执行会先查询原任务"
+				if errors.Is(err, errQuarkShareTaskFailed) {
+					record.Message = "夸克已确认转存任务失败，再次执行将重新核对剩余文件"
+				}
+			} else {
+				record.Message = shareLiveUnconfirmedError(current).Error()
+			}
+		}
+		a.store.event("error", "notifications", fmt.Sprintf("[活链:%s] %s（%s）", link.ID, record.Message, transferFailureReason(err)))
 	}
 	if saveErr := a.store.update(func(st *State) error {
 		for i := range st.ShareLiveLinks {
@@ -519,13 +564,19 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 	}); saveErr != nil {
 		a.store.event("error", "notifications", "活链结果保存失败，请核对云盘；不自动重提")
 	} else if record.Status == "completed" || record.Status == "submitted" {
+		previous := link.IncrementalCursor
 		link.IncrementalCursor = checkpoint
-		a.removeShareLiveCheckpoint(link, oldCursor)
+		a.removeShareLiveCheckpoint(link, previous)
 	}
 }
 
+var errQuarkShareTaskFailed = errors.New("夸克已确认转存任务失败，可手动再次执行")
+
 func waitShareQuark(ctx context.Context, session *Storage, task string, guard func() error) error {
 	for range 120 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := guard(); err != nil {
 			return err
 		}
@@ -535,10 +586,16 @@ func waitShareQuark(ctx context.Context, session *Storage, task string, guard fu
 		if err := shareSessionRequest(ctx, session, "GET", "https://drive.quark.cn/1/clouddrive/task?pr=ucpro&fr=pc&retry_index=0&task_id="+url.QueryEscape(task), nil, &result); err != nil {
 			return err
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if result.Data.Status == 2 {
 			return nil
 		}
-		if result.Data.Status == 3 || !telegramPause(ctx, 2*time.Second) {
+		if result.Data.Status == 3 {
+			return errQuarkShareTaskFailed
+		}
+		if !telegramPause(ctx, 2*time.Second) {
 			return errors.New("夸克转存未确认完成")
 		}
 	}

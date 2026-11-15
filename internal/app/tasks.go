@@ -555,6 +555,9 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			if err := strm115SourceNameError(t, s, f, path.Join(rel, f.Name)); err != nil {
+				return err
+			}
 			if !safeName(f.Name) {
 				continue
 			}

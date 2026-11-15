@@ -282,7 +282,8 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 	if req.Action == "delete" {
 		return acceptedCloudDelete(ctx, result.Data.TaskID)
 	}
-	if req.Action == "copy" {
+	if req.Action == "copy" || req.Action == "move" && result.Data.TaskID != "" {
+		operation := map[string]string{"copy": "复制", "move": "移动"}[req.Action]
 		if result.Data.TaskID == "" {
 			return errors.New("夸克未返回复制任务ID")
 		}
@@ -297,10 +298,13 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 				return err
 			}
 			if result.Code != 0 || result.Status >= 400 {
-				return errors.New("夸克复制失败")
+				return errors.New("夸克" + operation + "任务查询失败，未重复提交")
 			}
 			if result.Data.Status == 2 {
 				break
+			}
+			if result.Data.Status == 3 {
+				return errors.New("夸克" + operation + "任务已确认失败")
 			}
 		}
 	}

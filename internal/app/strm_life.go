@@ -103,8 +103,33 @@ func lifeIDCompare(a, b string) int {
 	return strings.Compare(a, b)
 }
 
+func lifeField(row map[string]json.RawMessage, names ...string) string {
+	for _, name := range names {
+		if value := lifeScalar(row[name]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+var lifeEventTypes = map[string]int{"upload_image_file": 1, "upload_file": 2, "star_image": 3, "star_file": 4,
+	"move_image_file": 5, "move_file": 6, "browse_image": 7, "browse_video": 8, "browse_audio": 9,
+	"browse_document": 10, "receive_files": 14, "new_folder": 17, "copy_folder": 18,
+	"folder_label": 19, "folder_rename": 20, "delete_file": 22, "copy_file": 23, "file_rename": 24}
+
+func lifeEventType(value string) (int, error) {
+	if n, err := strconv.Atoi(value); err == nil && n > 0 {
+		return n, nil
+	}
+	if n, ok := lifeEventTypes[value]; ok {
+		return n, nil
+	}
+	return 0, errors.New("115生活事件类型无效，未推进游标")
+}
+
 func (a *App) pullSTRMLife(ctx context.Context, s Storage, cursor strmLifeCursor, until time.Time) ([]strmLifeEvent, strmLifeCursor, error) {
 	next, events, seen := cursor, []strmLifeEvent{}, map[string]bool{}
+	deferred := ""
 	offset := 0
 	for page := 0; page < 50; page++ {
 		if err := a.waitAPI(ctx, s.ID); err != nil {
@@ -129,14 +154,25 @@ func (a *App) pullSTRMLife(ctx context.Context, s Storage, cursor strmLifeCursor
 		}
 		stop := false
 		for _, row := range response.Data.List {
-			event := strmLifeEvent{ID: lifeScalar(row["id"]), FileID: lifeScalar(row["file_id"]), Parent: lifeScalar(row["parent_id"]), Name: lifeScalar(row["file_name"]), Pick: lifeScalar(row["pick_code"])}
-			event.Type, _ = strconv.Atoi(lifeScalar(row["type"]))
-			event.Time, _ = strconv.ParseInt(lifeScalar(row["update_time"]), 10, 64)
-			event.Directory = lifeScalar(row["file_category"]) == "0"
+			event := strmLifeEvent{ID: lifeField(row, "id"), FileID: lifeField(row, "file_id", "fid"), Parent: lifeField(row, "parent_id", "cid", "pid"), Name: lifeField(row, "file_name", "n", "name"), Pick: lifeField(row, "pick_code", "pickcode", "pc")}
+			event.Type, err = lifeEventType(lifeField(row, "type", "behavior_type"))
+			if err != nil {
+				return nil, cursor, err
+			}
+			for _, key := range []string{"update_time", "time", "create_time"} {
+				event.Time, _ = strconv.ParseInt(lifeScalar(row[key]), 10, 64)
+				if event.Time > 0 {
+					break
+				}
+			}
+			event.Directory = lifeField(row, "file_category", "fc") == "0"
 			if event.ID == "" || event.Time <= 0 {
 				return nil, cursor, errors.New("115生活事件标识或时间缺失，未推进游标")
 			}
 			if event.Time > until.Unix() {
+				if (cursor.ID == "" || lifeIDCompare(event.ID, cursor.ID) > 0) && (deferred == "" || lifeIDCompare(event.ID, deferred) < 0) {
+					deferred = event.ID
+				}
 				continue
 			}
 			if event.Time < cursor.Since || cursor.ID != "" && lifeIDCompare(event.ID, cursor.ID) <= 0 {
@@ -160,6 +196,17 @@ func (a *App) pullSTRMLife(ctx context.Context, s Storage, cursor strmLifeCursor
 		}
 		offset += len(response.Data.List)
 		if stop || offset >= count {
+			// A later-dated event must remain reachable even when its ID is lower
+			// than an already eligible event from the same response.
+			if deferred != "" && lifeIDCompare(next.ID, deferred) >= 0 {
+				next.ID = cursor.ID
+				for key := range seen {
+					if lifeIDCompare(key, deferred) < 0 && lifeIDCompare(key, next.ID) > 0 {
+						next.ID = key
+					}
+				}
+				events = slices.DeleteFunc(events, func(event strmLifeEvent) bool { return lifeIDCompare(event.ID, deferred) >= 0 })
+			}
 			slices.SortFunc(events, func(a, b strmLifeEvent) int { return lifeIDCompare(a.ID, b.ID) })
 			return events, next, nil
 		}
@@ -492,6 +539,7 @@ func (a *App) executeSTRMLife(ctx context.Context, task Task, s Storage) (count 
 }
 
 func (a *App) latestSTRMLifeCursor(ctx context.Context, s Storage, since time.Time) (strmLifeCursor, error) {
+	started := time.Now().Unix()
 	if err := a.waitAPI(ctx, s.ID); err != nil {
 		return strmLifeCursor{}, err
 	}
@@ -503,7 +551,7 @@ func (a *App) latestSTRMLifeCursor(ctx context.Context, s Storage, since time.Ti
 	if err := shareRequest(ctx, s, http.MethodGet, "https://webapi.115.com/behavior/detail?limit=1&offset=0&type=", nil, &response); err != nil {
 		return strmLifeCursor{}, fmt.Errorf("全量同步前读取生活事件基线失败：%w", err)
 	}
-	cursor := strmLifeCursor{Since: time.Now().Unix(), Started: since.Unix()}
+	cursor := strmLifeCursor{Since: started, Started: since.Unix()}
 	if response.Data.List == nil {
 		return cursor, errors.New("生活事件响应不完整，未开始全量同步")
 	}

@@ -12,6 +12,22 @@ type taskHashProgressKey struct{}
 
 var errTaskProgressLimit = errors.New("目录过大，继续执行并显示实际处理数")
 
+// Report an unsupported selected name instead of silently claiming a complete
+// 115 scan. Unselected files and explicitly excluded directories remain ignored.
+func strm115SourceNameError(t Task, s Storage, f File, relative string) error {
+	if s.Type != "115" || t.Kind != "strm" || safeName(f.Name) {
+		return nil
+	}
+	if f.IsDir {
+		if excluded(relative, t.ExcludeDirs) {
+			return nil
+		}
+	} else if excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) || !taskMedia(t, f.Name) && !excludedType(f.Name, t.MetadataExtensions) {
+		return nil
+	}
+	return fmt.Errorf("115源项目名称不适用于本地生成路径：%q；未跳过或报告全量同步成功，请调整该源项目名称", relative)
+}
+
 // Enumerate once before doing file IO so a percentage has a real denominator.
 func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel string, fresh bool) (map[string][]File, int, error) {
 	plan := map[string][]File{}
@@ -60,6 +76,9 @@ func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel
 			total++
 		}
 		for _, f := range files {
+			if err := strm115SourceNameError(t, s, f, path.Join(rel, f.Name)); err != nil {
+				return err
+			}
 			if !safeName(f.Name) {
 				continue
 			}

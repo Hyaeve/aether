@@ -152,6 +152,7 @@ func (a *App) startOrganize(key string) error {
 		defer a.runMu.Unlock()
 		defer delete(a.running, organizeRunKey(key))
 		defer delete(a.runningStorage, organizeRunKey(key))
+		var final organizeRunState
 		persistErr := a.organizeUpdate(key, func(run *organizeRunState) {
 			run.FinishedAt = time.Now()
 			run.Status = "completed"
@@ -169,15 +170,18 @@ func (a *App) startOrganize(key string) error {
 				run.Status = "stopped"
 				run.Message = "整理已停止，已完成的文件保留"
 			}
+			final = *run
 		})
 		if persistErr != nil {
 			a.logger.Printf("persist organize result: %v", persistErr)
 		}
 		a.cache.clear()
-		if err != nil && !errors.Is(err, context.Canceled) {
-			a.store.event("warn", "tasks", task.Name+"："+organizeError(err))
-		} else {
-			a.store.event("info", "tasks", task.Name+"：整理归档结束")
+		if final.Status != "" {
+			level := "info"
+			if final.Status == "error" {
+				level = "warn"
+			}
+			a.store.event(level, "tasks", task.Name+"："+final.Message)
 		}
 	}()
 	return nil
@@ -371,6 +375,9 @@ func (a *App) executeOrganize(ctx context.Context, t organizeTaskDefinition, st 
 					return
 				}
 				status, message := h.process(workCtx, entry)
+				if status == "error" {
+					a.store.event("warn", "tasks", fmt.Sprintf("整理归档「%s」文件处理失败：%s：%s", t.Name, entry.relative, organizeError(errors.New(message))))
+				}
 				if err := a.organizeUpdate(t.ID, func(run *organizeRunState) {
 					run.Done++
 					run.Message = entry.file.Name + "：" + message

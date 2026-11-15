@@ -48,8 +48,16 @@ func telegramPromptShareNames(st State, job telegramTransfer) string {
 }
 
 func sameTelegramPrompt(current, expected telegramTransfer) bool {
+	statusMatches := current.Status == expected.Status
+	if expected.Status == "queued" {
+		switch current.Status {
+		case "running", "submitted", "completed", "success", "failed", "interrupted":
+			// A background task may advance before its accepted-queue message is edited.
+			statusMatches = true
+		}
+	}
 	return current.ID == expected.ID && current.ChatID == expected.ChatID && current.UserID == expected.UserID &&
-		current.MessageID == expected.MessageID && current.Auth == expected.Auth && current.Status == expected.Status &&
+		current.MessageID == expected.MessageID && current.Auth == expected.Auth && statusMatches &&
 		current.Page == expected.Page && current.Selected == expected.Selected && current.LastActivity.Equal(expected.LastActivity)
 }
 

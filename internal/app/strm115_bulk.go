@@ -128,7 +128,13 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 				continue
 			}
 			if id == "" || parent == "" || id == parent || !safeName(d.Name) {
-				return nil, errors.New("115目录表条目无效")
+				reason := "目录ID或父目录ID缺失"
+				if id != "" && id == parent {
+					reason = "目录与父目录ID相同"
+				} else if !safeName(d.Name) {
+					reason = "目录名称不适用于本地生成路径"
+				}
+				return nil, fmt.Errorf("115目录表条目无效（第%d页，目录ID %.32q，父目录ID %.32q，名称 %.160q）：%s", page, id, parent, d.Name, reason)
 			}
 			if _, exists := dirs[id]; exists {
 				return nil, errors.New("115目录表分页重复")

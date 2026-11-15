@@ -607,6 +607,9 @@ func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) er
 		if err != nil {
 			return err
 		}
+		if err := beforeShareBatchWrite(ctx); err != nil {
+			return err
+		}
 		return a.mobilePost(ctx, s, host+"/file/create", map[string]any{"parentFileId": parent, "name": name, "type": "folder", "fileRenameMode": "refuse"}, false, nil)
 	case "tianyi":
 		var out map[string]any
@@ -619,6 +622,9 @@ func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) er
 		_, err = c.Mkdir(parent, name)
 		return err
 	case "quark":
+		if err := beforeShareBatchWrite(ctx); err != nil {
+			return err
+		}
 		return quarkWriteJSON(ctx, s, "/file", map[string]any{"pdir_fid": parent, "file_name": name, "dir_path": "", "dir_init_lock": false}, nil)
 	}
 	return errors.New("此存储不支持创建目录")

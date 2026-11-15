@@ -65,6 +65,64 @@ for(const[width,theme]of[[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark']
  await page.getByRole('button',{name:/^\d{4}-\d{2}-05 1集$/}).click();await expect(page.locator('.calendar-agenda')).toContainText('S01E02');const before=await page.locator('.media-calendar header strong').textContent();await page.getByRole('button',{name:'下个月',exact:true}).click();await expect(page.locator('.media-calendar header strong')).not.toHaveText(before)
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await captureScreenshot(page,{path:info.outputPath(`calendar-${width}-${theme}.png`)});expect(f.unknown).toEqual([])
 })
+for (const [width, height, theme] of [[1440, 1000, 'light'], [390, 844, 'dark'], [375, 812, 'light'], [844, 390, 'dark']]) {
+ test(`media banner keeps one fixed poster panel and frosts missing backgrounds ${width}`, async ({page}, info) => {
+  const f = await fixture(page)
+  const featured = [
+   {...poster(0), episodes: 24},
+   {...poster(1), title: '很长的作品名称'.repeat(12), overview: '这是需要省略显示的完整作品简介。'.repeat(24), backdrop: '', episodes: 160},
+   {...poster(2), backdrop: '/api/test-image/missing-backdrop', episodes: 12}
+  ]
+  await page.route('**/api/my-media/emby/dashboard*', route => route.fulfill({json: {featured, recent: featured, stats: []}}))
+  await page.route('**/api/test-image/missing-backdrop', route => route.fulfill({status: 404, body: ''}))
+  await page.setViewportSize({width, height})
+  await page.goto('/my-media/panel')
+  await page.evaluate(value => document.documentElement.dataset.theme = value, theme)
+  const banner = page.getByRole('region', {name: '推荐媒体'})
+  await banner.hover()
+  const layer = banner.locator('.media-feature-layer').last()
+  const panel = layer.locator('.media-feature-mask')
+  await expect(panel).toBeVisible()
+  await expect(layer).toHaveCSS('transform', 'none')
+  const initial = await panel.boundingBox()
+  expect(initial.height).toBe(232)
+  expect(initial.width).toBeLessThanOrEqual(640)
+  expect(await panel.evaluate(el => {
+   const frame = el.getBoundingClientRect()
+   return ['.media-feature-cover', '.media-feature-copy'].every(selector => {
+    const child = el.querySelector(selector).getBoundingClientRect()
+    return child.left >= frame.left && child.right <= frame.right && child.top >= frame.top && child.bottom <= frame.bottom
+   })
+  })).toBe(true)
+  await expect(layer.locator('.media-feature-copy')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  expect(await panel.evaluate(el => getComputedStyle(el).backdropFilter)).toContain('blur(')
+  await banner.getByRole('button', {name: `展示海报 2 ${featured[1].title}`, exact: true}).click()
+  await expect(layer).toHaveClass(/media-feature-glass/)
+  await expect(layer.locator('.media-feature-background')).toHaveCount(0)
+  await expect(layer.locator('.media-feature-cover img')).toBeVisible()
+  await expect(layer).toHaveCSS('transform', 'none')
+  const longContent = await panel.boundingBox()
+  expect(longContent.width).toBe(initial.width)
+  expect(longContent.height).toBe(initial.height)
+  expect(await panel.locator('h1').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+  expect(await panel.locator('.media-feature-overview').evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+  expect(await banner.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await captureScreenshot(page, {path: info.outputPath(`frosted-banner-${width}-${theme}.png`)})
+  await banner.getByRole('button', {name: `展示海报 3 ${featured[2].title}`, exact: true}).click()
+  await expect(layer).toHaveClass(/media-feature-glass/)
+  await expect(layer.locator('.media-feature-background')).toHaveCount(0)
+  await expect(layer).toHaveCSS('transform', 'none')
+  const failedImage = await panel.boundingBox()
+  expect(failedImage.width).toBe(initial.width)
+  expect(failedImage.height).toBe(initial.height)
+  await banner.getByRole('button', {name: `展示海报 1 ${featured[0].title}`, exact: true}).click()
+  await expect(layer).not.toHaveClass(/media-feature-glass/)
+  await expect(layer.locator('.media-feature-background')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(f.unknown).toEqual([])
+ })
+}
+
 test('media banner auto-rotates, pauses on hover, and resumes after leaving',async({page})=>{
  const f=await fixture(page);await page.setViewportSize({width:1440,height:1000});await page.goto('/my-media')
  const hero=page.getByRole('region',{name:'推荐媒体'}),currentTitle=()=>hero.locator('.media-feature-layer').last().locator('h1').textContent();await expect.poll(currentTitle).toBe('星河旅人0')

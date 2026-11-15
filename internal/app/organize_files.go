@@ -395,10 +395,23 @@ func (h *organizeRunner) place(ctx context.Context, s Storage, e organizeEntry, 
 		if copied == nil || copied.IsDir != e.file.IsDir || copied.Size != e.file.Size {
 			return File{}, errors.New("云端整理结果未确认，请核对目标目录；未重复提交")
 		}
+		if s.Type == "quark" && method == "move" && copied.ID != e.file.ID {
+			return File{}, errors.New("夸克目标同名文件ID与移动源不符，未改名或继续处理")
+		}
 		if copied.Name != name {
+			if err := h.check(ctx); err != nil {
+				return File{}, err
+			}
 			if err = h.a.cloudFileAction(ctx, d, d, fileActionRequest{Source: parent, StorageID: d.ID, Action: "rename", IDs: []string{copied.ID}, Name: name}); err != nil {
 				return File{}, fmt.Errorf("已%s至目标但改名失败：%w", method, err)
 			}
+		}
+		if d.Type == "quark" {
+			result, err := h.confirmQuarkDestination(ctx, d, parent, name, copied.ID, e.file)
+			if err != nil {
+				return File{}, err
+			}
+			return *result, nil
 		}
 	}
 	result, err := h.a.cloudByName(ctx, d, parent, name)
@@ -417,6 +430,42 @@ func (h *organizeRunner) place(ctx context.Context, s Storage, e organizeEntry, 
 		}
 	}
 	return *result, nil
+}
+
+// A successful rename can precede its directory listing. Only reread the same
+// destination; do not replay the native move or rename to compensate for lag.
+func (h *organizeRunner) confirmQuarkDestination(ctx context.Context, s Storage, parent, name, fid string, source File) (*File, error) {
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if err := h.check(ctx); err != nil {
+			return nil, err
+		}
+		file, err := h.a.cloudByName(ctx, s, parent, name)
+		if err == nil && file != nil {
+			if file.ID != fid || file.Size != source.Size || file.IsDir != source.IsDir {
+				return nil, errors.New("夸克归档目标身份或体积不符，未继续处理")
+			}
+			return file, nil
+		}
+		var auth *storageAuthError
+		if errors.As(err, &auth) {
+			return nil, err
+		}
+		lastErr = err
+		if attempt == 4 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	reason := "尚未读取到匹配文件"
+	if lastErr != nil {
+		reason = organizeError(lastErr)
+	}
+	return nil, fmt.Errorf("夸克移动或改名已提交，目标目录结果尚未确认；未重复提交，请核对归档目录：%s", reason)
 }
 
 func (h *organizeRunner) recycle(ctx context.Context, e organizeEntry) error {

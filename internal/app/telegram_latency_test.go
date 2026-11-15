@@ -343,7 +343,11 @@ func TestTelegramFastCallbackStillRejectsStaleTargets(t *testing.T) {
 				}
 				var body map[string]any
 				json.NewDecoder(r.Body).Decode(&body)
-				if !strings.Contains(fmt.Sprint(body["text"]), "过期") {
+				feedback := "过期"
+				if scenario == "replay" {
+					feedback = "已处理"
+				}
+				if !strings.Contains(fmt.Sprint(body["text"]), feedback) {
 					t.Error("invalid callback lost its user feedback")
 				}
 				return `{"ok":true,"result":true}`

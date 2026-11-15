@@ -19,6 +19,12 @@ function mediaURL(item){try{const url=new URL(item.webURL||link.value.address);r
 async function subscribeMissing(){const work=detail.value;if(!work?.tmdb||subscriptionBusy.value)return;subscriptionBusy.value=true;try{const [full,data]=await Promise.all([api(`/discovery/tv/${work.tmdb}`),api('/media-subscriptions')]);if(detail.value!==work)return;const first=/^S([0-9]+)E([0-9]+)$/.exec(work.missing[0]),season=Number(first?.[1]||1),existing=data.items?.find(v=>v.kind==='tv'&&v.id===work.tmdb&&v.season===season);subscriptionTargets.value=data.targets||[];subscription.value={...full,...existing,season,missingEpisodes:[...work.missing],startEpisode:Number(first?.[2]||1),totalEpisodes:full.seasons?.find(v=>v.number===season)?.episodes||0,targetId:''};detail.value=null}catch(e){notify(e.message,true)}finally{subscriptionBusy.value=false}}
 const heroes = computed(() => (dashboard.value?.featured ?? dashboard.value?.recent ?? []).slice(0, 5))
 const hero = computed(() => heroes.value[slide.value] || heroes.value[0])
+const failedBackdrops = ref(new Set())
+const heroBackdrop = computed(() => hero.value?.backdrop && !failedBackdrops.value.has(hero.value.backdrop) ? hero.value.backdrop : '')
+function failHeroBackdrop(event) {
+  const source = event.currentTarget.getAttribute('src')
+  if (source) failedBackdrops.value.add(source)
+}
 const link=computed(()=>config.value.items.find(v=>v.id===selected.value)),options=computed(()=>config.value.items.filter(v=>props.section!=='missing'||v.type==='emby').map(v=>({value:v.id,label:v.name}))),filteredMissing=computed(()=>(scan.value.missing?.items||[]).filter(v=>v.item.title.toLowerCase().includes(query.value.toLowerCase()))),resolutions=computed(()=>Object.entries(scan.value.quality?.resolutions||{})),codecs=computed(()=>Object.entries(scan.value.quality?.codecs||{}).sort((a,b)=>b[1]-a[1]).slice(0,6))
 const resolutionGradient=computed(()=>{const total=scan.value.quality?.items||0;if(!total)return 'var(--border)';let n=0;return `conic-gradient(${resolutions.value.map(([key,count],i)=>{const start=n;n+=count/total*100;return `${colors[i%colors.length]} ${start}% ${n}%`}).join(',')})`})
 const colors=['var(--primary)','var(--green)','var(--amber)','var(--muted)','var(--info)']
@@ -65,7 +71,11 @@ async function saveLibraries(){if(saving.value)return;saving.value=true;editErro
 function progress(s){return s.duration>0?Math.min(100,Math.max(0,s.position/s.duration*100)):0}
 function open(item){detail.value=item}
 watch(()=>props.section,async()=>{ticket++;reset();try{await readConfig();await load()}catch(e){if(alive)error.value=e.message}})
-watch(heroes,()=>{if(slide.value>=heroes.value.length)slide.value=0;scheduleCarousel()})
+watch(heroes, () => {
+  failedBackdrops.value.clear()
+  if (slide.value >= heroes.value.length) slide.value = 0
+  scheduleCarousel()
+})
 onMounted(async()=>{try{await readConfig();await load()}catch(e){if(alive)error.value=e.message};timer=setInterval(poll,5000);document.addEventListener('visibilitychange',poll);scheduleCarousel()})
 onUnmounted(()=>{alive=false;ticket++;clearInterval(timer);clearCarouselTimer();document.removeEventListener('visibilitychange',poll)})
 </script>
@@ -80,17 +90,19 @@ onUnmounted(()=>{alive=false;ticket++;clearInterval(timer);clearCarouselTimer();
   <div class="media-feature-row">
    <section class="media-feature" :class="{'audio-feature':link.type==='audiobookshelf'}" aria-label="推荐媒体" @mouseenter="pauseCarousel" @mouseleave="resumeCarousel" @focusin="pauseCarousel" @focusout="resumeCarousel">
     <Transition name="media-feature-swap" @before-enter="setHeroLayerAvailability($event, true)" @before-leave="setHeroLayerAvailability($event, false)">
-     <div v-if="hero" :key="hero.id" class="media-feature-layer">
-      <img class="media-feature-background" :src="hero.backdrop||hero.poster" alt=""/>
+     <div v-if="hero" :key="hero.id" class="media-feature-layer" :class="{'media-feature-glass':!heroBackdrop}">
+      <img v-if="heroBackdrop" class="media-feature-background" :src="heroBackdrop" alt="" @error="failHeroBackdrop"/>
       <span class="media-feature-tag"><Icon :name="link.type==='audiobookshelf'?'BookOpen':'Film'" :size="16"/>{{link.type==='audiobookshelf'?'书架精选':'推荐媒体'}}</span>
       <div class="media-feature-content">
-       <PosterImage class="media-feature-cover" :src="hero.poster" :title="hero.title" :kind="hero.kind"/>
-       <div class="media-feature-copy">
-        <h1>{{hero.title}}</h1>
-        <p v-if="hero.subtitle">{{hero.subtitle}}</p>
-        <p class="media-feature-overview" :data-tooltip="hero.overview" data-tooltip-stationary>{{hero.overview||'暂无简介'}}</p>
-        <p v-if="hero.episodes!=null" class="media-feature-episodes">库中 {{hero.episodes}} 集</p>
-        <a class="media-detail-button" :href="mediaURL(hero)" target="_blank" rel="noopener noreferrer">查看详情<Icon name="ChevronRight" :size="16"/></a>
+       <div class="media-feature-mask">
+        <PosterImage class="media-feature-cover" :src="hero.poster" :title="hero.title" :kind="hero.kind"/>
+        <div class="media-feature-copy">
+         <h1 :data-tooltip="hero.title" data-tooltip-stationary>{{hero.title}}</h1>
+         <p v-if="hero.subtitle">{{hero.subtitle}}</p>
+         <p class="media-feature-overview" :data-tooltip="hero.overview" data-tooltip-stationary>{{hero.overview||'暂无简介'}}</p>
+         <p v-if="hero.episodes!=null" class="media-feature-episodes">库中 {{hero.episodes}} 集</p>
+         <a class="media-detail-button" :href="mediaURL(hero)" target="_blank" rel="noopener noreferrer">查看详情<Icon name="ChevronRight" :size="16"/></a>
+        </div>
        </div>
       </div>
      </div>

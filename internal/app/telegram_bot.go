@@ -208,8 +208,11 @@ func (a *App) telegramPoll() {
 		for _, update := range updates {
 			if err := a.handleTelegramUpdate(context.WithValue(a.ctx, telegramUIAsyncKey{}, true), cfg, update); err != nil {
 				a.store.event("warn", "notifications", "TG 交互处理停止："+err.Error())
-				telegramPause(a.ctx, time.Second)
-				break
+				current := a.store.snapshotWithLogLimit(0)
+				if current.TelegramRuntime.Offset <= update.ID || telegramDigest(current.Notifications.Telegram) != telegramDigest(cfg) {
+					telegramPause(a.ctx, time.Second)
+					break
+				}
 			}
 		}
 	}
@@ -430,12 +433,15 @@ func (a *App) telegramCallback(ctx context.Context, cfg telegramConfig, chat, us
 	return a.telegramCallbackQuery(ctx, cfg, chat, user, message, "", data)
 }
 
+var errTelegramCallbackHandled = errors.New("操作已处理")
+
 func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, chat, user, message int64, queryID, data string) (resultErr error) {
 	ctx, release, reserveErr := a.reserveTelegramReply(ctx)
 	if reserveErr != nil {
 		return reserveErr
 	}
 	defer release()
+	var selected telegramTransfer
 	answer := func(ctx context.Context, err error) {
 		if queryID == "" {
 			return
@@ -444,18 +450,39 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 			return
 		}
 		text := ""
-		if err != nil {
+		if errors.Is(err, errTelegramCallbackHandled) {
+			text = "此操作已处理，请查看当前消息或转存结果"
+		} else if err != nil {
 			text = "操作已过期、配置已变化或无权操作，请重新发送链接"
+		} else if selected.Status == "queued" {
+			text = "已加入" + telegramAction(selected.Kind) + "队列，后台处理中"
 		}
 		answerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		_ = telegramRequest(answerCtx, cfg, "answerCallbackQuery", map[string]any{"callback_query_id": queryID, "text": text}, nil)
 	}
-	answered := false
 	defer func() {
-		if !answered {
-			_ = telegramReply(ctx, func(ctx context.Context) error { answer(ctx, resultErr); return nil })
+		callbackErr := resultErr
+		done := make(chan struct{})
+		if queryID == "" {
+			close(done)
+		} else {
+			// The reserved reply slot bounds acknowledgements even while all message
+			// workers are occupied. Keep it until both the answer and edit finish.
+			a.wg.Add(1)
+			go func() {
+				defer a.wg.Done()
+				defer close(done)
+				answer(ctx, callbackErr)
+			}()
 		}
+		resultErr = errors.Join(resultErr, telegramReply(ctx, func(ctx context.Context) error {
+			defer func() { <-done }()
+			if callbackErr != nil {
+				return nil
+			}
+			return a.editTelegramPrompt(ctx, cfg, selected)
+		}))
 	}()
 	parts := strings.Split(data, ":")
 	if len(parts) != 3 || (parts[0] != "t" && parts[0] != "c" && parts[0] != "x" && parts[0] != "p" && parts[0] != "b") {
@@ -465,7 +492,6 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 	if err != nil {
 		return errors.New("无效目录")
 	}
-	var selected telegramTransfer
 	err = a.store.update(func(st *State) error {
 		for i := range st.TelegramRuntime.Jobs {
 			job := &st.TelegramRuntime.Jobs[i]
@@ -503,13 +529,13 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 					}
 				}
 				job.Status = "queued"
-				job.QueuePending = true
+				job.QueuePending = false
 			} else if parts[0] == "b" && job.Status == "confirming" && job.Selected == index {
 				job.Status, job.Selected = "choosing", -1
 			} else if parts[0] == "x" && job.Status == "confirming" {
 				job.Status, job.Link = "cancelled", ""
 			} else {
-				return errors.New("操作已处理")
+				return errTelegramCallbackHandled
 			}
 			job.LastActivity = time.Now()
 			if job.Status == "queued" || job.Status == "cancelled" {
@@ -529,25 +555,5 @@ func (a *App) telegramCallbackQuery(ctx context.Context, cfg telegramConfig, cha
 		}
 		return errors.New("操作不存在")
 	})
-	if err != nil {
-		return err
-	}
-	answered = true
-	return telegramReply(ctx, func(ctx context.Context) (err error) {
-		defer func() {
-			if selected.Status == "queued" {
-				err = errors.Join(err, a.releaseTelegramQueue(selected))
-			}
-		}()
-		if queryID != "" {
-			// Acknowledge only after the validated state is durable, without holding up the prompt.
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				answer(ctx, nil)
-			}()
-			defer func() { <-done }()
-		}
-		return a.editTelegramPrompt(ctx, cfg, selected)
-	})
+	return err
 }

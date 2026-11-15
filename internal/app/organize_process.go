@@ -175,7 +175,7 @@ func (h *organizeRunner) process(ctx context.Context, e organizeEntry) (status, 
 		}
 	}
 	if err != nil {
-		return "error", safeStorageError(err)
+		return "error", "TMDB识别失败：" + safeStorageError(err)
 	}
 	if media.ID == 0 || item.Kind == "tv" && item.Episode == 0 {
 		h.writeMu.Lock()
@@ -242,7 +242,7 @@ func (h *organizeRunner) process(ctx context.Context, e organizeEntry) (status, 
 	}
 	parent, _, err := h.uploadParent(ctx, h.target, h.t.Target, path.Join(rel, generated.Filename))
 	if err != nil {
-		return "error", organizeError(err)
+		return "error", "创建或读取归档目录失败：" + organizeError(err)
 	}
 	targetPath = path.Join(organizeDisplayPath(h.t.TargetPath, h.t.Target), rel, generated.Filename)
 	if h.t.Method == "symlink" {
@@ -263,7 +263,7 @@ func (h *organizeRunner) process(ctx context.Context, e organizeEntry) (status, 
 	}
 	existing, err := h.a.rawList(ctx, h.target, parent)
 	if err != nil {
-		return "error", safeStorageError(err)
+		return "error", "读取归档目标失败：" + safeStorageError(err)
 	}
 	incomingHash := ""
 	var superseded []File
@@ -351,7 +351,7 @@ func (h *organizeRunner) process(ctx context.Context, e organizeEntry) (status, 
 	}
 	_, err = h.place(ctx, h.source, e, h.target, parent, base, h.t.Method)
 	if err != nil {
-		return "error", organizeError(err)
+		return "error", "归档文件失败：" + organizeError(err)
 	}
 	targetPath = path.Join(organizeDisplayPath(h.t.TargetPath, h.t.Target), rel, base)
 	for _, c := range companions {

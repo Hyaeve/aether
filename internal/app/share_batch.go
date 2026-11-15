@@ -308,6 +308,11 @@ func (a *App) submitPlannedShareBatch(ctx context.Context, session *Storage, pre
 		if err != nil {
 			return "", 0, 0, err
 		}
+		if receipt, _ := ctx.Value(shareBatchReceiptKey{}).(*shareBatchReceipt); receipt != nil && receipt.directoriesReady != nil {
+			if err := receipt.directoriesReady(); err != nil {
+				return "", 0, 0, err
+			}
+		}
 	}
 	existing, err := a.rawList(ctx, *session, parent)
 	if err != nil {
@@ -335,9 +340,17 @@ func (a *App) submitPlannedShareBatch(ctx context.Context, session *Storage, pre
 			return "", 0, 0, err
 		}
 	}
+	if err := beforeShareBatchWrite(ctx); err != nil {
+		return "", skipped, 0, err
+	}
 	task, err := submitShareSession(ctx, session, preview, parent, filtered)
 	if err != nil {
 		return "", skipped, 0, errors.New(err.Error() + "；请检查网盘结果，勿直接重复提交")
+	}
+	if receipt, _ := ctx.Value(shareBatchReceiptKey{}).(*shareBatchReceipt); receipt != nil && receipt.accepted != nil {
+		if err := receipt.accepted(task); err != nil {
+			return task, skipped, len(filtered), err
+		}
 	}
 	return task, skipped, len(filtered), nil
 }

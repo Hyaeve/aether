@@ -61,9 +61,15 @@ func (a *App) initializeShareLiveDirectory(ctx context.Context, s Storage, link 
 			return errors.New("保存目录已存在，未接管；请修改目录名称")
 		}
 	}
-	if err := a.setShareLiveIntent(link.ID, "mkdir:"+link.DirectoryName); err != nil {
-		return err
-	}
+	ctx = context.WithValue(ctx, shareBatchReceiptKey{}, &shareBatchReceipt{before: func() error {
+		return a.updateShareLiveReceipt(*link, func(current *shareLiveLink) error {
+			if current.Intent != "" {
+				return errors.New("上次保存目录创建结果未确认")
+			}
+			current.Intent = "mkdir:" + link.DirectoryName
+			return nil
+		})
+	}})
 	if err := a.createDirectory(ctx, s, link.Parent, link.DirectoryName); err != nil {
 		return err
 	}

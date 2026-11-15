@@ -149,7 +149,7 @@ func TestTelegramAsyncChooseAndConfirmPersistBeforeSlowEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := a.store.snapshot().TelegramRuntime.Jobs[0]
-	if current.Status != "queued" || !current.QueuePending || current.Batches != 0 {
+	if current.Status != "queued" || current.QueuePending || current.Batches != 0 {
 		t.Fatal("confirm did not durably enqueue without cloud submission", current.Status, current.QueuePending, current.Batches)
 	}
 	if err := call(telegramLatencyUpdate(t, 3, "c:"+job.ID+":0")); err == nil {
@@ -228,6 +228,15 @@ func TestTelegramAsyncInitialQueueNotice(t *testing.T) {
 func TestTelegramAsyncQueueFullPreservesUpdateForLater(t *testing.T) {
 	a, cfg, job := telegramLatencyJob(t, "quark")
 	ctx := context.WithValue(a.ctx, telegramUIAsyncKey{}, true)
+	old := apiClient.Transport
+	defer func() { apiClient.Transport = old }()
+	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.telegram.org" || !strings.HasSuffix(r.URL.Path, "/answerCallbackQuery") {
+			t.Error("unstarted message worker performed I/O")
+			return nil, errors.New("unexpected request")
+		}
+		return telegramUIResponse(r, `true`), nil
+	})
 	releases := []func(){}
 	defer func() {
 		for _, release := range releases {
@@ -256,7 +265,8 @@ func TestTelegramAsyncQueueFullPreservesUpdateForLater(t *testing.T) {
 	if len(a.telegramUI) != 1 || a.store.snapshot().TelegramRuntime.Jobs[0].Status != "confirming" {
 		t.Fatal("retained update did not resume after capacity available")
 	}
-	// This test deliberately does not start a worker or any network operation.
+	// The acknowledgement runs immediately, but the queued message still needs a worker.
+	a.wg.Wait()
 	<-a.telegramUI
 	<-a.telegramUISlots
 }
@@ -325,8 +335,14 @@ func TestTelegramAsyncDropsRevokedAndStaleReplies(t *testing.T) {
 			defer func() { apiClient.Transport = old }()
 			var edits atomic.Int32
 			apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
-				if r.URL.Host != "api.telegram.org" || revoked {
+				if r.URL.Host != "api.telegram.org" {
 					t.Error("revoked or cloud request escaped the response queue")
+				}
+				if strings.HasSuffix(r.URL.Path, "/answerCallbackQuery") {
+					return telegramUIResponse(r, `true`), nil
+				}
+				if revoked {
+					t.Error("revoked interaction edited its message")
 				}
 				if strings.HasSuffix(r.URL.Path, "/editMessageText") {
 					edits.Add(1)
