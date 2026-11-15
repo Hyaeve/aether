@@ -6,8 +6,6 @@
 
 当前版本：**v0.7.9** · [版本说明](docs/releases/v0.7.9.md)
 
-版本编号采用末位满10、中位满100进位，不按标准SemVer的无限补丁位递增。发布前运行 `node scripts/version.mjs --next` 计算下一个编号，运行 `node scripts/version.mjs --check` 校验各处版本一致。
-
 ## 功能概览
 
 | 模块 | 主要功能 |

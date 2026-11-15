@@ -53,9 +53,9 @@ async function askDelete(page,kind){
  if(kind==='link'){await page.getByRole('button',{name:'以链操作 家庭Emby',exact:true}).click();await page.getByRole('button',{name:'删除链接',exact:true}).click()}
  if(kind==='library')await page.getByRole('button',{name:'移除 分享影视库',exact:true}).click()
  if(kind==='rapid')await page.getByRole('button',{name:'删除 影片监控',exact:true}).click()
- return page.getByRole('dialog',{name:({storage:'删除存储池',task:'删除任务',link:'删除以链',library:'移除夸克链接',rapid:'删除监控'})[kind],exact:true})
+ return page.getByRole('dialog',{name:({storage:'删除存储池',task:'删除任务',link:'删除以链',library:'删除夸克链接',rapid:'删除监控'})[kind],exact:true})
 }
-async function confirm(page,kind,dialog){await dialog.getByRole('button',{name:({storage:'删除存储池',task:'删除任务',link:'确认删除',library:'确认移除',rapid:'删除'})[kind],exact:true}).click()}
+async function confirm(page,kind,dialog){await dialog.getByRole('button',{name:({storage:'删除存储池',task:'删除任务',link:'确认删除',library:'仅移除记录',rapid:'删除'})[kind],exact:true}).click()}
 
 for(const [width,height,theme] of [[1440,1000,'light'],[390,844,'dark'],[375,812,'light'],[844,390,'dark']]){
  test(`storage icon bounds and upper right membership badges ${width}`,async({page},info)=>{
@@ -99,6 +99,7 @@ for(const kind of ['storage','task','link','library'])test(`confirmed ${kind} re
  await page.clock.runFor(380);await expect(layer).toHaveCount(1)
  await page.clock.runFor(700);await expect(layer).toHaveCount(0);expect(await canvas.evaluate(el=>el.width===0&&el.height===0)).toBe(true)
  expect(f.writes).toHaveLength(1);expect(f.unexpected).toEqual([])
+ if(kind==='library')expect(f.writes[0]).toEqual({p:'/api/virtual-library/quark/v',body:{deleteFiles:false,confirm:false}})
 })
 
 test('cancelled failed and reduced-motion deletes preserve confirmation semantics',async({page})=>{
