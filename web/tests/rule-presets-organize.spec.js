@@ -17,6 +17,7 @@ async function fixture(page){
    else {writes.push({p,m,body:m==='DELETE'?null:r.postDataJSON()});if(reject)return route.fulfill({status:409,json:{error:'保存失败，请重试'}});if(m==='DELETE'){presets.splice(presets.findIndex(x=>x.id===id),1);json={ok:true}}else if(m==='POST'){json={...r.postDataJSON(),id:'new-preset'};presets.push(json)}else{json={...r.postDataJSON(),id};presets.splice(presets.findIndex(x=>x.id===id),1,json)}}
   }else if(p==='/api/organize-options')json={rules:Object.fromEntries(['naming','categories','upgrade'].map(kind=>[kind,presets.filter(x=>x.kind===kind)])),aiAvailable}
   else if(p==='/api/organize-tasks'||p.startsWith('/api/organize-tasks/')){
+   if(p.endsWith('/run')||p.endsWith('/stop')){writes.push({p,m});if(reject)return route.fulfill({status:409,json:{error:'请先配置并启用TMDB识别'}});const task=tasks.find(t=>t.id===p.split('/')[3]);task.runtime={status:p.endsWith('/run')?'queued':'stopping',message:p.endsWith('/run')?'等待后台整理':'正在停止整理归档',done:0,total:0};return route.fulfill({status:p.endsWith('/run')?202:200,json:{message:task.runtime.message}})}
    const id=p.split('/')[3];if(m==='GET')json=tasks
    else {writes.push({p,m,body:m==='DELETE'?null:r.postDataJSON()});if(reject)return route.fulfill({status:409,json:{error:'保存失败，请重试'}});if(m==='DELETE'){tasks.splice(tasks.findIndex(x=>x.id===id),1);json={ok:true}}else if(m==='POST'){json={...r.postDataJSON(),id:'organize-1'};tasks.push(json)}else{json={...r.postDataJSON(),id};tasks.splice(tasks.findIndex(x=>x.id===id),1,json)}}
   }else if(p==='/api/files'){
@@ -144,4 +145,28 @@ test('organize missing rule lists stay empty and removed selected rules require 
  await page.reload();await page.getByRole('button',{name:'编辑整理归档 失效引用',exact:true}).click()
  const edit=page.getByRole('dialog',{name:'编辑整理归档',exact:true});await expect(edit.getByRole('button',{name:'保存',exact:true})).toBeDisabled();await expect(edit).toContainText('所选规则已移除，请重新选择')
  await edit.getByRole('button',{name:'命名规则',exact:true}).click();await page.getByRole('option',{name:'可用命名',exact:true}).click();await expect(edit.getByRole('button',{name:'保存',exact:true})).toBeEnabled()
+})
+
+for(const [width,height,theme]of [[1440,1000,'light'],[390,844,'dark'],[375,812,'light'],[844,390,'dark']])test(`organize paired task cards execute and show durable progress ${width}`,async({page},info)=>{
+ const f=await fixture(page)
+ f.tasks.push({id:'ready',name:'电影归档任务',storageId:'l1',source:'/Source',sourcePath:'/Source',targetStorageId:'l2',target:'/Archive',targetPath:'/Archive',method:'move',optionsVersion:1,namingRuleId:'naming-0',mediaCategoryRuleId:'categories-0',upgradeRuleId:'',fileFilterMB:0,processConcurrency:1,metadataExtensions:'srt;ass;ssa'}, {id:'incomplete',name:'待选择目录',method:'copy'})
+ await page.setViewportSize({width,height});await page.goto('/tasks/organize');await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+ const cards=page.locator('.organize-task-card'),add=page.getByRole('button',{name:'添加整理归档任务',exact:true}),first=cards.first()
+ await expect(cards).toHaveCount(2)
+ const box=await page.getByRole('region',{name:'整理归档任务',exact:true}).evaluate(el=>({width:el.clientWidth,gap:parseFloat(getComputedStyle(el).gap),boxes:[...el.children].map(c=>{const r=c.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})}))
+ if(width>1100){expect(Math.abs(box.boxes[0].y-box.boxes[1].y)).toBeLessThan(1);expect(Math.abs(box.boxes[0].width*2+box.gap-box.width)).toBeLessThan(1);expect(box.boxes[2].y).toBeGreaterThan(box.boxes[0].y)}else{for(const card of box.boxes)expect(Math.abs(card.width-box.width)).toBeLessThan(1);expect(box.boxes[1].y).toBeGreaterThan(box.boxes[0].y)}
+ await expect(first).toHaveCSS('border-radius','8px');await expect(first).toHaveCSS('padding-top','12px');await expect(add).toHaveCSS('min-height','72px')
+ await expect(cards.nth(1).getByRole('button',{name:'执行整理归档 待选择目录',exact:true})).toBeDisabled()
+ f.reject(true);await first.getByRole('button',{name:'执行整理归档 电影归档任务',exact:true}).click();await expect(page.locator('.toast-stack')).toContainText('请先配置并启用TMDB识别');await expect(first.getByRole('button',{name:'执行整理归档 电影归档任务',exact:true})).toBeEnabled()
+ f.reject(false);await first.getByRole('button',{name:'执行整理归档 电影归档任务',exact:true}).click();await expect(first.getByRole('button',{name:'停止整理归档 电影归档任务',exact:true})).toBeEnabled();await expect(first.getByRole('button',{name:'删除整理归档 电影归档任务',exact:true})).toBeDisabled();await expect(page.getByRole('dialog')).toHaveCount(0)
+ f.tasks[0].runtime={status:'running',message:'正在归档第2项',done:1,total:4,scanned:true}
+ await expect(first).toContainText('正在归档第2项');await expect(first.getByRole('progressbar',{name:'电影归档任务整理进度',exact:true})).toHaveAttribute('value','1')
+ await first.getByRole('button',{name:'编辑整理归档 电影归档任务',exact:true}).click();const dialog=page.getByRole('dialog',{name:'编辑整理归档',exact:true});await expect(dialog.getByRole('textbox',{name:'任务名称',exact:true})).toBeDisabled();await expect(dialog.getByRole('button',{name:'保存',exact:true})).toBeDisabled();await dialog.locator('footer').getByRole('button',{name:'关闭',exact:true}).click()
+ await captureScreenshot(page,{path:info.outputPath(`organize-cards-${width}-${theme}.png`)})
+ await first.getByRole('button',{name:'停止整理归档 电影归档任务',exact:true}).click();await expect(first.getByRole('button',{name:'停止整理归档 电影归档任务',exact:true})).toBeDisabled()
+ f.tasks[0].runtime={status:'stopped',message:'整理已停止，已完成的文件保留',done:1,total:4,scanned:true}
+ await expect(first.getByRole('button',{name:'执行整理归档 电影归档任务',exact:true})).toBeEnabled();await page.reload();await expect(first).toContainText('整理已停止')
+ await first.getByRole('button',{name:'编辑整理归档 电影归档任务',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'保存',exact:true}).click();const saved=f.writes.find(w=>w.m==='PUT');expect(saved.body.runtime).toBeUndefined()
+ expect(f.writes.filter(w=>w.p.endsWith('/run'))).toHaveLength(2);expect(f.writes.filter(w=>w.p.endsWith('/stop'))).toHaveLength(1);expect(f.unexpected).toEqual([])
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
 })

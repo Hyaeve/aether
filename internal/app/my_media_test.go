@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -307,6 +308,132 @@ func TestMyMediaDashboardSessionsRankImagesAndScope(t *testing.T) {
 		t.Fatal("unknown media action accepted")
 	}
 }
+func TestMyMediaRecentGroupsEpisodesBySeriesAcrossLibraries(t *testing.T) {
+	a, h, cookie, _ := mediaFixture(t, func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/Items" || r.URL.Query().Get("IncludeItemTypes") != "Movie,Episode" {
+			return false
+		}
+		items := []videoMediaItem{
+			{ID: "episode1", Name: "第一集", SeriesID: "series", SeriesName: "同名作品", Type: "Episode", Date: "2026-11-10"},
+			{ID: "film", Name: "电影", Type: "Movie", Date: "2026-11-13"},
+			{ID: "standalone", Name: "未关联集", Type: "Episode", Date: "2026-11-12"},
+		}
+		if r.URL.Query().Get("ParentId") == "other" {
+			items = []videoMediaItem{
+				{ID: "episode2", Name: "第二季第一集", SeriesID: "series", SeriesName: "同名作品", Type: "Episode", Date: "2026-11-15"},
+				{ID: "episode3", Name: "第一集", SeriesID: "different", SeriesName: "同名作品", Type: "Episode", Date: "2026-11-14"},
+			}
+		}
+		jsonResponse(w, 200, map[string]any{"Items": items})
+		return true
+	})
+	setMediaLibraries(t, a)
+	if err := a.store.update(func(st *State) error {
+		st.MediaDisplay.Libraries["emby"] = append(st.MediaDisplay.Libraries["emby"], upstream.Library{ID: "other", Name: "第二个影视库"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, h, "GET", "/api/my-media/emby/dashboard", nil, cookie)
+	var data mediaDashboardData
+	if err := json.Unmarshal(w.Body.Bytes(), &data); w.Code != http.StatusOK || err != nil || len(data.Recent) != 4 {
+		t.Fatalf("expected four distinct recent works: %d %s (%v)", w.Code, w.Body, err)
+	}
+	for i, want := range []string{"series", "different", "film", "standalone"} {
+		if data.Recent[i].ID != want {
+			t.Fatalf("item %d: got %v, want %s", i, data.Recent[i], want)
+		}
+	}
+	show := data.Recent[0]
+	if show.Title != "同名作品" || show.Kind != "Series" || show.LibraryID != "other" || !strings.Contains(show.Poster, "/image/series?") || !strings.HasSuffix(show.WebURL, "#!/item?id=series") {
+		t.Fatal("grouped result did not use series identity and the most recent episode", show)
+	}
+}
+
+func TestMyMediaDailyFeaturedSurvivesRefreshAndRestart(t *testing.T) {
+	var version, videoReads atomic.Int32
+	var unavailable atomic.Bool
+	version.Store(1)
+	a, _, _, _ := mediaFixture(t, func(w http.ResponseWriter, r *http.Request) bool {
+		kind := r.URL.Query().Get("IncludeItemTypes")
+		id := strconv.Itoa(int(version.Load()))
+		if r.URL.Path == "/Items" && (kind == "Movie,Series" || kind == "Movie,Episode") {
+			if kind == "Movie,Series" {
+				videoReads.Add(1)
+				if unavailable.Load() {
+					w.WriteHeader(502)
+					return true
+				}
+			}
+			jsonResponse(w, 200, map[string]any{"Items": []videoMediaItem{{ID: "film" + id, Name: "影片", Type: "Movie"}}})
+			return true
+		}
+		if r.URL.Path == "/api/libraries/books/items" {
+			jsonResponse(w, 200, map[string]any{"results": []absMediaItem{{ID: "book" + id, MediaType: "book"}}})
+			return true
+		}
+		return false
+	})
+	setMediaLibraries(t, a)
+	zone := time.FixedZone("UTC+8", 8*60*60)
+	night := time.Date(2026, 11, 15, 23, 58, 0, 0, zone)
+	midnight := time.Date(2026, 11, 16, 0, 0, 0, 0, zone)
+	read := func(app *App, service string, now time.Time, refresh bool) *mediaDashboardData {
+		t.Helper()
+		st := app.store.snapshotWithLogLimit(0)
+		link, _ := mediaLink(st, service)
+		client, err := app.dashboardClient(st, link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := app.mediaDashboard(app.ctx, link, client, now, refresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	check := func(data *mediaDashboardData, featured, recent string, until time.Time) {
+		t.Helper()
+		if len(data.Featured) != 1 || data.Featured[0].ID != featured || len(data.Recent) != 1 || data.Recent[0].ID != recent || !data.FeaturedUntil.Equal(until) {
+			t.Fatalf("unexpected dashboard: %+v", data)
+		}
+	}
+	check(read(a, "emby", night, false), "film1", "film1", midnight)
+	check(read(a, "abs", night, false), "book1", "book1", midnight)
+	version.Store(2)
+	check(read(a, "emby", midnight.Add(-30*time.Second), true), "film1", "film2", midnight)
+	check(read(a, "abs", midnight.Add(-30*time.Second), true), "book1", "book2", midnight)
+	reopened, err := NewStore(a.store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.initRuntime(a.store.runtimeDir); err != nil {
+		t.Fatal(err)
+	}
+	restarted := &App{ctx: a.ctx, store: reopened}
+	check(read(restarted, "emby", midnight.Add(-time.Second), false), "film1", "film2", midnight)
+	if videoReads.Load() != 1 {
+		t.Fatal("same-day banners fetched again", videoReads.Load())
+	}
+	unavailable.Store(true)
+	check(read(restarted, "emby", midnight, false), "film1", "film2", midnight.Add(time.Minute))
+	if !reopened.snapshot().MediaFeatured["emby"].Until.Equal(midnight) {
+		t.Fatal("failed refresh replaced the saved batch")
+	}
+	unavailable.Store(false)
+	check(read(restarted, "emby", midnight.Add(time.Minute), false), "film2", "film2", midnight.AddDate(0, 0, 1))
+	check(read(restarted, "emby", midnight.Add(-time.Second), true), "film2", "film2", midnight.AddDate(0, 0, 1))
+	check(read(restarted, "abs", midnight, false), "book2", "book2", midnight.AddDate(0, 0, 1))
+	if err := restarted.store.update(func(st *State) error {
+		st.MediaDisplay.Libraries["emby"] = []upstream.Library{{ID: "other", Name: "其他库"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	version.Store(3)
+	check(read(restarted, "emby", midnight.Add(2*time.Minute), false), "film3", "film3", midnight.AddDate(0, 0, 1))
+}
+
 func TestMyMediaMissingAndQualityScansPersistWithoutRemoteWrites(t *testing.T) {
 	a, h, cookie, _ := mediaFixture(t)
 	setMediaLibraries(t, a)

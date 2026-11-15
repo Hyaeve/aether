@@ -500,6 +500,9 @@ func (a *App) generationPublish(ctx context.Context, root *os.Root, rel string, 
 	if err != nil || !bytes.Equal(raw, content) {
 		return errors.New("STRM 发布校验失败，临时文件保留")
 	}
+	if err := generationOutputPublished(ctx, entry.Path, raw); err != nil {
+		return err
+	}
 	(*success)++
 	return a.generationUpdate(job, func(j *GenerationJob) { j.Processed = *success; j.Success = *success; j.Message = entry.Path })
 }

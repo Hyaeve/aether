@@ -678,6 +678,9 @@ func (a *App) executeGeneration(ctx context.Context, job GenerationJob, m genera
 			if e = writeCASOutput(root, filename, []byte(link+"\n"), true, true); e != nil {
 				break
 			}
+			if e = generationOutputPublished(ctx, entry.Path, []byte(link+"\n")); e != nil {
+				break
+			}
 			success++
 			if e = a.generationUpdate(job.ID, func(j *GenerationJob) { j.Processed = success; j.Success = success; j.Message = entry.Path }); e != nil {
 				break

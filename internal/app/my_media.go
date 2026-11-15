@@ -49,11 +49,17 @@ type mediaMetric struct {
 	Unit  string  `json:"unit,omitempty"`
 }
 type mediaDashboardData struct {
-	Featured []mediaPoster `json:"featured"`
-	Recent   []mediaPoster `json:"recent"`
-	Stats    []mediaMetric `json:"stats"`
-	Warnings []string      `json:"warnings"`
-	Updated  time.Time     `json:"updated"`
+	Featured      []mediaPoster `json:"featured"`
+	FeaturedUntil time.Time     `json:"featuredUntil,omitzero"`
+	Recent        []mediaPoster `json:"recent"`
+	Stats         []mediaMetric `json:"stats"`
+	Warnings      []string      `json:"warnings"`
+	Updated       time.Time     `json:"updated"`
+}
+type mediaFeaturedResult struct {
+	Stamp string        `json:"stamp"`
+	Until time.Time     `json:"until"`
+	Items []mediaPoster `json:"items"`
 }
 type mediaPlaying struct {
 	ID       string      `json:"id"`
@@ -329,7 +335,6 @@ func (a *App) mediaDashboardAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
-	libraries := st.MediaDisplay.Libraries[l.ID]
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	if action == "ranking" {
@@ -358,32 +363,111 @@ func (a *App) mediaDashboardAPI(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, sessions)
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.Data != nil && time.Since(c.At) < time.Minute && r.URL.Query().Get("refresh") != "1" {
-		jsonResponse(w, 200, c.Data)
-		return
-	}
-	data := mediaDashboardData{Recent: []mediaPoster{}, Stats: []mediaMetric{}, Warnings: []string{}, Updated: time.Now()}
-	if len(libraries) > 0 {
-		if l.Type == "audiobookshelf" {
-			err = a.loadABSDashboard(ctx, st, l, c, &data)
-		} else {
-			err = a.loadVideoDashboard(ctx, st, l, c, &data)
-		}
-	}
+	data, err := a.mediaDashboard(ctx, l, c, time.Now(), r.URL.Query().Get("refresh") == "1")
 	if err != nil {
+		if errors.Is(err, errMediaScopeChanged) {
+			fail(w, 409, err)
+			return
+		}
 		fail(w, 502, err)
 		return
 	}
-	current := a.store.snapshotWithLogLimit(0)
-	link, ok := mediaLink(current, l.ID)
-	if !ok || mediaDisplayStamp(current, link) != c.Stamp {
-		fail(w, 409, errors.New("媒体展示配置已改变"))
-		return
-	}
-	c.Data, c.At = &data, time.Now()
 	jsonResponse(w, 200, data)
+}
+
+var errMediaScopeChanged = errors.New("媒体展示配置已改变")
+
+func nextMediaFeaturedRefresh(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+}
+
+func (a *App) mediaDashboard(ctx context.Context, l MediaLink, c *mediaDashboardClient, now time.Time, refresh bool) (*mediaDashboardData, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := a.store.snapshotWithLogLimit(0)
+	if !mediaScopeCurrent(st, l, c.Stamp) {
+		return nil, errMediaScopeChanged
+	}
+	next := nextMediaFeaturedRefresh(now)
+	if c.Data != nil && !refresh && now.Sub(c.At) < time.Minute && next.Equal(nextMediaFeaturedRefresh(c.At)) &&
+		(c.Data.FeaturedUntil.IsZero() || now.Before(c.Data.FeaturedUntil)) {
+		return c.Data, nil
+	}
+	data := &mediaDashboardData{Featured: []mediaPoster{}, Recent: []mediaPoster{}, Stats: []mediaMetric{}, Warnings: []string{}, Updated: now}
+	if len(st.MediaDisplay.Libraries[l.ID]) == 0 {
+		return data, nil
+	}
+	featured := st.MediaFeatured[l.ID]
+	if featured.Stamp != c.Stamp {
+		featured = mediaFeaturedResult{}
+	}
+	if featured.Items != nil {
+		data.Featured = featured.Items
+	}
+	data.FeaturedUntil = featured.Until
+	var err error
+	recentComplete := true
+	if l.Type == "audiobookshelf" {
+		recentComplete, err = a.loadABSDashboard(ctx, st, l, c, data)
+	} else {
+		err = a.loadVideoDashboard(ctx, st, l, c, data)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if featured.Until.Before(next) {
+		items := data.Recent[:min(5, len(data.Recent))]
+		if l.Type != "audiobookshelf" {
+			var videoItems []mediaPoster
+			videoItems, err = a.loadVideoFeatured(ctx, st, l, c)
+			if len(videoItems) > 0 {
+				items = videoItems
+			}
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err == nil && recentComplete {
+			batch := mediaFeaturedResult{Stamp: c.Stamp, Until: next, Items: items}
+			err = a.store.update(func(current *State) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if !mediaScopeCurrent(*current, l, c.Stamp) {
+					return errMediaScopeChanged
+				}
+				if saved := current.MediaFeatured[l.ID]; saved.Stamp == c.Stamp && !saved.Until.Before(next) {
+					batch = saved
+					return nil
+				}
+				if current.MediaFeatured == nil {
+					current.MediaFeatured = map[string]mediaFeaturedResult{}
+				}
+				for key := range current.MediaFeatured {
+					if _, exists := mediaLink(*current, key); !exists {
+						delete(current.MediaFeatured, key)
+					}
+				}
+				current.MediaFeatured[l.ID] = batch
+				return nil
+			})
+			if err == nil {
+				data.Featured, data.FeaturedUntil = batch.Items, batch.Until
+			}
+		}
+		if err != nil || !recentComplete {
+			dashboardWarning(data, "横幅海报暂未更新")
+			data.FeaturedUntil = now.Add(time.Minute)
+			if next.Before(data.FeaturedUntil) {
+				data.FeaturedUntil = next
+			}
+		}
+	}
+	if !mediaScopeCurrent(a.store.snapshotWithLogLimit(0), l, c.Stamp) {
+		return nil, errMediaScopeChanged
+	}
+	c.Data, c.At = data, now
+	return data, nil
 }
 
 func selectedLibrary(st State, l MediaLink, id string) bool {

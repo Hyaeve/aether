@@ -194,7 +194,7 @@ func (r *taskScopeResolver) overlap(left, right taskFileNode) (bool, error) {
 }
 
 func taskDescription(task Task) string {
-	kind := map[string]string{"strm": "STRM ", "cas": "CAS ", "ed2k": "ED2K ", "cache": "目录缓存", "directory-scrape": "目录刮削 "}[task.Kind]
+	kind := map[string]string{"strm": "STRM ", "cas": "CAS ", "ed2k": "ED2K ", "cache": "目录缓存", "directory-scrape": "目录刮削 ", "organize": "整理归档 "}[task.Kind]
 	name := strings.TrimSpace(task.Name)
 	if name == "" {
 		name = task.ID
@@ -211,8 +211,13 @@ func (a *App) runningTasks() []Task {
 	if a.directoryScrapeTask != nil {
 		tasks[a.directoryScrapeTask.ID] = *a.directoryScrapeTask
 	}
-	for _, task := range a.store.snapshotWithLogLimit(0).Tasks {
+	st := a.store.snapshotWithLogLimit(0)
+	for _, task := range st.Tasks {
 		tasks[task.ID] = task
+	}
+	for _, task := range st.OrganizeTasks {
+		key := organizeRunKey(task.ID)
+		tasks[key] = Task{ID: key, Kind: "organize", Name: task.Name, StorageID: task.StorageID, Source: task.Source}
 	}
 	ids := make([]string, 0, len(a.running))
 	for id := range a.running {
@@ -240,6 +245,9 @@ func (a *App) checkTaskFileNodes(ctx context.Context, nodes []taskFileNode) erro
 	defer cancel()
 	resolver := taskScopeResolver{a, ctx, map[string][]File{}}
 	for _, t := range a.runningTasks() {
+		if own, _ := ctx.Value(organizeContextKey{}).(string); own != "" && t.ID == own {
+			continue
+		}
 		if own, _ := ctx.Value(directoryScrapeContextKey{}).(string); own != "" && t.ID == own {
 			continue
 		}
@@ -343,6 +351,14 @@ func (a *App) reserveTaskFileNodes(ctx context.Context, nodes []taskFileNode) (f
 }
 
 func (a *App) taskRunNodes(task Task, s Storage) ([]taskFileNode, error) {
+	if task.Kind == "organize" {
+		for _, definition := range a.store.snapshotWithLogLimit(0).OrganizeTasks {
+			if organizeRunKey(definition.ID) == task.ID {
+				return a.organizeNodes(definition)
+			}
+		}
+		return nil, errors.New("整理归档任务已移除")
+	}
 	nodes := []taskFileNode{{storage: s, id: task.Source}}
 	if task.Kind == "cache" || task.Kind == "directory-scrape" {
 		return nodes, nil
@@ -389,6 +405,9 @@ func (a *App) checkTaskStartScopes(ctx context.Context, task Task, s Storage) er
 		}
 	}
 	for _, active := range a.runningTasks() {
+		if active.ID == task.ID {
+			continue
+		}
 		peer, err := a.store.storage(active.StorageID)
 		if err != nil {
 			return fmt.Errorf("无法核验运行中的%s的存储目录，未启动新任务", taskDescription(active))

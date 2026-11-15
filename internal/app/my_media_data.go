@@ -14,6 +14,8 @@ import (
 
 var mediaItemID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,160}$`)
 
+const recentMediaLimit = 24
+
 type videoMediaStream struct {
 	Type   string `json:"Type"`
 	Codec  string `json:"Codec"`
@@ -67,33 +69,45 @@ func videoPoster(l MediaLink, c *mediaDashboardClient, v videoMediaItem, library
 	poster.WebURL = strings.TrimRight(l.Address, "/") + "/web/index.html#!/item?id=" + url.QueryEscape(v.ID)
 	return poster
 }
+func recentVideoPoster(l MediaLink, c *mediaDashboardClient, v videoMediaItem, library string) mediaPoster {
+	if v.Type == "Episode" && mediaItemID.MatchString(v.SeriesID) {
+		name := strings.TrimSpace(v.SeriesName)
+		if name == "" {
+			name = v.Name
+		}
+		v = videoMediaItem{ID: v.SeriesID, Name: name, Type: "Series", Year: v.Year, Date: v.Date}
+	}
+	return videoPoster(l, c, v, library)
+}
+
 func finishRecent(d *mediaDashboardData) {
 	sort.SliceStable(d.Recent, func(i, j int) bool { return d.Recent[i].Date > d.Recent[j].Date })
-	if len(d.Recent) > 24 {
-		d.Recent = d.Recent[:24]
+	items := d.Recent[:0]
+	seen := make(map[string]bool, recentMediaLimit)
+	for _, item := range d.Recent {
+		if seen[item.ID] {
+			continue
+		}
+		seen[item.ID] = true
+		items = append(items, item)
+		if len(items) == recentMediaLimit {
+			break
+		}
 	}
+	d.Recent = items
 }
 func (a *App) loadVideoDashboard(ctx context.Context, st State, l MediaLink, c *mediaDashboardClient, d *mediaDashboardData) error {
 	totals := map[string]int{"Movie": 0, "Series": 0, "Episode": 0}
 	known := map[string]bool{"Movie": true, "Series": true, "Episode": true}
 	for _, lib := range st.MediaDisplay.Libraries[l.ID] {
-		var featured videoMediaPage
-		if err := upstream.DashboardRead(ctx, c.Provider, "/Items", url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series"}, "SortBy": {"DateCreated"}, "SortOrder": {"Descending"}, "Limit": {"5"}, "Fields": {"Overview,DateCreated,ProviderIds,Path"}}, &featured); err == nil {
-			for _, v := range featured.Items {
-				if v.Type != "Movie" && v.Type != "Series" {
-					continue
-				}
-				poster := videoPoster(l, c, v, lib.ID)
-				poster.LibraryName = lib.Name
-				d.Featured = append(d.Featured, poster)
-			}
-		}
 		var recent videoMediaPage
-		if err := upstream.DashboardRead(ctx, c.Provider, "/Items", url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Movie,Episode"}, "SortBy": {"DateCreated"}, "SortOrder": {"Descending"}, "Limit": {"24"}, "Fields": {"Overview,DateCreated,SeriesName"}}, &recent); err != nil {
+		// Extra rows leave room for other titles when a show is added in a batch.
+		query := url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Movie,Episode"}, "SortBy": {"DateCreated"}, "SortOrder": {"Descending"}, "Limit": {strconv.Itoa(recentMediaLimit * 4)}, "Fields": {"Overview,DateCreated,SeriesName"}}
+		if err := upstream.DashboardRead(ctx, c.Provider, "/Items", query, &recent); err != nil {
 			dashboardWarning(d, lib.Name+"：最近入库读取失败")
 		} else {
 			for _, v := range recent.Items {
-				d.Recent = append(d.Recent, videoPoster(l, c, v, lib.ID))
+				d.Recent = append(d.Recent, recentVideoPoster(l, c, v, lib.ID))
 			}
 		}
 		for kind := range totals {
@@ -112,19 +126,42 @@ func (a *App) loadVideoDashboard(ctx context.Context, st State, l MediaLink, c *
 		}
 	}
 	finishRecent(d)
-	sort.SliceStable(d.Featured, func(i, j int) bool { return d.Featured[i].Date > d.Featured[j].Date })
-	if len(d.Featured) > 5 {
-		d.Featured = d.Featured[:5]
+	return ctx.Err()
+}
+
+func (a *App) loadVideoFeatured(ctx context.Context, st State, l MediaLink, c *mediaDashboardClient) ([]mediaPoster, error) {
+	items := []mediaPoster{}
+	seen := map[string]bool{}
+	for _, lib := range st.MediaDisplay.Libraries[l.ID] {
+		var featured videoMediaPage
+		query := url.Values{"ParentId": {lib.ID}, "Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series"}, "SortBy": {"DateCreated"}, "SortOrder": {"Descending"}, "Limit": {"5"}, "Fields": {"Overview,DateCreated,ProviderIds,Path"}}
+		if err := upstream.DashboardRead(ctx, c.Provider, "/Items", query, &featured); err != nil {
+			return nil, err
+		}
+		if featured.Items == nil {
+			return nil, mediaError("横幅海报")
+		}
+		for _, v := range featured.Items {
+			if (v.Type != "Movie" && v.Type != "Series") || !mediaItemID.MatchString(v.ID) || seen[v.ID] {
+				continue
+			}
+			seen[v.ID] = true
+			poster := videoPoster(l, c, v, lib.ID)
+			poster.LibraryName = lib.Name
+			items = append(items, poster)
+		}
 	}
-	for i := range d.Featured {
-		if d.Featured[i].Kind == "Series" {
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Date > items[j].Date })
+	items = items[:min(5, len(items))]
+	for i := range items {
+		if items[i].Kind == "Series" {
 			var episodes videoMediaPage
-			if err := upstream.DashboardRead(ctx, c.Provider, "/Shows/"+url.PathEscape(d.Featured[i].ID)+"/Episodes", url.Values{"Limit": {"1"}, "IsMissing": {"false"}}, &episodes); err == nil {
-				d.Featured[i].Episodes = episodes.Total
+			if err := upstream.DashboardRead(ctx, c.Provider, "/Shows/"+url.PathEscape(items[i].ID)+"/Episodes", url.Values{"Limit": {"1"}, "IsMissing": {"false"}}, &episodes); err == nil {
+				items[i].Episodes = episodes.Total
 			}
 		}
 	}
-	return ctx.Err()
+	return items, ctx.Err()
 }
 
 type absMediaItem struct {
@@ -146,9 +183,9 @@ type absMediaItem struct {
 func absPoster(l MediaLink, c *mediaDashboardClient, v absMediaItem) mediaPoster {
 	return mediaPoster{ID: v.ID, Title: v.Media.Metadata.Title, Subtitle: strings.Trim(strings.Join([]string{v.Media.Metadata.Author, v.Media.Metadata.Narrator}, " · "), " ·"), Overview: v.Media.Metadata.Description, Kind: v.MediaType, Poster: mediaImageURL(l, c.Stamp, v.ID, "Primary"), Backdrop: mediaImageURL(l, c.Stamp, v.ID, "Backdrop"), LibraryID: v.LibraryID, Date: fmt.Sprintf("%020.0f", v.Added), Duration: v.Media.Duration}
 }
-func (a *App) loadABSDashboard(ctx context.Context, st State, l MediaLink, c *mediaDashboardClient, d *mediaDashboardData) error {
+func (a *App) loadABSDashboard(ctx context.Context, st State, l MediaLink, c *mediaDashboardClient, d *mediaDashboardData) (bool, error) {
 	totals := map[string]float64{}
-	known := true
+	known, recentComplete := true, true
 	for _, lib := range st.MediaDisplay.Libraries[l.ID] {
 		var stats struct {
 			Items    *float64 `json:"totalItems"`
@@ -168,7 +205,8 @@ func (a *App) loadABSDashboard(ctx context.Context, st State, l MediaLink, c *me
 		var recent struct {
 			Results []absMediaItem `json:"results"`
 		}
-		if err := upstream.DashboardRead(ctx, c.Provider, "/api/libraries/"+lib.ID+"/items", url.Values{"sort": {"addedAt"}, "desc": {"1"}, "limit": {"24"}, "page": {"0"}, "minified": {"0"}}, &recent); err != nil {
+		if err := upstream.DashboardRead(ctx, c.Provider, "/api/libraries/"+lib.ID+"/items", url.Values{"sort": {"addedAt"}, "desc": {"1"}, "limit": {"24"}, "page": {"0"}, "minified": {"0"}}, &recent); err != nil || recent.Results == nil {
+			recentComplete = false
 			dashboardWarning(d, lib.Name+"：最近入库读取失败")
 		} else {
 			for _, item := range recent.Results {
@@ -183,7 +221,7 @@ func (a *App) loadABSDashboard(ctx context.Context, st State, l MediaLink, c *me
 		d.Stats = []mediaMetric{{"音频条目", totals["items"], ""}, {"音轨", totals["tracks"], ""}, {"总时长", totals["duration"] / 3600, "h"}, {"媒体体积", totals["size"] / (1 << 30), "GiB"}}
 	}
 	finishRecent(d)
-	return ctx.Err()
+	return recentComplete, ctx.Err()
 }
 func (a *App) loadMediaSessions(ctx context.Context, st State, l MediaLink, c *mediaDashboardClient) ([]mediaPlaying, error) {
 	values := []mediaPlaying{}

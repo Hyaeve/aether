@@ -7,7 +7,7 @@ import Icon from '../components/Icon.vue'
 import ProviderIcon from '../components/ProviderIcon.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
 
-const kinds={strm:['STRM 任务','FileVideo'],cas:['CAS 任务','Box'],ed2k:['ED2K 任务','Link'],cache:['缓存任务','Database'],organize:['目录整理','FolderTree'],scrape:['STRM 刮削','ScanSearch'],automation:['联动任务','Workflow']}
+const kinds={strm:['STRM 任务','FileVideo'],cas:['CAS 任务','Box'],ed2k:['ED2K 任务','Link'],cache:['缓存任务','Database'],organize:['整理归档','OrganizeArchive'],scrape:['STRM 刮削','ScanSearch'],automation:['联动任务','Workflow']}
 const sources={task:'目录任务',generation:'解析生成',scrape:'媒体刮削',automation:'联动流程'}
 const items=ref([]),filter=ref('all'),query=ref(''),error=ref(''),loaded=ref(false),refreshing=ref(false)
 const grouped=computed(()=>Object.entries(kinds).map(([kind,[name,icon]])=>({kind,name,icon,items:items.value.filter(item=>item.kind===kind&&(filter.value==='all'||filter.value===kind)&&`${item.name} ${item.message}`.toLowerCase().includes(query.value.toLowerCase()))})).filter(group=>group.items.length))

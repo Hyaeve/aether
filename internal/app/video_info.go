@@ -22,6 +22,7 @@ type videoProbeStream struct {
 	ChannelLayout string `json:"channel_layout"`
 	BitRate       string `json:"bit_rate"`
 	Transfer      string `json:"color_transfer"`
+	BitDepth      string `json:"bits_per_raw_sample,omitempty"`
 	Tags          struct {
 		Language string `json:"language"`
 		Title    string `json:"title"`

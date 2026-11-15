@@ -147,7 +147,7 @@ func (c compiledRecognition) recognitionName(original string) (string, error) {
 	return applyRecognitionReplacements(original, c.match)
 }
 
-// These decisions are consumed by the future organizing executor, never executed here.
+// Match rules only classify paths. The organizing runner applies the result.
 func (c compiledRecognition) blacklistMatch(relative string, isDir bool) bool {
 	parts := strings.Split(strings.Trim(relative, "/"), "/")
 	file := parts[len(parts)-1]

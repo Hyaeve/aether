@@ -75,7 +75,7 @@ type scrapeIndex struct {
 var scrapeEpisode = regexp.MustCompile(`(?i)S(\d{1,3})[ ._-]*E(\d{1,4})(?:$|[^0-9])`)
 var scrapeYear = regexp.MustCompile(`(?:^|[ ._(\[])((?:19|20)\d{2})(?:$|[ ._)\]])`)
 var scrapeSuffix = regexp.MustCompile(`(?i)\b(?:2160p|1080p|720p|4k|web[ .-]?dl|bluray|remux|h26[45]|x26[45])\b.*$`)
-var scrapeID = regexp.MustCompile(`(?i)[{\[]tmdb[-=](\d+)[}\]]`)
+var scrapeID = regexp.MustCompile(`(?i)[{\[]tmdb(?:id)?[-=](\d+)[}\]]`)
 
 func recognizeSTRM(name string) scrapeItem {
 	title := scrapeMediaStem(name)
@@ -881,6 +881,17 @@ func (a *App) strmScrape(w http.ResponseWriter, r *http.Request) {
 }
 
 type tmdbMedia struct {
+	OriginalName string `json:"original_name"`
+	Language     string `json:"original_language"`
+	Adult        bool   `json:"adult"`
+	Genres       []struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	} `json:"genres"`
+	Countries           []string `json:"origin_country"`
+	ProductionCountries []struct {
+		Code string `json:"iso_3166_1"`
+	} `json:"production_countries"`
 	ID            int     `json:"id"`
 	Title         string  `json:"title"`
 	Name          string  `json:"name"`
@@ -1048,6 +1059,10 @@ func scrapeOneTo(ctx context.Context, output scrapeOutput, client *http.Client, 
 	if err != nil || media.ID == 0 {
 		return err
 	}
+	return writeScrapeMedia(ctx, output, client, tmdb, cfg, item, media)
+}
+
+func writeScrapeMedia(ctx context.Context, output scrapeOutput, client *http.Client, tmdb PluginConfig, cfg scrapeSettings, item *scrapeItem, media tmdbMedia) error {
 	title := item.Title
 	nfo := scrapeNFO{XMLName: xml.Name{Local: "movie"}, Title: title, Original: media.OriginalTitle, Plot: media.Overview, TMDB: item.TMDB, Rating: media.Rating, Runtime: media.Runtime, Year: item.Year}
 	if cfg.Actors {

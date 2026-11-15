@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -123,8 +124,8 @@ func TestOrganizeTaskDefinitionStorageModesAndDurability(t *testing.T) {
 	if len(a.store.snapshot().Tasks) != 0 {
 		t.Fatal("configuration accidentally registered executable tasks")
 	}
-	if w := request(t, h, "POST", "/api/organize-tasks/"+first.ID+"/run", nil, cookie); w.Code != 404 && w.Code != 405 {
-		t.Fatal("unfinished rule workflow executed", w.Code)
+	if w := request(t, h, "POST", "/api/organize-tasks/"+first.ID+"/run", nil, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "TMDB") {
+		t.Fatal("organize started without TMDB configuration", w.Code, w.Body.String())
 	}
 	if raw, err := os.ReadFile(input); err != nil || string(raw) != "preserve" {
 		t.Fatal("saving a task changed source files")

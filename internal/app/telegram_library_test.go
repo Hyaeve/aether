@@ -147,8 +147,8 @@ func TestTelegramMultipleSharesRequireConfirmation(t *testing.T) {
 	if len(jobs) != 2 || jobs[0].Status != "confirming" || jobs[1].Status != "waiting" {
 		t.Fatal("multiple links must not bypass confirmation with one target", jobs)
 	}
-	if len(*messages) != 1 || !strings.Contains((*messages)[0], "首条分享名称：Share title") || !strings.Contains((*messages)[0], "2条链接") {
-		t.Fatal("batch confirmation did not show its first title in the initial message", *messages)
+	if len(*messages) != 1 || !strings.Contains((*messages)[0], "分享名称：\nShare title\nShare title\n") || !strings.Contains((*messages)[0], "2条链接") {
+		t.Fatal("batch confirmation did not show both titles in the initial message", *messages)
 	}
 	if err := a.telegramCallback(context.Background(), cfg, 123, 123, 70, "c:"+jobs[0].ID+":0"); err != nil {
 		t.Fatal(err)

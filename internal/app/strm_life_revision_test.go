@@ -202,7 +202,7 @@ func TestSTRMLifeAPIDefaultActivationAndSyncConfirmation(t *testing.T) {
 		t.Fatal("ordinary client save rewound activation", w.Code, w.Body.String())
 	}
 	w = request(t, h, "POST", "/api/tasks/"+task.ID+"/sync", map[string]bool{"confirm": false}, cookie)
-	if w.Code != 400 || len(a.archives.records) != 0 {
+	if w.Code != 400 || len(a.archives.records) != 0 || !strings.Contains(w.Body.String(), "任务过滤设置") || strings.Contains(w.Body.String(), "清理") {
 		t.Fatal("full sync started without explicit confirmation", w.Code)
 	}
 	task.STRMSource, task.Cron = "tree", ""
@@ -831,8 +831,8 @@ func TestSTRMFullSyncAndResetRemainDistinct(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(task.Target, "gone.strm")); !os.IsNotExist(err) {
-		t.Fatal("full sync did not remove stale owned output", err)
+	if _, err := os.Stat(filepath.Join(task.Target, "gone.strm")); err != nil {
+		t.Fatal("full sync removed stale owned output", err)
 	}
 	if _, err := os.Stat(filepath.Join(task.Target, "personal.txt")); err != nil {
 		t.Fatal("full sync reset whole directory", err)
@@ -862,6 +862,9 @@ func TestSTRMFullSyncAndResetRemainDistinct(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(task.Target, "personal.txt")); !os.IsNotExist(err) {
 		t.Fatal("confirmed owned-library reset did not clear whole library", err)
+	}
+	if _, err := os.Stat(filepath.Join(task.Target, "gone.strm")); !os.IsNotExist(err) {
+		t.Fatal("confirmed reset retained an obsolete output", err)
 	}
 	if _, err := os.Stat(filepath.Join(s.Config["root"], "film.mkv")); err != nil {
 		t.Fatal("reset deleted source", err)

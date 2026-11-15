@@ -24,6 +24,34 @@ async function mock(page) {
  return {saves,links,cards}
 }
 
+test('retained directory errors explain recovery and block save until the name changes',async({page})=>{
+ const f=await mock(page)
+ const error='同名文件或目录仍存在（移除卡片后生成文件保留），请先移走或删除后再使用此名称'
+ let writes=0
+ await page.route('**/api/virtual-library/quark/c0',route=>{
+  expect(route.request().method()).toBe('PUT');writes++
+  return route.fulfill({status:409,json:{error,field:'directoryName'}})
+ })
+ await page.goto('/virtual/quark')
+ await page.getByRole('button',{name:'编辑 分享目录 1',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'编辑夸克链接',exact:true})
+ const directory=dialog.getByRole('textbox',{name:'目录名称',exact:true})
+ await directory.fill('已移除卡片的目录')
+ await dialog.getByRole('button',{name:'保存链接',exact:true}).click()
+ await expect(directory).toHaveAttribute('aria-invalid','true')
+ await expect(dialog.locator('#library-directory-error')).toHaveText(error)
+ await expect(page.locator('.toast-stack')).toContainText(error)
+ expect(writes).toBe(1)
+ await expect(dialog.getByRole('button',{name:'保存链接',exact:true})).toBeDisabled()
+ expect(writes).toBe(1)
+ await expect(dialog).toBeVisible()
+ expect(f.cards[0].directoryName).toBe('Share0')
+ await directory.fill('未占用的目录')
+ await expect(directory).not.toHaveAttribute('aria-invalid','true')
+ await expect(dialog.locator('#library-directory-error')).toHaveCount(0)
+ await expect(dialog.getByRole('button',{name:'保存链接',exact:true})).toBeEnabled()
+})
+
 test('saving waits for the current title lookup and duplicate blur does not queue another lookup',async({page})=>{
  const f=await mock(page)
  let lookups=0,finish

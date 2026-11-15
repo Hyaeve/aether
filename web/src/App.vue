@@ -49,7 +49,7 @@ import MediaCalendarPage from './pages/MediaCalendarPage.vue'
 import MyMediaPage from './pages/MyMediaPage.vue'
 
 const route = useRoute(), router = useRouter()
-const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref(''), online = ref(true)
+const accountMenu = ref(false), notificationMenu = ref(false), mobileNav = ref(false), connectionError = ref('')
 const sidebarNav=ref(null)
 const clipboardShare = ref(null)
 let clipboardQueue = [], clipboardGeneration = 0
@@ -190,8 +190,8 @@ async function refreshTraffic() {
 watch(() => state.authenticated, () => { trafficGeneration++; trafficRates.value = null; refreshTraffic() })
 async function bootstrap() {
   connectionError.value = ''
-  try { Object.assign(state, await api('/auth/status')); await reload(); refreshReplacementNotices(); state.loaded = true; online.value = true }
-  catch (e) { connectionError.value = e.message; online.value = false }
+  try { Object.assign(state, await api('/auth/status')); await reload(); refreshReplacementNotices(); state.loaded = true }
+  catch (e) { connectionError.value = e.message }
 }
 async function logout() {
   try { await api('/auth/logout', 'POST'); state.authenticated = false; closeMenus() } catch (e) { notify(e.message, true) }
@@ -204,7 +204,12 @@ onMounted(() => {
   bootstrap(); media.addEventListener('change', applyTheme)
   trafficTimer = setInterval(refreshTraffic, 1000)
   document.addEventListener('click', closeMenus); document.addEventListener('keydown', escapeMenus)
-  timer = setInterval(async () => { if (state.authenticated) { refreshReplacementNotices(); try { await reload(); online.value = true } catch { online.value = false } } }, 5000)
+  timer = setInterval(() => {
+    if (state.authenticated) {
+      refreshReplacementNotices()
+      void reload().catch(() => {})
+    }
+  }, 5000)
 })
 onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(trafficTimer); clearInterval(timer); media.removeEventListener('change', applyTheme); document.removeEventListener('click', closeMenus); document.removeEventListener('keydown', escapeMenus) })
 </script>
@@ -258,7 +263,6 @@ onUnmounted(() => { stopClipboard?.(); trafficGeneration++; clearInterval(traffi
       </header>
       <ThinScroll class="page-scroll" :thickness="8" :key="currentPath">
       <main class="page-content">
-        <div v-if="!online" class="error-message">服务连接已中断，正在重试…</div>
         <FileTabs v-if="currentPath === '/files/webdav'" />
         <section v-if="currentPath.startsWith('/tasks/') && !['/tasks/panel','/tasks/strm', '/tasks/cas', '/tasks/cas/pool', '/tasks/ed2k','/tasks/ed2k/pool', '/tasks/cache', '/tasks/cache/settings', '/tasks/organize', '/tasks/scrape', '/tasks/automation'].includes(currentPath)" class="task-heading"><TaskTabs /></section>
         <StoragePage v-if="currentPath === '/storage'" />

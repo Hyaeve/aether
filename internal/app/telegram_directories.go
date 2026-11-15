@@ -44,7 +44,9 @@ func telegramDirectoryPage(st State, job telegramTransfer) (string, [][]map[stri
 		rows = append(rows, navigation)
 		text += fmt.Sprintf("（%d/%d页）", job.Page+1, (len(job.Targets)+telegramDirectoryPageSize-1)/telegramDirectoryPageSize)
 	}
-	if job.Name != "" {
+	if job.Kind != "ed2k" && job.Kind != "ali-rapid" {
+		text = telegramPromptShareNames(st, job) + text
+	} else if job.Name != "" {
 		text = "分享内容：" + job.Name + "\n" + text
 	}
 	text = telegramGroupLabel(job) + text

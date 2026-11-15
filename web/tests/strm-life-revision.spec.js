@@ -130,15 +130,20 @@ test('old 115 tree tasks open as ordinary update and preserve saved cooldown',as
   expect(f.unexpected).toEqual([])
 })
 
-test('full sync is above reset, confirmed and does not clear the library first',async({page})=>{
-  const f=await fixture(page);await page.goto('/tasks/strm')
+for(const cascadeDelete of [false,true])test(`full sync is above reset, confirmed and only upserts filtered outputs cascade ${cascadeDelete}`,async({page},info)=>{
+  const f=await fixture(page);f.tasks[0].cascadeDelete=cascadeDelete
+  await page.setViewportSize({width:cascadeDelete?390:1440,height:900});await page.goto('/tasks/strm')
   await page.getByRole('button',{name:'任务操作 剧集监控',exact:true}).click()
   const labels=await page.locator('.task-menu>button').allTextContents()
   expect(labels.findIndex(v=>v.includes('全量同步'))).toBeLessThan(labels.findIndex(v=>v.includes('全量重置')))
   await page.getByRole('button',{name:'全量同步',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'全量同步',exact:true})
-  await expect(dialog).toContainText('不会先清空生成库')
+  await expect(dialog).toContainText('媒体扩展名、元数据扩展名和排除规则')
+  await expect(dialog).toContainText('覆盖已有STRM和元数据文件的变化内容')
+  await expect(dialog).toContainText('源目录中已不存在或被过滤的生成文件会保留')
+  await expect(dialog).not.toContainText('清理')
   expect(f.writes).toEqual([])
+  await captureScreenshot(page,{path:info.outputPath(`full-sync-${cascadeDelete?'390':'1440'}.png`)})
   await dialog.getByRole('button',{name:'确认同步',exact:true}).click()
   await expect(dialog).toHaveCount(0)
   expect(f.writes).toEqual([{p:'/api/tasks/life/sync',body:{confirm:true}}])

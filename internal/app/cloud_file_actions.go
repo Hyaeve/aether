@@ -84,6 +84,17 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 			return errors.New("源目录已变化，请刷新后重试")
 		}
 	}
+	if req.Action == "delete" && req.emptyOnly {
+		for _, file := range selected {
+			if !file.IsDir {
+				return errEmptyDirectoryUnconfirmed
+			}
+			children, err := a.rawList(ctx, s, file.ID)
+			if err != nil || len(children) != 0 {
+				return errEmptyDirectoryUnconfirmed
+			}
+		}
+	}
 	dest := req.Target
 	if dest == "" || dest == "/" {
 		dest = rootOf(s)
@@ -225,17 +236,6 @@ func (a *App) cloudFileAction(ctx context.Context, s, target Storage, req fileAc
 		case "copy":
 			return c.Copy(dest, req.IDs...)
 		case "delete":
-			if req.emptyOnly {
-				for _, file := range selected {
-					if !file.IsDir {
-						return errors.New("仅空目录清理不能用于文件")
-					}
-					items, err := a.rawList(ctx, s, file.ID)
-					if err != nil || len(items) != 0 {
-						return errEmptyDirectoryUnconfirmed
-					}
-				}
-			}
 			return c.Delete(req.IDs...)
 		}
 		return errors.New("无效的 115 文件操作")
@@ -350,6 +350,15 @@ func (a *App) protocolFileAction(ctx context.Context, s Storage, req fileActionR
 		}
 		if file == nil || fid == "/" {
 			return errors.New("源项目不存在")
+		}
+		if req.emptyOnly {
+			if !file.IsDir {
+				return errEmptyDirectoryUnconfirmed
+			}
+			children, err := a.rawList(ctx, s, file.ID)
+			if err != nil || len(children) != 0 {
+				return errEmptyDirectoryUnconfirmed
+			}
 		}
 		dest := path.Join(req.Target, file.Name)
 		if req.Action == "rename" {

@@ -88,6 +88,9 @@ function taskResult(task) {
 	if (task.healthPause) return task.healthPause
   return task.message || ({ running: '正在执行', success: '执行成功', error: '执行失败', failed: '执行失败', cancelled: '已停止' }[task.status]) || '尚未执行'
 }
+function lifePausedForSync(task) {
+  return task.enabled && task.strmSource === 'life' && task.strmFullSync
+}
 const storage = id => state.storages.find(s => s.id === id)
 function closeMenu(event) { if (!event.target.closest('.task-row-menu')) menu.value = '' }
 function escapeMenu(event) { if (event.key === 'Escape') menu.value = '' }
@@ -177,18 +180,21 @@ async function toggle(t) {
   <div class="task-list"><article v-for="t in tasks" :key="t.id" :data-config-path="`/tasks/${t.id}`" class="task-row-card" :data-id="t.id" :class="{ 'drag-armed': armed === t.id, dragging: dragging === t.id, 'drop-target': dropTarget === t.id, running: t.status === 'running' && !t.healthPause && !t.strmDeleteState, 'health-paused': !!t.healthPause && !t.strmDeleteState, 'delete-paused': !!t.strmDeleteState }" :draggable="false" tabindex="0" :aria-label="t.name" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown" @keydown="reorderKey($event, t)" @pointerdown="hold($event, t)" @click="cardClick($event, t, editCard)" @dragstart.prevent>
     <button class="task-provider-toggle" :aria-label="`${t.enabled ? '停用' : '启用'}任务 ${t.name}`" :aria-pressed="t.enabled" :disabled="t.status === 'running' || checking(t) || pending.has(t.id)" @click="toggle(t)"><ProviderIcon :type="storage(t.storageId)?.type" /></button>
     <div class="task-row-copy"><strong>{{ t.name }}</strong><small>{{ storage(t.storageId)?.name || '存储不可用' }}</small></div>
-    <div class="task-last-scan" tabindex="0" :aria-label="`最近执行：${scanTime(t.lastRun)}，${taskResult(t)}`"><time>最近执行：{{ scanTime(t.lastRun) }}</time><span class="task-result">{{ taskResult(t) }}</span></div>
+    <div class="task-last-scan" tabindex="0" :aria-label="lifePausedForSync(t) ? `全量同步中，生活事件已暂停，${taskResult(t)}` : `最近执行：${scanTime(t.lastRun)}，${taskResult(t)}`">
+      <span v-if="lifePausedForSync(t)" class="task-result task-life-paused">生活事件已暂停</span>
+      <template v-else><time>最近执行：{{ scanTime(t.lastRun) }}</time><span class="task-result">{{ taskResult(t) }}</span></template>
+    </div>
     <button v-if="t.strmDeleteState" class="icon-btn task-run task-delete-check" aria-label="检查源存储健康" title="检查源存储健康" :aria-busy="checking(t)" :disabled="pending.has(t.id) || checking(t) || t.status==='running'" @click="action(t,'check')"><Icon :name="checking(t)?'LoaderCircle':'RefreshCw'" :class="{spin:checking(t)}" /></button>
     <button v-else class="icon-btn task-run" :class="{stopping:t.status === 'running'}" :aria-label="t.healthPause ? '健康异常，暂时停止' : t.status === 'running' ? '停止任务' : '立即执行'" :disabled="pending.has(t.id) || !!t.healthPause" @click="action(t, t.status === 'running' ? 'stop' : 'run')"><Icon :name="t.healthPause ? 'Pause' : t.status === 'running' ? 'Square' : 'Play'" /></button>
     <div class="task-row-menu"><button class="icon-btn" :aria-label="`任务操作 ${t.name}`" @click.stop="menu = menu === t.id ? '' : t.id"><Icon name="EllipsisVertical" /></button><div v-if="menu === t.id" class="task-menu">
       <button @click="open(t)"><Icon :name="t.status === 'running' || checking(t) || pending.has(t.id) ? 'Eye' : 'Pencil'" />{{ t.status === 'running' || checking(t) || pending.has(t.id) ? '查看任务' : '编辑任务' }}</button>
-      <button v-if="kind==='strm'" :disabled="(t.status==='running' && !(t.strmSource==='life' && !t.cron?.trim())) || !!t.strmDeleteState || pending.has(t.id)" @click="syncTask=t;menu=''"><Icon name="FolderSync" />全量同步</button>
+      <button v-if="kind==='strm'" :disabled="t.strmFullSync || (t.status==='running' && !(t.strmSource==='life' && !t.cron?.trim())) || !!t.strmDeleteState || pending.has(t.id)" @click="syncTask=t;menu=''"><Icon name="FolderSync" />全量同步</button>
       <button v-if="!['cache','cas'].includes(kind)" :disabled="t.status === 'running' || !!t.strmDeleteState || pending.has(t.id)" @click="resetTask = t; menu = ''"><Icon name="RotateCcw" />全量重置</button><button class="danger-text" :disabled="t.status === 'running' || checking(t) || pending.has(t.id)" @click="confirmDelete = t; menu = ''"><Icon name="Trash2" />删除任务</button>
     </div></div>
   </article><button class="add-storage-tile add-task-tile" :aria-label="`添加 ${taskTitle} 任务卡片`" @click="open()"><Icon name="Plus" :size="25" /><strong>添加 {{taskTitle}} 任务</strong></button></div>
   <section v-if="generationJobs.length" class="generation-job-list" aria-label="解析生成队列"><article v-for="job in generationJobs" :key="job.id" :class="{running:job.status==='running',failed:job.status==='error'}"><div><strong>{{job.name}}</strong><small>{{job.processed}} / {{job.total}} · {{job.status==='queued'?'排队中':job.message}}</small></div><progress :value="job.processed" :max="job.total||1" :aria-label="`${job.name}生成进度`" /></article></section>
   <GenerationImport v-if="importer" :kind="kind" @close="importer=false" @queued="loadGeneration" />
-  <Modal v-if="syncTask" title="全量同步" confirmation @close="!busy&&(syncTask=null)"><div class="modal-body">将重新读取「{{syncTask.name}}」的完整源目录清单，在现有生成库上新增和更新STRM，并清理源目录已不存在的登记产物。<template v-if="syncTask.cascadeDelete">同时按配置清理同名伴随文件；作品或季度仍有STRM时保留公共刮削文件。</template>不会先清空生成库，不删除源文件。</div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="syncTask=null">取消</button><button class="btn primary" :disabled="busy" @click="syncOutput"><Icon name="FolderSync" />确认同步</button></footer></Modal>
+  <Modal v-if="syncTask" title="全量同步" confirmation @close="!busy&&(syncTask=null)"><div class="modal-body">将重新读取「{{syncTask.name}}」的完整源目录清单，按任务设置的媒体扩展名、元数据扩展名和排除规则，新增未生成的文件，并覆盖已有STRM和元数据文件的变化内容。源目录中已不存在或被过滤的生成文件会保留。</div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="syncTask=null">取消</button><button class="btn primary" :disabled="busy" @click="syncOutput"><Icon name="FolderSync" />确认同步</button></footer></Modal>
   <Modal v-if="resetTask" title="全量重置" confirmation @close="!busy && (resetTask = null)"><div class="modal-body">将清除任务「{{ resetTask.name }}」对应的生成库及其中元数据，再重新全量生成。此操作不可撤销，不删除源文件。公共根目录和重叠任务目录不能重置。</div><footer class="modal-footer"><button class="btn danger" :disabled="busy" @click="resetOutput">确认重置</button><button class="btn" :disabled="busy" @click="resetTask = null">取消</button></footer></Modal>
   <Modal v-if="modal" :title="`${readOnly ? '查看' : editing ? '编辑' : '添加'} ${taskTitle} 任务`" compact wide @close="!busy && (modal = false)">
     <form class="task-editor-form" @submit.prevent="save"><div :key="readOnly ? 'view' : 'edit'" class="modal-body"><div v-if="!availableStorages.length" class="inline-note"><Icon name="Info" />请先添加并启用一个存储池。<button type="button" class="text-btn" @click="$router.push('/storage')">前往添加</button></div>
@@ -246,6 +252,7 @@ async function toggle(t) {
   :is(.delete-threshold-field,.request-interval-field) :deep(.number-steppers){left:26px}
 }
 .health-paused .task-last-scan time{visibility:hidden}.health-paused .task-last-scan .task-result{visibility:visible}
+.task-result.task-life-paused{visibility:visible}
 .add-task-tile{min-height:72px;align-self:stretch;flex-direction:row;border-radius:8px;padding:12px 16px}.add-task-tile strong{font-size:13px;font-weight:500}@media(max-width:480px){.add-task-tile{min-height:98px}}.generation-job-list{display:grid;gap:10px;margin-top:16px}.generation-job-list article{padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.generation-job-list article.running{border-color:var(--green)}.generation-job-list article.failed{border-color:var(--red)}.generation-job-list article>div{display:flex;justify-content:space-between;gap:16px}.generation-job-list strong{font-size:14px}.generation-job-list small{color:var(--muted);font-size:12px;overflow-wrap:anywhere}.generation-job-list progress{width:100%;height:6px;margin-top:10px;accent-color:var(--primary)}
 .extension-heading { display: flex; align-items: center; gap: 12px; min-height: 32px; }
 .extension-heading label { margin: 0; flex: none; white-space: nowrap; }

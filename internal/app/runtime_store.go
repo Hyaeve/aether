@@ -10,7 +10,7 @@ import (
 )
 
 var runtimeFields = map[string][]string{
-	"tasks":       {"status", "message", "processed", "progressDone", "progressTotal", "progressKnown", "progressFraction", "lastRun", "nextRun", "casGenerated", "casFailed", "strmDeleteState"},
+	"tasks":       {"status", "message", "processed", "progressDone", "progressTotal", "progressKnown", "progressFraction", "lastRun", "nextRun", "casGenerated", "casFailed", "strmDeleteState", "strmFullSync"},
 	"automations": {"status", "message", "lastRun", "nextRun", "lastResult", "progressDone"},
 	"backupRules": {"status", "message", "scanned", "copied", "skipped", "deleted", "phase", "total", "processed", "lastRun", "nextRun", "syncPending"},
 	"storages":    {"status", "lastError", "health", "usage"},
@@ -18,7 +18,9 @@ var runtimeFields = map[string][]string{
 }
 var runtimeModule = map[string]string{"tasks": "task/", "automations": "task/automation", "backupRules": "transfer/backup", "storages": "storage/storage", "mounts": "file/mount"}
 
-func init() { runtimeRootFields = append(runtimeRootFields, "mediaMissing", "mediaQuality") }
+func init() {
+	runtimeRootFields = append(runtimeRootFields, "mediaMissing", "mediaQuality", "mediaFeatured", "organizeRuntime")
+}
 
 var runtimeRootFields = []string{"libraryNotices", "shareNotices", "shareTransfers", "shareLiveLinks", "casTemporary", "casStats", "casPlaybackAttempts", "renameHistory", "rename115Attempts", "ed2kTemporary", "ed2kStats", "generationJobs", "fileFavorites", "fileVisits", "rapid115Records", "rapid115Attempts", "rapid115Retries", "simulcastTemporary", "cloudCASRecords", "telegramRuntime", "quarkLibraryRuntime", "library115Runtime", "mobileLibraryRuntime", "casLibraryRuntime", "folderCleanupReceipts", "pan115SigninReceipts", "ali115Receipts"}
 
@@ -215,6 +217,12 @@ func (s *Store) initRuntime(dir string) error {
 		return err
 	}
 	// Missing runtime data can be rebuilt; corrupt authenticated data is not ignored.
+	for key, run := range s.state.OrganizeRuntime {
+		if run.Status == "running" || run.Status == "queued" || run.Status == "stopping" {
+			run.Status, run.Message, run.FinishedAt = "interrupted", "服务重启，整理已中断；已完成的文件保留，请核对后再执行", time.Now()
+			s.state.OrganizeRuntime[key] = run
+		}
+	}
 	for i := range s.state.Ali115Receipts {
 		if s.state.Ali115Receipts[i].Status == "running" {
 			s.state.Ali115Receipts[i].Status, s.state.Ali115Receipts[i].Message = "interrupted", "服务重启，秒传或清理结果未确认；请核对115与阿里/Aether目录，未自动重放"
@@ -298,6 +306,8 @@ func (s *Store) initRuntime(dir string) error {
 	}
 	for i := range s.state.Tasks {
 		t := &s.state.Tasks[i]
+		wasFullSync := t.STRMFullSync
+		t.STRMFullSync = false
 		if t.STRMDeleteState != nil {
 			t.STRMDeleteState.State = "waiting"
 			t.Status, t.Message = "delete-paused", "删除超限，等待源存储健康检查"
@@ -312,6 +322,8 @@ func (s *Store) initRuntime(dir string) error {
 			if t.Kind == "strm" && t.STRMSource == "life" && t.Enabled {
 				t.NextRun = nextRun(*t, time.Now())
 			}
+		} else if wasFullSync && t.Kind == "strm" && t.STRMSource == "life" {
+			t.NextRun = nextRun(*t, time.Now())
 		}
 	}
 	for i := range s.state.Automations {

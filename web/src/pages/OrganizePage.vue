@@ -11,11 +11,15 @@ import CacheHitChart from '../components/CacheHitChart.vue'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
 const items=ref([]),loaded=ref(false),busy=ref(false),editing=ref(null),deleting=ref(null),picker=ref(''),error=ref('')
 const rules=ref({naming:[],categories:[],upgrade:[]}),aiAvailable=ref(false)
+const pending=ref(new Set())
+const running=item=>['queued','running','stopping'].includes(item?.runtime?.status)
+const readOnly=computed(()=>!!editing.value?.id&&running(items.value.find(item=>item.id===editing.value.id)))
+const runMessage=item=>item.runtime?.message||(configured(item)?'配置完整':'待完善配置')
 const ruleFields=[{kind:'naming',key:'namingRuleId',label:'命名规则'},{kind:'categories',key:'mediaCategoryRuleId',label:'媒体分类'},{kind:'upgrade',key:'upgradeRuleId',label:'洗版策略'}]
 const toggles=[{key:'aiEnhance',label:'AI增强识别',help:'调用以太识律的AI辅助识别；须先配置并启用'},{key:'tmdbScrape',label:'TMDB刮削',help:'复用识别请求，在归档作品对应位置生成NFO与媒体图片'},{key:'ffprobe',label:'FFprobe解析',help:'仅补命名缺失信息，按需读取文件头；按可靠文件哈希缓存结果，支持媒体及STRM指向的媒体'},{key:'smartCleanup',label:'智能清理',help:'主文件完成后排队清理残留字幕及空目录，保留媒体、排除目录、失败字幕和来源根目录'}]
 const ruleOptions=kind=>[...(kind==='upgrade'?[{value:'',label:'不洗版'}]:[]),...(rules.value[kind]||[]).map(r=>({value:r.id,label:r.name}))]
 const rulesValid=computed(()=>ruleFields.every(f=>!editing.value?.[f.key]||rules.value[f.kind]?.some(r=>r.id===editing.value[f.key])))
-let alive=true,ticket=0
+let alive=true,ticket=0,timer,loading=0
 const storage=id=>state.storages.find(s=>s.id===id),available=computed(()=>state.storages.filter(s=>s.enabled))
 function configured(item){return !!(item.source&&item.target&&storage(item.storageId)?.enabled&&storage(item.targetStorageId)?.enabled&&ruleFields.every(f=>f.kind==='upgrade'&&!item[f.key]||rules.value[f.kind]?.some(r=>r.id===item[f.key])))}
 const readyCount=computed(()=>items.value.filter(configured).length)
@@ -30,30 +34,58 @@ const pickerStorage=computed(()=>picker.value==='target'?editing.value?.targetSt
 const pickerInitial=computed(()=>picker.value==='failure'?editing.value?.failureDirectory:picker.value==='source'?editing.value?.source:editing.value?.target)
 const pickerLabel=computed(()=>picker.value==='failure'?editing.value?.failurePath||editing.value?.failureLabel:picker.value==='source'?editing.value?.sourcePath||editing.value?.sourceLabel:editing.value?.targetPath||editing.value?.targetLabel)
 const pickerTrail=computed(()=>picker.value==='failure'?editing.value?.failureTrail:picker.value==='source'?editing.value?.sourceTrail:editing.value?.targetTrail)
-onUnmounted(()=>{alive=false;ticket++})
-async function load(){const run=++ticket,owner=state.username;try{const [value,options]=await Promise.all([api('/organize-tasks'),api('/organize-options')]);if(!Array.isArray(value)||!ruleFields.every(f=>Array.isArray(options.rules?.[f.kind])))throw Error('整理归档任务或规则响应格式异常');if(alive&&run===ticket&&owner===state.username){items.value=value;rules.value=options.rules;aiAvailable.value=!!options.aiAvailable;loaded.value=true}}catch(e){if(alive&&run===ticket)notify(e.message,true)}}
-onMounted(load)
+onUnmounted(()=>{alive=false;ticket++;clearInterval(timer)})
+async function load(poll=false){
+ if(poll&&loading)return
+ loading++
+ const run=++ticket,owner=state.username
+ try{
+  const [value,options]=await Promise.all([api('/organize-tasks'),poll?null:api('/organize-options')])
+  if(!Array.isArray(value)||(options&&!ruleFields.every(f=>Array.isArray(options.rules?.[f.kind]))))throw Error('整理归档任务或规则响应格式异常')
+  if(!alive||run!==ticket||owner!==state.username)return
+  items.value=value
+  if(options){rules.value=options.rules;aiAvailable.value=!!options.aiAvailable;loaded.value=true}
+ }catch(e){if(alive&&run===ticket&&!poll)notify(e.message,true)}finally{loading--}
+}
+onMounted(()=>{load();timer=setInterval(()=>{if(document.visibilityState!=='hidden'&&loaded.value&&!busy.value&&!pending.value.size)load(true)},1500)})
 const failureDefaults=()=>({failureDirectory:'',failurePath:'',failureLabel:'',failureTrail:[]})
 function open(item){if(busy.value)return;error.value='';const value=item?JSON.parse(JSON.stringify(item)):{};if(value.mediaCategoryRuleId==null&&value.categoryRuleId)value.mediaCategoryRuleId=value.categoryRuleId;delete value.categoryRuleId;editing.value={...failureDefaults(),upgradeRuleId:'',fileFilterMB:0,processConcurrency:1,optionsVersion:1,metadataExtensions:'srt;ass;ssa',excludeList:'',aiEnhance:false,tmdbScrape:true,ffprobe:true,smartCleanup:false,...(item?value:{id:'',name:'',storageId:'',source:'',sourcePath:'',sourceLabel:'',sourceTrail:[],targetStorageId:'',target:'',targetPath:'',targetLabel:'',targetTrail:[],method:'move'})};if(!value.optionsVersion){editing.value.optionsVersion=1;editing.value.metadataExtensions='srt;ass;ssa';editing.value.tmdbScrape=true;editing.value.ffprobe=true}for(const f of ruleFields)if(f.kind!=='upgrade'&&!editing.value[f.key])editing.value[f.key]=rules.value[f.kind][0]?.id||'';if(!aiAvailable.value)editing.value.aiEnhance=false}
 function select(value){if(picker.value==='failure'){if(value.storageId!==editing.value.storageId)return;Object.assign(editing.value,{failureDirectory:value.source,failurePath:value.sourcePath,failureLabel:value.sourceLabel,failureTrail:value.sourceTrail})}else if(picker.value==='source'){if(value.storageId!==editing.value.storageId)Object.assign(editing.value,failureDefaults());Object.assign(editing.value,value)}else Object.assign(editing.value,{targetStorageId:value.storageId,target:value.source,targetPath:value.sourcePath,targetLabel:value.sourceLabel,targetTrail:value.sourceTrail});if(!methods.value.some(m=>m.value===editing.value.method))editing.value.method='move';picker.value=''}
 function clear(side){if(side==='failure')Object.assign(editing.value,failureDefaults());else if(side==='source')Object.assign(editing.value,{storageId:'',source:'',sourcePath:'',sourceLabel:'',sourceTrail:[],...failureDefaults()});else Object.assign(editing.value,{targetStorageId:'',target:'',targetPath:'',targetLabel:'',targetTrail:[]});if(!methods.value.some(m=>m.value===editing.value.method))editing.value.method='move'}
 function location(item,side){const source=side==='source',id=source?item.storageId:item.targetStorageId,p=source?item.sourcePath:item.targetPath;return id?`${storage(id)?.name||'存储已移除'} · ${p||'/'}`:''}
-async function save(){if(busy.value)return;busy.value=true;error.value='';const value=editing.value,owner=state.username;try{await api(value.id?`/organize-tasks/${value.id}`:'/organize-tasks',value.id?'PUT':'POST',value);if(!alive||owner!==state.username)return;editing.value=null;await load();notify('整理归档任务已保存')}catch(e){if(alive)error.value=e.message}finally{if(alive)busy.value=false}}
+async function save(){if(busy.value||readOnly.value)return;busy.value=true;error.value='';const {runtime,...value}=editing.value,owner=state.username;try{await api(value.id?`/organize-tasks/${value.id}`:'/organize-tasks',value.id?'PUT':'POST',value);if(!alive||owner!==state.username)return;editing.value=null;await load();notify('整理归档任务已保存')}catch(e){if(alive)error.value=e.message}finally{if(alive)busy.value=false}}
+async function execute(item){
+ if(pending.value.has(item.id)||busy.value||item.runtime?.status==='stopping')return
+ pending.value.add(item.id)
+ const action=running(item)?'stop':'run',owner=state.username
+ try{
+  const result=await api(`/organize-tasks/${item.id}/${action}`,'POST')
+  if(!alive||owner!==state.username)return
+  const current=items.value.find(row=>row.id===item.id)
+  if(current)current.runtime=action==='run'?{status:'queued',message:'等待后台整理'}:{...current.runtime,status:'stopping',message:'正在停止整理归档'}
+  notify(result.message||(action==='run'?'整理归档已入队':'整理归档正在停止'))
+  await load()
+ }catch(e){if(alive&&owner===state.username)notify(e.message,true)}finally{pending.value.delete(item.id)}
+}
 async function remove(){if(busy.value)return;busy.value=true;const value=deleting.value,owner=state.username;try{await api(`/organize-tasks/${value.id}`,'DELETE');if(!alive||owner!==state.username)return;deleting.value=null;await load();notify('整理归档任务已删除')}catch(e){if(alive)notify(e.message,true)}finally{if(alive)busy.value=false}}
 </script>
 <template>
  <section class="task-heading"><TaskTabs/></section>
  <section class="organize-overview" aria-label="整理归档统计" :aria-busy="!loaded">
   <CacheHitChart task label="配置完整率" :hits="readyCount" :misses="items.length-readyCount"/>
-  <div class="organize-overview-note"><strong>整理归档</strong><small>管理目录与规则配置，归档执行功能待接入</small></div>
+  <div class="organize-overview-note"><strong>整理归档</strong><small>按命名与分类规则归档文件，执行结果可在整理档案查看</small></div>
   <dl><div><dt><Icon name="ListTodo" :size="16"/>任务总数</dt><dd><AnimatedNumber :value="items.length"/></dd></div><div><dt><Icon name="BadgeCheck" :size="16"/>配置完整</dt><dd><AnimatedNumber :value="readyCount"/></dd></div><div><dt><Icon name="CircleAlert" :size="16"/>待完善</dt><dd><AnimatedNumber :value="items.length-readyCount"/></dd></div></dl>
  </section>
- <section class="organize-task-list" aria-label="整理归档任务">
-  <article v-for="item in items" :key="item.id" class="organize-task-card" :data-config-path="`/organize-tasks/${item.id}`" tabindex="0" :aria-label="`整理归档任务 ${item.name}`" @click="open(item)" @keydown.enter.self="open(item)" @keydown.space.self.prevent="open(item)"><Icon name="OrganizeArchive" :size="24"/><div class="organize-task-summary"><strong :data-tooltip="item.name" data-tooltip-stationary>{{item.name}}</strong><div class="organize-task-paths"><span :data-tooltip="location(item,'source')" data-tooltip-stationary>{{location(item,'source')}}</span><Icon name="ArrowRight" :size="16"/><span :data-tooltip="location(item,'target')" data-tooltip-stationary>{{location(item,'target')}}</span></div><small>{{methodNames[item.method]}}<span :class="{'organize-ready':configured(item)}">{{configured(item)?'配置完整':'待完善配置'}}</span></small></div><div class="organize-task-actions"><button class="icon-btn" :aria-label="`编辑整理归档 ${item.name}`" :disabled="busy" @click.stop="open(item)"><Icon name="Pencil"/></button><button class="icon-btn danger-text" :aria-label="`删除整理归档 ${item.name}`" :disabled="busy" @click.stop="deleting=item"><Icon name="Trash2"/></button></div></article>
+ <section class="task-list organize-task-list" aria-label="整理归档任务">
+  <article v-for="item in items" :key="item.id" class="task-row-card organize-task-card" :class="{running:running(item),failed:item.runtime?.status==='error'}" :data-config-path="`/organize-tasks/${item.id}`" tabindex="0" :aria-label="`整理归档任务 ${item.name}`" @click="open(item)" @keydown.enter.self="open(item)" @keydown.space.self.prevent="open(item)">
+   <Icon name="OrganizeArchive" :size="24"/>
+   <div class="organize-task-summary"><strong :data-tooltip="item.name" data-tooltip-stationary>{{item.name}}</strong><div class="organize-task-paths"><span :data-tooltip="location(item,'source')" data-tooltip-stationary>{{location(item,'source')}}</span><Icon name="ArrowRight" :size="14"/><span :data-tooltip="location(item,'target')" data-tooltip-stationary>{{location(item,'target')}}</span></div><small>{{methodNames[item.method]}}<span :class="{'organize-ready':configured(item)&&!item.runtime}" :data-tooltip="runMessage(item)" data-tooltip-stationary>{{runMessage(item)}}</span></small><progress v-if="running(item)" :value="item.runtime?.scanned?item.runtime.done:undefined" :max="item.runtime?.total||1" :aria-label="`${item.name}整理进度`"/></div>
+   <div class="organize-task-actions"><button class="icon-btn task-run" :class="{stopping:running(item)}" :aria-label="`${running(item)?'停止':'执行'}整理归档 ${item.name}`" :data-tooltip="running(item)?'停止任务':'执行任务'" data-tooltip-always :disabled="busy||pending.has(item.id)||item.runtime?.status==='stopping'||(!running(item)&&!configured(item))" @click.stop="execute(item)"><Icon :name="pending.has(item.id)?'LoaderCircle':running(item)?'Square':'Play'" :class="{spin:pending.has(item.id)}"/></button><button class="icon-btn" :aria-label="`编辑整理归档 ${item.name}`" :disabled="busy||pending.has(item.id)" @click.stop="open(item)"><Icon :name="running(item)?'Eye':'Pencil'"/></button><button class="icon-btn danger-text" :aria-label="`删除整理归档 ${item.name}`" :disabled="busy||pending.has(item.id)||running(item)" @click.stop="deleting=item"><Icon name="Trash2"/></button></div>
+  </article>
   <button class="organize-task-add" aria-label="添加整理归档任务" :disabled="!loaded||busy" @click="open()"><Icon name="Plus"/>添加整理归档任务</button>
  </section>
  <Modal v-if="editing" standard :title="editing.id?'编辑整理归档':'添加整理归档'" @close="!busy&&(editing=null)">
-  <form class="organize-task-editor" @submit.prevent="clampConcurrency();save()"><div class="modal-body organize-task-form">
+  <form class="organize-task-editor" @submit.prevent="clampConcurrency();save()"><fieldset class="modal-body organize-task-form" :disabled="readOnly">
    <label>任务名称<input v-model.trim="editing.name" aria-label="任务名称" maxlength="200" required :disabled="busy"/></label>
    <div class="field"><label for="organize-source">待整理目录</label><div class="organize-directory"><button id="organize-source" type="button" class="source-trigger" aria-label="选择待整理目录" :disabled="busy" @click="picker='source'"><span>{{location(editing,'source')}}</span><Icon name="FolderOpen"/></button><button v-if="editing.storageId" type="button" class="icon-btn" aria-label="清除待整理目录" :disabled="busy" @click="clear('source')"><Icon name="X" :size="15"/></button></div></div>
    <div class="field"><label>整理方式</label><RoundedSelect v-model="editing.method" label="整理方式" :options="methods" :disabled="busy"/></div>
@@ -65,7 +97,7 @@ async function remove(){if(busy.value)return;busy.value=true;const value=deletin
    <label>排除名单<input v-model="editing.excludeList" aria-label="排除名单" placeholder="预告;.strm;/花絮" maxlength="16384" :disabled="busy"/><small>文件关键词；.扩展名；/目录关键词</small></label>
    <div class="organize-toggle-row"><label v-for="toggle in toggles" :key="toggle.key" class="organize-toggle" :data-tooltip="toggle.help" data-tooltip-stationary><span>{{toggle.label}}</span><input v-model="editing[toggle.key]" class="switch" type="checkbox" role="switch" :aria-label="toggle.label" :disabled="busy||(toggle.key==='aiEnhance'&&!aiAvailable)"/></label><small v-if="!aiAvailable">AI增强识别须先在以太识律的辅助配置中配置并启用</small></div>
    <p v-if="error" class="error-message" role="alert">{{error}}</p>
-  </div><footer class="modal-footer"><button type="button" class="btn" :disabled="busy" @click="editing=null">取消</button><button class="btn primary" :disabled="busy||!filterValid||!rulesValid||!editing.name.trim()||!editing.storageId||!editing.targetStorageId||!editing.source||!editing.target"><Icon name="Check"/>保存</button></footer></form>
+  </fieldset><footer class="modal-footer"><small v-if="readOnly">任务执行中，仅可查看配置</small><button type="button" class="btn" :disabled="busy" @click="editing=null">{{readOnly?'关闭':'取消'}}</button><button class="btn primary" :disabled="busy||readOnly||!filterValid||!rulesValid||!editing.name.trim()||!editing.storageId||!editing.targetStorageId||!editing.source||!editing.target"><Icon name="Check"/>保存</button></footer></form>
  </Modal>
  <TaskSourcePicker v-if="picker&&editing" :key="picker" :storages="pickerStorages" :storage="pickerStorage" :initial="pickerInitial||'/'" :initial-label="pickerLabel" :initial-trail="pickerTrail||[]" include-full-path clickable-path @select="select" @close="picker=''"/>
  <Modal v-if="deleting" confirmation title="删除整理归档任务" @close="!busy&&(deleting=null)"><div class="modal-body">确认删除整理归档任务「{{deleting.name}}」？</div><footer class="modal-footer"><button class="btn" :disabled="busy" @click="deleting=null">取消</button><button class="btn danger" :disabled="busy" @click="remove">确认删除</button></footer></Modal>
@@ -77,9 +109,9 @@ async function remove(){if(busy.value)return;busy.value=true;const value=deletin
 .organize-task-summary small>.organize-ready{color:var(--green)}
 @media(max-width:900px){.organize-overview{grid-template-columns:104px minmax(0,1fr);gap:12px}.organize-overview dl{grid-column:1/-1}}
 @media(max-width:480px){.organize-overview{padding:12px;--cache-chart-size:92px;grid-template-columns:92px minmax(0,1fr)}.organize-overview dl{gap:8px}.organize-overview dt{font-size:12px;gap:4px}.organize-overview dt svg{width:14px}}
-.organize-task-list{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.organize-task-card,.organize-task-add{width:100%;min-width:0;min-height:124px;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:22px;background:var(--surface)}.organize-task-card{display:flex;align-items:center;gap:18px;cursor:pointer}.organize-task-card:hover{border-color:var(--primary)}.organize-task-card>svg{flex:none;color:var(--primary)}.organize-task-summary{display:grid;gap:10px;min-width:0;flex:1}.organize-task-summary strong{font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.organize-task-paths{display:flex;align-items:center;gap:10px;min-width:0;color:var(--muted);font-size:13px}.organize-task-paths>span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.organize-task-paths svg{flex:none}.organize-task-summary small{font-size:12px;color:var(--muted)}.organize-task-summary small>span{margin-left:14px}.organize-task-actions{display:flex;gap:6px;flex:none}.organize-task-add{display:flex;align-items:center;justify-content:center;gap:10px;border-style:dashed;background:transparent;color:var(--muted);cursor:pointer;font-size:15px}.organize-task-add:hover:enabled{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}.organize-task-add:disabled{cursor:default}.organize-task-card:focus-visible,.organize-task-add:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.organize-task-card,.organize-task-add{width:100%;min-width:0;min-height:72px;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:var(--surface)}.organize-task-card{gap:12px;cursor:pointer;flex-wrap:nowrap}.organize-task-card>svg{flex:none;color:var(--primary)}.organize-task-card.failed{border-color:var(--red)}.organize-task-summary{display:grid;gap:4px;min-width:0;flex:1}.organize-task-summary strong{font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.organize-task-paths{display:flex;align-items:center;gap:5px;min-width:0;color:var(--muted);font-size:12px}.organize-task-paths>span{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.organize-task-paths svg{flex:none}.organize-task-summary small{display:flex;gap:10px;min-width:0;font-size:12px;color:var(--muted)}.organize-task-summary small>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.organize-task-summary progress{width:100%;height:4px;accent-color:var(--primary)}.organize-task-actions{display:flex;gap:2px;flex:none}.organize-task-add{display:flex;align-items:center;justify-content:center;gap:10px;border-style:dashed;color:var(--muted);cursor:pointer;font-size:13px}.organize-task-add:hover:enabled{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}.organize-task-add:disabled{cursor:default}.organize-task-card:focus-visible,.organize-task-add:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .organize-task-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 16px}.organize-task-form>label,.organize-task-form>.field{min-width:0}.organize-task-form input,.organize-task-form :deep(.rounded-select-trigger),.organize-task-form .source-trigger{height:40px;min-height:40px;width:100%}.organize-task-form>.error-message{grid-column:1/-1}.organize-directory{position:relative;min-width:0}.organize-directory>.source-trigger{padding-right:12px}.organize-directory:has(>.icon-btn)>.source-trigger{padding-right:38px}.organize-directory>.icon-btn{position:absolute;right:5px;top:6px;width:26px;height:28px}.organize-directory .source-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.organize-directory .source-trigger>svg{flex:none}.organize-directory:has(>.icon-btn) .source-trigger>svg{display:none}
-@media(max-width:760px){.organize-task-card{padding:18px 12px;gap:12px}.organize-task-actions{gap:2px}.organize-task-actions .icon-btn{width:28px}.organize-task-form{gap:16px 10px}.organize-task-paths{flex-wrap:wrap;gap:5px}.organize-task-paths>span{max-width:100%}}
+@media(max-width:760px){.organize-task-card,.organize-task-add{padding:12px}.organize-task-card{gap:8px}.organize-task-actions .icon-btn{width:30px}.organize-task-form{gap:16px 10px}}
 .organize-task-form :deep(.number-control){width:100%;height:40px}.organize-failure-field .directory-input{height:40px;min-width:0}.organize-failure-field .directory-input input{min-width:0;flex:1;width:0}.organize-failure-field small,.organize-filter-field small{font-size:12px;color:var(--muted);line-height:1.5}.organize-filter-field small.error-message{color:var(--red)}
 .organize-task-form .organize-filter-field :deep(.number-control input){padding-right:68px}.organize-task-form .organize-filter-field :deep(.number-accessory){width:62px;justify-items:start;padding-left:4px}.organize-task-form .organize-filter-field :deep(.number-unit){opacity:1}.organize-task-form .organize-filter-field :deep(.number-steppers){left:28px}
 :global(.modal:has(>.organize-task-editor)){display:flex;flex-direction:column;overflow:hidden}
@@ -90,6 +122,7 @@ async function remove(){if(busy.value)return;busy.value=true;const value=deletin
 @media(max-width:480px){.organize-rules-row{gap:6px}.organize-rules-row>.field>label{font-size:13px}.organize-toggle{font-size:11px}}
 .organize-rules-row :deep(.rounded-select){min-width:0;width:100%;max-width:100%}.organize-rules-row :deep(.rounded-select-trigger){min-width:0;max-width:100%}.organize-rules-row :deep(.rounded-select-trigger>svg){flex-shrink:0}
 .organize-task-add{background:var(--surface)}
+.organize-task-form{margin:0;border:0}.organize-task-editor>.modal-footer>small{margin-right:auto;color:var(--muted);font-size:12px}
 </style>
 <style scoped>
 .organize-rules-row{grid-template-columns:repeat(2,minmax(0,1fr))}

@@ -52,6 +52,7 @@ type Task struct {
 	resetGeneration    bool
 	fullSyncGeneration bool
 	STRMSource         string           `json:"strmSource,omitempty"`
+	STRMFullSync       bool             `json:"strmFullSync,omitempty"`
 	STRMLifeSince      time.Time        `json:"strmLifeSince,omitempty"`
 	CascadeDelete      bool             `json:"cascadeDelete,omitempty"`
 	CascadeExtensions  string           `json:"cascadeExtensions,omitempty"`
@@ -135,10 +136,12 @@ type State struct {
 	MediaDisplay          mediaDisplaySettings            `json:"mediaDisplay"`
 	MediaMissing          map[string]mediaMissingResult   `json:"mediaMissing,omitempty"`
 	MediaQuality          map[string]mediaQualityResult   `json:"mediaQuality,omitempty"`
+	MediaFeatured         map[string]mediaFeaturedResult  `json:"mediaFeatured,omitempty"`
 	MediaSubscriptions    []mediaSubscription             `json:"mediaSubscriptions,omitempty"`
 	RecognitionRules      *recognitionSettings            `json:"recognitionRules,omitempty"`
 	RulePresets           []rulePreset                    `json:"rulePresets,omitempty"`
 	OrganizeTasks         []organizeTaskDefinition        `json:"organizeTasks,omitempty"`
+	OrganizeRuntime       map[string]organizeRunState     `json:"organizeRuntime,omitempty"`
 	MediaDeepDelete       mediaDeepDeleteSettings         `json:"mediaDeepDelete"`
 	Ali115                ali115Settings                  `json:"ali115"`
 	Ali115Receipts        []ali115Receipt                 `json:"ali115Receipts,omitempty"`

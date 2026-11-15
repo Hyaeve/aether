@@ -140,27 +140,7 @@ func (a *App) library115API(w http.ResponseWriter, r *http.Request) {
 			fail(w, 404, errors.New("115链接不存在"))
 			return
 		}
-		err := a.store.update(func(st *State) error {
-			for i, c := range st.Library115Cards {
-				if c.ID == key {
-					st.Library115Cards = append(st.Library115Cards[:i], st.Library115Cards[i+1:]...)
-					break
-				}
-			}
-			delete(st.Library115Runtime.Results, key)
-			delete(st.Library115Runtime.Roots, key)
-			for k, f := range st.Library115Runtime.Files {
-				if f.CardID == key {
-					delete(st.Library115Runtime.Files, k)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			fail(w, 500, err)
-			return
-		}
-		jsonResponse(w, 200, map[string]bool{"ok": true})
+		a.shareLibraryDeleteAPI(w, r, "115", old)
 		return
 	}
 	if r.Method != "POST" && r.Method != "PUT" {

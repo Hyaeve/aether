@@ -169,6 +169,9 @@ func TestTelegramAuthorizedMessagesAndOrderedConfirmation(t *testing.T) {
 	if job.Status != "choosing" || job.Targets[0].ID != "first" || job.MessageID != 77 {
 		t.Fatal(job.Status, job.Targets)
 	}
+	if !strings.Contains(sent[1]["text"].(string), "分享名称：分享目录\n") {
+		t.Fatal("initial directory prompt omitted the share name", sent[1]["text"])
+	}
 	keyboard := sent[1]["reply_markup"].(map[string]any)["inline_keyboard"].([]any)
 	if !strings.HasPrefix(keyboard[0].([]any)[0].(map[string]any)["text"].(string), "1. 夸克影视 · /First") {
 		t.Fatal(keyboard)

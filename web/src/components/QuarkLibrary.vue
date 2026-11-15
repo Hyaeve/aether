@@ -26,6 +26,7 @@ const settingsPage = computed(() => route.path.endsWith('/settings'))
 const { leaving, back } = usePageSlide(`/virtual/${props.provider}`)
 const cards = ref([]), stats = ref({}), cfg = reactive({scrapeEnabled:false,storageIds:[],directory:'',invalidDays:15,retentionHours:12,rotationHours:24,updateDays:7,storageId:'',mediaExtensions:'',metadataExtensions:'',playbackMode:'share'})
 const form = reactive({}), modal = ref(false), picker = ref(false), deleting = ref(null), loading = ref(false), saving = ref(false), running = ref('')
+const deleteMode=ref(''),deleteError=ref('')
 const settingsPicker = ref(false)
 const confirmingSync = ref(null)
 const originalForm=ref(null)
@@ -116,10 +117,13 @@ async function run(card, confirmed = false) {
   }catch(e){if(active)notify(e.message,true)}finally{if(active){running.value='';await load()}}
 }
 function confirmSync(){const action=confirmingSync.value;confirmingSync.value=null;if(action.mode==='save')save(true);else run(action.card,true)}
-async function remove() {
+function openRemove(card){deleteError.value='';deleteMode.value='';deleting.value=card}
+async function remove(deleteFiles=false) {
+  if(saving.value)return
   saving.value=true
-  try{await api(`${apiRoot}/${deleting.value.id}`,'DELETE');if(active){deleting.value=null;notify('链接记录已移除，生成文件保留');await load()}}
-  catch(e){if(active)notify(e.message,true)}finally{if(active)saving.value=false}
+  deleteMode.value=deleteFiles?'files':'record';deleteError.value=''
+  try{const value=await api(`${apiRoot}/${deleting.value.id}`,'DELETE',{deleteFiles,confirm:deleteFiles});if(active){deleting.value=null;notify(value.message||(deleteFiles?'链接记录及生成目录已删除':'链接记录已移除，生成文件保留'));await load()}}
+  catch(e){if(active){deleteError.value=e.message;notify(e.message,true)}}finally{if(active){saving.value=false;deleteMode.value=''}}
 }
 async function saveSettings() {
   if(!validExtensions(cfg))return
@@ -160,7 +164,7 @@ defineExpose({open})
   </div>
   <template v-else>
     <QuarkLibraryOverview :provider="provider" :cards="cards" :stats="stats" :running="running" />
-    <ShareLibraryRows :provider="provider" :cards="cards" :running="running" :busy="saving||backgroundBusy" :loading="loading" @edit="open" @remove="deleting=$event" @run="run" />
+    <ShareLibraryRows :provider="provider" :cards="cards" :running="running" :busy="saving||backgroundBusy" :loading="loading" @edit="open" @remove="openRemove" @run="run" />
   </template>
   <Modal v-if="modal" standard compact :title="`${form.id?'编辑':'添加'}${providerLabel}链接`" @close="!saving&&(modal=false)">
     <form class="quark-library-form" @submit.prevent="save" @keydown.enter="['INPUT'].includes($event.target.tagName)&&$event.preventDefault()"><div class="modal-body quark-library-editor"><fieldset :disabled="saving"><div class="form-grid">
@@ -184,10 +188,11 @@ defineExpose({open})
   </Modal>
   <LocalDirectoryPicker v-if="picker" :initial="form.directory" @close="picker=false" @select="form.directory=$event;picker=false" />
   <LocalDirectoryPicker v-if="settingsPicker" :initial="cfg.directory" @close="settingsPicker=false" @select="cfg.directory=$event;settingsPicker=false" />
-  <Modal v-if="deleting" compact confirmation :title="`移除${providerLabel}链接`" @close="!saving&&(deleting=null)"><div class="modal-body">确认移除「{{deleting.name}}」？已生成的本地文件保留<template v-if="!cas">，分享播放授权将失效</template>。</div><footer class="modal-footer"><button class="btn" :disabled="saving" @click="deleting=null">取消</button><button class="btn danger" :disabled="saving" @click="remove">确认移除</button></footer></Modal>
+  <Modal v-if="deleting" compact confirmation :title="`删除${providerLabel}链接`" @close="!saving&&(deleting=null)"><div class="modal-body">「{{deleting.name}}」：仅移除记录会保留本地文件；删除记录及生成文件会清理本库产物和目录，释放目录名称。<p v-if="deleteError" class="error-message" role="alert">{{deleteError}}</p></div><footer class="modal-footer library-delete-actions"><button class="btn library-remove-only" :disabled="saving" @click="remove(false)"><Icon :name="deleteMode==='record'?'LoaderCircle':'Link2Off'" :class="{spin:deleteMode==='record'}"/>仅移除记录</button><button class="btn danger" :disabled="saving" @click="remove(true)"><Icon :name="deleteMode==='files'?'LoaderCircle':'Trash2'" :class="{spin:deleteMode==='files'}"/>删除记录及生成文件</button></footer></Modal>
   <Modal v-if="confirmingSync" compact confirmation :title="`同步${providerLabel}分享`" @close="confirmingSync=null"><div class="modal-body"><template v-if="cas">将生成缺少的CAS文件，已有文件直接跳过。分享没有SHA256时，将临时转存到CAS绑定的移动存储；确认生成后清理本次副本，未知结果保留回执。</template><template v-else>同步生成目录，清理过期登记产物；保留未登记或已修改的文件。</template></div><footer class="modal-footer"><button class="btn" @click="confirmingSync=null">取消</button><button class="btn primary" @click="confirmSync">{{cas?'确认生成':'确认同步'}}</button></footer></Modal>
 </template>
 <style scoped>
+.library-delete-actions{justify-content:space-between;gap:12px}.library-delete-actions .btn{font-size:13px;padding:0 12px}.library-remove-only{background:color-mix(in srgb,var(--amber) 16%,var(--surface));border-color:color-mix(in srgb,var(--amber) 40%,var(--border));color:color-mix(in srgb,var(--amber) 65%,var(--text))}.library-remove-only:hover{background:color-mix(in srgb,var(--amber) 23%,var(--surface));border-color:var(--amber)}.library-delete-actions .btn.danger{color:var(--red);background:color-mix(in srgb,var(--red) 12%,var(--surface));border-color:color-mix(in srgb,var(--red) 35%,var(--border))}.library-delete-actions .btn.danger:hover{background:color-mix(in srgb,var(--red) 20%,var(--surface))}
 .library-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}.quark-settings-form .library-settings-heading h3{margin:0}.library-settings-heading .btn{flex:none}
 .quark-settings-fields :deep(.rounded-select),.quark-settings-fields :deep(.rounded-select-trigger){min-width:0;width:100%}
 @media(min-width:701px) and (max-width:1100px){.quark-library-settings .quark-settings-form{grid-template-columns:minmax(0,1fr)}}

@@ -15,7 +15,7 @@ async function fixture(page,provider='mobile',count=45){
     else if(path===base&&method==='GET')json={cards,settings:cfg,stats:{strm:count*3,metadata:0}}
     else if(path===base+'/resolve')json={name:'移动分享名称'}
     else if(path===base+'/settings'&&method==='PUT'){writes.push({method,path,body:request.postDataJSON()});Object.assign(cfg,request.postDataJSON());json=cfg}
-    else if(path.startsWith(base+'/')&&method==='DELETE'){const index=cards.findIndex(c=>c.id===path.split('/').at(-1));cards.splice(index,1);json={ok:true}}
+    else if(path.startsWith(base+'/')&&method==='DELETE'){writes.push({method,path,body:request.postDataJSON()});const index=cards.findIndex(c=>c.id===path.split('/').at(-1));cards.splice(index,1);json={ok:true}}
     else if(path.endsWith('/run')&&path.startsWith(base+'/')&&method==='POST'){writes.push({method,path});json={message:'已在后台开始生成'}}
     else if((path===base&&method==='POST')||(path.startsWith(base+'/')&&method==='PUT')){
       const body=request.postDataJSON();writes.push({method,path,body})
@@ -31,6 +31,61 @@ async function fixture(page,provider='mobile',count=45){
   })
   return{cards,writes,unexpected,cfg}
 }
+
+for(const provider of ['115','mobile','quark','cas'])for(const [width,theme] of (provider==='quark'?[[1440,'light'],[390,'dark'],[375,'light'],[844,'dark']]:[[1440,'light'],[390,'dark']]))test(`library deletion offers record-only and confirmed output cleanup ${provider} ${width}`,async({page},info)=>{
+ const f=await fixture(page,provider,2)
+ await page.setViewportSize({width,height:width===844?390:844});await page.goto('/virtual/'+provider)
+ await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
+ const name=provider==='mobile'?'移动':provider==='quark'?'夸克':provider==='cas'?'CAS':'115'
+ const dialog=page.getByRole('dialog',{name:`删除${name}链接`,exact:true})
+ await page.getByRole('button',{name:'移除 分享 1',exact:true}).click()
+ await expect(dialog).toContainText('保留本地文件')
+ await expect(dialog.getByRole('button',{name:'仅移除记录',exact:true})).toBeEnabled()
+ await expect(dialog.getByRole('button',{name:'删除记录及生成文件',exact:true})).toBeEnabled()
+ const buttons=dialog.locator('.modal-footer button')
+ await expect(buttons).toHaveCount(2)
+ expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+ const [left,right]=await Promise.all([buttons.nth(0).boundingBox(),buttons.nth(1).boundingBox()])
+ expect(left.x+left.width).toBeLessThanOrEqual(right.x)
+ await captureScreenshot(page,{path:info.outputPath(`delete-${provider}-${width}-${theme}.png`)})
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0)
+ expect(f.writes.filter(w=>w.method==='DELETE')).toHaveLength(0)
+ await page.getByRole('button',{name:'移除 分享 1',exact:true}).click()
+ await dialog.getByRole('button',{name:'仅移除记录',exact:true}).click()
+ await expect(dialog).toHaveCount(0)
+ expect(f.writes.at(-1).body).toEqual({deleteFiles:false,confirm:false})
+ expect(f.cards.map(c=>c.id)).toEqual(['c2'])
+ let finish
+ await page.route(`**/api/virtual-library/${provider}/c2`,route=>new Promise(resolve=>{finish=async()=>{expect(route.request().postDataJSON()).toEqual({deleteFiles:true,confirm:true});f.cards.splice(0,1);await route.fulfill({json:{ok:true,message:'链接记录及生成目录已删除'}});resolve()}}))
+ await page.getByRole('button',{name:'移除 分享 2',exact:true}).click()
+ await dialog.getByRole('button',{name:'删除记录及生成文件',exact:true}).click()
+ await expect(dialog.getByRole('button',{name:'仅移除记录',exact:true})).toBeDisabled()
+ await expect(dialog.getByRole('button',{name:'删除记录及生成文件',exact:true})).toBeDisabled()
+ await page.keyboard.press('Escape');await expect(dialog).toBeVisible()
+ await finish();await expect(dialog).toHaveCount(0)
+ expect(f.cards).toHaveLength(0);expect(f.unexpected).toEqual([])
+})
+
+test('failed output cleanup keeps the dialog and allows record-only recovery',async({page})=>{
+ const f=await fixture(page,'mobile',1)
+ const failure='生成目录包含未登记文件，请先移走无关文件后再删除'
+ await page.route('**/api/virtual-library/mobile/c1',route=>{
+  const body=route.request().postDataJSON();f.writes.push({method:'DELETE',body})
+  if(body.deleteFiles)return route.fulfill({status:409,json:{error:failure}})
+  f.cards.splice(0,1);return route.fulfill({json:{ok:true}})
+ })
+ await page.goto('/virtual/mobile')
+ await page.getByRole('button',{name:'移除 分享 1',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'删除移动链接',exact:true})
+ await dialog.getByRole('button',{name:'删除记录及生成文件',exact:true}).click()
+ await expect(dialog.getByRole('alert')).toHaveText(failure)
+ await expect(dialog.getByRole('button',{name:'仅移除记录',exact:true})).toBeEnabled()
+ expect(f.cards).toHaveLength(1)
+ await dialog.getByRole('button',{name:'仅移除记录',exact:true}).click()
+ await expect(dialog).toHaveCount(0)
+ expect(f.writes.map(w=>w.body)).toEqual([{deleteFiles:true,confirm:true},{deleteFiles:false,confirm:false}])
+ expect(f.cards).toHaveLength(0)
+})
 
 for(const provider of ['quark','mobile','cas'])test(`Cron-only save avoids sync confirmation for ${provider}`,async({page})=>{
  const f=await fixture(page,provider,1);await page.goto('/virtual/'+provider)
@@ -178,9 +233,9 @@ test('removing the only last-page item clamps the current page and jump input',a
   const jump=page.getByRole('spinbutton',{name:'跳转页码',exact:true})
   await jump.scrollIntoViewIfNeeded();await jump.fill('2');await jump.press('Enter')
   await page.getByRole('button',{name:'移除 分享 21',exact:true}).click()
-  const dialog=page.getByRole('dialog',{name:'移除移动链接',exact:true})
-  await expect(dialog).toContainText('本地文件保留')
-  await dialog.getByRole('button',{name:'确认移除',exact:true}).click()
+  const dialog=page.getByRole('dialog',{name:'删除移动链接',exact:true})
+  await expect(dialog).toContainText('保留本地文件')
+  await dialog.getByRole('button',{name:'仅移除记录',exact:true}).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('status',{name:'当前页'})).toHaveCount(0)
   await expect(jump).toHaveCount(0)

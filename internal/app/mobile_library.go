@@ -323,21 +323,7 @@ func (a *App) mobileLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodDelete {
-		err := a.store.update(func(st *State) error {
-			for i, card := range st.MobileLibraryCards {
-				if card.ID == sid {
-					st.MobileLibraryCards = append(st.MobileLibraryCards[:i], st.MobileLibraryCards[i+1:]...)
-					break
-				}
-			}
-			revokeMobileLibraryCard(st, sid)
-			return nil
-		})
-		if err != nil {
-			fail(w, 500, err)
-			return
-		}
-		jsonResponse(w, 200, map[string]bool{"ok": true})
+		a.shareLibraryDeleteAPI(w, r, "mobile", old)
 		return
 	}
 	var in struct {

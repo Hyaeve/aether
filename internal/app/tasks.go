@@ -174,6 +174,7 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	}
 	resetOutput := len(reset) > 0 && reset[0]
 	fullSync := trigger == "full-sync"
+	lifeTask := task.Kind == "strm" && task.STRMSource == "life"
 	if resetOutput && task.Kind == "cas" {
 		return errors.New("CAS 任务仅增量生成，不支持清除生成库后全量重置")
 	}
@@ -217,6 +218,7 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 	a.refreshTaskInterval(task.StorageID)
 	a.taskUpdate(taskID, func(t *Task) {
 		t.Status = "running"
+		t.STRMFullSync = fullSync
 		t.Message = "正在扫描"
 		t.Processed = 0
 		t.ProgressDone, t.ProgressTotal, t.ProgressKnown = 0, 0, false
@@ -224,6 +226,9 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		t.CASGenerated, t.CASFailed = 0, 0
 		t.LastRun = time.Now()
 		t.NextRun = nextRun(*t, time.Now())
+		if fullSync && lifeTask {
+			t.NextRun = time.Time{}
+		}
 	})
 	a.wg.Add(1)
 	go func() {
@@ -253,7 +258,7 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		}
 		if err != nil {
 			// A failed reset must not run generation against a partially cleared library.
-		} else if task.Kind == "strm" && task.STRMSource == "life" && !task.fullSyncGeneration && !task.resetGeneration {
+		} else if lifeTask && !task.fullSyncGeneration && !task.resetGeneration {
 			count, err = a.executeSTRMLife(ctx, task, s)
 		} else {
 			count, err = a.executeTask(ctx, task, s)
@@ -271,6 +276,7 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 		if persistErr := a.store.update(func(st *State) error {
 			for i := range st.Tasks {
 				if st.Tasks[i].ID == taskID {
+					st.Tasks[i].STRMFullSync = false
 					if guard := st.Tasks[i].STRMDeleteState; guard != nil {
 						copy := *guard
 						copy.State = "waiting"
@@ -282,9 +288,9 @@ func (a *App) startTaskWithTrigger(parent context.Context, taskID string, done c
 						status, message = "idle", "健康已恢复，等待执行"
 					}
 					st.Tasks[i].Status, st.Tasks[i].Message, st.Tasks[i].Processed = status, message, count
-					if st.Tasks[i].STRMDeleteState == nil && task.Kind == "strm" && task.STRMSource == "life" && task.Cron == "" {
+					if st.Tasks[i].STRMDeleteState == nil && lifeTask && (fullSync || task.Cron == "") {
 						st.Tasks[i].NextRun = nextRun(st.Tasks[i], time.Now())
-						if err != nil {
+						if err != nil && !fullSync && st.Tasks[i].Enabled && task.Cron == "" {
 							st.Tasks[i].NextRun = time.Now().Add(time.Minute)
 						}
 					}
@@ -1014,7 +1020,11 @@ func (a *App) scheduler() {
 						trigger = "life-monitor"
 					}
 					if err := a.startTaskWithTrigger(a.ctx, t.ID, nil, trigger); err != nil {
-						a.taskUpdate(t.ID, func(t *Task) { t.NextRun = now.Add(time.Minute) })
+						a.taskUpdate(t.ID, func(current *Task) {
+							if current.NextRun.Equal(t.NextRun) {
+								current.NextRun = now.Add(time.Minute)
+							}
+						})
 					}
 				}
 			}

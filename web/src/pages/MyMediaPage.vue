@@ -17,13 +17,16 @@ const types={audiobookshelf:['Audiobookshelf','abs'],emby:['Emby','emby'],fnos:[
 const subscription=ref(null),subscriptionTargets=ref([]),subscriptionBusy=ref(false)
 function mediaURL(item){try{const url=new URL(item.webURL||link.value.address);return ['http:','https:'].includes(url.protocol)?url.href:'#'}catch{return '#'}}
 async function subscribeMissing(){const work=detail.value;if(!work?.tmdb||subscriptionBusy.value)return;subscriptionBusy.value=true;try{const [full,data]=await Promise.all([api(`/discovery/tv/${work.tmdb}`),api('/media-subscriptions')]);if(detail.value!==work)return;const first=/^S([0-9]+)E([0-9]+)$/.exec(work.missing[0]),season=Number(first?.[1]||1),existing=data.items?.find(v=>v.kind==='tv'&&v.id===work.tmdb&&v.season===season);subscriptionTargets.value=data.targets||[];subscription.value={...full,...existing,season,missingEpisodes:[...work.missing],startEpisode:Number(first?.[2]||1),totalEpisodes:full.seasons?.find(v=>v.number===season)?.episodes||0,targetId:''};detail.value=null}catch(e){notify(e.message,true)}finally{subscriptionBusy.value=false}}
-const link=computed(()=>config.value.items.find(v=>v.id===selected.value)),options=computed(()=>config.value.items.filter(v=>props.section!=='missing'||v.type==='emby').map(v=>({value:v.id,label:v.name}))),heroes=computed(()=>(dashboard.value?.featured?.length?dashboard.value.featured:dashboard.value?.recent)?.slice(0,5)||[]),hero=computed(()=>heroes.value[slide.value]||heroes.value[0]),filteredMissing=computed(()=>(scan.value.missing?.items||[]).filter(v=>v.item.title.toLowerCase().includes(query.value.toLowerCase()))),resolutions=computed(()=>Object.entries(scan.value.quality?.resolutions||{})),codecs=computed(()=>Object.entries(scan.value.quality?.codecs||{}).sort((a,b)=>b[1]-a[1]).slice(0,6))
+const heroes = computed(() => (dashboard.value?.featured ?? dashboard.value?.recent ?? []).slice(0, 5))
+const hero = computed(() => heroes.value[slide.value] || heroes.value[0])
+const link=computed(()=>config.value.items.find(v=>v.id===selected.value)),options=computed(()=>config.value.items.filter(v=>props.section!=='missing'||v.type==='emby').map(v=>({value:v.id,label:v.name}))),filteredMissing=computed(()=>(scan.value.missing?.items||[]).filter(v=>v.item.title.toLowerCase().includes(query.value.toLowerCase()))),resolutions=computed(()=>Object.entries(scan.value.quality?.resolutions||{})),codecs=computed(()=>Object.entries(scan.value.quality?.codecs||{}).sort((a,b)=>b[1]-a[1]).slice(0,6))
 const resolutionGradient=computed(()=>{const total=scan.value.quality?.items||0;if(!total)return 'var(--border)';let n=0;return `conic-gradient(${resolutions.value.map(([key,count],i)=>{const start=n;n+=count/total*100;return `${colors[i%colors.length]} ${start}% ${n}%`}).join(',')})`})
 const colors=['var(--primary)','var(--green)','var(--amber)','var(--muted)','var(--info)']
 const page=ref(1),pageInput=ref(1),pages=computed(()=>Math.max(1,Math.ceil((props.section==='missing'?filteredMissing.value:ranking.value).length/20))),visibleMissing=computed(()=>filteredMissing.value.slice((page.value-1)*20,page.value*20)),visibleRanking=computed(()=>ranking.value.slice((page.value-1)*20,page.value*20))
 function go(value){page.value=Math.max(1,Math.min(pages.value,Math.trunc(Number(value))||1));pageInput.value=page.value}
 watch([query,()=>props.section,selected],()=>go(1));watch(pages,()=>go(page.value))
 let alive=true,ticket=0,timer,carouselTimer,pendingSessions=null,pendingScan=null
+let nextFeaturedCheck = 0
 const carouselPaused=ref(false)
 function clearCarouselTimer(){if(carouselTimer){clearInterval(carouselTimer);carouselTimer=null}}
 function scheduleCarousel(){clearCarouselTimer();if(!alive||props.section!=='panel'||carouselPaused.value||heroes.value.length<2)return;carouselTimer=setInterval(()=>{if(!carouselPaused.value)slide.value=(slide.value+1)%heroes.value.length},6000)}
@@ -35,14 +38,27 @@ function setHeroLayerAvailability(layer, available){
   if (available) layer.removeAttribute('aria-hidden')
   else layer.setAttribute('aria-hidden', 'true')
 }
-function reset(){dashboard.value=null;sessions.value=[];sessionError.value='';ranking.value=[];scan.value={progress:{},missing:{items:[]},quality:{}};slide.value=0;error.value=''}
+function reset(){dashboard.value=null;sessions.value=[];sessionError.value='';ranking.value=[];scan.value={progress:{},missing:{items:[]},quality:{}};slide.value=0;error.value='';nextFeaturedCheck=0}
 async function readConfig(){const value=await api('/my-media/config');if(!alive)return;config.value=value;selected.value=(props.section==='missing'?value.missingSelected:value.selected)||value.items.find(v=>props.section!=='missing'||v.type==='emby')?.id||''}
-async function load(refresh=false){const run=++ticket,key=selected.value,section=props.section;error.value='';if(!key||section==='control')return;loading.value=true;try{if(section==='panel'){const data=await api(`/my-media/${key}/dashboard${refresh?'?refresh=1':''}`);if(alive&&run===ticket){dashboard.value=data;slide.value=0};await Promise.all([readSessions(),readScan()])}else if(section==='ranking'){const value=await api(`/my-media/${key}/ranking`);if(alive&&run===ticket){ranking.value=value.items||[];rankUnit.value=value.unit||'次'}}else await readScan()}catch(e){if(alive&&run===ticket)error.value=e.message}finally{if(alive&&run===ticket)loading.value=false}}
+async function load(refresh=false){const run=++ticket,key=selected.value,section=props.section;error.value='';if(!key||section==='control')return;loading.value=true;try{if(section==='panel'){const data=await api(`/my-media/${key}/dashboard${refresh?'?refresh=1':''}`);if(alive&&run===ticket)dashboard.value=data;await Promise.all([readSessions(),readScan()])}else if(section==='ranking'){const value=await api(`/my-media/${key}/ranking`);if(alive&&run===ticket){ranking.value=value.items||[];rankUnit.value=value.unit||'次'}}else await readScan()}catch(e){if(alive&&run===ticket)error.value=e.message}finally{if(alive&&run===ticket)loading.value=false}}
 async function choose(value){if(saving.value)return;const before=selected.value;saving.value=true;try{await api('/my-media/config','PUT',props.section==='missing'?{missingSelected:value}:{selected:value});if(!alive)return;selected.value=value;reset();load()}catch(e){selected.value=before;notify(e.message,true)}finally{if(alive)saving.value=false}}
 async function readSessions(){if(!selected.value||props.section!=='panel'||pendingSessions?.key===selected.value&&pendingSessions.run===ticket)return;const key=selected.value,run=ticket,job={key,run};pendingSessions=job;try{const data=await api(`/my-media/${key}/sessions`);if(alive&&key===selected.value&&run===ticket){sessions.value=data;sessionError.value=''}}catch(e){if(alive&&key===selected.value&&run===ticket){sessions.value=[];sessionError.value=e.message}}finally{if(pendingSessions===job)pendingSessions=null}}
 async function readScan(){if(!selected.value||pendingScan?.key===selected.value&&pendingScan.run===ticket)return;const key=selected.value,run=ticket,job={key,run};pendingScan=job;try{const data=await api(`/my-media/${key}/scan`);if(alive&&key===selected.value&&run===ticket)scan.value=data}catch(e){if(alive&&key===selected.value&&run===ticket)error.value=e.message}finally{if(pendingScan===job)pendingScan=null}}
 async function startScan(kind){try{await api(`/my-media/${selected.value}/scan`,'POST',{kind});await readScan();notify(kind==='stop'?'正在停止媒体扫描':kind==='missing'?'缺集扫描已加入执行队列':'媒体质量统计已加入执行队列')}catch(e){notify(e.message,true)}}
-function poll(){if(document.hidden)return;if(props.section==='panel')readSessions();if(scan.value.progress?.running)readScan()}
+function poll() {
+  if (document.hidden) return
+  if (props.section === 'panel') {
+    const now = Date.now()
+    const featuredUntil = Date.parse(dashboard.value?.featuredUntil)
+    if (!loading.value && now >= Math.max(featuredUntil, nextFeaturedCheck)) {
+      nextFeaturedCheck = now + 60_000
+      void load()
+      return
+    }
+    readSessions()
+  }
+  if (scan.value.progress?.running) readScan()
+}
 async function edit(row){editing.value=row;choices.value=(row.libraries||[]).map(v=>v.id);libraries.value=[];editError.value='';await fetchLibraries()}
 async function fetchLibraries(){if(!editing.value)return;libraryBusy.value=true;libraryReady.value=false;editError.value='';const key=editing.value.id;try{const data=await api(`/my-media/${key}/libraries`);if(alive&&editing.value?.id===key){libraries.value=data;libraryReady.value=true}}catch(e){if(alive&&editing.value?.id===key)editError.value=e.message}finally{if(alive&&editing.value?.id===key)libraryBusy.value=false}}
 async function saveLibraries(){if(saving.value)return;saving.value=true;editError.value='';try{const value=await api('/my-media/config','PUT',{linkId:editing.value.id,libraries:libraries.value.filter(v=>choices.value.includes(v.id))});if(alive){config.value=value;editing.value=null;notify('媒体展示配置已保存')}}catch(e){if(alive)editError.value=e.message}finally{if(alive)saving.value=false}}
@@ -55,14 +71,44 @@ onUnmounted(()=>{alive=false;ticket++;clearInterval(timer);clearCarouselTimer();
 </script>
 <template>
  <section class="my-media-heading"><nav v-tab-scroll class="content-tabs" aria-label="我的媒体栏目"><RouterLink v-for="tab in tabs" :key="tab[0]" :to="'/my-media/'+tab[0]" :class="{active:section===tab[0]}"><Icon :name="tab[2]"/>{{tab[1]}}</RouterLink></nav><RoundedSelect v-if="section!=='control'" :model-value="selected" label="媒体服务" :options="options" :disabled="saving||!options.length" :placeholder="section==='missing'?'暂无Emby以链':'暂无媒体以链'" @update:model-value="choose"/></section>
- <p v-if="error" class="error-message" role="alert">{{error}}<button class="text-btn" @click="load(true)">重试</button></p><p v-if="loading" class="muted" role="status">正在读取媒体信息…</p>
+ <p v-if="error" class="error-message" role="alert">{{error}}<button class="text-btn" @click="load(true)">重试</button></p>
+ <p v-if="loading && section !== 'panel'" class="muted" role="status">正在读取媒体信息…</p>
  <section v-if="section==='control'" class="media-control-panel" aria-label="媒体展示配置"><header><h2><Icon name="SlidersHorizontal"/>媒体展示配置</h2></header><article v-for="row in config.items" :key="row.id" class="media-display-row"><img :src="`/media/${types[row.type]?.[1]||'emby'}.png`" :alt="types[row.type]?.[0]||row.type"/><div><strong>{{row.name}}</strong><span :data-tooltip="row.address">{{row.address}}</span><small :data-tooltip="row.libraries?.map(v=>v.name).join('；')">{{row.libraries?.length?row.libraries.map(v=>v.name).join('；'):'尚未选择展示媒体库'}}</small></div><button class="icon-btn" :aria-label="`编辑媒体展示 ${row.name}`" @click="edit(row)"><Icon name="Pencil"/></button></article><div v-if="!config.items.length" class="empty-state"><Icon name="Monitor"/><p>请先在以太链接添加媒体服务</p><RouterLink class="btn" to="/links/manage">前往以太链接</RouterLink></div></section>
  <template v-else-if="link">
  <div v-if="!link.libraries?.length" class="explore-empty"><Icon name="LibraryBig"/><p>请在控制中心选择要展示的媒体库</p><RouterLink class="btn" to="/my-media/control">配置展示范围</RouterLink></div>
  <template v-else-if="section==='panel'">
-  <div class="media-feature-row"><section class="media-feature" :class="{'audio-feature':link.type==='audiobookshelf'}" aria-label="推荐媒体" @mouseenter="pauseCarousel" @mouseleave="resumeCarousel" @focusin="pauseCarousel" @focusout="resumeCarousel"><Transition name="media-feature-swap" @before-enter="setHeroLayerAvailability($event, true)" @before-leave="setHeroLayerAvailability($event, false)"><div v-if="hero" :key="hero.id" class="media-feature-layer"><img class="media-feature-background" :src="hero.backdrop||hero.poster" alt=""/><span class="media-feature-tag"><Icon :name="link.type==='audiobookshelf'?'BookOpen':'Film'" :size="16"/>{{link.type==='audiobookshelf'?'书架精选':'推荐媒体'}}</span><div class="media-feature-content"><PosterImage class="media-feature-cover" :src="hero.poster" :title="hero.title" :kind="hero.kind"/><div><h1>{{hero.title}}</h1><p>{{hero.subtitle}}</p><p class="media-feature-overview" :data-tooltip="hero.overview" data-tooltip-stationary>{{hero.overview||'暂无简介'}}</p><p v-if="hero.episodes!=null" class="media-feature-episodes">库中 {{hero.episodes}} 集</p><a class="media-detail-button" :href="mediaURL(hero)" target="_blank" rel="noopener noreferrer">查看详情<Icon name="ChevronRight" :size="16"/></a></div></div></div></Transition><div class="media-feature-indicators" aria-label="切换横幅海报"><button v-for="(item,i) in heroes" :key="item.id" :aria-label="`展示海报 ${i+1} ${item.title}`" :aria-pressed="slide===i" @mouseenter="chooseHero(i)" @focus="chooseHero(i)" @click="chooseHero(i)"><span/></button></div></section>
+  <div class="media-feature-row">
+   <section class="media-feature" :class="{'audio-feature':link.type==='audiobookshelf'}" aria-label="推荐媒体" @mouseenter="pauseCarousel" @mouseleave="resumeCarousel" @focusin="pauseCarousel" @focusout="resumeCarousel">
+    <Transition name="media-feature-swap" @before-enter="setHeroLayerAvailability($event, true)" @before-leave="setHeroLayerAvailability($event, false)">
+     <div v-if="hero" :key="hero.id" class="media-feature-layer">
+      <img class="media-feature-background" :src="hero.backdrop||hero.poster" alt=""/>
+      <span class="media-feature-tag"><Icon :name="link.type==='audiobookshelf'?'BookOpen':'Film'" :size="16"/>{{link.type==='audiobookshelf'?'书架精选':'推荐媒体'}}</span>
+      <div class="media-feature-content">
+       <PosterImage class="media-feature-cover" :src="hero.poster" :title="hero.title" :kind="hero.kind"/>
+       <div class="media-feature-copy">
+        <h1>{{hero.title}}</h1>
+        <p v-if="hero.subtitle">{{hero.subtitle}}</p>
+        <p class="media-feature-overview" :data-tooltip="hero.overview" data-tooltip-stationary>{{hero.overview||'暂无简介'}}</p>
+        <p v-if="hero.episodes!=null" class="media-feature-episodes">库中 {{hero.episodes}} 集</p>
+        <a class="media-detail-button" :href="mediaURL(hero)" target="_blank" rel="noopener noreferrer">查看详情<Icon name="ChevronRight" :size="16"/></a>
+       </div>
+      </div>
+     </div>
+    </Transition>
+    <div class="media-feature-indicators" aria-label="切换横幅海报"><button v-for="(item,i) in heroes" :key="item.id" :aria-label="`展示海报 ${i+1} ${item.title}`" :aria-pressed="slide===i" @mouseenter="chooseHero(i)" @focus="chooseHero(i)" @click="chooseHero(i)"><span/></button></div>
+   </section>
   <aside class="media-now-playing" aria-label="当前播放用户"><header><h2><Icon name="Play" :size="17"/>{{link.type==='audiobookshelf'?'正在收听':'正在播放'}}</h2></header><p v-if="sessionError" class="muted">{{sessionError}}</p><p v-else-if="!sessions.length" class="media-session-empty">当前没有播放中的用户</p><article v-for="session in sessions" :key="session.id"><img v-if="session.item.poster" :src="session.item.poster" alt="" loading="lazy"/><div><strong>{{session.user}}</strong><span :data-tooltip="session.item.title">{{session.item.title}}</span><small>{{session.paused?'已暂停':link.type==='audiobookshelf'?'收听中':'播放中'}}</small><progress :value="progress(session)" max="100" :aria-label="`${session.user}播放进度`"/><small>{{Math.floor(session.position/60)}} / {{Math.floor(session.duration/60)}} min</small></div></article></aside></div>
-  <section class="my-media-section"><header><h2>最近入库</h2><button class="icon-btn" aria-label="刷新媒体面板" :disabled="loading" @click="load(true)"><Icon name="RefreshCw" :class="{spin:loading}"/></button></header><div class="my-media-shelf"><button v-for="item in dashboard?.recent||[]" :key="item.id" class="my-media-poster" @click="open(item)"><PosterImage :src="item.poster" :title="item.title" :kind="item.kind"/><span><strong>{{item.title}}</strong><small>{{item.subtitle}}</small></span></button></div><p v-for="message in dashboard?.warnings||[]" :key="message" class="muted">{{message}}</p><p v-if="!loading&&!dashboard?.recent?.length" class="media-session-empty">暂无最近入库媒体</p></section>
+  <section class="my-media-section">
+   <header><h2>最近入库</h2><button class="icon-btn" aria-label="刷新媒体面板" :disabled="loading" @click="load(true)"><Icon name="RefreshCw" :class="{spin:loading}"/></button></header>
+   <div class="my-media-shelf">
+    <button v-for="item in dashboard?.recent||[]" :key="item.id" class="my-media-poster" @click="open(item)">
+     <PosterImage :src="item.poster" :title="item.title" :kind="item.kind"/>
+     <span class="my-media-poster-caption"><strong>{{item.title}}</strong><small v-if="item.subtitle">{{item.subtitle}}</small></span>
+    </button>
+   </div>
+   <p v-for="message in dashboard?.warnings||[]" :key="message" class="muted">{{message}}</p>
+   <p v-if="!loading&&!dashboard?.recent?.length" class="media-session-empty">暂无最近入库媒体</p>
+  </section>
   <section class="my-media-section"><header><h2>{{types[link.type]?.[0]}} · {{link.name}}</h2></header><div class="media-stat-grid"><div v-for="stat in dashboard?.stats||[]" :key="stat.label"><span>{{stat.label}}</span><strong><span v-if="stat.unit">{{Number(stat.value).toFixed(1)}}</span><AnimatedNumber v-else :value="stat.value"/> <small>{{stat.unit}}</small></strong></div></div></section>
   <template v-if="link.type!=='audiobookshelf'"><section class="my-media-section"><header><h2>缺集概览</h2><RouterLink v-if="link.type==='emby'" class="text-btn" to="/my-media/missing">缺集管理</RouterLink></header><div v-if="scan.missing?.updated&&!scan.missing.updated.startsWith('0001')" class="media-stat-grid"><div><span>已核对剧集</span><strong>{{scan.missing.scanned}}</strong></div><div><span>存在缺集</span><strong>{{scan.missing.items?.length||0}}</strong></div><div><span>待核对</span><strong>{{scan.missing.unknown}}</strong></div></div><p v-else class="muted">{{link.type==='emby'?'尚未执行缺集扫描':'缺集管理暂仅支持Emby'}}</p></section>
   <section class="my-media-section"><header><h2>质量统计</h2><button class="btn" :disabled="scan.progress?.running" @click="startScan('quality')">扫描</button><button v-if="scan.progress?.running" class="btn" @click="startScan('stop')">停止扫描</button></header><p v-if="scan.progress?.message" role="status" class="muted">{{scan.progress.message}}<template v-if="scan.progress.total"> · {{scan.progress.processed}} / {{scan.progress.total}}</template></p><template v-if="scan.quality?.updated&&!scan.quality.updated.startsWith('0001')"><div class="media-stat-grid"><div><span>已扫描</span><strong>{{scan.quality.items}}</strong></div><div><span>已知媒体体积</span><strong>{{bytes(scan.quality.size)}}</strong><small>已返回大小 {{scan.quality.sizeKnown}} 项</small></div></div><div class="media-quality-grid"><div><h3>分辨率分布</h3><div class="media-resolution-row"><div class="media-resolution-ring" :style="{background:resolutionGradient}"><span>{{scan.quality.items}}<small>媒体</small></span></div><ul><li v-for="([name,value],i) in resolutions" :key="name"><i :style="{background:colors[i%colors.length]}"/>{{name}}<b>{{value}}</b></li></ul></div></div><div><h3>视频编码 Top 6</h3><div v-for="[name,value] in codecs" :key="name" class="media-codec"><span>{{name}}<b>{{value}}</b></span><progress :value="value" :max="scan.quality.items||1" :aria-label="`${name}数量`"/></div></div></div></template><p v-else class="muted">点击扫描读取媒体技术信息</p></section></template>

@@ -40,7 +40,7 @@ func (a *App) telegramResourceName(ctx context.Context, job telegramTransfer, ta
 	if err != nil || parseErr != nil || provider != s.Type {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, telegramShareNameTimeout)
 	defer cancel()
 	name, err := a.readTelegramShareName(ctx, s, code, pass)
 	if err != nil {

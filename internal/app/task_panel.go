@@ -50,6 +50,12 @@ func (a *App) taskPanel(w http.ResponseWriter, r *http.Request) {
 				Total: job.Total, TotalKnown: job.Total > 0, Unit: "项", StartedAt: job.Created})
 		}
 	}
+	for _, task := range st.OrganizeTasks {
+		run := st.OrganizeRuntime[task.ID]
+		if organizeActive(run.Status) {
+			items = append(items, taskPanelEntry{ID: organizeRunKey(task.ID), TaskID: task.ID, Kind: "organize", Source: "task", Name: task.Name, Status: run.Status, Message: run.Message, StorageID: task.StorageID, Processed: run.Done, Total: run.Total, TotalKnown: run.Scanned, Unit: "项", StartedAt: run.StartedAt})
+		}
+	}
 	a.scrapeMu.Lock()
 	progress := a.scrapeProgress
 	a.scrapeMu.Unlock()

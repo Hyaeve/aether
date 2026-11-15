@@ -88,6 +88,7 @@ type telegramTransfer struct {
 	StorageStamp   string            `json:"storageStamp,omitempty"`
 	Status         string            `json:"status"`
 	Name           string            `json:"name,omitempty"`
+	NamesLoaded    bool              `json:"namesLoaded,omitempty"`
 	Processed      int               `json:"processed"`
 	Skipped        int               `json:"skipped,omitempty"`
 	Result         string            `json:"result,omitempty"`

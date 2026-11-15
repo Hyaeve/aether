@@ -10,13 +10,23 @@ import (
 
 var errShareLibraryDirectory = errors.New("保存目录名称已存在，请修改目录名称")
 
+type shareLibraryDiskConflict struct{}
+
+func (shareLibraryDiskConflict) Error() string {
+	return "同名文件或目录仍存在（移除卡片后生成文件保留），请先移走或删除后再使用此名称"
+}
+
+// Keep disk conflicts in the duplicate-name class used by field validation and
+// bot suffix allocation, while explaining why removing a card did not free it.
+func (shareLibraryDiskConflict) Unwrap() error { return errShareLibraryDirectory }
+
 func shareLibraryDirectoryAvailable(st State, card, old quarkLibraryCard) error {
 	if err := shareLibraryNamesAvailable(st, card); err != nil {
 		return err
 	}
 	if card.Directory != "" && card.DirectoryName != "" && (old.ID == "" || quarkLibraryRoot(old) != quarkLibraryRoot(card)) {
 		if _, err := os.Lstat(quarkLibraryRoot(card)); err == nil {
-			return errShareLibraryDirectory
+			return shareLibraryDiskConflict{}
 		} else if !os.IsNotExist(err) {
 			return errors.New("保存目录不可核验，请检查生成位置")
 		}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -75,6 +76,13 @@ func TestSTRMSyncQueuesBehindLifePollAndRunsExclusively(t *testing.T) {
 	if err := a.startTaskWithTrigger(a.ctx, task.ID, nil, "full-sync"); err == nil {
 		t.Fatal("active full sync accepted duplicate")
 	}
+	during := a.store.snapshot().Tasks[0]
+	if !during.STRMFullSync || !during.NextRun.IsZero() || !during.Enabled || !during.STRMLifeSince.Equal(task.STRMLifeSince) {
+		t.Fatal("full sync did not suspend scheduling in place", during)
+	}
+	if err := a.startTaskWithTrigger(a.ctx, task.ID, nil, "life-monitor"); err == nil {
+		t.Fatal("a second life poll started during full sync")
+	}
 	releaseBulkOnce.Do(func() { close(releaseBulk) })
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -84,8 +92,67 @@ func TestSTRMSyncQueuesBehindLifePollAndRunsExclusively(t *testing.T) {
 	if err != nil || len(entries) == 0 {
 		t.Fatal("full sync did not generate", err)
 	}
-	if a.store.snapshot().Tasks[0].STRMSource != "life" || s.ID != task.StorageID {
-		t.Fatal("saved mode changed")
+	after := a.store.snapshot().Tasks[0]
+	if after.STRMFullSync || after.NextRun.IsZero() || !after.Enabled || after.STRMSource != "life" || !after.STRMLifeSince.Equal(task.STRMLifeSince) || after.StorageID != s.ID {
+		t.Fatal("life monitoring did not resume using the saved mode", after)
+	}
+}
+
+func TestSTRMLifeFullSyncRestoresCronAfterStopOrRestart(t *testing.T) {
+	a, _, task, _ := strmBulkFixture(t, 1, "")
+	task.STRMSource, task.Enabled, task.Cron = "life", true, "*/15 * * * *"
+	task.STRMLifeSince = time.Now().Add(-time.Minute)
+	if err := a.store.update(func(st *State) error { st.Tasks[0] = task; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	bulk := make(chan struct{}, 1)
+	old := apiClient.Transport
+	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/behavior/detail":
+			return jsonHTTPResponse(`{"state":true,"data":{"count":0,"list":[]}}`), nil
+		case "/files":
+			select {
+			case bulk <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		default:
+			return old.RoundTrip(r)
+		}
+	})
+	t.Cleanup(func() { apiClient.Transport = old })
+	ctx, cancel := context.WithCancel(a.ctx)
+	defer func() { cancel(); a.wg.Wait() }()
+	done := make(chan error, 1)
+	if err := a.startTaskWithTrigger(ctx, task.ID, done, "full-sync"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-bulk:
+	case <-time.After(5 * time.Second):
+		t.Fatal("full sync did not reach source enumeration")
+	}
+	if during := a.store.snapshot().Tasks[0]; !during.STRMFullSync || !during.NextRun.IsZero() {
+		t.Fatal("scheduled life mode still has a next run during full sync", during)
+	}
+	restartAt := time.Now()
+	reopened, err := NewStore(a.store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.initRuntime(a.store.runtimeDir); err != nil {
+		t.Fatal(err)
+	}
+	if after := reopened.snapshot().Tasks[0]; after.STRMFullSync || after.Status != "interrupted" || after.NextRun.Before(nextRun(task, restartAt)) || after.NextRun.After(nextRun(task, time.Now())) {
+		t.Fatal("restart retained the transient full sync pause", after)
+	}
+	stopAt := time.Now()
+	cancel()
+	<-done
+	if after := a.store.snapshot().Tasks[0]; after.STRMFullSync || !after.Enabled || after.Cron != task.Cron || after.NextRun.Before(nextRun(task, stopAt)) || after.NextRun.After(nextRun(task, time.Now())) {
+		t.Fatal("stopping full sync did not restore the cron schedule", after)
 	}
 }
 

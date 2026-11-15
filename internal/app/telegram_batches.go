@@ -72,16 +72,13 @@ func telegramConfirmation(st State, job telegramTransfer) (string, [][]map[strin
 		}
 	}
 	action := telegramAction(job.Kind)
+	if job.Kind != "ed2k" && job.Kind != "ali-rapid" {
+		// Leave room for the five share names in the same Telegram message.
+		destination = telegramLimit(destination, 1200)
+	}
 	text := telegramGroupLabel(job) + "确认" + action + "到：" + destination
 	if job.Kind != "ed2k" && job.Kind != "ali-rapid" {
-		label, name := "分享名称", job.Name
-		if job.GroupSize > 1 {
-			label = "首条分享名称"
-		}
-		if name == "" {
-			name = "暂未获取"
-		}
-		text = label + "：" + name + "\n" + text
+		text = telegramPromptShareNames(st, job) + text
 	} else if job.Name != "" {
 		text = "分享内容：" + job.Name + "\n" + text
 	}
@@ -337,27 +334,37 @@ func (a *App) advanceTelegramBatch(ctx context.Context, batch string) error {
 				err = errors.Join(err, a.releaseTelegramQueue(selected))
 			}
 		}()
-		cfg := a.store.snapshotWithLogLimit(0).Notifications.Telegram
+		st := a.store.snapshotWithLogLimit(0)
+		cfg := st.Notifications.Telegram
 		if telegramDigest(cfg) != selected.Auth || !telegramAllowed(cfg, selected.ChatID, selected.UserID) {
 			a.finishTelegram(selected.ID, "failed", "TG 授权已改变，未发送交互消息", 0)
 			return nil
 		}
-		if selected.Status != "failed" {
-			if _, err := currentTelegramPrompt(a.store.snapshotWithLogLimit(0), selected); err != nil {
-				return err
-			}
-		}
-		text, keyboard := telegramDirectoryPage(a.store.snapshotWithLogLimit(0), selected)
-		if selected.Status == "failed" {
+		var text string
+		var keyboard [][]map[string]string
+		switch selected.Status {
+		case "failed":
 			text, keyboard = telegramProviderName(selected.Provider)+"：未配置可用目录或目录/授权已变化，未转存。", nil
 			a.store.event("warn", "notifications", fmt.Sprintf("[TG:%s] %s", selected.ID, text))
-		} else if selected.Status == "confirming" {
-			selected, err = a.prepareTelegramConfirmation(ctx, selected)
+		case "choosing", "confirming":
+			selected, err = a.prepareTelegramPrompt(ctx, selected)
 			if err != nil {
 				return err
 			}
-			text, keyboard = telegramConfirmation(a.store.snapshotWithLogLimit(0), selected)
-		} else if selected.Status == "queued" {
+			st := a.store.snapshotWithLogLimit(0)
+			selected, err = currentTelegramPrompt(st, selected)
+			if err != nil {
+				return err
+			}
+			if selected.Status == "choosing" {
+				text, keyboard = telegramDirectoryPage(st, selected)
+			} else {
+				text, keyboard = telegramConfirmation(st, selected)
+			}
+		case "queued":
+			if _, err := currentTelegramPrompt(st, selected); err != nil {
+				return err
+			}
 			text, keyboard = "已加入"+telegramAction(selected.Kind)+"队列，正在等待后台执行。", nil
 		}
 		message, err := a.telegramSend(ctx, cfg, selected.ChatID, text, keyboard)

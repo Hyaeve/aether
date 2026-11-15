@@ -452,23 +452,7 @@ func (a *App) quarkLibraryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodDelete {
-		err := a.store.update(func(st *State) error {
-			for i, card := range st.QuarkLibraryCards {
-				if card.ID == sid {
-					st.QuarkLibraryCards = append(st.QuarkLibraryCards[:i], st.QuarkLibraryCards[i+1:]...)
-					break
-				}
-			}
-			revokeQuarkLibraryCard(st, sid)
-			// Generated files remain on disk; public grants are revoked with the card.
-			return nil
-		})
-		if err != nil {
-			fail(w, 500, err)
-			return
-		}
-		a.store.event("info", "virtual", "夸克链库移除卡片："+old.Name+"；本地生成文件保留")
-		jsonResponse(w, 200, map[string]bool{"ok": true})
+		a.shareLibraryDeleteAPI(w, r, "quark", old)
 		return
 	}
 	var in struct {

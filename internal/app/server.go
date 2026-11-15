@@ -526,6 +526,7 @@ func (a *App) Handler(webDir string) http.Handler {
 	mux.Handle("/api/organize-tasks", a.protected(http.HandlerFunc(a.organizeTasksAPI)))
 	mux.Handle("/api/organize-options", a.protected(http.HandlerFunc(a.organizeOptionsAPI)))
 	mux.Handle("/api/organize-tasks/{id}", a.protected(http.HandlerFunc(a.organizeTasksAPI)))
+	mux.Handle("POST /api/organize-tasks/{id}/{action}", a.protected(http.HandlerFunc(a.organizeTaskAction)))
 	mux.Handle("/api/automations", a.protected(http.HandlerFunc(a.automationAPI)))
 	mux.Handle("/api/backup-rules", a.protected(http.HandlerFunc(a.backupRulesAPI)))
 	mux.Handle("/api/backup-rules/{id}", a.protected(http.HandlerFunc(a.backupRulesAPI)))
@@ -1236,6 +1237,7 @@ func (a *App) files(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) validateTask(t *Task) error {
 	t.HealthPause = ""
+	t.STRMFullSync = false
 	t.Cron = strings.TrimSpace(t.Cron)
 	var extensionErr error
 	if t.CompletionAction != "" && t.CompletionAction != "keep" && t.CompletionAction != "delete" {
@@ -1479,7 +1481,7 @@ func (a *App) taskAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !in.Confirm {
-			fail(w, 400, errors.New("请确认全量同步及按配置清理生成产物"))
+			fail(w, 400, errors.New("请确认按任务过滤设置全量同步STRM和元数据文件"))
 			return
 		}
 		task := Task{}

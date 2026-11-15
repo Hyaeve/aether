@@ -502,6 +502,10 @@ func (h *strmTaskSync) finish(ctx context.Context, completed bool) error {
 		}
 	}()
 	defer func() {
+		if h.task.fullSyncGeneration {
+			h.app.store.event("info", "tasks", fmt.Sprintf("STRM任务「%s」全量同步：新增 %d，更新 %d；既有缺失源或过滤产物保留", h.task.Name, h.created, h.updated))
+			return
+		}
 		h.app.store.event("info", "tasks", fmt.Sprintf("STRM任务「%s」：新增 %d，更新 %d，清理 %d；未登记或外改文件保留", h.task.Name, h.created, h.updated, h.removed))
 	}()
 	deferSave := func(err error) error {
@@ -528,6 +532,17 @@ func (h *strmTaskSync) finish(ctx context.Context, completed bool) error {
 		return deferSave(nil)
 	}
 	h.sourcesPending = false
+	// A confirmed full scan refreshes current outputs and the life index only.
+	// Reconciliation and pending cascade cleanup belong to deleting operations.
+	if h.task.fullSyncGeneration {
+		if err := h.check(ctx); err != nil {
+			return deferSave(err)
+		}
+		if h.lifeAfterScan != nil {
+			h.manifest.Life = *h.lifeAfterScan
+		}
+		return deferSave(nil)
+	}
 	stale := []string{}
 	for name := range h.manifest.Files {
 		if !h.wanted[name] {

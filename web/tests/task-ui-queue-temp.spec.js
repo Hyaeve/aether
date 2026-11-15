@@ -17,7 +17,7 @@ async function fixture(page){
     else if(p==='/api/cron/validate')json={valid:true}
     else if(p==='/api/transfer/settings'){if(r.method()==='PUT'){writes.push(r.postDataJSON());Object.assign(transfer,r.postDataJSON())}json=transfer}
     else if(p==='/api/strm/settings')json={address:'http://localhost',format:'pickcode_name',content:'original'}
-    else if(p==='/api/tasks/life/sync'){writes.push({sync:r.postDataJSON()});json={ok:true,queued:true}}
+    else if(p==='/api/tasks/life/sync'){writes.push({sync:r.postDataJSON()});task.strmFullSync=true;json={ok:true,queued:true}}
     else if(p==='/api/strm-scrape/items')json=[{path:'First.strm',title:'第一部电影',kind:'movie',tmdb:1,status:'pending'},{path:'Second.strm',title:'第二部电影',kind:'movie',tmdb:0,status:'pending'}]
     else if(p==='/api/strm-scrape/status')json=progress
     else if(p==='/api/strm-scrape/settings')json={writeMode:'missing',episodes:true,actors:false}
@@ -72,6 +72,14 @@ test('life poll accepts manual full sync as a queued operation',async({page})=>{
   await page.getByRole('button',{name:'确认同步',exact:true}).click()
   await expect(page.locator('.toast-stack')).toContainText('全量同步已排队')
   expect(f.writes.at(-1)).toEqual({sync:{confirm:true}})
+  await expect(page.getByText('生活事件已暂停',{exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'任务操作 115云影视',exact:true}).click()
+  await expect(page.getByRole('button',{name:'全量同步',exact:true})).toBeDisabled()
+  f.task.strmFullSync=false
+  f.task.status='success'
+  await page.reload()
+  await expect(page.getByText('生活事件已暂停',{exact:true})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'停用任务 115云影视',exact:true})).toBeEnabled()
 })
 
 test('manual scrape allows matching the next poster while running',async({page},info)=>{

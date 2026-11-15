@@ -24,8 +24,7 @@ type rulePreset struct {
 	Upgrade       *upgradeDefinition       `json:"upgrade,omitempty"`
 }
 
-// These are saved task definitions. They are deliberately not registered with
-// the task runner until the user supplies the organizing rules and workflow.
+// Definitions stay separate from transient execution receipts.
 type organizeTaskDefinition struct {
 	ID                  string           `json:"id"`
 	Name                string           `json:"name"`
@@ -394,7 +393,21 @@ func (a *App) organizeTasksAPI(w http.ResponseWriter, r *http.Request) {
 		if items == nil {
 			items = []organizeTaskDefinition{}
 		}
-		jsonResponse(w, 200, items)
+		views := make([]organizeTaskView, 0, len(items))
+		for _, item := range items {
+			view := organizeTaskView{organizeTaskDefinition: item}
+			if run, ok := st.OrganizeRuntime[item.ID]; ok {
+				view.Runtime = &run
+			}
+			views = append(views, view)
+		}
+		jsonResponse(w, 200, views)
+		return
+	}
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if _, running := a.running[organizeRunKey(key)]; key != "" && running {
+		fail(w, 409, errors.New("整理归档任务正在执行，请先停止后再修改或删除"))
 		return
 	}
 	if r.Method == http.MethodDelete && key != "" {
@@ -407,6 +420,7 @@ func (a *App) organizeTasksAPI(w http.ResponseWriter, r *http.Request) {
 				}
 				return false
 			})
+			delete(st.OrganizeRuntime, key)
 			return nil
 		})
 		if err != nil {

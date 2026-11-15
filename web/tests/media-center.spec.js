@@ -46,6 +46,15 @@ for(const[width,theme]of[[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark']
  await expect(indicators).toHaveCount(5);await indicators.nth(3).hover();await expect(hero.getByRole('heading',{level:1})).toHaveText('星河旅人3');await expect(indicators.nth(3)).toHaveAttribute('aria-pressed','true')
  const geometry=await hero.evaluate(el=>{const p=el.getBoundingClientRect(),b=el.querySelector('.media-feature-indicators').getBoundingClientRect();return{right:p.right-b.right,bottom:p.bottom-b.bottom}});expect(geometry.right).toBeLessThan(35);expect(geometry.bottom).toBeLessThan(30)
  await expect(page.getByRole('progressbar',{name:'用户甲播放进度'})).toHaveAttribute('value','50');await expect(page.locator('.my-media-poster')).toHaveCount(7)
+ const recent = page.locator('.my-media-poster').first()
+ await expect(recent.getByRole('img')).toBeVisible()
+ expect(await recent.evaluate(card => {
+  const image = card.querySelector('img').getBoundingClientRect()
+  const frame = card.getBoundingClientRect()
+  return Math.abs(image.left - frame.left - card.clientLeft) < 1 &&
+   Math.abs(image.top - frame.top - card.clientTop) < 1 &&
+   Math.abs(image.width - card.clientWidth) < 1 && Math.abs(image.height - card.clientHeight) < 1
+ })).toBe(true)
  expect(f.writes).toEqual([]);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  await captureScreenshot(page,{path:info.outputPath(`media-panel-${width}-${theme}.png`)})
  await page.getByRole('button',{name:'媒体服务',exact:true}).click();await expect(page.getByRole('option')).toHaveText(['家庭影视','有声书架','飞牛影视']);await page.getByRole('option',{name:'有声书架',exact:true}).click()
@@ -62,6 +71,36 @@ test('media banner auto-rotates, pauses on hover, and resumes after leaving',asy
  await page.waitForTimeout(6200);await expect.poll(currentTitle).toBe('星河旅人1')
  await hero.hover();const paused=await currentTitle();await page.waitForTimeout(6200);await expect.poll(currentTitle).toBe(paused)
  await hero.getByRole('button',{name:'展示海报 4 星河旅人3',exact:true}).click();await expect.poll(currentTitle).toBe('星河旅人3');await page.mouse.move(1,1);await page.waitForTimeout(6200);await expect.poll(currentTitle).not.toBe('星河旅人3');expect(f.unknown).toEqual([])
+})
+test('media banner keeps the daily selection until the server refresh time', async ({page}) => {
+ const f = await fixture(page)
+ const midnight = new Date('2026-11-15T16:00:00Z')
+ await page.clock.install({time: new Date(midnight.getTime() - 12_000)})
+ await page.clock.pauseAt(new Date(midnight.getTime() - 11_000))
+ let dashboardReads = 0
+ await page.route('**/api/my-media/emby/dashboard*', async route => {
+  dashboardReads++
+  const expired = await page.evaluate(at => Date.now() >= at, midnight.getTime())
+  await route.fulfill({json: {
+   featured: expired ? [poster(6)] : [poster(0), poster(1)],
+   featuredUntil: expired ? '2026-11-16T16:00:00Z' : midnight.toISOString(),
+   recent: [poster(dashboardReads + 2)], stats: [], warnings: []
+  }})
+ })
+ await page.goto('/my-media/panel')
+ const hero = page.getByRole('region', {name: '推荐媒体'})
+ const refresh = page.getByRole('button', {name: '刷新媒体面板'})
+ await expect(refresh).toBeEnabled()
+ await hero.getByRole('button', {name: '展示海报 2 星河旅人1'}).click()
+ await refresh.click()
+ await expect(page.locator('.my-media-shelf')).toContainText('星河旅人4')
+ await expect(hero.getByRole('heading', {level: 1})).toHaveText('星河旅人1')
+ await page.clock.runFor(5_000)
+ expect(dashboardReads).toBe(2)
+ await page.clock.runFor(10_000)
+ await expect(hero.getByRole('heading', {level: 1})).toHaveText('星河旅人6')
+ expect(dashboardReads).toBe(3)
+ expect(f.unknown).toEqual([])
 })
 test('control save failure preserves libraries, missing and ranking paginate and scans require a click',async({page},info)=>{
  const f=await fixture(page,{many:true});await page.goto('/my-media/control');await expect(page.locator('.media-display-row')).toHaveCount(3)

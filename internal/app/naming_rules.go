@@ -163,11 +163,23 @@ func renderNaming(source, kind, original string, facts map[string]string) (namin
 			}
 		}
 		var b strings.Builder
+		var separator strings.Builder
+		hasValue := false
 		for i, t := range segment {
 			if t.kind == "variable" {
-				b.WriteString(namingComponent(facts[t.value]))
+				value := namingComponent(facts[t.value])
+				if value == "" {
+					continue
+				}
+				if hasValue {
+					b.WriteString(separator.String())
+				}
+				b.WriteString(value)
+				hasValue = true
+				separator.Reset()
 			} else if i > first && i < last {
-				b.WriteString(t.value)
+				separator.Reset()
+				separator.WriteString(t.value)
 			}
 		}
 		part := strings.TrimSpace(b.String())

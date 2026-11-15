@@ -66,7 +66,7 @@ func (a *App) prepareShareLibraryRename(ctx context.Context, old, next quarkLibr
 	}
 	if _, err := parent.Lstat(next.DirectoryName); !os.IsNotExist(err) {
 		if err == nil {
-			err = errShareLibraryDirectory
+			err = shareLibraryDiskConflict{}
 		}
 		return fail(err)
 	}

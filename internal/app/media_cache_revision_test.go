@@ -306,8 +306,8 @@ func TestMyMediaFeaturedSeriesAndMissingDetails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := mediaDashboardData{}
-	if err := a.loadVideoDashboard(a.ctx, st, l, c, &data); err != nil {
+	data, err := a.mediaDashboard(a.ctx, l, c, time.Now(), false)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(data.Featured) != 1 || data.Featured[0].Episodes == nil || *data.Featured[0].Episodes != 23 || data.Featured[0].Overview != "作品简介" || data.Featured[0].LibraryName != "剧集库" || !strings.HasSuffix(data.Featured[0].WebURL, "#!/item?id=show") {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ type casLibrarySettings struct {
 type casLibraryRuntime struct {
 	Results map[string]quarkLibraryResult    `json:"results,omitempty"`
 	Roots   map[string]quarkLibraryOwnership `json:"roots,omitempty"`
+	Files   map[string]quarkLibraryFile      `json:"files,omitempty"`
 }
 
 func effectiveCASLibrary(st State) casLibrarySettings {
@@ -39,6 +41,9 @@ func initCASLibrary(st *State) {
 	}
 	if st.CASLibraryRuntime.Roots == nil {
 		st.CASLibraryRuntime.Roots = map[string]quarkLibraryOwnership{}
+	}
+	if st.CASLibraryRuntime.Files == nil {
+		st.CASLibraryRuntime.Files = map[string]quarkLibraryFile{}
 	}
 }
 func casLibraryCardAt(st State, key string) (quarkLibraryCard, bool) {
@@ -158,23 +163,7 @@ func (a *App) casLibraryAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	old, exists := casLibraryCardAt(st, key)
 	if r.Method == "DELETE" && exists {
-		err := a.store.update(func(st *State) error {
-			out := []quarkLibraryCard{}
-			for _, c := range st.CASLibraryCards {
-				if c.ID != key {
-					out = append(out, c)
-				}
-			}
-			st.CASLibraryCards = out
-			delete(st.CASLibraryRuntime.Results, key)
-			delete(st.CASLibraryRuntime.Roots, key)
-			return nil
-		})
-		if err != nil {
-			fail(w, 500, err)
-			return
-		}
-		jsonResponse(w, 200, map[string]bool{"ok": true})
+		a.shareLibraryDeleteAPI(w, r, "cas", old)
 		return
 	}
 	if r.Method != "POST" && r.Method != "PUT" {
@@ -404,6 +393,16 @@ func (a *App) runCASLibrary(ctx context.Context, card quarkLibraryCard, external
 			if !info.Mode().IsRegular() {
 				return result, errors.New("CAS目标不是普通文件")
 			}
+			// Older libraries can acquire a digest only when the complete current
+			// source features reproduce the existing output byte for byte.
+			if entry.CAS != nil {
+				expected := []byte(a.generatedStreamURL(streamClaim{CAS: entry.CAS, Redirect: true}) + "\n")
+				if raw, err := readGenerationOutput(root, entry.Path); err == nil && bytes.Equal(raw, expected) {
+					if err := a.recordCASLibraryOutput(ctx, card, entry.Path, raw); err != nil {
+						return result, err
+					}
+				}
+			}
 			result.Skipped++
 			continue
 		} else if !os.IsNotExist(e) {
@@ -458,6 +457,12 @@ func (a *App) runCASLibrary(ctx context.Context, card quarkLibraryCard, external
 		return result, err
 	}
 	workCtx := context.WithValue(ctx, generationWorkGuardKey{}, check)
+	workCtx = context.WithValue(workCtx, generationOutputKey{}, func(name string, content []byte) error {
+		if err := check(); err != nil {
+			return err
+		}
+		return a.recordCASLibraryOutput(workCtx, card, name, content)
+	})
 	a.executeGeneration(workCtx, job, manifest, quarkLibraryRoot(card), ".")
 	for _, j := range a.store.snapshotWithLogLimit(0).GenerationJobs {
 		if j.ID == job.ID {
