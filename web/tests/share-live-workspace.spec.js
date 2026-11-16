@@ -1,10 +1,10 @@
 import {test,expect} from '@playwright/test'
 
-async function fixture(page){
+async function fixture(page,{directoryCreationPending=false}={}){
   let saved,operation,progress=2
   const storages=[{id:'p',name:'115影音',type:'115',enabled:true,config:{}},{id:'m',name:'移动影音',type:'mobile',enabled:true,config:{mode:'native'}},{id:'q',name:'夸克影音',type:'quark',enabled:true,config:{}}]
   const targets=storages.flatMap(s=>Array.from({length:5},(_,i)=>({id:s.id+i,provider:s.type,storageId:s.id,parent:'parent'+i,path:'/Target '+i,shareTransfer:true,updateDays:7})))
-  let links=[{id:'live',targetId:'q0',name:'影视分享',provider:'quark',url:'https://pan.quark.cn/s/code',directoryName:'剧集',cron:'0 */12 * * *',nextRun:'2026-11-05T13:00:00+08:00',status:'completed',message:'新增提交2个文件，跳过3个文件'}]
+  let links=[{id:'live',targetId:'q0',name:'影视分享',provider:'quark',url:'https://pan.quark.cn/s/code',directoryName:'剧集',cron:'0 */12 * * *',nextRun:'2026-11-05T13:00:00+08:00',status:'completed',message:'新增提交2个文件，跳过3个文件',directoryCreationPending}]
   const records=['bot','browser','cron'].map((source,i)=>({id:String(i),provider:storages[i].type,name:'分享资源 '+i,url:'https://pan.quark.cn/s/code',directoryName:'保存目录',source,time:'2026-10-29T13:19:00+08:00',status:i===1?'failed':'completed',message:'新增2个文件，跳过3个文件'}))
   await page.route('**/api/**',async route=>{
     const request=route.request(),p=new URL(request.url()).pathname,method=request.method()
@@ -16,7 +16,7 @@ async function fixture(page){
     else if(p==='/api/share-live')json=links
     else if(p==='/api/cron/validate')json={error:''}
     else if(p==='/api/notification-service/targets'){saved=request.postDataJSON();json={targets:saved.targets}}
-    else if(p==='/api/share-live/live'&&method==='PUT'){saved=request.postDataJSON();links=[{...links[0],...saved}];json={ok:true}}
+    else if(p==='/api/share-live/live'&&method==='PUT'){saved=request.postDataJSON();links=[{...links[0],...saved,directoryCreationPending:false}];json={ok:true}}
     else if(p.startsWith('/api/share-live/live/')){operation={path:p,body:request.postDataJSON()};if(!p.endsWith('/run'))links=[];json={ok:true}}
     else if(p==='/api/tasks/panel')json={items:[{id:'task:live',kind:'cas',source:'task',name:'真实进度',status:'running',message:'正在生成',processed:progress,total:10,totalKnown:true,unit:'项'}]}
     else return route.fulfill({status:500,json:{error:'未模拟接口 '+p}})
@@ -39,7 +39,15 @@ for(const [width,height,theme] of [[1440,900,'light'],[1440,900,'dark'],[390,900
     expect(value).toEqual({scroll:true,third:true,fourth:true,bar:'none'})
   }
   const colors=await page.locator('.telegram-pool').evaluateAll(els=>els.map(el=>getComputedStyle(el).backgroundColor))
-  expect(new Set(colors).size).toBe(3)
+  const frameColor=await page.evaluate(()=>{
+    const frame=document.createElement('div')
+    frame.style.backgroundColor='var(--layer-frame)'
+    document.body.append(frame)
+    const color=getComputedStyle(frame).backgroundColor
+    frame.remove()
+    return color
+  })
+  expect(colors).toEqual([frameColor,frameColor,frameColor])
   const poolHeights=await page.locator('.telegram-pool').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().height))
   expect(new Set(poolHeights).size).toBe(1)
   await expect(page.locator('.telegram-pool>header button')).toHaveCount(0)
@@ -113,6 +121,21 @@ test('target update days and live rename, remove-only and delete confirmation',a
   await page.getByRole('button',{name:'删除活链 影视分享',exact:true}).click()
   await page.getByRole('button',{name:'确认删除',exact:true}).click()
   await expect(page.getByRole('dialog',{name:'删除活动链接',exact:true})).toHaveCount(0)
+})
+
+test('unconfirmed live directory can be replaced without a migration prompt',async({page})=>{
+  const data=await fixture(page,{directoryCreationPending:true})
+  await page.goto('/notifications/transfers')
+  await page.getByRole('button',{name:'活动链接 /Target 0',exact:true}).last().click()
+  await page.getByRole('button',{name:'编辑活链 影视分享',exact:true}).click()
+  const editor=page.getByRole('dialog',{name:'编辑分享链接',exact:true})
+  await editor.getByRole('textbox',{name:'活链目录名称',exact:true}).fill('新保存目录')
+  await editor.getByRole('button',{name:'保存',exact:true}).click()
+  await expect.poll(()=>data.saved()).toMatchObject({targetId:'q0',directoryName:'新保存目录',confirm:false})
+  await expect(editor).toHaveCount(0)
+  await expect(page.getByRole('dialog',{name:'确认迁移保存目录',exact:true})).toHaveCount(0)
+  await page.getByRole('button',{name:'执行活链 影视分享',exact:true}).click()
+  await expect.poll(()=>data.operation()?.path).toBe('/api/share-live/live/run')
 })
 
 test('task panel has no statistics and real progress moves on refresh',async({page})=>{

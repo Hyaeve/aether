@@ -199,6 +199,9 @@ func Test115ShortPagesDoNotSkipFullSyncFiles(t *testing.T) {
 	original := apiClient.Transport
 	offsets := []string{}
 	apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/category/get" {
+			return jsonHTTPResponse(`{"file_category":0,"pick_code":"folderpick12345","count":5,"folder_count":0}`), nil
+		}
 		if r.URL.Path == "/behavior/detail" {
 			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"state":true,"data":{"list":[]}}`)), Request: r}, nil
 		}

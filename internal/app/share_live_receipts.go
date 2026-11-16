@@ -10,6 +10,7 @@ type shareBatchReceiptKey struct{}
 
 type shareBatchReceipt struct {
 	before           func() error
+	directoryCreated func(string) error
 	directoriesReady func() error
 	accepted         func(string) error
 }
@@ -103,6 +104,12 @@ func shareLiveUnconfirmedError(link shareLiveLink) error {
 	case strings.HasPrefix(link.Intent, "batch:"):
 		return errors.New("上次转存结果未确认，缺少可查询的任务回执；请查看该活链上次执行日志并核对保存目录")
 	case strings.HasPrefix(link.Intent, "mkdir:"):
+		if shareLiveDirectoryRecoverable(link) {
+			return errors.New("保存目录尚未核验，请再次执行以查询创建回执，或换用未占用的保存目录名称")
+		}
+		if shareLiveMkdirPending(link) {
+			return errors.New("上次创建保存目录的结果未确认，缺少可核验的目录编号。请核对云盘后，编辑该活链并换用未占用的保存目录名称，再执行")
+		}
 		return errors.New("上次创建保存目录的结果未确认，请核对该活链的保存目录")
 	case strings.HasPrefix(link.Intent, "relocate:"):
 		return errors.New("上次保存目录改名或移动的结果未确认，请核对保存目录位置")

@@ -31,6 +31,8 @@ func strmBulkFixture(t *testing.T, n int, broken string) (*App, Storage, Task, *
 		switch r.URL.Path {
 		case "/files/get_info":
 			response = map[string]any{"state": true, "data": []any{map[string]any{"cid": "10", "pid": "0", "n": "Show", "pc": "folderpick12345"}}}
+		case "/category/get":
+			response = map[string]any{"file_category": "0", "pick_code": "folderpick12345", "count": n, "folder_count": n}
 		case "/files/downfolders":
 			dirs := []any{}
 			for i := 0; i < n; i++ {
@@ -125,7 +127,7 @@ func Test115STRMBulkUsesWebFoldersAndVersionedFallback(t *testing.T) {
 				return original.RoundTrip(r)
 			})
 			defer func() { apiClient.Transport = original }()
-			plan, err := a.strm115BulkPlan(a.ctx, s, task.Source)
+			plan, err := a.strm115BulkPlan(a.ctx, s, task.Source, nil)
 			if err != nil || len(plan) != 3 {
 				t.Fatal(plan, err)
 			}
@@ -155,9 +157,13 @@ func Test115STRMBulkRootUsesSubtreePages(t *testing.T) {
 		return base.RoundTrip(r)
 	})
 	defer func() { apiClient.Transport = base }()
-	plan, err := a.strm115BulkPlan(a.ctx, s, "/")
+	checks := map[string]strm115Inventory{}
+	plan, err := a.strm115BulkPlan(a.ctx, s, "/", checks)
 	if err != nil || rootReads != 1 || len(plan) != 4 || len(plan["/"]) != 2 || plan["20"][0].PickCode != "pick000000000000" {
 		t.Fatal("root fell back to full DFS or lost pickcodes", len(plan), rootReads, err)
+	}
+	if len(checks) != 1 || checks["10"] != (strm115Inventory{files: 2, folders: 2}) {
+		t.Fatal("root scan did not verify the subtree independently", checks)
 	}
 }
 
@@ -177,6 +183,9 @@ func Test115STRMLifeFullSyncTenThousandWithOneSecondAPI(t *testing.T) {
 		if r.URL.Path == "/behavior/detail" {
 			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"state":true,"data":{"list":[]}}`)), Request: r}, nil
 		}
+		if r.URL.Path == "/category/get" {
+			return jsonHTTPResponse(`{"file_category":0,"pick_code":"folderpick12345","count":10000,"folder_count":1}`), nil
+		}
 		if r.URL.Path == "/files" && r.URL.Query().Get("cur") == "0" {
 			offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 			list := []any{}
@@ -191,7 +200,7 @@ func Test115STRMLifeFullSyncTenThousandWithOneSecondAPI(t *testing.T) {
 	defer func() { apiClient.Transport = base }()
 	started := time.Now()
 	n, err := a.executeTask(a.ctx, task, s)
-	if err != nil || n != 10000 || calls != 12 {
+	if err != nil || n != 10000 || calls != 13 {
 		t.Fatal("life full sync used per-file cloud calls or omitted pages", n, calls, err)
 	}
 	for i := 0; i < 10000; i++ {
@@ -229,7 +238,7 @@ func Test115STRMBulkFullSyncCoversEveryPageAndRepairsMissingOutput(t *testing.T)
 	task.fullSyncGeneration = true
 	started := time.Now()
 	n, err := a.executeTask(a.ctx, task, s)
-	if err != nil || n != 1200 || *calls != 4 {
+	if err != nil || n != 1200 || *calls != 5 {
 		t.Fatal("full sync lost recursive pages", n, *calls, err)
 	}
 	for i := 0; i < 1200; i++ {
@@ -243,7 +252,7 @@ func Test115STRMBulkFullSyncCoversEveryPageAndRepairsMissingOutput(t *testing.T)
 		t.Fatal(err)
 	}
 	n, err = a.executeTask(a.ctx, task, s)
-	if err != nil || n != 1 || *calls != 8 {
+	if err != nil || n != 1 || *calls != 10 {
 		t.Fatal("second sync did not repair only missing output", n, *calls, err)
 	}
 	if _, err := os.Stat(missing); err != nil {
@@ -256,7 +265,7 @@ func Test115STRMBulkRejectsIncompletePlansAndFallsBack(t *testing.T) {
 	for _, broken := range []string{"orphan", "duplicate", "wrong-root", "changing", "truncated", "missing-pickcode"} {
 		t.Run(broken, func(t *testing.T) {
 			a, s, task, _ := strmBulkFixture(t, 1200, broken)
-			if plan, err := a.strm115BulkPlan(a.ctx, s, task.Source); err == nil || plan != nil {
+			if plan, err := a.strm115BulkPlan(a.ctx, s, task.Source, nil); err == nil || plan != nil {
 				t.Fatal("unsafe bulk plan accepted", broken, err)
 			}
 			plan, n, err := a.scanTaskProgress(a.ctx, task, s, "Show", true)

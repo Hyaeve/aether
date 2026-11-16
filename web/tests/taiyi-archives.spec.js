@@ -83,6 +83,16 @@ for (const width of [1440,375]) for (const theme of ['light','dark']) {
     await expect(page.getByRole('region',{name:'整理档案',exact:true})).toBeVisible()
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     await captureScreenshot(page,{path:info.outputPath(`archives-empty-${width}-${theme}.png`)})
+    await expect(page.getByRole('button',{name:'分组模式',exact:true})).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('button',{name:'分组模式',exact:true})).toBeVisible()
+    await page.getByRole('link',{name:'刮削档案',exact:true}).click()
+    await expect(page.locator('.archive-group-toggle')).toContainText('识别的剧集')
+    await page.getByRole('button',{name:'分组模式',exact:true}).click()
+    await expect(page.locator('.archive-row')).toHaveCount(3)
+    await page.reload()
+    await expect(page.getByRole('button',{name:'列表模式',exact:true})).toBeVisible()
+    await expect(page.locator('.archive-row')).toHaveCount(3)
   })
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -15,7 +14,7 @@ import (
 
 // Read-only bulk enumeration. It returns IDs and pickcodes, unlike a text export.
 // A partial/changing subtree never becomes a deletion plan; callers retry via DFS.
-func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (map[string][]File, error) {
+func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string, checks map[string]strm115Inventory) (map[string][]File, error) {
 	root := source
 	if root == "" || root == "/" {
 		root = rootOf(s)
@@ -23,7 +22,13 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 	if root == "0" {
 		// The root has no pickcode. Enumerate its immediate children once, then
 		// use bulk subtree pages for each top-level directory instead of full DFS.
-		files, err := a.rawList(ctx, s, source)
+		var files []File
+		var err error
+		if checks != nil {
+			files, err = a.list115STRMDirectory(ctx, s, source)
+		} else {
+			files, err = a.rawList(ctx, s, source)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -39,7 +44,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 			if !f.IsDir {
 				continue
 			}
-			child, err := a.strm115BulkPlan(ctx, s, f.ID)
+			child, err := a.strm115BulkPlan(ctx, s, f.ID, checks)
 			if err != nil {
 				return nil, err
 			}
@@ -67,26 +72,15 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 	if err != nil || info == nil || !info.IsDirectory || info.FileID != root || !pickcodePath.MatchString(info.PickCode) {
 		return nil, errors.New("115目录身份或目录pickcode不可用")
 	}
-	read := func(address string, query url.Values, out any) error {
-		if err := a.waitAPI(ctx, s.ID); err != nil {
-			return err
-		}
-		res, err := c.NewRequest().SetDoNotParseResponse(true).Get(address + "?" + query.Encode())
+	if checks != nil {
+		want, err := a.stat115Inventory(ctx, s, c, root, info.PickCode)
 		if err != nil {
-			return errors.New("115批量目录接口不可用")
+			return nil, fmt.Errorf("115目录 %.32q 独立统计不可用：%w", root, err)
 		}
-		defer res.RawBody().Close()
-		if res.StatusCode() != 200 {
-			return fmt.Errorf("115批量目录接口HTTP %d", res.StatusCode())
-		}
-		raw, err := io.ReadAll(io.LimitReader(res.RawBody(), (8<<20)+1))
-		if err != nil || len(raw) > 8<<20 {
-			return errors.New("115批量目录响应无效或过大")
-		}
-		if json.Unmarshal(raw, out) != nil {
-			return errors.New("115批量目录响应格式无效")
-		}
-		return ctx.Err()
+		checks[source] = want
+	}
+	read := func(address string, query url.Values, out any) error {
+		return a.read115Inventory(ctx, s, c, address, query, out)
 	}
 	type node struct{ name, parent string }
 	dirs := map[string]node{}
@@ -191,6 +185,11 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string) (ma
 			return nil, errTaskProgressLimit
 		}
 		if total < 0 {
+			if want, ok := checks[source]; ok {
+				if err := want.verify(root, count, int64(len(dirs))); err != nil {
+					return nil, err
+				}
+			}
 			total = int(count)
 		} else if total != int(count) {
 			return nil, errors.New("115递归文件清单在扫描中变化")

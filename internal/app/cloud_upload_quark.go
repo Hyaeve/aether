@@ -39,6 +39,10 @@ func quarkWriteJSON(ctx context.Context, s Storage, endpoint string, body, out a
 	if result.Code != 0 || result.Status >= 400 {
 		return errors.New("夸克拒绝写入操作")
 	}
+	if raw, ok := out.(*json.RawMessage); ok {
+		*raw = result.Data
+		return nil
+	}
 	if out != nil {
 		return json.Unmarshal(result.Data, out)
 	}

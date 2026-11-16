@@ -57,6 +57,9 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 		if strings.Contains(r.URL.Path, "downfolders") {
 			return jsonHTTPResponse(`{"state":true,"data":{"list":[{"fid":"20","pid":"20","fn":"broken-entry"}],"has_next_page":false}}`), nil
 		}
+		if r.URL.Path == "/category/get" {
+			return jsonHTTPResponse(`{"file_category":0,"pick_code":"folderpick12345","count":3,"folder_count":2}`), nil
+		}
 		if r.URL.Path != "/files" {
 			return base.RoundTrip(r)
 		}
@@ -98,7 +101,7 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 		return jsonHTTPResponse(string(raw)), nil
 	})
 	t.Cleanup(func() { apiClient.Transport = base })
-	if _, err := a.strm115BulkPlan(a.ctx, s, task.Source); err == nil || !strings.Contains(err.Error(), "目录表条目无效") || !strings.Contains(err.Error(), "broken-entry") {
+	if _, err := a.strm115BulkPlan(a.ctx, s, task.Source, nil); err == nil || !strings.Contains(err.Error(), "目录表条目无效") || !strings.Contains(err.Error(), "broken-entry") {
 		t.Fatal("invalid bulk entry did not identify its cause", err)
 	}
 	if n, err := a.executeTask(a.ctx, task, s); err != nil || n != 3 {

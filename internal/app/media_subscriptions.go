@@ -38,9 +38,12 @@ type mediaSubscription struct {
 	Updated time.Time `json:"updated"`
 }
 
-func validDiscoveryImage(value string) bool {
+func validDiscoveryImage(value, source string) bool {
 	if value == "" {
 		return true
+	}
+	if source == bangumiSource {
+		return bangumiImage(value) == value
 	}
 	u, err := url.Parse(value)
 	return err == nil && u.Scheme == "https" && u.Host == "image.tmdb.org" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && strings.HasPrefix(u.Path, "/t/p/") && !strings.Contains(u.Path, "..")
@@ -84,7 +87,9 @@ func validateMediaSubscriptions(values []mediaSubscription) error {
 	}
 	keys, media := map[string]bool{}, map[string]bool{}
 	for _, v := range values {
-		if !notificationID.MatchString(v.Key) || keys[v.Key] || v.ID < 1 || v.ID > 1_000_000_000 || (v.Kind != "tv" && v.Kind != "movie") || v.Title == "" || len(v.Title) > 500 || len(v.Overview) > 20000 || !validDiscoveryImage(v.Poster) || !validDiscoveryImage(v.Backdrop) {
+		if !notificationID.MatchString(v.Key) || keys[v.Key] || v.ID < 1 || v.ID > 1_000_000_000 || (v.Kind != "tv" && v.Kind != "movie") ||
+			(v.Source != "" && v.Source != bangumiSource) || v.Title == "" || len(v.Title) > 500 || len(v.Overview) > 20000 ||
+			!validDiscoveryImage(v.Poster, v.Source) || !validDiscoveryImage(v.Backdrop, v.Source) {
 			return errors.New("媒体订阅信息无效")
 		}
 		if v.Kind == "movie" && v.Season != 0 {
@@ -93,7 +98,7 @@ func validateMediaSubscriptions(values []mediaSubscription) error {
 		if err := validateSubscriptionOptions(v.mediaSubscriptionOptions); err != nil {
 			return err
 		}
-		key := fmt.Sprintf("%s:%d:%d", v.Kind, v.ID, v.Season)
+		key := fmt.Sprintf("%s:%s:%d:%d", v.Source, v.Kind, v.ID, v.Season)
 		if media[key] {
 			return errors.New("该作品及季号已订阅")
 		}
@@ -153,8 +158,9 @@ func (a *App) mediaSubscriptionsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ID   int    `json:"id"`
-		Kind string `json:"kind"`
+		ID     int    `json:"id"`
+		Kind   string `json:"kind"`
+		Source string `json:"source"`
 		mediaSubscriptionOptions
 	}
 	input.StartEpisode = 1
@@ -172,12 +178,28 @@ func (a *App) mediaSubscriptionsAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		detail, err := a.discoveryMediaDetail(ctx, input.Kind, input.ID)
+		var media discoveryMedia
+		var err error
+		switch input.Source {
+		case "":
+			var detail discoveryDetail
+			detail, err = a.discoveryMediaDetail(ctx, input.Kind, input.ID)
+			media = detail.discoveryMedia
+		case bangumiSource:
+			var subject bangumiSubject
+			subject, err = a.bangumiGetSubject(ctx, input.ID)
+			media = subject.media()
+			if err == nil && media.Kind != input.Kind {
+				err = errors.New("Bangumi 条目类型与订阅不符")
+			}
+		default:
+			err = errors.New("媒体来源无效")
+		}
 		if err != nil {
 			fail(w, 400, err)
 			return
 		}
-		card = mediaSubscription{discoveryMedia: detail.discoveryMedia, Key: id(), Created: time.Now()}
+		card = mediaSubscription{discoveryMedia: media, Key: id(), Created: time.Now()}
 	}
 	err := a.store.update(func(st *State) error {
 		if !subscriptionTargetValid(*st, input.TargetID) {

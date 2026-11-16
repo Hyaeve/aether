@@ -35,9 +35,6 @@ func discoveryFixture(t *testing.T) (*App, http.Handler, *http.Cookie, *atomic.I
 		if strings.Contains(r.URL.Path, "/tv") {
 			kind = "tv"
 		}
-		if strings.HasPrefix(r.URL.Path, "/3/discover/") && r.URL.Query().Get("with_genres") != "16" {
-			t.Error("animation filter missing")
-		}
 		jsonResponse(w, 200, map[string]any{"total_pages": 999, "results": []any{
 			map[string]any{"id": 42, "media_type": kind, "title": "电影示例", "name": "剧集示例", "release_date": "2026-01-01", "poster_path": "/poster.jpg", "vote_average": 8.5},
 			map[string]any{"id": 99, "media_type": "person", "name": "不作为影视推荐"},
@@ -61,7 +58,7 @@ func discoveryFixture(t *testing.T) (*App, http.Handler, *http.Cookie, *atomic.I
 
 func TestDiscoveryFeedsDetailsCacheAndValidation(t *testing.T) {
 	a, h, cookie, calls := discoveryFixture(t)
-	for _, category := range []string{"all", "tv", "movie", "anime", "rankings"} {
+	for _, category := range []string{"all", "tv", "movie", "rankings"} {
 		w := request(t, h, "GET", "/api/discovery?category="+category, nil, cookie)
 		if w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())

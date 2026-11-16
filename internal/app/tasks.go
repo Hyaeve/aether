@@ -509,7 +509,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 		files, found := plan[dir]
 		var err error
 		if !found {
-			files, err = a.listFiles(ctx, s, dir, t.CacheTTL, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration)
+			files, err = a.listTaskDirectory(ctx, t, s, dir, t.Kind == "cache" || cleanup != nil || t.resetGeneration || t.fullSyncGeneration)
 		}
 		if err != nil {
 			return err

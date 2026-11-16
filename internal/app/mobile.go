@@ -145,6 +145,10 @@ func (a *App) mobilePost(ctx context.Context, s Storage, address string, payload
 		}
 		return &storageRequestError{message: "移动云盘拒绝请求，请检查授权有效期、账号权益或目录权限"}
 	}
+	if raw, ok := out.(*json.RawMessage); ok {
+		*raw = result.Data
+		return nil
+	}
 	if out == nil {
 		return nil
 	}

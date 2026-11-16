@@ -57,7 +57,7 @@ async function action(link,kind,body={}){
 async function save(confirmed=false){
   if(busy.value)return
   const value=editing.value,original=links.value.find(link=>link.id===value.id)
-  if(original&&(original.directoryName!==value.directoryName||original.targetId!==value.targetId)&&confirmed!==true){moving.value=true;return}
+  if(original&&!original.directoryCreationPending&&(original.directoryName!==value.directoryName||original.targetId!==value.targetId)&&confirmed!==true){moving.value=true;return}
   busy.value=true
   const owner=state.username
   try{await api(value.id?`/share-live/${value.id}`:'/share-live',value.id?'PUT':'POST',{url:value.url,name:value.name,cron:value.cron,directoryName:value.directoryName,targetId:value.targetId,confirm:confirmed===true});if(!alive||state.username!==owner)return;editing.value=null;moving.value=false;notify('活链设置已保存');await load()}

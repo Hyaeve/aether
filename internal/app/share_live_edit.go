@@ -48,55 +48,6 @@ func (a *App) resolveShareLive(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]string{"name": name})
 }
 
-func (a *App) initializeShareLiveDirectory(ctx context.Context, s Storage, link *shareLiveLink) error {
-	if _, err := a.shareLiveGuard(*link); err != nil {
-		return err
-	}
-	files, err := a.rawList(ctx, s, link.Parent)
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		if strings.EqualFold(f.Name, link.DirectoryName) {
-			return errors.New("保存目录已存在，未接管；请修改目录名称")
-		}
-	}
-	ctx = context.WithValue(ctx, shareBatchReceiptKey{}, &shareBatchReceipt{before: func() error {
-		return a.updateShareLiveReceipt(*link, func(current *shareLiveLink) error {
-			if current.Intent != "" {
-				return errors.New("上次保存目录创建结果未确认")
-			}
-			current.Intent = "mkdir:" + link.DirectoryName
-			return nil
-		})
-	}})
-	if err := a.createDirectory(ctx, s, link.Parent, link.DirectoryName); err != nil {
-		return err
-	}
-	files, err = a.rawList(ctx, s, link.Parent)
-	if err != nil {
-		return errors.New("创建目录已提交但未确认，请核对云盘，勿重复提交")
-	}
-	for _, f := range files {
-		if !f.IsDir || f.Name != link.DirectoryName {
-			continue
-		}
-		link.DirectoryID = f.ID
-		link.Intent = ""
-		return a.store.update(func(st *State) error {
-			for i := range st.ShareLiveLinks {
-				if st.ShareLiveLinks[i].ID == link.ID {
-					st.ShareLiveLinks[i].DirectoryID = f.ID
-					st.ShareLiveLinks[i].Intent = ""
-					return nil
-				}
-			}
-			return errors.New("活链已移除，目录创建结果未登记")
-		})
-	}
-	return errors.New("创建目录结果未确认，请核对云盘，不重复创建")
-}
-
 func (a *App) shareLiveTarget(key, provider string) (telegramTarget, Storage, error) {
 	st := a.store.snapshotWithLogLimit(0)
 	for _, target := range st.Notifications.Targets {
@@ -188,6 +139,10 @@ func (a *App) editShareLive(w http.ResponseWriter, r *http.Request, link shareLi
 	if !decode(w, r, &input) {
 		return
 	}
+	replacingPendingDirectory := shareLiveMkdirPending(link)
+	if replacingPendingDirectory {
+		input.DirectoryName = strings.TrimSpace(input.DirectoryName)
+	}
 	provider, _, _, err := parseShareLink(input.URL, "")
 	if err != nil || provider != link.Provider || !validShareDirectory(input.DirectoryName) || input.DirectoryName == "" {
 		fail(w, 400, errors.New("分享链接或目录名称无效"))
@@ -201,7 +156,7 @@ func (a *App) editShareLive(w http.ResponseWriter, r *http.Request, link shareLi
 		fail(w, 400, err)
 		return
 	}
-	if link.Intent != "" || link.Status == "running" {
+	if !replacingPendingDirectory && (link.Intent != "" || link.Status == "running") {
 		fail(w, 409, errors.New("活链正在执行或上次写入未确认，请先核对云盘"))
 		return
 	}
@@ -220,6 +175,10 @@ func (a *App) editShareLive(w http.ResponseWriter, r *http.Request, link shareLi
 	if input.TargetID == "" {
 		input.TargetID = link.TargetID
 	}
+	if replacingPendingDirectory && (input.TargetID != link.TargetID || input.URL != link.Link || strings.EqualFold(input.DirectoryName, strings.TrimSpace(link.DirectoryName))) {
+		fail(w, 409, shareLiveUnconfirmedError(link))
+		return
+	}
 	target, destination, err := a.shareLiveTarget(input.TargetID, link.Provider)
 	if err != nil {
 		fail(w, 400, err)
@@ -227,6 +186,20 @@ func (a *App) editShareLive(w http.ResponseWriter, r *http.Request, link shareLi
 	}
 	if destination.ID != s.ID {
 		fail(w, 400, errors.New("已转存目录迁移仅支持原存储池，请选择该存储池的转存目录"))
+		return
+	}
+	for _, other := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
+		if other.ID != link.ID && other.StorageID == link.StorageID && other.Parent == target.Parent && strings.EqualFold(other.DirectoryName, input.DirectoryName) {
+			fail(w, 409, errors.New("目标保存目录被其他活链使用，未执行改名或迁移"))
+			return
+		}
+	}
+	if replacingPendingDirectory {
+		if err := a.resetShareLiveDirectoryName(r.Context(), s, link, input); err != nil {
+			fail(w, 409, err)
+		} else {
+			jsonResponse(w, 200, map[string]bool{"ok": true})
+		}
 		return
 	}
 	if input.URL != link.Link {
@@ -240,12 +213,6 @@ func (a *App) editShareLive(w http.ResponseWriter, r *http.Request, link shareLi
 		link.Name, link.OriginalName = name, name
 	}
 	migrating := target.Parent != link.Parent || input.DirectoryName != link.DirectoryName
-	for _, other := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
-		if other.ID != link.ID && other.StorageID == link.StorageID && other.Parent == target.Parent && strings.EqualFold(other.DirectoryName, input.DirectoryName) {
-			fail(w, 409, errors.New("目标保存目录被其他活链使用，未执行改名或迁移"))
-			return
-		}
-	}
 	if migrating && link.DirectoryID != "" {
 		if !input.Confirm {
 			fail(w, 400, errors.New("请确认移动或改名已转存的目录及其内容"))

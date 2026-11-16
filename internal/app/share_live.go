@@ -28,30 +28,31 @@ type shareTransferRecord struct {
 }
 
 type shareLiveLink struct {
-	ID                string    `json:"id"`
-	TargetID          string    `json:"targetId"`
-	StorageID         string    `json:"storageId"`
-	Provider          string    `json:"provider"`
-	Parent            string    `json:"parent"`
-	DirectoryID       string    `json:"directoryId"`
-	DirectoryName     string    `json:"directoryName"`
-	Name              string    `json:"name"`
-	OriginalName      string    `json:"originalName,omitempty"`
-	Link              string    `json:"secret"`
-	Stamp             string    `json:"stamp"`
-	Cron              string    `json:"cron"`
-	IntervalDays      int       `json:"intervalDays"`
-	LastRun           time.Time `json:"lastRun"`
-	NextRun           time.Time `json:"nextRun"`
-	Status            string    `json:"status"`
-	Message           string    `json:"message"`
-	Intent            string    `json:"intent,omitempty"`
-	DeleteTaskID      string    `json:"deleteTaskId,omitempty"`
-	TransferTaskID    string    `json:"transferTaskId,omitempty"`
-	PendingCursor     string    `json:"pendingCursor,omitempty"`
-	IncrementalCursor string    `json:"incrementalCursor,omitempty"`
-	LastSuccess       time.Time `json:"lastSuccess,omitempty"`
-	Excluded          []string  `json:"excluded,omitempty"`
+	ID                 string    `json:"id"`
+	TargetID           string    `json:"targetId"`
+	StorageID          string    `json:"storageId"`
+	Provider           string    `json:"provider"`
+	Parent             string    `json:"parent"`
+	DirectoryID        string    `json:"directoryId"`
+	DirectoryName      string    `json:"directoryName"`
+	Name               string    `json:"name"`
+	OriginalName       string    `json:"originalName,omitempty"`
+	Link               string    `json:"secret"`
+	Stamp              string    `json:"stamp"`
+	Cron               string    `json:"cron"`
+	IntervalDays       int       `json:"intervalDays"`
+	LastRun            time.Time `json:"lastRun"`
+	NextRun            time.Time `json:"nextRun"`
+	Status             string    `json:"status"`
+	Message            string    `json:"message"`
+	Intent             string    `json:"intent,omitempty"`
+	DeleteTaskID       string    `json:"deleteTaskId,omitempty"`
+	TransferTaskID     string    `json:"transferTaskId,omitempty"`
+	PendingDirectoryID string    `json:"pendingDirectoryId,omitempty"`
+	PendingCursor      string    `json:"pendingCursor,omitempty"`
+	IncrementalCursor  string    `json:"incrementalCursor,omitempty"`
+	LastSuccess        time.Time `json:"lastSuccess,omitempty"`
+	Excluded           []string  `json:"excluded,omitempty"`
 }
 
 func validateShareLiveCron(expression string) error {
@@ -243,7 +244,8 @@ func (a *App) shareLiveAPI(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]any{"id": link.ID, "targetId": link.TargetID, "provider": link.Provider, "name": link.Name,
 				"storageId": link.StorageID, "parent": link.Parent,
 				"url": link.Link, "directoryName": link.DirectoryName, "cron": link.Cron, "intervalDays": link.IntervalDays,
-				"lastRun": link.LastRun, "nextRun": link.NextRun, "status": link.Status, "message": link.Message})
+				"lastRun": link.LastRun, "nextRun": link.NextRun, "status": link.Status, "message": link.Message,
+				"directoryCreationPending": shareLiveMkdirPending(link)})
 		}
 		jsonResponse(w, 200, items)
 		return
@@ -359,7 +361,7 @@ func (a *App) startShareLive(key, source string) error {
 		a.shareLiveMu.Unlock()
 		return errors.New("活链记录已移除，请刷新活动链接列表")
 	}
-	if link.Intent != "" && !shareLiveTransferRecoverable(link) {
+	if link.Intent != "" && !shareLiveTransferRecoverable(link) && !shareLiveDirectoryRecoverable(link) {
 		a.shareLiveMu.Unlock()
 		return shareLiveUnconfirmedError(link)
 	}
@@ -408,7 +410,7 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 	if err == nil && link.DirectoryID != "" {
 		err = a.verifyShareLiveDirectory(ctx, s, link)
 	}
-	if err == nil {
+	if err == nil && !shareLiveDirectoryRecoverable(link) {
 		err = a.reconcileShareLiveTransfer(ctx, &link, s)
 	}
 	var batches []shareBatch
@@ -464,6 +466,11 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		var skipped int
 		batches, checkpoint, skipped, baseline, err = a.planShareLiveIncremental(link, batches, record.Time)
 		record.Skipped += skipped
+	}
+	if err == nil && shareLiveDirectoryRecoverable(link) {
+		// Plan before binding the directory so a pending first run is never
+		// mistaken for an imported library with historical files.
+		err = a.initializeShareLiveDirectory(ctx, s, &link)
 	}
 	if err == nil && !baseline && link.IncrementalCursor == "" {
 		// A managed first run needs an explicit empty checkpoint. LastRun alone
@@ -529,7 +536,9 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 			if current.ID != link.ID || current.Intent == "" {
 				continue
 			}
-			if shareLiveTransferRecoverable(current) {
+			if shareLiveDirectoryRecoverable(current) {
+				record.Message = "保存目录尚未核验，再次执行将按创建回执查询原目录"
+			} else if shareLiveTransferRecoverable(current) {
 				record.Message = "夸克转存回执尚未确认，再次执行会先查询原任务"
 				if errors.Is(err, errQuarkShareTaskFailed) {
 					record.Message = "夸克已确认转存任务失败，再次执行将重新核对剩余文件"

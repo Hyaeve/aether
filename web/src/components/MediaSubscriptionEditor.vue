@@ -16,7 +16,7 @@ const options=values=>[{value:'',label:'不限制'},...values.map(value=>({value
 async function save(){
  if(props.requireTarget&&!form.targetId){error.value='请选择转存目录';return}
  if(busy.value)return;busy.value=true;error.value=''
- try{const {missingEpisodes,...options}=form;const result=await api(`/media-subscriptions${props.media.key?'/'+props.media.key:''}`,props.media.key?'PUT':'POST',{id:props.media.id,kind:props.media.kind,...options,...(missingEpisodes.length?{missingEpisodes}:{})});emit('saved',result);notify(props.media.key?'订阅已保存':'已添加订阅')}
+ try{const {missingEpisodes,...options}=form;const result=await api(`/media-subscriptions${props.media.key?'/'+props.media.key:''}`,props.media.key?'PUT':'POST',{id:props.media.id,kind:props.media.kind,...(props.media.source?{source:props.media.source}:{}),...options,...(missingEpisodes.length?{missingEpisodes}:{})});emit('saved',result);notify(props.media.key?'订阅已保存':'已添加订阅')}
  catch(e){error.value=e.message;notify(e.message,true)}finally{busy.value=false}
 }
 </script>

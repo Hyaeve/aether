@@ -14,6 +14,7 @@ import (
 type discoveryMedia struct {
 	ID            int     `json:"id"`
 	Kind          string  `json:"kind"`
+	Source        string  `json:"source,omitempty"`
 	Title         string  `json:"title"`
 	OriginalTitle string  `json:"originalTitle"`
 	Year          string  `json:"year"`
@@ -117,7 +118,8 @@ func (v tmdbDiscovery) media(kind string) discoveryMedia {
 	if len(date) > 4 {
 		date = date[:4]
 	}
-	return discoveryMedia{v.ID, kind, title, original, date, v.Overview, discoveryImage(v.Poster, "w500"), discoveryImage(v.Backdrop, "w1280"), v.Score}
+	return discoveryMedia{ID: v.ID, Kind: kind, Title: title, OriginalTitle: original, Year: date, Overview: v.Overview,
+		Poster: discoveryImage(v.Poster, "w500"), Backdrop: discoveryImage(v.Backdrop, "w1280"), Score: v.Score}
 }
 func (a *App) discoveryJSON(ctx context.Context, endpoint string, q url.Values, out any) error {
 	st := a.store.snapshotWithLogLimit(0)
@@ -135,15 +137,21 @@ func (a *App) discoveryJSON(ctx context.Context, endpoint string, q url.Values, 
 
 type discoveryFeedSpec struct {
 	ID, Title, Endpoint, Kind string
-	Anime                     bool
 }
 
 var discoveryFeeds = map[string][]discoveryFeedSpec{
-	"all":      {{"trending", "流行趋势", "trending/all/day", "", false}, {"playing", "正在热映", "movie/now_playing", "movie", false}, {"airing", "正在播出", "tv/on_the_air", "tv", false}},
-	"tv":       {{"popular-tv", "热门剧集", "tv/popular", "tv", false}, {"airing", "正在播出", "tv/on_the_air", "tv", false}, {"top-tv", "高分剧集", "tv/top_rated", "tv", false}},
-	"movie":    {{"playing", "正在热映", "movie/now_playing", "movie", false}, {"popular-movie", "热门电影", "movie/popular", "movie", false}, {"upcoming", "即将上映", "movie/upcoming", "movie", false}},
-	"anime":    {{"anime-tv", "热门动漫剧集", "discover/tv", "tv", true}, {"anime-movie", "热门动画电影", "discover/movie", "movie", true}},
-	"rankings": {{"top-movie", "电影高分榜", "movie/top_rated", "movie", false}, {"top-tv", "剧集高分榜", "tv/top_rated", "tv", false}},
+	"all":      {{"trending", "流行趋势", "trending/all/day", ""}, {"playing", "正在热映", "movie/now_playing", "movie"}, {"airing", "正在播出", "tv/on_the_air", "tv"}},
+	"tv":       {{"popular-tv", "热门剧集", "tv/popular", "tv"}, {"airing", "正在播出", "tv/on_the_air", "tv"}, {"top-tv", "高分剧集", "tv/top_rated", "tv"}},
+	"movie":    {{"playing", "正在热映", "movie/now_playing", "movie"}, {"popular-movie", "热门电影", "movie/popular", "movie"}, {"upcoming", "即将上映", "movie/upcoming", "movie"}},
+	"rankings": {{"top-movie", "电影高分榜", "movie/top_rated", "movie"}, {"top-tv", "剧集高分榜", "tv/top_rated", "tv"}},
+}
+
+type discoverySection struct {
+	ID    string           `json:"id"`
+	Title string           `json:"title"`
+	Items []discoveryMedia `json:"items"`
+	Page  int              `json:"page"`
+	Pages int              `json:"pages"`
 }
 
 func (a *App) discoveryFeed(w http.ResponseWriter, r *http.Request) {
@@ -163,14 +171,21 @@ func (a *App) discoveryFeed(w http.ResponseWriter, r *http.Request) {
 		page = n
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if !ok || len(query) > 300 {
+	if (!ok && category != "anime") || len(query) > 300 {
 		fail(w, 400, errors.New("推荐分类或搜索内容无效"))
 		return
 	}
-	if query != "" {
-		specs = []discoveryFeedSpec{{"search", "搜索结果", "search/multi", "", false}}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	group := r.URL.Query().Get("group")
+	if category == "anime" {
+		a.bangumiFeed(w, ctx, query, group, page)
+		return
 	}
-	if group := r.URL.Query().Get("group"); group != "" && query == "" {
+	if query != "" {
+		specs = []discoveryFeedSpec{{"search", "搜索结果", "search/multi", ""}}
+	}
+	if group != "" && query == "" {
 		found := false
 		for _, s := range specs {
 			if s.ID == group {
@@ -184,15 +199,9 @@ func (a *App) discoveryFeed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-	defer cancel()
-	sections := []map[string]any{}
+	sections := []discoverySection{}
 	for _, s := range specs {
 		q := url.Values{"page": {strconv.Itoa(page)}, "include_adult": {"false"}}
-		if s.Anime {
-			q.Set("with_genres", "16")
-			q.Set("sort_by", "popularity.desc")
-		}
 		if query != "" {
 			q.Set("query", query)
 		}
@@ -212,7 +221,7 @@ func (a *App) discoveryFeed(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		pages := min(500, max(1, raw.Pages))
-		sections = append(sections, map[string]any{"id": s.ID, "title": s.Title, "items": items, "page": page, "pages": pages})
+		sections = append(sections, discoverySection{s.ID, s.Title, items, page, pages})
 	}
 	jsonResponse(w, 200, map[string]any{"sections": sections})
 }
@@ -275,14 +284,20 @@ func (a *App) discoveryMediaDetail(ctx context.Context, kind string, id int) (di
 	return d, nil
 }
 func (a *App) discoveryDetailAPI(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
 	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil {
-		fail(w, 400, errors.New("TMDB编号无效"))
+	if err != nil || kind == "anime" && (id < 1 || id > 1_000_000_000) {
+		fail(w, 400, errors.New("媒体编号无效"))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	value, err := a.discoveryMediaDetail(ctx, r.PathValue("kind"), id)
+	var value discoveryDetail
+	if kind == "anime" {
+		value, err = a.bangumiDetail(ctx, id)
+	} else {
+		value, err = a.discoveryMediaDetail(ctx, kind, id)
+	}
 	if err != nil {
 		fail(w, 502, err)
 		return

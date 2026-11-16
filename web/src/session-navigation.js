@@ -20,7 +20,7 @@ export function modulePath(path) {
   return '/' + path.split('/').filter(Boolean)[0]
 }
 function pageParent(path) {
-  return /^\/discover\/(tv|movie)\/\d+$/.test(path) ? path.slice(0,path.lastIndexOf('/')) : jumpPageParents[path] || path
+  return /^\/discover\/(tv|movie|anime)\/\d+$/.test(path) ? path.slice(0,path.lastIndexOf('/')) : jumpPageParents[path] || path
 }
 export function rememberRoute(user, path) {
   const saved = pageParent(path)

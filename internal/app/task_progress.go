@@ -28,16 +28,32 @@ func strm115SourceNameError(t Task, s Storage, f File, relative string) error {
 	return fmt.Errorf("115源项目名称不适用于本地生成路径：%q；未跳过或报告全量同步成功，请调整该源项目名称", relative)
 }
 
+func (a *App) listTaskDirectory(ctx context.Context, t Task, s Storage, dir string, fresh bool) ([]File, error) {
+	if t.Kind == "strm" && t.fullSyncGeneration && s.Type == "115" {
+		files, err := a.list115STRMDirectory(ctx, s, dir)
+		var auth *storageAuthError
+		if errors.As(err, &auth) || err == nil && s.Health != nil && s.Health.Stamp == storageRevision(s) && s.Health.State != "active" {
+			_ = a.recordStorageHealth(s, err)
+		}
+		return files, err
+	}
+	return a.listFiles(ctx, s, dir, t.CacheTTL, fresh)
+}
+
 // Enumerate once before doing file IO so a percentage has a real denominator.
 func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel string, fresh bool) (map[string][]File, int, error) {
 	plan := map[string][]File{}
 	var bulk map[string][]File
+	var checks map[string]strm115Inventory
 	if bulk115STRM(t, s) {
 		if t.ID != "" {
 			a.taskUpdate(t.ID, func(task *Task) { task.Message = "读取115递归文件清单与目录表" })
 		}
+		if t.fullSyncGeneration {
+			checks = map[string]strm115Inventory{}
+		}
 		var err error
-		bulk, err = a.strm115BulkPlan(ctx, s, t.Source)
+		bulk, err = a.strm115BulkPlan(ctx, s, t.Source, checks)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, 0, ctx.Err()
@@ -60,7 +76,7 @@ func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel
 		files, found := bulk[dir]
 		var err error
 		if bulk == nil {
-			files, err = a.listFiles(ctx, s, dir, t.CacheTTL, fresh)
+			files, err = a.listTaskDirectory(ctx, t, s, dir, fresh)
 		} else if !found {
 			return errors.New("115批量目录清单缺少所选目录")
 		}
@@ -98,5 +114,8 @@ func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel
 		return ctx.Err()
 	}
 	err := scan(t.Source, sourceRel, 0)
+	if err == nil && bulk == nil && strings.Trim(t.ExcludeDirs, " ;\t\r\n") == "" {
+		err = verify115FallbackInventory(plan, checks)
+	}
 	return plan, total, err
 }

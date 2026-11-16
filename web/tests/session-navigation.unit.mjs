@@ -5,6 +5,7 @@ import { readSession, rememberRoute, rememberedRoute, writeSession } from '../sr
 const parents = [
   ['/discover/tv/42', '/discover/tv'],
   ['/discover/movie/42', '/discover/movie'],
+  ['/discover/anime/42', '/discover/anime'],
   ['/tasks/cache/settings', '/tasks/cache'],
   ['/tasks/cas/pool', '/tasks/cas'],
   ['/tasks/ed2k/pool', '/tasks/ed2k'],

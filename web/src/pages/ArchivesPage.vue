@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { api, notify } from '../lib'
+import { api, notify, state } from '../lib'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import RoundedSelect from '../components/RoundedSelect.vue'
@@ -15,13 +15,24 @@ import '../archives.css'
 
 const props = defineProps({ section: String })
 const mode = ref('list'), query = ref(''), status = ref(''), trigger = ref('')
+const modeKey = computed(() => state.username ? `aether-archive-view:${state.username}` : '')
+watch(modeKey, key => {
+  try { mode.value = key && localStorage.getItem(key) === 'group' ? 'group' : 'list' }
+  catch { mode.value = 'list' }
+}, { immediate:true })
+function toggleMode() {
+  mode.value = mode.value === 'list' ? 'group' : 'list'
+  if (modeKey.value) {
+    try { localStorage.setItem(modeKey.value, mode.value) } catch {}
+  }
+}
 const result = ref({items:[],total:0,page:1,pages:1}), loading = ref(false), loaded = ref(false), jumpPage = ref(1)
 const groups = ref({}), retry = ref(null), submitting = ref(false), scrapeRunning = ref(false)
 const retryTask = ref('')
 const statusOptions = computed(() => [{value:'',label:'全部状态'}, ...['success','doubt','failed','running','interrupted','cancelled'].filter(s => props.section === 'scrape' || s !== 'doubt').map(value=>({value,label:archiveStatuses[value]}))])
 let alive=true, request=0, timer, searchTimer
 function parameters(page=1) {
-  return new URLSearchParams({page:String(page),q:query.value.trim(),status:status.value,trigger:trigger.value,mode:mode.value})
+  return new URLSearchParams({page:String(page),q:query.value.trim(),status:status.value,trigger:trigger.value,mode:props.section==='tasks'?'list':mode.value})
 }
 async function load(page=1, polling=false) {
   clearTimeout(timer)
@@ -108,7 +119,7 @@ onUnmounted(()=>{alive=false;request++;clearTimeout(timer);clearTimeout(searchTi
       <span class="archive-count" role="status">{{ result.total }} {{ section!=='tasks'&&mode==='group'?'组':'项' }}</span>
       <button class="icon-btn" aria-label="刷新档案" :disabled="loading" @click="groups={};load(result.page)"><Icon name="RefreshCw" :class="{spin:loading}" /></button>
       <div class="search-field"><Icon name="Search" /><input v-model="query" aria-label="搜索档案" placeholder="搜索名称或路径" /></div>
-      <button v-if="section!=='tasks'" class="icon-btn archive-mode" :aria-label="mode==='list'?'列表模式':'分组模式'" :data-tooltip="mode==='list'?'列表模式，点击切换分组':'分组模式，点击切换列表'" data-tooltip-always @click="mode=mode==='list'?'group':'list'"><Icon :name="mode==='list'?'List':'FolderTree'"/></button>
+      <button v-if="section!=='tasks'" class="icon-btn archive-mode" :aria-label="mode==='list'?'列表模式':'分组模式'" :data-tooltip="mode==='list'?'列表模式，点击切换分组':'分组模式，点击切换列表'" data-tooltip-always @click="toggleMode"><Icon :name="mode==='list'?'List':'FolderTree'"/></button>
     </div>
     <div v-if="section==='scrape' && mode==='list'" class="archive-columns" aria-hidden="true"><span>影视 / 原文件名称</span><span>触发来源</span><span>执行时间</span><span>操作状态</span><span>操作</span></div>
     <div v-if="!result.items.length" class="small-empty">{{ loading&&!loaded?'正在读取档案…':loaded?'暂无档案':'档案读取失败，可刷新重试' }}</div>

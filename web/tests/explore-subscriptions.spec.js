@@ -16,9 +16,12 @@ async function fixture(page,{many=false,unconfigured=false}={}){
   else if(p==='/api/discovery'){
    if(unconfigured)return route.fulfill({status:502,json:{error:'请先在以太识律的辅助配置中配置并启用TMDB'}})
    const c=u.searchParams.get('category'),q=u.searchParams.get('q'),group=u.searchParams.get('group'),pg=Number(u.searchParams.get('page'))||1
-   const groups=c==='all'?[['trending','流行趋势'],['playing','正在热映'],['airing','正在播出']]:c==='anime'?[['anime-tv','热门动漫剧集'],['anime-movie','热门动画电影']]:c==='rankings'?[['top-movie','电影高分榜'],['top-tv','剧集高分榜']]:[[c==='tv'?'popular-tv':'playing',c==='tv'?'热门剧集':'正在热映']]
-   json={sections:(q?[['search','搜索结果']]:group?groups.filter(g=>g[0]===group):groups).map(([id,title])=>({id,title,items:q&&q.includes('没有')?[]:[media(c==='movie'?'movie':'tv',pg===1?42:43),media('movie',44)],page:pg,pages:3}))}
-  }else if(/^\/api\/discovery\/(movie|tv)\/\d+$/.test(p))json=media(p.split('/')[3],Number(p.split('/')[4]))
+   const groups=c==='all'?[['trending','流行趋势'],['playing','正在热映'],['airing','正在播出']]:c==='anime'?[['bangumi-calendar','Bangumi 每日放送'],['bangumi-popular','Bangumi 热门动漫']]:c==='rankings'?[['top-movie','电影高分榜'],['top-tv','剧集高分榜']]:[[c==='tv'?'popular-tv':'playing',c==='tv'?'热门剧集':'正在热映']]
+   const entries=c==='anime'?[{...media('tv',42),title:'番剧示例',source:'bangumi'}]:[media(c==='movie'?'movie':'tv',pg===1?42:43),media('movie',44)]
+   json={sections:(q?[['search','搜索结果']]:group?groups.filter(g=>g[0]===group):groups).map(([id,title])=>({id,title,items:q&&q.includes('没有')?[]:entries,page:pg,pages:3}))}
+  }else if(p==='/api/discovery/anime/42')json={...media('tv',42),title:'番剧示例',source:'bangumi'}
+  else if(/^\/api\/discovery\/(movie|tv)\/\d+$/.test(p))json=media(p.split('/')[3],Number(p.split('/')[4]))
+  else if(p==='/api/media-calendar')json={items:[{id:'airing',title:'番剧示例',date:u.searchParams.get('month')+'-10',bangumi:42,season:1,episode:3}],warnings:[]}
   else if(p==='/api/media-subscriptions'&&r.method()==='GET')json={items:cards,targets:[{id:'mobile',provider:'mobile',name:'移动影视',path:'/家庭影音/剧集'},{id:'115',provider:'115',name:'115影视',path:'/电影'}],sources:[],sourceReady:false}
   else if(p.startsWith('/api/media-subscriptions')){
    if(r.method()==='DELETE'){cards=cards.filter(c=>c.key!==p.split('/').at(-1));json={ok:true}}
@@ -40,6 +43,8 @@ for(const [width,theme]of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark
  await expect(page).toHaveURL(/\/discover\/all$/)
  const tabs=page.getByRole('navigation',{name:'资源推荐栏目'})
  await expect(tabs.getByRole('link')).toHaveText(['全部','剧集','电影','动漫','榜单']);await expect(tabs.locator('svg')).toHaveCount(5)
+ const [all,tv,movie,anime,rankings]=await tabs.locator('svg').evaluateAll(icons=>icons.map(svg=>svg.getBBox().height*svg.getBoundingClientRect().height/svg.viewBox.baseVal.height))
+ expect(anime).toBeGreaterThanOrEqual(Math.min(all,tv,movie,rankings)-1)
  await expect(page.getByRole('region',{name:'流行趋势'})).toBeVisible()
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  await captureScreenshot(page,{path:info.outputPath(`recommendations-${width}-${theme}.png`)})
@@ -111,6 +116,36 @@ test('discovery categories search paging and configuration error',async({page})=
  const search=page.getByRole('textbox',{name:'搜索推荐媒体'});await search.fill('没有此片');await search.press('Enter');await expect(page.getByRole('region',{name:'搜索结果'})).toContainText('暂无匹配的媒体')
  expect(f.unknown).toEqual([])
  await page.unroute('**/api/**');await fixture(page,{unconfigured:true});await page.reload();await expect(page.getByRole('alert')).toContainText('配置并启用TMDB');await expect(page.getByRole('link',{name:'TMDB配置',exact:true})).toHaveAttribute('href','/rules/assist');await expect(page.locator('.recommendation-poster')).toHaveCount(0)
+})
+
+for(const [width,theme] of [[1440,'light'],[390,'dark']])test(`Bangumi recommendations, subscriptions and calendar retain the source ${width}`,async({page},info)=>{
+ const f=await fixture(page);await page.setViewportSize({width,height:1000});await page.goto('/discover/anime')
+ await page.evaluate(t=>document.documentElement.dataset.theme=t,theme)
+ const tab=page.getByRole('navigation',{name:'资源推荐栏目'}).getByRole('link',{name:'动漫',exact:true})
+ await tab.scrollIntoViewIfNeeded()
+ const daily=page.getByRole('region',{name:'Bangumi 每日放送'})
+ await expect(daily).toBeVisible()
+ await expect(page.getByRole('region',{name:'Bangumi 热门动漫'})).toBeVisible()
+ await captureScreenshot(page,{path:info.outputPath('bangumi-recommendations.png')})
+ await daily.getByRole('button',{name:'番剧示例 详情'}).click()
+ await expect(page).toHaveURL(/\/discover\/anime\/42/)
+ await expect(page.getByRole('link',{name:'Bangumi',exact:true})).toHaveAttribute('href','https://bgm.tv/subject/42')
+ await expect(page.locator('.discovery-facts')).toContainText('Bangumi ID')
+ await page.getByRole('button',{name:'添加订阅',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'添加订阅'})
+ await expect(dialog.getByRole('spinbutton',{name:'总集数',exact:true})).toHaveValue('12')
+ await dialog.getByRole('button',{name:'保存订阅',exact:true}).click()
+ await expect(dialog).toHaveCount(0)
+ expect(f.writes[0].input).toMatchObject({source:'bangumi',kind:'tv',id:42,season:1})
+ await page.getByRole('button',{name:'返回推荐',exact:true}).click()
+ await expect(page).toHaveURL(/\/discover\/anime$/)
+ await expect(daily).toBeVisible()
+ await page.goto('/calendar')
+ const airing=page.getByRole('link',{name:/番剧示例 S01E03/})
+ await expect(airing).toHaveAttribute('href','/discover/anime/42')
+ await airing.click()
+ await expect(page.getByRole('link',{name:'Bangumi',exact:true})).toBeVisible()
+ expect(f.unknown).toEqual([])
 })
 
 test('movie subscriptions existing card reuse and confirmed cancellation',async({page})=>{

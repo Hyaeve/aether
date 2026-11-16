@@ -610,7 +610,9 @@ func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) er
 		if err := beforeShareBatchWrite(ctx); err != nil {
 			return err
 		}
-		return a.mobilePost(ctx, s, host+"/file/create", map[string]any{"parentFileId": parent, "name": name, "type": "folder", "fileRenameMode": "refuse"}, false, nil)
+		return cloudMkdirWithReceipt(ctx, "fileId", func(out any) error {
+			return a.mobilePost(ctx, s, host+"/file/create", map[string]any{"parentFileId": parent, "name": name, "type": "folder", "fileRenameMode": "refuse"}, false, out)
+		})
 	case "tianyi":
 		var out map[string]any
 		return a.tianyiRequest(ctx, s, "POST", tianyiAPI+"/createFolder.action", url.Values{"parentFolderId": {parent}, "folderName": {name}, "relativePath": {""}}, &out)
@@ -625,9 +627,33 @@ func (a *App) cloudMkdir(ctx context.Context, s Storage, parent, name string) er
 		if err := beforeShareBatchWrite(ctx); err != nil {
 			return err
 		}
-		return quarkWriteJSON(ctx, s, "/file", map[string]any{"pdir_fid": parent, "file_name": name, "dir_path": "", "dir_init_lock": false}, nil)
+		return cloudMkdirWithReceipt(ctx, "fid", func(out any) error {
+			return quarkWriteJSON(ctx, s, "/file", map[string]any{"pdir_fid": parent, "file_name": name, "dir_path": "", "dir_init_lock": false}, out)
+		})
 	}
 	return errors.New("此存储不支持创建目录")
+}
+
+func cloudMkdirWithReceipt(ctx context.Context, idField string, create func(any) error) error {
+	receipt, _ := ctx.Value(shareBatchReceiptKey{}).(*shareBatchReceipt)
+	if receipt == nil || receipt.directoryCreated == nil {
+		return create(nil)
+	}
+	var data json.RawMessage
+	if err := create(&data); err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return errors.New("创建目录回执格式异常")
+	}
+	if rawID := fields[idField]; len(rawID) != 0 && string(rawID) != "null" {
+		return receipt.directoryCreated(scalarFields(fields, idField))
+	}
+	return nil
 }
 
 func openlistWriteJSON(ctx context.Context, s Storage, action string, body any) error {
