@@ -558,7 +558,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 			if err := strm115SourceNameError(t, s, f, path.Join(rel, f.Name)); err != nil {
 				return err
 			}
-			if !safeName(f.Name) {
+			if !taskSourceNameValid(t, s, f) {
 				continue
 			}
 			child := path.Join(rel, f.Name)
@@ -598,6 +598,11 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 				child = path.Join(rel, parsed.Name)
 			} else if (t.Kind != "strm" && t.Kind != "ed2k" && t.Kind != "cas") || (!taskMedia(t, f.Name) && !metadata && !featureSource) || excluded(f.Name, t.ExcludeFiles) || excludedType(f.Name, t.ExcludeTypes) {
 				continue
+			}
+			if t.Kind == "strm" && s.Type == "115" {
+				if err := checkSTRMOutputPath(child); err != nil {
+					return err
+				}
 			}
 			if featureSource {
 				parsed, e := a.readCAS(ctx, s, f)

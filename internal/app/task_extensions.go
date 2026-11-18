@@ -15,6 +15,24 @@ const taskAudioExtensions = "mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus"
 
 var extensionToken = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
+func strm115FileNameValid(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\\x00")
+}
+
+func strm115SourceNameValid(name string, directory bool) bool {
+	if directory {
+		return safeName(name)
+	}
+	return strm115FileNameValid(name)
+}
+
+func taskSourceNameValid(t Task, s Storage, f File) bool {
+	if t.Kind == "strm" && s.Type == "115" {
+		return strm115SourceNameValid(f.Name, f.IsDir)
+	}
+	return safeName(f.Name)
+}
+
 func taskOutputName(t Task, _ Storage, name, suffix string) string {
 	if t.Kind == "cas" || t.Kind == "ed2k" {
 		return name + suffix

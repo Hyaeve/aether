@@ -188,7 +188,7 @@ func (a *App) pullSTRMLife(ctx context.Context, s Storage, cursor strmLifeCursor
 			seen[event.ID] = true
 			switch event.Type {
 			case 1, 2, 5, 6, 14, 17, 18, 20, 22, 23, 24:
-				if event.FileID == "" || event.Parent == "" || !safeName(event.Name) {
+				if event.FileID == "" || event.Parent == "" || !strm115SourceNameValid(event.Name, event.Directory) {
 					return nil, cursor, errors.New("115生活事件文件身份无效，未推进游标")
 				}
 				events = append(events, event)
@@ -230,16 +230,14 @@ func (a *App) strmLifeRelative(ctx context.Context, s Storage, task Task, parent
 		if node.ID != source {
 			continue
 		}
+		if !strm115FileNameValid(name) {
+			return "", false, errors.New("生活事件相对路径无效")
+		}
 		parts := []string{}
 		for _, child := range trail[i+1:] {
 			parts = append(parts, child.Name)
 		}
-		parts = append(parts, name)
-		relative := path.Join(parts...)
-		if !quarkLibraryRelative(relative) {
-			return "", false, errors.New("生活事件相对路径无效")
-		}
-		return relative, true, nil
+		return path.Join(append(parts, name)...), true, nil
 	}
 	return "", false, nil
 }
@@ -379,7 +377,7 @@ func (a *App) executeSTRMLife(ctx context.Context, task Task, s Storage) (count 
 			return errors.New("生活事件目录展开超过安全范围，未推进游标")
 		}
 		scanned++
-		if !safeName(f.Name) || excluded(path.Dir(relative), task.ExcludeDirs) || excluded(f.Name, task.ExcludeFiles) || excludedType(f.Name, task.ExcludeTypes) {
+		if !strm115SourceNameValid(f.Name, f.IsDir) || excluded(path.Dir(relative), task.ExcludeDirs) || excluded(f.Name, task.ExcludeFiles) || excludedType(f.Name, task.ExcludeTypes) {
 			return nil
 		}
 		if f.IsDir {
@@ -413,6 +411,7 @@ func (a *App) executeSTRMLife(ctx context.Context, task Task, s Storage) (count 
 			return errors.New("生活事件来源登记达到100000项，未推进游标")
 		}
 		name := h.lifeOutput(source)
+		output := path.Join(prefix, name)
 		for id, other := range h.manifest.Sources {
 			if id != f.ID && !other.Directory && (taskMedia(task, other.Name) || excludedType(other.Name, task.MetadataExtensions)) && strings.EqualFold(h.lifeOutput(other), name) {
 				return errors.New("生活事件输出名称与其他源文件冲突，请全量同步核对")
@@ -430,7 +429,7 @@ func (a *App) executeSTRMLife(ctx context.Context, task Task, s Storage) (count 
 		if err != nil {
 			return err
 		}
-		changed, err := publishSTRMOutput(ctx, h, root, path.Join(prefix, name), data, false)
+		changed, err := publishSTRMOutput(ctx, h, root, output, data, false)
 		if err != nil {
 			return err
 		}

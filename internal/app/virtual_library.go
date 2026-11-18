@@ -456,7 +456,19 @@ func (a *App) playVirtualShare(w http.ResponseWriter, r *http.Request) {
 	}
 	ops := virtualPlaybackOps{
 		folder: func(ctx context.Context) (string, error) {
-			folder, _, e := a.uploadParent(ctx, s, "0", strings.TrimPrefix(pool.Directory, "/")+"/share-"+key+"/.placeholder")
+			folder, _, e := a.uploadParentWithMkdir(ctx, s, "0", strings.TrimPrefix(pool.Directory, "/")+"/share-"+key+"/.placeholder", func(parent, name string) (string, error) {
+				if err := a.waitAPI(ctx, s.ID); err != nil {
+					return "", err
+				}
+				if err := a.checkBackupMutation(ctx); err != nil {
+					return "", err
+				}
+				directoryID, err := c.Mkdir(parent, name)
+				if err == nil && directoryID != "" && (directoryID == parent || strings.HasPrefix(directoryID, "0") || !virtual115ParentID.MatchString(directoryID)) {
+					return "", errors.New("新建115目录编号无效")
+				}
+				return directoryID, err
+			})
 			return folder, e
 		},
 		submit: func(ctx context.Context, folder string) error {

@@ -38,7 +38,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string, che
 			return nil, errTaskProgressLimit
 		}
 		for _, f := range files {
-			if f.ID == "" || f.ID == root || !safeName(f.Name) {
+			if f.ID == "" || f.ID == root || !strm115SourceNameValid(f.Name, f.IsDir) {
 				return nil, errors.New("115根目录条目身份无效")
 			}
 			if !f.IsDir {
@@ -205,7 +205,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string, che
 			}
 			_, known := plan[parent]
 			_, directoryID := dirs[f.FileID]
-			if f.IsDirectory || f.FileID == "" || f.FileID == root || directoryID || seen[f.FileID] || !known || !safeName(f.Name) || !pickcodePath.MatchString(f.PickCode) {
+			if f.IsDirectory || f.FileID == "" || f.FileID == root || directoryID || seen[f.FileID] || !known || !strm115FileNameValid(f.Name) || !pickcodePath.MatchString(f.PickCode) {
 				return nil, errors.New("115递归文件清单条目重复或归属不明")
 			}
 			seen[f.FileID] = true

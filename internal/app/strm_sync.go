@@ -130,17 +130,18 @@ func (a *App) beginSTRMSync(t Task, s Storage, base, prefix string) (*strmTaskSy
 		return nil, errors.New("STRM来源登记超过安全范围")
 	}
 	for _, source := range previous.Sources {
-		if !quarkLibraryRelative(source.Relative) || !safeName(source.Name) {
+		if !strmFileRelative(source.Relative) || !strm115SourceNameValid(source.Name, source.Directory) ||
+			source.Directory && !quarkLibraryRelative(source.Relative) {
 			return nil, errors.New("STRM来源登记路径无效")
 		}
 	}
 	for _, name := range previous.PendingCascade {
-		if !quarkLibraryRelative(name) {
+		if !strmFileRelative(name) {
 			return nil, errors.New("STRM级联清理登记路径无效")
 		}
 	}
 	for name, digest := range previous.Files {
-		if !quarkLibraryRelative(name) || len(digest) != 64 {
+		if !strmFileRelative(name) || len(digest) != 64 {
 			return nil, errors.New("STRM产物登记路径或摘要无效")
 		}
 	}
@@ -183,6 +184,31 @@ func (h *strmTaskSync) rememberSource(f File, parent, relative string) {
 	h.manifest.Sources[f.ID] = strmLifeSource{Relative: relative, Parent: parent, Name: f.Name, Directory: f.IsDir}
 }
 
+func strmFileRelative(name string) bool {
+	dir, base := path.Split(name)
+	return strm115FileNameValid(base) && (dir == "" || quarkLibraryRelative(strings.TrimSuffix(dir, "/")))
+}
+
+func checkSTRMOutputPath(name string) error {
+	if !strmFileRelative(name) {
+		return fmt.Errorf("STRM产物路径无效：%q", name)
+	}
+	// A colon is a normal POSIX filename character but can address an
+	// alternate data stream or a drive on Windows. Reject it before I/O
+	// only on platforms where it is not a local file path.
+	if strings.Contains(name, ":") && !filepath.IsLocal(filepath.FromSlash(name)) {
+		return fmt.Errorf("当前系统无法在生成目录中原样保存含英文冒号的文件名：%q", name)
+	}
+	return nil
+}
+
+func strmOutputParent(root *os.Root, name string) (*os.Root, error) {
+	if err := checkSTRMOutputPath(name); err != nil {
+		return nil, err
+	}
+	return quarkLibraryParent(root, name)
+}
+
 func (h *strmTaskSync) relative(filename string) (string, error) {
 	name := filename
 	if h.prefix != "." && h.prefix != "" {
@@ -191,10 +217,7 @@ func (h *strmTaskSync) relative(filename string) (string, error) {
 		}
 		name = strings.TrimPrefix(filename, h.prefix+"/")
 	}
-	if !quarkLibraryRelative(name) {
-		return "", errors.New("STRM产物路径无效")
-	}
-	return name, nil
+	return name, checkSTRMOutputPath(name)
 }
 
 func (h *strmTaskSync) observe(filename string) error {
@@ -285,7 +308,7 @@ func (h *strmTaskSync) ensure(ctx context.Context, base *os.Root) error {
 }
 
 func strmOutputDigest(root *os.Root, filename string) (string, os.FileInfo, error) {
-	parent, err := quarkLibraryParent(root, filename)
+	parent, err := strmOutputParent(root, filename)
 	if err != nil {
 		return "", nil, err
 	}
@@ -393,7 +416,7 @@ func publishSTRMOutput(ctx context.Context, h *strmTaskSync, root *os.Root, file
 			return false, err
 		}
 	}
-	live, err := quarkLibraryParent(root, filename)
+	live, err := strmOutputParent(root, filename)
 	if err != nil {
 		return false, err
 	}
@@ -463,7 +486,7 @@ func (h *strmTaskSync) freshOutputs(ctx context.Context) (map[string]bool, error
 		visited[dir] = true
 		for _, f := range plan[dir] {
 			child := path.Join(rel, f.Name)
-			if !safeName(f.Name) {
+			if !taskSourceNameValid(h.task, h.storage, f) {
 				continue
 			}
 			if f.IsDir {

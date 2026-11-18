@@ -43,6 +43,13 @@ func (a *App) createDirectory(ctx context.Context, s Storage, parent, name strin
 
 // Resolve uploaded folder paths under the chosen directory, never as absolute IDs.
 func (a *App) uploadParent(ctx context.Context, s Storage, parent, name string) (string, string, error) {
+	return a.uploadParentWithMkdir(ctx, s, parent, name, func(parent, part string) (string, error) {
+		return "", a.createDirectory(ctx, s, parent, part)
+	})
+}
+
+// mkdir may return the ID from a successful native creation receipt.
+func (a *App) uploadParentWithMkdir(ctx context.Context, s Storage, parent, name string, mkdir func(parent, name string) (string, error)) (string, string, error) {
 	if strings.Contains(name, "\\") || strings.HasPrefix(name, "/") {
 		return "", "", errors.New("上传路径无效")
 	}
@@ -73,7 +80,8 @@ func (a *App) uploadParent(ctx context.Context, s Storage, parent, name string) 
 			}
 		}
 		if next == "" {
-			if err := a.createDirectory(ctx, s, parent, part); err != nil {
+			next, err = mkdir(parent, part)
+			if err != nil {
 				return "", "", err
 			}
 			// Some cloud providers expose a newly created folder after a short delay.

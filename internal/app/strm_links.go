@@ -63,10 +63,10 @@ func (a *App) readSTRMReference(key string) (strmReference, error) {
 func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 	config := a.currentSTRMSettings()
 	base := strings.TrimRight(config.Address, "/")
-	if !safeName(f.Name) {
-		return "", errors.New("文件名称无效")
-	}
 	if s.Type == "115" {
+		if !strm115FileNameValid(f.Name) {
+			return "", errors.New("文件名称无效")
+		}
 		a.store.mu.RLock()
 		err := unique115Account(s, a.store.state.Storages)
 		a.store.mu.RUnlock()
@@ -118,6 +118,9 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 		}
 		return base + "/d/" + key + "/" + strmContentPath(f.Name, config.Content == "encoded"), nil
 	}
+	if !safeName(f.Name) {
+		return "", errors.New("文件名称无效")
+	}
 	if s.Type == "quark" {
 		file := base64.RawURLEncoding.EncodeToString([]byte(f.ID))
 		sig := a.quarkSTRMSign(s.ID, file, f.Name)
@@ -161,7 +164,7 @@ func (a *App) playSTRMReference(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		if name := r.PathValue("name"); name != "" && (!safeName(name) || name != ref.Name) {
+		if name := r.PathValue("name"); name != "" && (!strm115FileNameValid(name) || name != ref.Name) {
 			http.NotFound(w, r)
 			return
 		}

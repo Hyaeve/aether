@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -329,8 +330,12 @@ func TestSTRMCascadeKeepsSeriesArtUntilWholeSeriesGone(t *testing.T) {
 
 func TestSTRMLifeIncrementalScopeCursorAndDeletion(t *testing.T) {
 	a, s, file := strm115Fixture(t)
+	episode := "Episode:01"
+	if runtime.GOOS == "windows" {
+		episode = "Episode：01"
+	}
 	task := Task{ID: "life", Name: "生活事件", Kind: "strm", StorageID: s.ID, Source: "10", SourceLabel: "Show", Target: t.TempDir(), Mode: strmUpdate, STRMSource: "life",
-		STRMLifeSince: time.Now().Add(-time.Minute), Enabled: true, MediaExtensions: "mkv", CascadeDelete: true, CascadeExtensions: "jpg;nfo"}
+		STRMLifeSince: time.Now().Add(-time.Minute), Enabled: true, MediaExtensions: "mkv", CascadeDelete: true, CascadeExtensions: "jpg;nfo;srt"}
 	a.store.update(func(st *State) error { st.Tasks = []Task{task}; return nil })
 	phase, calls := 0, 0
 	shareMock(t, func(r *http.Request) string {
@@ -340,9 +345,9 @@ func TestSTRMLifeIncrementalScopeCursorAndDeletion(t *testing.T) {
 		switch r.URL.Path {
 		case "/behavior/detail":
 			if phase == 2 {
-				return `{"state":true,"data":{"count":1,"list":[{"id":3040163688862324737,"type":22,"file_id":"file","parent_id":"10","file_name":"Episode01.mkv","file_category":1,"update_time":` + timeNowUnix() + `}]}}`
+				return `{"state":true,"data":{"count":1,"list":[{"id":3040163688862324737,"type":22,"file_id":"file","parent_id":"10","file_name":"` + episode + `.mkv","file_category":1,"update_time":` + timeNowUnix() + `}]}}`
 			}
-			return `{"state":true,"data":{"count":1,"list":[{"id":3040163688862324736,"type":2,"file_id":"file","parent_id":"10","file_name":"Episode01.mkv","file_category":1,"update_time":` + timeNowUnix() + `}]}}`
+			return `{"state":true,"data":{"count":1,"list":[{"id":3040163688862324736,"type":2,"file_id":"file","parent_id":"10","file_name":"` + episode + `.mkv","file_category":1,"update_time":` + timeNowUnix() + `}]}}`
 		case "/files":
 			calls++
 			if r.URL.Query().Get("cid") != "10" {
@@ -351,7 +356,7 @@ func TestSTRMLifeIncrementalScopeCursorAndDeletion(t *testing.T) {
 			if phase == 2 {
 				return `{"state":true,"cid":"10","count":0,"path":[{"cid":"0","name":"根目录"},{"cid":"10","name":"Show"}],"data":[]}`
 			}
-			return `{"state":true,"cid":"10","count":1,"path":[{"cid":"0","name":"根目录"},{"cid":"10","name":"Show"}],"data":[{"fid":"file","cid":"10","n":"Episode01.mkv","s":42,"pc":"` + file.PickCode + `"}]}`
+			return `{"state":true,"cid":"10","count":1,"path":[{"cid":"0","name":"根目录"},{"cid":"10","name":"Show"}],"data":[{"fid":"file","cid":"10","n":"` + episode + `.mkv","s":42,"pc":"` + file.PickCode + `"}]}`
 		}
 		t.Fatal("unexpected endpoint", r.URL.Path)
 		return ""
@@ -360,11 +365,13 @@ func TestSTRMLifeIncrementalScopeCursorAndDeletion(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
-	output := filepath.Join(task.Target, "Show", "Episode01.strm")
+	output := filepath.Join(task.Target, "Show", episode+".strm")
 	if _, err := os.Stat(output); err != nil {
 		t.Fatal(err)
 	}
 	writeTest(t, filepath.Join(task.Target, "Show", "poster.jpg"), "art")
+	sidecar := filepath.Join(task.Target, "Show", episode+".zh.srt")
+	writeTest(t, sidecar, "subtitle")
 	before := calls
 	phase = 1
 	if n, err := a.executeSTRMLife(a.ctx, task, s); err != nil || n != 0 || calls != before {
@@ -381,6 +388,9 @@ func TestSTRMLifeIncrementalScopeCursorAndDeletion(t *testing.T) {
 	}
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatal("delete event retained owned STRM", err)
+	}
+	if _, err := os.Stat(sidecar); !os.IsNotExist(err) {
+		t.Fatal("delete event retained a same-name companion", err)
 	}
 	if _, err := os.Stat(filepath.Join(task.Target, "Show", "poster.jpg")); !os.IsNotExist(err) {
 		t.Fatal("series artwork retained after whole work gone", err)

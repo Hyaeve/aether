@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -419,5 +420,103 @@ func TestVirtual115FilenameGETUsesExistingPlaybackPipeline(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("missing 115 playback failure diagnostic")
+	}
+}
+
+func TestVirtual115ColdPlaybackUsesMkdirReceiptWithoutListingAgain(t *testing.T) {
+	for _, mode := range []string{"with-id", "missing-id", "parent-id", "zero-padded-parent-id"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newVirtual115NameFixture(t, "aB12")
+			if w := f.generate(t, t.TempDir()); w.Code != 200 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			item := f.tree["10"][0]
+			s, err := f.a.store.storage("115")
+			if err != nil {
+				t.Fatal(err)
+			}
+			resource, err := virtual115ResourceKey("sample", f.pass, item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256([]byte(ed2kRevision(s) + "\x00" + resource))
+			key := hex.EncodeToString(sum[:])
+			directory := "share-" + key
+			base := apiClient.Transport
+			var calls []string
+			created := false
+			apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+				switch r.URL.Path {
+				case "/webapi/share/snap", "/share/snap":
+					calls = append(calls, "source")
+					return base.RoundTrip(r)
+				case "/files":
+					parent := r.URL.Query().Get("cid")
+					calls = append(calls, "list:"+parent)
+					if parent == "0" {
+						return jsonHTTPResponse(`{"state":true,"cid":"0","count":1,"data":[{"cid":"20","pid":"0","n":"最近接收"}]}`), nil
+					}
+					if parent == "20" {
+						return jsonHTTPResponse(`{"state":true,"cid":"20","count":1,"data":[{"cid":"30","pid":"20","n":"Aether"}]}`), nil
+					}
+					if parent == "30" {
+						if created {
+							return jsonHTTPResponse(fmt.Sprintf(`{"state":true,"cid":"30","count":1,"data":[{"cid":"99","pid":"30","n":%q}]}`, directory)), nil
+						}
+						return jsonHTTPResponse(`{"state":true,"cid":"30","count":0,"data":[]}`), nil
+					}
+					if parent == "99" {
+						return jsonHTTPResponse(fmt.Sprintf(`{"state":true,"cid":"99","offset":0,"count":1,"data":[{"fid":"1001","cid":"99","n":%q,"s":"10","sha":%q,"pc":"validpickcode"}]}`, item.Name, item.SHA1)), nil
+					}
+				case "/files/add":
+					calls = append(calls, "mkdir")
+					if err := r.ParseForm(); err != nil || r.Method != http.MethodPost || created || r.Form.Get("pid") != "30" || r.Form.Get("cname") != directory {
+						t.Fatal("unexpected temporary folder creation", err, calls)
+					}
+					created = true
+					switch mode {
+					case "missing-id":
+						return jsonHTTPResponse(`{"state":true}`), nil
+					case "parent-id":
+						return jsonHTTPResponse(`{"state":true,"cid":"30"}`), nil
+					case "zero-padded-parent-id":
+						return jsonHTTPResponse(`{"state":true,"cid":"030"}`), nil
+					}
+					return jsonHTTPResponse(`{"state":true,"cid":"99"}`), nil
+				case "/share/receive":
+					calls = append(calls, "receive")
+					record, err := f.a.readED2KRecord(key)
+					if formErr := r.ParseForm(); formErr != nil || r.Method != http.MethodPost || r.Form.Get("file_id") != item.ID || r.Form.Get("cid") != "99" || err != nil || !record.Attempted || record.Folder != "99" {
+						t.Fatal("receive was not scoped to the verified file and recorded folder", err, formErr, calls)
+					}
+					return jsonHTTPResponse(`{"state":true}`), nil
+				case "/app/chrome/downurl":
+					calls = append(calls, "ticket")
+					if r.UserAgent() != "Filename-Player/1" {
+						t.Fatal("incorrect player UA", r.UserAgent())
+					}
+					return jsonHTTPResponse(`{"state":false,"errno":10008}`), nil
+				}
+				t.Fatal("unexpected cloud endpoint", r.Method, r.URL.Path)
+				return nil, nil
+			})
+			r := httptest.NewRequest(http.MethodGet, f.address(item.Name), nil)
+			r.Header.Set("User-Agent", "Filename-Player/1")
+			w := httptest.NewRecorder()
+			f.handler.ServeHTTP(w, r)
+			want := []string{"source", "list:0", "list:20", "list:30", "mkdir"}
+			if mode == "missing-id" {
+				want = append(want, "list:30")
+			}
+			failure := "获取下载链接失败"
+			if mode == "parent-id" || mode == "zero-padded-parent-id" {
+				failure = "新建115目录编号无效"
+			} else {
+				want = append(want, "receive", "list:99", "ticket")
+			}
+			if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), failure) || !slices.Equal(calls, want) {
+				t.Fatal("unexpected cold playback requests or diagnostic", w.Code, w.Body.String(), calls, want)
+			}
+		})
 	}
 }

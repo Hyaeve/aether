@@ -15,7 +15,7 @@ var errTaskProgressLimit = errors.New("目录过大，继续执行并显示实�
 // Report an unsupported selected name instead of silently claiming a complete
 // 115 scan. Unselected files and explicitly excluded directories remain ignored.
 func strm115SourceNameError(t Task, s Storage, f File, relative string) error {
-	if s.Type != "115" || t.Kind != "strm" || safeName(f.Name) {
+	if s.Type != "115" || t.Kind != "strm" || taskSourceNameValid(t, s, f) {
 		return nil
 	}
 	if f.IsDir {
@@ -95,7 +95,7 @@ func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel
 			if err := strm115SourceNameError(t, s, f, path.Join(rel, f.Name)); err != nil {
 				return err
 			}
-			if !safeName(f.Name) {
+			if !taskSourceNameValid(t, s, f) {
 				continue
 			}
 			child := path.Join(rel, f.Name)
@@ -108,6 +108,11 @@ func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel
 				}
 			} else if t.Kind != "cache" && !excluded(f.Name, t.ExcludeFiles) && !excludedType(f.Name, t.ExcludeTypes) &&
 				(taskMedia(t, f.Name) || excludedType(f.Name, t.MetadataExtensions) || t.Kind == "cas" && (strings.EqualFold(path.Ext(f.Name), ".cas") || strings.HasSuffix(strings.ToLower(f.Name), ".cas.strm"))) {
+				if t.Kind == "strm" && s.Type == "115" {
+					if err := checkSTRMOutputPath(child); err != nil {
+						return err
+					}
+				}
 				total++
 			}
 		}

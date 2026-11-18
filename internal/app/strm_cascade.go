@@ -76,7 +76,7 @@ func (h *strmTaskSync) planCascade(ctx context.Context, gone map[string]bool) ([
 	if err := h.check(ctx); err != nil {
 		return nil, err
 	}
-	entries, err := scanQuarkLibraryDisk(ctx, h.root)
+	entries, err := scanLibraryDisk(ctx, h.root, func(name string) bool { return checkSTRMOutputPath(name) == nil })
 	if err != nil {
 		return nil, err
 	}

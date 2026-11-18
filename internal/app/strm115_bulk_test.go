@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -61,7 +62,11 @@ func strmBulkFixture(t *testing.T, n int, broken string) (*App, Storage, Task, *
 					if broken == "missing-pickcode" {
 						pick = ""
 					}
-					items = append(items, map[string]any{"fid": fid, "cid": strconv.Itoa(i + 20), "n": "film.mkv", "pc": pick, "s": 42})
+					name := "film.mkv"
+					if broken == "colon-on-last-page" && i == n-1 {
+						name = "film:cut.mkv"
+					}
+					items = append(items, map[string]any{"fid": fid, "cid": strconv.Itoa(i + 20), "n": name, "pc": pick, "s": 42})
 				}
 				cid := "10"
 				if broken == "wrong-root" {
@@ -234,7 +239,12 @@ func Test115STRMBulkWritesPickcodeOutputsLocally(t *testing.T) {
 }
 
 func Test115STRMBulkFullSyncCoversEveryPageAndRepairsMissingOutput(t *testing.T) {
-	a, s, task, calls := strmBulkFixture(t, 1200, "")
+	shape, lastSource := "colon-on-last-page", "film:cut.mkv"
+	if runtime.GOOS == "windows" {
+		shape, lastSource = "", "film.mkv"
+	}
+	lastOutput := strings.TrimSuffix(lastSource, ".mkv") + ".strm"
+	a, s, task, calls := strmBulkFixture(t, 1200, shape)
 	task.fullSyncGeneration = true
 	started := time.Now()
 	n, err := a.executeTask(a.ctx, task, s)
@@ -242,12 +252,16 @@ func Test115STRMBulkFullSyncCoversEveryPageAndRepairsMissingOutput(t *testing.T)
 		t.Fatal("full sync lost recursive pages", n, *calls, err)
 	}
 	for i := 0; i < 1200; i++ {
-		body, err := os.ReadFile(filepath.Join(task.Target, "Show", fmt.Sprintf("Season%04d", i), "film.strm"))
-		if err != nil || !strings.Contains(string(body), fmt.Sprintf("/pick%012d/film.mkv", i)) {
+		output, source := "film.strm", "film.mkv"
+		if i == 1199 {
+			output, source = lastOutput, lastSource
+		}
+		body, err := os.ReadFile(filepath.Join(task.Target, "Show", fmt.Sprintf("Season%04d", i), output))
+		if err != nil || !strings.Contains(string(body), fmt.Sprintf("/pick%012d/%s", i, source)) {
 			t.Fatal("missing/wrong pickcode", i, err)
 		}
 	}
-	missing := filepath.Join(task.Target, "Show", "Season1199", "film.strm")
+	missing := filepath.Join(task.Target, "Show", "Season1199", lastOutput)
 	if err := os.Remove(missing); err != nil {
 		t.Fatal(err)
 	}

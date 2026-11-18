@@ -303,11 +303,11 @@ func (h *strmTaskSync) deleteOutputs(ctx context.Context, names []string) error 
 		if err := h.validateDeletePlan(ctx, []strmDeleteCandidate{item}); err != nil {
 			return err
 		}
-		parent, err := quarkLibraryParent(h.root, item.name)
+		parent, err := strmOutputParent(h.root, item.name)
 		if err != nil {
 			return err
 		}
-		live, err := quarkLibraryParent(h.root, item.name)
+		live, err := strmOutputParent(h.root, item.name)
 		if err != nil {
 			parent.Close()
 			return err

@@ -232,6 +232,10 @@ type quarkLibraryDiskEntry struct {
 
 // Complete a bounded, symlink-free inventory before authorizing any deletion.
 func scanQuarkLibraryDisk(ctx context.Context, root *os.Root, ignored ...string) ([]quarkLibraryDiskEntry, error) {
+	return scanLibraryDisk(ctx, root, safeName, ignored...)
+}
+
+func scanLibraryDisk(ctx context.Context, root *os.Root, validFileName func(string) bool, ignored ...string) ([]quarkLibraryDiskEntry, error) {
 	var entries []quarkLibraryDiskEntry
 	var visit func(*os.Root, string, int) error
 	visit = func(current *os.Root, directory string, depth int) error {
@@ -256,8 +260,11 @@ func scanQuarkLibraryDisk(ctx context.Context, root *os.Root, ignored ...string)
 					continue
 				}
 				name := path.Join(directory, child.Name())
+				if !validFileName(child.Name()) {
+					return errors.New("清理目录包含链接、异常名称或身份变化，未删除")
+				}
 				info, err := current.Lstat(child.Name())
-				if err != nil || !safeName(child.Name()) || info.Mode()&os.ModeSymlink != 0 {
+				if err != nil || info.IsDir() && !safeName(child.Name()) || info.Mode()&os.ModeSymlink != 0 {
 					return errors.New("清理目录包含链接、异常名称或身份变化，未删除")
 				}
 				if len(entries) >= 20000 {

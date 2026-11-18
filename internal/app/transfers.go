@@ -131,6 +131,7 @@ func transferFailureReason(err error) string {
 		return diagnosed.Error()
 	}
 	var auth *storageAuthError
+	var unavailable *quarkShareUnavailable
 	var request *storageRequestError
 	var dns *net.DNSError
 	var network net.Error
@@ -167,6 +168,8 @@ func transferFailureReason(err error) string {
 		return "路径中的某一项不是目录"
 	case errors.As(err, &auth):
 		return "存储授权失效或访问被拒绝"
+	case errors.As(err, &unavailable):
+		return unavailable.Error()
 	case errors.Is(err, os.ErrPermission):
 		return "存储权限不足"
 	case errors.Is(err, os.ErrNotExist):

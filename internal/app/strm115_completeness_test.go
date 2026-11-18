@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -40,6 +42,12 @@ func TestSTRMLifeNamedTypesAndFieldAliases(t *testing.T) {
 }
 
 func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.T) {
+	original := "大卫·艾登堡：大猩猩的故事.A.Gorilla.Story:.Told.by.David.Attenborough.2026.4K.NF.WEB-DL.DV.H265.DDP.5.1-HiveWeb.mkv"
+	added := "E:03.mkv"
+	if runtime.GOOS == "windows" {
+		original, added = "E02.mkv", "E03.mkv"
+	}
+	localName := strings.TrimSuffix(original, ".mkv") + ".strm"
 	a, s, task, _ := strmBulkFixture(t, 2, "")
 	task.STRMSource, task.fullSyncGeneration, task.STRMLifeSince = "life", true, time.Now().Add(-time.Hour)
 	if err := a.store.update(func(st *State) error { st.Tasks[0] = task; return nil }); err != nil {
@@ -52,7 +60,7 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 			if r.URL.Query().Get("limit") == "1" {
 				return jsonHTTPResponse(`{"state":true,"data":{"list":[{"id":"300"}]}}`), nil
 			}
-			return jsonHTTPResponse(`{"state":true,"data":{"count":1,"list":[{"id":"302","type":"upload_file","file_id":"10003","parent_id":"20","file_name":"E03.mkv","update_time":` + timeNowUnix() + `}]}}`), nil
+			return jsonHTTPResponse(`{"state":true,"data":{"count":1,"list":[{"id":"302","type":"upload_file","file_id":"10003","parent_id":"20","file_name":"` + added + `","update_time":` + timeNowUnix() + `}]}}`), nil
 		}
 		if strings.Contains(r.URL.Path, "downfolders") {
 			return jsonHTTPResponse(`{"state":true,"data":{"list":[{"fid":"20","pid":"20","fn":"broken-entry"}],"has_next_page":false}}`), nil
@@ -82,7 +90,13 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 			}
 			trail = append(trail, map[string]string{"cid": cid, "name": season})
 			for _, n := range numbers {
-				list = append(list, map[string]any{"fid": strconv.Itoa(10000 + n), "cid": cid, "n": fmt.Sprintf("E%02d.mkv", n), "s": 42, "pc": fmt.Sprintf("pick%012d", n)})
+				name := fmt.Sprintf("E%02d.mkv", n)
+				if n == 2 {
+					name = original
+				} else if n == 3 {
+					name = added
+				}
+				list = append(list, map[string]any{"fid": strconv.Itoa(10000 + n), "cid": cid, "n": name, "s": 42, "pc": fmt.Sprintf("pick%012d", n)})
 			}
 		} else {
 			t.Error("fallback left the selected tree", cid)
@@ -107,7 +121,7 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 	if n, err := a.executeTask(a.ctx, task, s); err != nil || n != 3 {
 		t.Fatal("fallback full sync did not generate all files", n, err)
 	}
-	missing := filepath.Join(task.Target, "Show", "Season 1", "E02.strm")
+	missing := filepath.Join(task.Target, "Show", "Season 1", localName)
 	if err := os.Remove(missing); err != nil {
 		t.Fatal(err)
 	}
@@ -116,16 +130,26 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 	}
 	for _, tc := range []struct{ season, episode int }{{1, 1}, {1, 2}, {2, 21}} {
 		name := filepath.Join(task.Target, "Show", fmt.Sprintf("Season %d", tc.season), fmt.Sprintf("E%02d.strm", tc.episode))
+		if tc.episode == 2 {
+			name = missing
+		}
 		body, err := os.ReadFile(name)
 		if err != nil || !strings.Contains(string(body), fmt.Sprintf("/pick%012d/", tc.episode)) {
 			t.Fatal("fallback output missing or had an incorrect pickcode", name, err)
+		}
+		if tc.episode == 2 {
+			link, err := url.Parse(strings.TrimSpace(string(body)))
+			ref, refErr := a.readSTRMReference("333554321/pick000000000002")
+			if err != nil || !strings.HasSuffix(link.Path, "/"+original) || refErr != nil || ref.Name != original || ref.File != "10002" {
+				t.Fatal("playback did not retain the exact cloud filename", link, ref, err, refErr)
+			}
 		}
 	}
 	monitoring = true
 	if n, err := a.executeSTRMLife(a.ctx, task, s); err != nil || n != 1 {
 		t.Fatal("monitoring did not resume after fallback full sync", n, err)
 	}
-	if body, err := os.ReadFile(filepath.Join(task.Target, "Show", "Season 1", "E03.strm")); err != nil || !strings.Contains(string(body), "/pick000000000003/") {
+	if body, err := os.ReadFile(filepath.Join(task.Target, "Show", "Season 1", strings.TrimSuffix(added, ".mkv")+".strm")); err != nil || !strings.Contains(string(body), "/pick000000000003/") {
 		t.Fatal("new life event after fallback full sync was missed", err)
 	}
 }
@@ -175,15 +199,18 @@ func TestSTRMLifeFullSyncBaselineUsesRequestStart(t *testing.T) {
 }
 
 func Test115FullSyncDoesNotSilentlySkipUnsupportedNames(t *testing.T) {
-	for _, kind := range []string{"file", "directory", "excluded-file", "excluded-directory", "unselected-file"} {
+	for _, kind := range []string{"file", "directory", "excluded-file", "excluded-directory", "unselected-file", "excluded-colon-file"} {
 		t.Run(kind, func(t *testing.T) {
 			a, s, _ := strm115Fixture(t)
 			task := Task{ID: "unsupported-name", Name: "名称检查", Kind: "strm", StorageID: s.ID, Source: "/", Target: t.TempDir(), Mode: strmUpdate, STRMSource: "life", MediaExtensions: "mkv", fullSyncGeneration: true}
 			if kind == "excluded-file" {
-				task.ExcludeFiles = "film:part.mkv"
+				task.ExcludeFiles = `film\part.mkv`
 			}
 			if kind == "excluded-directory" {
 				task.ExcludeDirs = "Season:1"
+			}
+			if kind == "excluded-colon-file" {
+				task.ExcludeFiles = "film:part.mkv"
 			}
 			if err := a.store.update(func(st *State) error { st.Tasks = []Task{task}; return nil }); err != nil {
 				t.Fatal(err)
@@ -193,12 +220,15 @@ func Test115FullSyncDoesNotSilentlySkipUnsupportedNames(t *testing.T) {
 					return `{"state":true,"data":{"list":[]}}`
 				}
 				if r.URL.Path == "/files" && r.URL.Query().Get("cid") == "0" {
-					row := `{"fid":"file","cid":"0","n":"film:part.mkv","pc":"pick1234567890","s":42}`
+					row := `{"fid":"file","cid":"0","n":"film\\part.mkv","pc":"pick1234567890","s":42}`
 					if strings.HasSuffix(kind, "directory") {
 						row = `{"cid":"20","pid":"0","n":"Season:1","pc":"folderpick12345"}`
 					}
 					if kind == "unselected-file" {
-						row = `{"fid":"file","cid":"0","n":"read:me.txt","pc":"pick1234567890","s":42}`
+						row = `{"fid":"file","cid":"0","n":"read\\me.txt","pc":"pick1234567890","s":42}`
+					}
+					if kind == "excluded-colon-file" {
+						row = `{"fid":"file","cid":"0","n":"film:part.mkv","pc":"pick1234567890","s":42}`
 					}
 					return `{"state":true,"cid":"0","offset":0,"count":1,"data":[` + row + `]}`
 				}
@@ -214,5 +244,68 @@ func Test115FullSyncDoesNotSilentlySkipUnsupportedNames(t *testing.T) {
 				t.Fatal("task filters should still exclude unwanted items", n, err)
 			}
 		})
+	}
+}
+
+func Test115FullSyncPreservesBothColonNames(t *testing.T) {
+	a, s, _ := strm115Fixture(t)
+	task := Task{ID: "colon-conflict", Kind: "strm", StorageID: s.ID, Source: "/", Target: t.TempDir(), Mode: strmUpdate, MediaExtensions: "mkv", fullSyncGeneration: true}
+	if err := a.store.update(func(st *State) error { st.Tasks = []Task{task}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	const wide = `{"fid":"wide","cid":"0","n":"film：cut.mkv","pc":"widepick123456","s":42}`
+	const ascii = `{"fid":"ascii","cid":"0","n":"film:cut.mkv","pc":"asciipick123456","s":42}`
+	items := []string{ascii, wide}
+	shareMock(t, func(r *http.Request) string {
+		if r.Method != "GET" || r.URL.Path != "/files" || r.URL.Query().Get("cid") != "0" {
+			t.Fatal("unexpected root scan request", r.Method, r.URL)
+		}
+		return fmt.Sprintf(`{"state":true,"cid":"0","count":%d,"offset":0,"data":[%s]}`, len(items), strings.Join(items, ","))
+	})
+	if runtime.GOOS == "windows" {
+		if n, err := a.executeTask(a.ctx, task, s); n != 0 || err == nil || !strings.Contains(err.Error(), "原样保存含英文冒号") {
+			t.Fatal("Windows must report its path limitation without rewriting a source name", n, err)
+		}
+		if entries, err := os.ReadDir(task.Target); err != nil || len(entries) != 0 {
+			t.Fatal("preflight wrote an output despite the unsupported path", entries, err)
+		}
+	}
+	task.ExcludeFiles = "film:cut.mkv"
+	if err := a.store.update(func(st *State) error { st.Tasks[0] = task; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := a.executeTask(a.ctx, task, s); n != 1 || err != nil {
+		t.Fatal("excluding the raw cloud name should leave one unambiguous source", n, err)
+	}
+	if n, err := a.executeTask(a.ctx, task, s); n != 0 || err != nil {
+		t.Fatal("unchanged full-width filename was rewritten", n, err)
+	}
+	wideOutput := filepath.Join(task.Target, "film：cut.strm")
+	if body, err := os.ReadFile(wideOutput); err != nil || !strings.Contains(string(body), "/widepick123456/film：cut.mkv") {
+		t.Fatal("full-width name or its playback address changed", err)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	task.ExcludeFiles = ""
+	if err := a.store.update(func(st *State) error { st.Tasks[0] = task; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := a.executeTask(a.ctx, task, s); n != 1 || err != nil {
+		t.Fatal("the ASCII colon file must be generated alongside the full-width name", n, err)
+	}
+	asciiOutput := filepath.Join(task.Target, "film:cut.strm")
+	if body, err := os.ReadFile(asciiOutput); err != nil || !strings.Contains(string(body), "/asciipick123456/film:cut.mkv") {
+		t.Fatal("ASCII colon name or its playback address changed", err)
+	}
+	if err := os.Remove(asciiOutput); err != nil {
+		t.Fatal(err)
+	}
+	items = []string{ascii}
+	if n, err := a.executeTask(a.ctx, task, s); n != 1 || err != nil {
+		t.Fatal("full sync must restore the ASCII colon file and keep the previous full-width output", n, err)
+	}
+	if body, err := os.ReadFile(wideOutput); err != nil || !strings.Contains(string(body), "/widepick123456/film：cut.mkv") {
+		t.Fatal("full-width output was removed or replaced", err)
 	}
 }

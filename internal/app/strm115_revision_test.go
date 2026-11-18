@@ -29,7 +29,7 @@ func strm115Fixture(t *testing.T) (*App, Storage, File) {
 }
 
 func Test115STRMCanonicalPathAndEscapedNames(t *testing.T) {
-	for _, name := range []string{"爱的迫降.S01E01.4K.24fps.SDR.H265.10bit.AAC.mkv", "movie with spaces #?%&+.mkv", "literal%2Fname.mkv", "movie.verylongextension"} {
+	for _, name := range []string{"爱的迫降.S01E01.4K.24fps.SDR.H265.10bit.AAC.mkv", "movie with spaces #?%&+.mkv", "literal%2Fname.mkv", "movie:scene.mkv", "movie.verylongextension"} {
 		t.Run(name, func(t *testing.T) {
 			a, s, f := strm115Fixture(t)
 			f.Name = name
@@ -51,6 +51,7 @@ func Test115STRMCanonicalPathAndEscapedNames(t *testing.T) {
 
 func Test115STRMNamedRouteRejectsLegacyAndUnregisteredPaths(t *testing.T) {
 	a, s, f := strm115Fixture(t)
+	f.Name = "剧集:第01集.mkv"
 	link, err := a.publicSTRMURL(s, f)
 	if err != nil {
 		t.Fatal(err)
@@ -96,6 +97,7 @@ func Test115STRMNamedRouteRejectsLegacyAndUnregisteredPaths(t *testing.T) {
 		prefix + "?/" + url.PathEscape(f.Name),
 		prefix + "?%2F" + url.PathEscape(f.Name),
 		prefix + "/wrong-name.mkv",
+		prefix + "/" + url.PathEscape("剧集：第01集.mkv"),
 		prefix + "/" + url.PathEscape(f.Name) + "/extra",
 		"/d/333554321/unregistered123/" + url.PathEscape(f.Name),
 		"/d/999999999/" + f.PickCode + "/" + url.PathEscape(f.Name),

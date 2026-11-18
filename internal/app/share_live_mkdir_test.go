@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,98 @@ import (
 	"testing"
 	"time"
 )
+
+func TestShareLiveMkdirManualCheckReportsSourceFailure(t *testing.T) {
+	for _, scenario := range []string{"expired-token", "known-id-expired", "cancelled-detail", "valid", "gateway", "cancelled", "changed-credentials"} {
+		t.Run(scenario, func(t *testing.T) {
+			a, _, link := liveTestSetup(t)
+			ctx, cancel := context.WithCancel(a.ctx)
+			t.Cleanup(cancel)
+			a.ctx = ctx
+			link.DirectoryID, link.Intent, link.Status = "", "mkdir:Saved", "failed"
+			if scenario == "known-id-expired" {
+				link.PendingDirectoryID = "created-dir"
+			}
+			link.LastSuccess = time.Now().Add(-time.Hour)
+			if err := a.store.update(func(st *State) error { st.ShareLiveLinks[0] = link; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			reads, writes := 0, 0
+			base := apiClient.Transport
+			t.Cleanup(func() { apiClient.Transport = base })
+			apiClient.Transport = casTransport(func(r *http.Request) (*http.Response, error) {
+				reads++
+				switch r.URL.Path {
+				case "/1/clouddrive/share/sharepage/token":
+					if scenario == "expired-token" || scenario == "known-id-expired" {
+						res := jsonHTTPResponse(`{"code":41006,"message":"private-upstream"}`)
+						res.StatusCode = http.StatusNotFound
+						return res, nil
+					}
+					if scenario == "gateway" {
+						res := jsonHTTPResponse(`{"code":500,"message":"private-upstream"}`)
+						res.StatusCode = http.StatusBadGateway
+						return res, nil
+					}
+					if scenario == "cancelled" {
+						cancel()
+						return nil, context.Canceled
+					}
+					return jsonHTTPResponse(`{"code":0,"data":{"stoken":"share-token"}}`), nil
+				case "/1/clouddrive/share/sharepage/detail":
+					if r.URL.Query().Get("pdir_fid") != "0" || r.URL.Query().Get("_page") != "1" {
+						t.Error("pending directory diagnosis traversed the share", r.URL.Path)
+					}
+					if scenario == "cancelled-detail" {
+						return jsonHTTPResponse(`{"code":41007,"message":"private-upstream"}`), nil
+					}
+					return jsonHTTPResponse(`{"code":0,"data":{"list":[{"fid":"source-root","file_name":"Original","dir":true}]}}`), nil
+				default:
+					writes++
+					t.Error("pending diagnosis reached an unrelated endpoint", r.Method, r.URL.Path)
+					return jsonHTTPResponse(`{"code":500}`), nil
+				}
+			})
+			if scenario == "changed-credentials" {
+				if err := a.store.update(func(st *State) error { st.Storages[0].Config["cookie"] = "changed"; return nil }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			h := a.Handler(t.TempDir())
+			cookie := setupTest(t, a, h)
+			w := request(t, h, http.MethodPost, "/api/share-live/"+link.ID+"/run", nil, cookie)
+			if scenario == "changed-credentials" {
+				if w.Code != http.StatusConflict || reads != 0 {
+					t.Fatal("pending check ignored credential change", w.Code, reads)
+				}
+				return
+			}
+			if w.Code != http.StatusAccepted {
+				t.Fatal("manual run was blocked before checking the share", w.Code, w.Body.String())
+			}
+			a.wg.Wait()
+			st := a.store.snapshotWithLogLimit(0)
+			current := st.ShareLiveLinks[0]
+			if current.Status != "failed" || writes != 0 || current.Intent != link.Intent || current.PendingDirectoryID != link.PendingDirectoryID || current.DirectoryID != "" ||
+				current.IncrementalCursor != link.IncrementalCursor || !current.LastSuccess.Equal(link.LastSuccess) || !current.NextRun.IsZero() {
+				t.Fatal("source diagnosis changed the pending receipt or baseline", current.Status, current.Message, writes)
+			}
+			want := "创建保存目录"
+			switch scenario {
+			case "expired-token", "known-id-expired", "cancelled-detail":
+				want = "夸克分享已失效或被取消"
+			case "gateway":
+				want = "分享状态核验未完成"
+			case "cancelled":
+				want = "已取消或连接中断"
+			}
+			if !strings.Contains(current.Message, want) || strings.Contains(current.Message, "private-upstream") || strings.Contains(current.Message, "share-token") ||
+				len(st.ShareTransfers) != 1 || st.ShareTransfers[0].Status != "failed" || st.ShareTransfers[0].Message != current.Message || reads == 0 || reads > 2 {
+				t.Fatal("pending run did not report the actual source failure", current.Message, reads, len(st.ShareTransfers))
+			}
+		})
+	}
+}
 
 func TestShareLiveMkdirWaitsForReceiptDirectory(t *testing.T) {
 	for _, scenario := range []string{"delayed", "wrong-id", "wrong-type"} {

@@ -361,7 +361,8 @@ func (a *App) startShareLive(key, source string) error {
 		a.shareLiveMu.Unlock()
 		return errors.New("活链记录已移除，请刷新活动链接列表")
 	}
-	if link.Intent != "" && !shareLiveTransferRecoverable(link) && !shareLiveDirectoryRecoverable(link) {
+	if link.Intent != "" && !shareLiveTransferRecoverable(link) && !shareLiveDirectoryRecoverable(link) &&
+		!(source == "manual" && shareLiveMkdirPending(link)) {
 		a.shareLiveMu.Unlock()
 		return shareLiveUnconfirmedError(link)
 	}
@@ -407,6 +408,23 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 		record.Time = time.Now()
 	}
 	s, err := a.shareLiveGuard(link)
+	sourceCheckOnly := record.Source == "manual" && shareLiveMkdirPending(link) && !shareLiveDirectoryRecoverable(link)
+	if err == nil && sourceCheckOnly {
+		provider, code, pass, parseErr := parseShareLink(link.Link, "")
+		if parseErr != nil || provider != s.Type {
+			err = errors.New("分享链接无效")
+		} else if err = a.waitAPI(ctx, s.ID); err == nil {
+			_, _, err = a.readShareSessionPages(ctx, &s, code, pass, "root", "", true)
+		}
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		if err == nil {
+			err = &storageRequestError{message: shareLiveUnconfirmedError(link).Error()}
+		} else {
+			err = &storageRequestError{message: "分享状态核验未完成：" + transferFailureReason(err), cause: err}
+		}
+	}
 	if err == nil && link.DirectoryID != "" {
 		err = a.verifyShareLiveDirectory(ctx, s, link)
 	}
@@ -532,8 +550,9 @@ func (a *App) executeShareLive(ctx context.Context, link shareLiveLink, record s
 	}
 	if err != nil {
 		record.Status, record.Message = "failed", "活链更新未完成："+transferFailureReason(err)
+		var unavailable *quarkShareUnavailable
 		for _, current := range a.store.snapshotWithLogLimit(0).ShareLiveLinks {
-			if current.ID != link.ID || current.Intent == "" {
+			if sourceCheckOnly || errors.As(err, &unavailable) || current.ID != link.ID || current.Intent == "" {
 				continue
 			}
 			if shareLiveDirectoryRecoverable(current) {
