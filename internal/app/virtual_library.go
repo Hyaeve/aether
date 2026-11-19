@@ -285,6 +285,15 @@ func (a *App) virtualLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 func virtualOutputRoot(root *os.Root, directory string) (*os.Root, error) {
+	return createOutputDirectory(root, directory, func(part string) error {
+		if !safeName(part) {
+			return errors.New("生成目录不安全")
+		}
+		return nil
+	})
+}
+
+func createOutputDirectory(root *os.Root, directory string, checkSegment func(string) error) (*os.Root, error) {
 	if directory == "." {
 		directory = ""
 	}
@@ -296,9 +305,9 @@ func virtualOutputRoot(root *os.Root, directory string) (*os.Root, error) {
 		if part == "" {
 			continue
 		}
-		if !safeName(part) {
+		if err := checkSegment(part); err != nil {
 			current.Close()
-			return nil, errors.New("生成目录不安全")
+			return nil, err
 		}
 		if err = current.Mkdir(part, 0755); err != nil && !os.IsExist(err) {
 			current.Close()

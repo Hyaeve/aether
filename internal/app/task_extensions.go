@@ -15,22 +15,25 @@ const taskAudioExtensions = "mp3;flac;wav;aac;m4a;ogg;wma;ape;alac;opus"
 
 var extensionToken = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
-func strm115FileNameValid(name string) bool {
+func valid115PathSegment(name string) bool {
 	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\\x00")
 }
 
-func strm115SourceNameValid(name string, directory bool) bool {
-	if directory {
-		return safeName(name)
+func taskSourceNameValid(t Task, s Storage, name string) bool {
+	if t.Kind == "strm" && s.Type == "115" {
+		return valid115PathSegment(name)
 	}
-	return strm115FileNameValid(name)
+	return safeName(name)
 }
 
-func taskSourceNameValid(t Task, s Storage, f File) bool {
-	if t.Kind == "strm" && s.Type == "115" {
-		return strm115SourceNameValid(f.Name, f.IsDir)
+func checkTaskSourceDirectoryName(t Task, s Storage, name string) error {
+	if !taskSourceNameValid(t, s, name) {
+		return errors.New("源目录名称无效，请重新选择")
 	}
-	return safeName(f.Name)
+	if t.Kind == "strm" && s.Type == "115" {
+		return checkSTRMOutputPath(name)
+	}
+	return nil
 }
 
 func taskOutputName(t Task, _ Storage, name, suffix string) string {

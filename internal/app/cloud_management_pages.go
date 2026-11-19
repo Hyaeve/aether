@@ -386,7 +386,7 @@ func (a *App) cloud115DirectoryTrail(ctx context.Context, s Storage, key string)
 	trail, seen := []searchCrumb{}, map[string]bool{}
 	for _, parent := range response.Path {
 		id := strings.Trim(string(parent.CID), `"`)
-		if id == "" || seen[id] || id != "0" && !safeName(parent.Name) {
+		if id == "" || seen[id] || id != "0" && !valid115PathSegment(parent.Name) {
 			return nil, errors.New("115目录路径无效")
 		}
 		seen[id] = true

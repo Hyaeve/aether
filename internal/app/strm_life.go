@@ -188,7 +188,7 @@ func (a *App) pullSTRMLife(ctx context.Context, s Storage, cursor strmLifeCursor
 			seen[event.ID] = true
 			switch event.Type {
 			case 1, 2, 5, 6, 14, 17, 18, 20, 22, 23, 24:
-				if event.FileID == "" || event.Parent == "" || !strm115SourceNameValid(event.Name, event.Directory) {
+				if event.FileID == "" || event.Parent == "" || !valid115PathSegment(event.Name) {
 					return nil, cursor, errors.New("115生活事件文件身份无效，未推进游标")
 				}
 				events = append(events, event)
@@ -230,7 +230,7 @@ func (a *App) strmLifeRelative(ctx context.Context, s Storage, task Task, parent
 		if node.ID != source {
 			continue
 		}
-		if !strm115FileNameValid(name) {
+		if !valid115PathSegment(name) {
 			return "", false, errors.New("生活事件相对路径无效")
 		}
 		parts := []string{}
@@ -277,8 +277,8 @@ func (a *App) executeSTRMLife(ctx context.Context, task Task, s Storage) (count 
 		return 0, err
 	}
 	if task.Source != "" && task.Source != "/" && task.Source != rootOf(s) {
-		if !safeName(task.SourceLabel) {
-			return 0, errors.New("请重新选择115源目录并确认名称")
+		if err := checkTaskSourceDirectoryName(task, s, task.SourceLabel); err != nil {
+			return 0, err
 		}
 		prefix = path.Join(prefix, task.SourceLabel)
 	}
@@ -377,7 +377,7 @@ func (a *App) executeSTRMLife(ctx context.Context, task Task, s Storage) (count 
 			return errors.New("生活事件目录展开超过安全范围，未推进游标")
 		}
 		scanned++
-		if !strm115SourceNameValid(f.Name, f.IsDir) || excluded(path.Dir(relative), task.ExcludeDirs) || excluded(f.Name, task.ExcludeFiles) || excludedType(f.Name, task.ExcludeTypes) {
+		if !valid115PathSegment(f.Name) || excluded(path.Dir(relative), task.ExcludeDirs) || excluded(f.Name, task.ExcludeFiles) || excludedType(f.Name, task.ExcludeTypes) {
 			return nil
 		}
 		if f.IsDir {

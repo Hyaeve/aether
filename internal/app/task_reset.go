@@ -24,8 +24,8 @@ func (a *App) taskOutputRoot(t Task, s Storage) (string, error) {
 		if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
 			name = path.Base(strings.TrimRight(t.Source, "/"))
 		}
-		if !safeName(name) {
-			return "", errors.New("源目录名称无效")
+		if err := checkTaskSourceDirectoryName(t, s, name); err != nil {
+			return "", err
 		}
 		rel = path.Join(rel, name)
 	}

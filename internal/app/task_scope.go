@@ -372,10 +372,13 @@ func (a *App) taskRunNodes(task Task, s Storage) ([]taskFileNode, error) {
 		if backupPathBased(s) {
 			label = path.Base(strings.TrimRight(task.Source, "/"))
 		}
-		if !safeName(label) {
-			return nil, errors.New("源目录名称无效，请重新选择")
+		if err := checkTaskSourceDirectoryName(task, s, label); err != nil {
+			return nil, err
 		}
 		rel = filepath.Join(rel, label)
+	}
+	if task.Kind == "strm" && s.Type == "115" {
+		return append(nodes, taskFileNode{storage: Storage{Type: "local", Config: map[string]string{"root": filepath.Join(base, filepath.FromSlash(rel))}}, id: "/"}), nil
 	}
 	return append(nodes, taskFileNode{storage: Storage{Type: "local", Config: map[string]string{"root": base}}, id: filepath.ToSlash(rel)}), nil
 }

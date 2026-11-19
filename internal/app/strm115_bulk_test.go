@@ -41,7 +41,11 @@ func strmBulkFixture(t *testing.T, n int, broken string) (*App, Storage, Task, *
 				if broken == "orphan" {
 					parent = "999999"
 				}
-				dirs = append(dirs, map[string]any{"fid": strconv.Itoa(i + 20), "pid": parent, "fn": fmt.Sprintf("Season%04d", i)})
+				name := fmt.Sprintf("Season%04d", i)
+				if broken == "colon-directory" {
+					name = []string{"Ben 10: 大战X超人 (2021)", "Ben 10：大战X超人 (2021)"}[i]
+				}
+				dirs = append(dirs, map[string]any{"fid": strconv.Itoa(i + 20), "pid": parent, "fn": name})
 			}
 			response = map[string]any{"state": true, "data": map[string]any{"list": dirs, "has_next_page": false}}
 		case "/files":
@@ -93,6 +97,49 @@ func strmBulkFixture(t *testing.T, n int, broken string) (*App, Storage, Task, *
 		return string(raw)
 	})
 	return a, s, task, &calls
+}
+
+func Test115STRMBulkPreservesColonDirectories(t *testing.T) {
+	a, s, task, _ := strmBulkFixture(t, 2, "colon-directory")
+	task.fullSyncGeneration = true
+	dirs := []string{"Ben 10: 大战X超人 (2021)", "Ben 10：大战X超人 (2021)"}
+	plan, err := a.strm115BulkPlan(a.ctx, s, task.Source, map[string]strm115Inventory{})
+	if err != nil || len(plan["10"]) != 2 || plan["10"][0].Name != dirs[0] || plan["10"][1].Name != dirs[1] {
+		t.Fatal("115 directory table lost the original directory names", plan, err)
+	}
+	if runtime.GOOS == "windows" {
+		if n, err := a.executeTask(a.ctx, task, s); n != 0 || err == nil || !strings.Contains(err.Error(), "原样保存含英文冒号") || !strings.Contains(err.Error(), dirs[0]) {
+			t.Fatal("Windows should report the output filesystem limitation for the directory", n, err)
+		}
+		if entries, err := os.ReadDir(task.Target); err != nil || len(entries) != 0 {
+			t.Fatal("preflight touched the generated tree despite the unsupported directory name", entries, err)
+		}
+		task.ExcludeDirs = dirs[0]
+		if err := a.store.update(func(st *State) error { st.Tasks[0] = task; return nil }); err != nil {
+			t.Fatal(err)
+		}
+		dirs = dirs[1:]
+	}
+	if n, err := a.executeTask(a.ctx, task, s); n != len(dirs) || err != nil {
+		t.Fatal("full sync did not generate the selected directories", n, err)
+	}
+	for _, dir := range dirs {
+		index := 0
+		if strings.Contains(dir, "：") {
+			index = 1
+		}
+		body, err := os.ReadFile(filepath.Join(task.Target, "Show", dir, "film.strm"))
+		if err != nil || !strings.Contains(string(body), fmt.Sprintf("/pick%012d/", index)) {
+			t.Fatal("generated directory name or playback identity changed", dir, err)
+		}
+	}
+	missing := filepath.Join(task.Target, "Show", dirs[0], "film.strm")
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := a.executeTask(a.ctx, task, s); n != 1 || err != nil {
+		t.Fatal("full sync could not reopen the manifest and repair the original directory", n, err)
+	}
 }
 
 func Test115STRMBulkSubtreeReducesDirectoryRequests(t *testing.T) {

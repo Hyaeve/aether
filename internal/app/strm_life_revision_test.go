@@ -447,7 +447,14 @@ func TestSTRMLifeFolderDeletionSupersedesChildChanges(t *testing.T) {
 	a, s, _ := strm115Fixture(t)
 	task := lifeRevisionTask(t, a, s)
 	root := filepath.Join(task.Target, "Show")
-	writeTest(t, filepath.Join(root, "Season", "film.strm"), "old")
+	season := "Season: 1"
+	if runtime.GOOS == "windows" {
+		season = "Season：1"
+	}
+	output := filepath.Join(root, season, "film.strm")
+	companion := filepath.Join(root, season, "film.nfo")
+	writeTest(t, output, "old")
+	writeTest(t, companion, "<movie/>")
 	h, err := a.beginSTRMSync(task, s, task.Target, "Show")
 	if err != nil {
 		t.Fatal(err)
@@ -455,14 +462,14 @@ func TestSTRMLifeFolderDeletionSupersedesChildChanges(t *testing.T) {
 	if err := h.ensure(a.ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	digest, _, err := strmOutputDigest(h.root, "Season/film.strm")
+	digest, _, err := strmOutputDigest(h.root, season+"/film.strm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.manifest.Files["Season/film.strm"] = digest
+	h.manifest.Files[season+"/film.strm"] = digest
 	h.manifest.Sources = map[string]strmLifeSource{
-		"season": {Relative: "Season", Parent: "10", Name: "Season", Directory: true},
-		"film":   {Relative: "Season/film.mkv", Parent: "season", Name: "film.mkv"},
+		"season": {Relative: season, Parent: "10", Name: season, Directory: true},
+		"film":   {Relative: season + "/film.mkv", Parent: "season", Name: "film.mkv"},
 	}
 	if err := h.save(); err != nil {
 		t.Fatal(err)
@@ -472,14 +479,14 @@ func TestSTRMLifeFolderDeletionSupersedesChildChanges(t *testing.T) {
 	shareMock(t, func(r *http.Request) string {
 		switch r.URL.Path {
 		case "/behavior/detail":
-			return `{"state":true,"data":{"count":3,"list":[{"id":"303","type":22,"file_id":"season","parent_id":"10","file_name":"Season","file_category":0,"update_time":` + timeNowUnix() + `},{"id":"302","type":22,"file_id":"film","parent_id":"season","file_name":"film.mkv","update_time":` + timeNowUnix() + `},{"id":"301","type":22,"file_id":"unrelated","parent_id":"missing-other-root","file_name":"other.mkv","update_time":` + timeNowUnix() + `}]}}`
+			return `{"state":true,"data":{"count":3,"list":[{"id":"303","type":22,"file_id":"season","parent_id":"10","file_name":"` + season + `","file_category":0,"update_time":` + timeNowUnix() + `},{"id":"302","type":22,"file_id":"film","parent_id":"season","file_name":"film.mkv","update_time":` + timeNowUnix() + `},{"id":"301","type":22,"file_id":"unrelated","parent_id":"missing-other-root","file_name":"other.mkv","update_time":` + timeNowUnix() + `}]}}`
 		case "/files":
 			calls++
 			if r.URL.Query().Get("cid") != "10" {
 				t.Fatal("read deleted or unrelated directory", r.URL.RawQuery)
 			}
 			if stillPresent {
-				return `{"state":true,"cid":"10","count":1,"path":[{"cid":"0","name":"根目录"},{"cid":"10","name":"Show"}],"data":[{"cid":"season","pid":"10","n":"Season"}]}`
+				return `{"state":true,"cid":"10","count":1,"path":[{"cid":"0","name":"根目录"},{"cid":"10","name":"Show"}],"data":[{"cid":"season","pid":"10","n":"` + season + `"}]}`
 			}
 			return `{"state":true,"cid":"10","count":0,"path":[{"cid":"0","name":"根目录"},{"cid":"10","name":"Show"}],"data":[]}`
 		}
@@ -489,15 +496,18 @@ func TestSTRMLifeFolderDeletionSupersedesChildChanges(t *testing.T) {
 	if _, err := a.executeSTRMLife(a.ctx, task, s); err == nil {
 		t.Fatal("stale deletion event removed a live directory")
 	}
-	if _, err := os.Stat(filepath.Join(root, "Season", "film.strm")); err != nil {
+	if _, err := os.Stat(output); err != nil {
 		t.Fatal("live source output removed", err)
 	}
 	stillPresent, calls = false, 0
 	if _, err := a.executeSTRMLife(a.ctx, task, s); err != nil || calls != 1 {
 		t.Fatal("folder deletion blocked by child/foreign event", calls, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "Season", "film.strm")); !os.IsNotExist(err) {
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatal("folder deletion did not remove owned output", err)
+	}
+	if _, err := os.Stat(companion); !os.IsNotExist(err) {
+		t.Fatal("folder deletion did not remove the matching companion", err)
 	}
 }
 

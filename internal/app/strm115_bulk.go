@@ -38,7 +38,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string, che
 			return nil, errTaskProgressLimit
 		}
 		for _, f := range files {
-			if f.ID == "" || f.ID == root || !strm115SourceNameValid(f.Name, f.IsDir) {
+			if f.ID == "" || f.ID == root || !valid115PathSegment(f.Name) {
 				return nil, errors.New("115根目录条目身份无效")
 			}
 			if !f.IsDir {
@@ -121,11 +121,11 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string, che
 			if id == root {
 				continue
 			}
-			if id == "" || parent == "" || id == parent || !safeName(d.Name) {
+			if id == "" || parent == "" || id == parent || !valid115PathSegment(d.Name) {
 				reason := "目录ID或父目录ID缺失"
 				if id != "" && id == parent {
 					reason = "目录与父目录ID相同"
-				} else if !safeName(d.Name) {
+				} else if !valid115PathSegment(d.Name) {
 					reason = "目录名称不适用于本地生成路径"
 				}
 				return nil, fmt.Errorf("115目录表条目无效（第%d页，目录ID %.32q，父目录ID %.32q，名称 %.160q）：%s", page, id, parent, d.Name, reason)
@@ -205,7 +205,7 @@ func (a *App) strm115BulkPlan(ctx context.Context, s Storage, source string, che
 			}
 			_, known := plan[parent]
 			_, directoryID := dirs[f.FileID]
-			if f.IsDirectory || f.FileID == "" || f.FileID == root || directoryID || seen[f.FileID] || !known || !strm115FileNameValid(f.Name) || !pickcodePath.MatchString(f.PickCode) {
+			if f.IsDirectory || f.FileID == "" || f.FileID == root || directoryID || seen[f.FileID] || !known || !valid115PathSegment(f.Name) || !pickcodePath.MatchString(f.PickCode) {
 				return nil, errors.New("115递归文件清单条目重复或归属不明")
 			}
 			seen[f.FileID] = true

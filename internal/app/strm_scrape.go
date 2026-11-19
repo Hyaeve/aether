@@ -133,13 +133,9 @@ func (a *App) scrapeRoot(taskID string) (string, error) {
 	}
 	for _, t := range st.Tasks {
 		if t.ID == taskID && (t.Kind == "strm" || t.Kind == "cas" || t.Kind == "ed2k") && !t.ScrapeExcluded {
-			base, rel, err := a.outputLocation(t.Target)
-			if err != nil {
-				return "", err
-			}
+			var s Storage
 			if t.Kind == "strm" && t.Source != "" && t.Source != "/" {
-				var s Storage
-				for _, pool := range a.store.snapshotWithLogLimit(0).Storages {
+				for _, pool := range st.Storages {
 					if pool.ID == t.StorageID {
 						s = pool
 						break
@@ -148,18 +144,8 @@ func (a *App) scrapeRoot(taskID string) (string, error) {
 				if s.ID == "" {
 					return "", errors.New("任务源存储不存在")
 				}
-				if t.Source != rootOf(s) {
-					name := t.SourceLabel
-					if s.Type == "local" || s.Type == "openlist" || s.Type == "webdav" {
-						name = path.Base(strings.TrimRight(t.Source, "/"))
-					}
-					if !safeName(name) {
-						return "", errors.New("源目录名称无效，请重新选择任务源目录")
-					}
-					rel = path.Join(rel, name)
-				}
 			}
-			return filepath.Abs(filepath.Join(base, filepath.FromSlash(rel)))
+			return a.taskOutputRoot(t, s)
 		}
 	}
 	return "", errors.New("请选择 STRM 任务")

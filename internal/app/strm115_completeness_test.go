@@ -44,11 +44,14 @@ func TestSTRMLifeNamedTypesAndFieldAliases(t *testing.T) {
 func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.T) {
 	original := "大卫·艾登堡：大猩猩的故事.A.Gorilla.Story:.Told.by.David.Attenborough.2026.4K.NF.WEB-DL.DV.H265.DDP.5.1-HiveWeb.mkv"
 	added := "E:03.mkv"
+	sourceLabel, firstSeason := "Ben 10: 大电影（系列）", "Ben 10: 英雄惜英雄 (2021)"
 	if runtime.GOOS == "windows" {
 		original, added = "E02.mkv", "E03.mkv"
+		sourceLabel, firstSeason = "Ben 10：大电影（系列）", "Ben 10：英雄惜英雄 (2021)"
 	}
 	localName := strings.TrimSuffix(original, ".mkv") + ".strm"
 	a, s, task, _ := strmBulkFixture(t, 2, "")
+	task.SourceLabel = sourceLabel
 	task.STRMSource, task.fullSyncGeneration, task.STRMLifeSince = "life", true, time.Now().Add(-time.Hour)
 	if err := a.store.update(func(st *State) error { st.Tasks[0] = task; return nil }); err != nil {
 		t.Fatal(err)
@@ -75,12 +78,12 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 			t.Error("invalid directory table was accepted as a complete bulk snapshot")
 		}
 		cid := r.URL.Query().Get("cid")
-		trail := []map[string]string{{"cid": "0", "name": "根目录"}, {"cid": "10", "name": "Show"}}
+		trail := []map[string]string{{"cid": "0", "name": "根目录"}, {"cid": "10", "name": sourceLabel}}
 		list := []map[string]any{}
 		if cid == "10" {
-			list = []map[string]any{{"cid": "20", "pid": "10", "n": "Season 1"}, {"cid": "21", "pid": "10", "n": "Season 2"}}
+			list = []map[string]any{{"cid": "20", "pid": "10", "n": firstSeason}, {"cid": "21", "pid": "10", "n": "Season 2"}}
 		} else if cid == "20" || cid == "21" {
-			season := "Season 1"
+			season := firstSeason
 			numbers := []int{1, 2}
 			if monitoring {
 				numbers = append(numbers, 3)
@@ -121,7 +124,22 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 	if n, err := a.executeTask(a.ctx, task, s); err != nil || n != 3 {
 		t.Fatal("fallback full sync did not generate all files", n, err)
 	}
-	missing := filepath.Join(task.Target, "Show", "Season 1", localName)
+	expectedRoot := filepath.Join(task.Target, sourceLabel)
+	if root, err := a.taskOutputRoot(task, s); err != nil || root != expectedRoot {
+		t.Fatal("reset lost the selected output directory name", root, err)
+	}
+	if root, err := a.scrapeRoot(task.ID); err != nil || root != expectedRoot {
+		t.Fatal("scrape lost the selected output directory name", root, err)
+	}
+	nodes, err := a.taskRunNodes(task, s)
+	if err != nil || len(nodes) != 2 {
+		t.Fatal("task protection lost the selected output directory name", err)
+	}
+	scope, err := taskLocalPath(nodes[1].storage, nodes[1].id)
+	if err != nil || !strings.EqualFold(filepath.Base(scope), sourceLabel) {
+		t.Fatal("task protection could not resolve the output directory", scope, err)
+	}
+	missing := filepath.Join(expectedRoot, firstSeason, localName)
 	if err := os.Remove(missing); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +147,11 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 		t.Fatal("fallback full sync did not repair its missing tail output", n, err)
 	}
 	for _, tc := range []struct{ season, episode int }{{1, 1}, {1, 2}, {2, 21}} {
-		name := filepath.Join(task.Target, "Show", fmt.Sprintf("Season %d", tc.season), fmt.Sprintf("E%02d.strm", tc.episode))
+		season := "Season 2"
+		if tc.season == 1 {
+			season = firstSeason
+		}
+		name := filepath.Join(expectedRoot, season, fmt.Sprintf("E%02d.strm", tc.episode))
 		if tc.episode == 2 {
 			name = missing
 		}
@@ -149,7 +171,7 @@ func Test115LifeFullSyncFallbackRepairsOutputsAndContinuesMonitoring(t *testing.
 	if n, err := a.executeSTRMLife(a.ctx, task, s); err != nil || n != 1 {
 		t.Fatal("monitoring did not resume after fallback full sync", n, err)
 	}
-	if body, err := os.ReadFile(filepath.Join(task.Target, "Show", "Season 1", strings.TrimSuffix(added, ".mkv")+".strm")); err != nil || !strings.Contains(string(body), "/pick000000000003/") {
+	if body, err := os.ReadFile(filepath.Join(expectedRoot, firstSeason, strings.TrimSuffix(added, ".mkv")+".strm")); err != nil || !strings.Contains(string(body), "/pick000000000003/") {
 		t.Fatal("new life event after fallback full sync was missed", err)
 	}
 }
@@ -207,7 +229,7 @@ func Test115FullSyncDoesNotSilentlySkipUnsupportedNames(t *testing.T) {
 				task.ExcludeFiles = `film\part.mkv`
 			}
 			if kind == "excluded-directory" {
-				task.ExcludeDirs = "Season:1"
+				task.ExcludeDirs = `Season\1`
 			}
 			if kind == "excluded-colon-file" {
 				task.ExcludeFiles = "film:part.mkv"
@@ -222,7 +244,7 @@ func Test115FullSyncDoesNotSilentlySkipUnsupportedNames(t *testing.T) {
 				if r.URL.Path == "/files" && r.URL.Query().Get("cid") == "0" {
 					row := `{"fid":"file","cid":"0","n":"film\\part.mkv","pc":"pick1234567890","s":42}`
 					if strings.HasSuffix(kind, "directory") {
-						row = `{"cid":"20","pid":"0","n":"Season:1","pc":"folderpick12345"}`
+						row = `{"cid":"20","pid":"0","n":"Season\\1","pc":"folderpick12345"}`
 					}
 					if kind == "unselected-file" {
 						row = `{"fid":"file","cid":"0","n":"read\\me.txt","pc":"pick1234567890","s":42}`

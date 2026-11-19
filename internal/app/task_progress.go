@@ -15,7 +15,7 @@ var errTaskProgressLimit = errors.New("目录过大，继续执行并显示实�
 // Report an unsupported selected name instead of silently claiming a complete
 // 115 scan. Unselected files and explicitly excluded directories remain ignored.
 func strm115SourceNameError(t Task, s Storage, f File, relative string) error {
-	if s.Type != "115" || t.Kind != "strm" || taskSourceNameValid(t, s, f) {
+	if s.Type != "115" || t.Kind != "strm" || taskSourceNameValid(t, s, f.Name) {
 		return nil
 	}
 	if f.IsDir {
@@ -95,7 +95,7 @@ func (a *App) scanTaskProgress(ctx context.Context, t Task, s Storage, sourceRel
 			if err := strm115SourceNameError(t, s, f, path.Join(rel, f.Name)); err != nil {
 				return err
 			}
-			if !taskSourceNameValid(t, s, f) {
+			if !taskSourceNameValid(t, s, f.Name) {
 				continue
 			}
 			child := path.Join(rel, f.Name)

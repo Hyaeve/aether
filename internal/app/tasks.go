@@ -424,8 +424,8 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 		if s.Type == "local" || s.Type == "webdav" || s.Type == "openlist" {
 			sourceRel = path.Base(strings.TrimRight(t.Source, "/"))
 		}
-		if !safeName(sourceRel) {
-			return 0, errors.New("源目录名称缺失或无效，请重新选择源目录")
+		if err := checkTaskSourceDirectoryName(t, s, sourceRel); err != nil {
+			return 0, err
 		}
 	}
 	sync, err := a.beginSTRMSync(t, s, outputDir, path.Join(target, sourceRel))
@@ -558,7 +558,7 @@ func (a *App) executeTask(ctx context.Context, t Task, s Storage) (count int, ru
 			if err := strm115SourceNameError(t, s, f, path.Join(rel, f.Name)); err != nil {
 				return err
 			}
-			if !taskSourceNameValid(t, s, f) {
+			if !taskSourceNameValid(t, s, f.Name) {
 				continue
 			}
 			child := path.Join(rel, f.Name)

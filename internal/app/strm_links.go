@@ -64,7 +64,7 @@ func (a *App) publicSTRMURL(s Storage, f File) (string, error) {
 	config := a.currentSTRMSettings()
 	base := strings.TrimRight(config.Address, "/")
 	if s.Type == "115" {
-		if !strm115FileNameValid(f.Name) {
+		if !valid115PathSegment(f.Name) {
 			return "", errors.New("文件名称无效")
 		}
 		a.store.mu.RLock()
@@ -164,7 +164,7 @@ func (a *App) playSTRMReference(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		if name := r.PathValue("name"); name != "" && (!strm115FileNameValid(name) || name != ref.Name) {
+		if name := r.PathValue("name"); name != "" && (!valid115PathSegment(name) || name != ref.Name) {
 			http.NotFound(w, r)
 			return
 		}
